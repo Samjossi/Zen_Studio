@@ -20,9 +20,15 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("Zen Studio")
         self.resize(1200, 800)
 
+        # 中栏垂直拆分：上半部分 + 中栏下
+        middle_splitter = QSplitter(Qt.Orientation.Vertical)
+        middle_splitter.addWidget(make_panel("中栏"))
+        middle_splitter.addWidget(make_panel("中栏下"))
+        middle_splitter.setSizes([550, 250])
+
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.addWidget(make_panel("左栏"))
-        splitter.addWidget(make_panel("中栏"))
+        splitter.addWidget(middle_splitter)
         splitter.addWidget(make_panel("右栏"))
         splitter.setSizes([250, 700, 250])
 
