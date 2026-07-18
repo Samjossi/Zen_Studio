@@ -1,6 +1,10 @@
 """主窗口：三栏式布局。"""
+from pathlib import Path
+
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QLabel, QMainWindow, QSplitter, QVBoxLayout, QWidget
+
+from gui.panels import FileExplorer
 
 
 def make_panel(title: str) -> QWidget:
@@ -29,7 +33,14 @@ class MainWindow(QMainWindow):
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.addWidget(make_panel("左栏"))
         splitter.addWidget(middle_splitter)
-        splitter.addWidget(make_panel("右栏"))
+
+        # 右栏：文件树（根目录为项目根）
+        project_root = str(Path(__file__).resolve().parent.parent)
+        self.file_explorer = FileExplorer(project_root)
+        # 编辑器未就绪前，临时以打印验证 file_opened 信号
+        self.file_explorer.file_opened.connect(lambda p: print(f"[file_opened] {p}"))
+        splitter.addWidget(self.file_explorer)
+
         splitter.setSizes([250, 700, 250])
 
         self.setCentralWidget(splitter)
