@@ -70,7 +70,7 @@
 
 ## 5. 文件查看面板（中栏上）
 
-`ViewerPanel`：标题行（路径 + 状态提示）+ `CodeViewer(QPlainTextEdit)`。**AI-first 定位：永久只读**（代码修改一律经 AI agent 落盘；`setReadOnly` 技术上可逆，不锁死）。选型依据：[`work options/2026-0719-0205_中栏代码显示与语法高亮选型报告.md`](../work%20options/2026-0719-0205_中栏代码显示与语法高亮选型报告.md)。
+`ViewerPanel`：标题行（路径 + 状态提示）+ `CodeViewer(QPlainTextEdit)`。**AI-first 定位：永久只读**（代码修改一律经 AI agent 落盘；`setReadOnly` 技术上可逆，不锁死）。选型依据：[`文档/选型记录/2026-0719-0205_中栏代码显示与语法高亮选型报告.md`](../文档/选型记录/2026-0719-0205_中栏代码显示与语法高亮选型报告.md)。
 
 | 组件 | 说明 |
 |:---|:---|
