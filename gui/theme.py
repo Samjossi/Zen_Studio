@@ -16,7 +16,7 @@ SETTINGS_FILE = CONFIG_DIR / "settings.json"
 THEMES_DIR = CONFIG_DIR / "themes"
 
 DEFAULT_SETTINGS = {
-    "theme": "dark",
+    "theme": "light",
     "font_family": "Noto Sans CJK SC",
     "font_size": 10,
 }
