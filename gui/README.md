@@ -83,7 +83,7 @@
 
 ## 6. 终端面板（中栏下）
 
-`TerminalPanel`：标题行（shell 名 + 状态 + 重开按钮）+ `TerminalWidget` 自绘终端。**真 PTY 终端**（ANSI 颜色/交互程序/`kimi login` 全可用）。AI-first 语境下为**用户终端**（agent 命令镜像待 ACP terminal RPC，备案）。OOP 五层单向依赖（详见 [`work plans/2026-0719-0412_中栏下终端面板实施计划.md`](../work%20plans/2026-0719-0412_中栏下终端面板实施计划.md) §2）：
+`TerminalPanel`：标题行（shell 名 + 状态 + 重开按钮）+ `TerminalWidget` 自绘终端。**真 PTY 终端**（ANSI 颜色/交互程序/`kimi login` 全可用）。AI-first 语境下为**用户终端**（agent 命令镜像待 ACP terminal RPC，备案）。OOP 五层单向依赖（详见 [`文档/修改记录/2026-0719-0412_中栏下终端面板实施计划.md`](../文档/修改记录/2026-0719-0412_中栏下终端面板实施计划.md) §2）：
 
 | 层 | 类 | 说明 |
 |:---|:---|:---|
