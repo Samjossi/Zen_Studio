@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
 )
 
 from gui.panels import FileExplorer
+from gui.panels.chat import ChatPanel
 from gui.theme import apply_theme, load_settings, save_theme
 
 
@@ -39,7 +40,9 @@ class MainWindow(QMainWindow):
         middle_splitter.setSizes([550, 250])
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
-        splitter.addWidget(make_panel("左栏"))
+        # 左栏：AI 聊天面板
+        self.chat_panel = ChatPanel()
+        splitter.addWidget(self.chat_panel)
         splitter.addWidget(middle_splitter)
 
         # 右栏：文件树（根目录为项目根）
@@ -49,7 +52,7 @@ class MainWindow(QMainWindow):
         self.file_explorer.file_opened.connect(lambda p: print(f"[file_opened] {p}"))
         splitter.addWidget(self.file_explorer)
 
-        splitter.setSizes([250, 700, 250])
+        splitter.setSizes([320, 630, 250])
 
         self.setCentralWidget(splitter)
 
