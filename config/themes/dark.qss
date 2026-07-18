@@ -1,0 +1,74 @@
+/* Zen Studio 暗色主题
+ * 配色来源：work plans/2026-0718-1112_PyGPT主页面样式配色参考说明.md 第 2.1 节
+ */
+
+QWidget {
+    background-color: #232629;
+    color: #ffffff;
+    selection-background-color: #0765d4;
+    selection-color: #ffffff;
+}
+
+QMainWindow::separator {
+    background-color: #31363b;
+    width: 2px;
+    height: 2px;
+}
+
+/* 输入与文本区：1px 细实线直角边框 */
+QLineEdit,
+QTextEdit,
+QPlainTextEdit {
+    background-color: #31363b;
+    border: 1px solid #5c5c5c;
+}
+
+/* 树/列表：行高紧凑、悬停微亮、蓝底白字选中 */
+QTreeView,
+QListView {
+    background-color: #232629;
+    border: 1px solid #5c5c5c;
+}
+
+QTreeView::item,
+QListView::item {
+    padding: 4px;
+    min-height: 20px;
+}
+
+QTreeView::item:hover:!selected,
+QListView::item:hover:!selected {
+    background-color: rgba(255, 255, 255, 5);
+}
+
+QTreeView::item:selected,
+QListView::item:selected {
+    background-color: #0765d4;
+    color: #ffffff;
+}
+
+/* 菜单与按钮 */
+QMenuBar,
+QMenu {
+    background-color: #31363b;
+}
+
+QMenuBar::item:selected,
+QMenu::item:selected {
+    background-color: #0765d4;
+}
+
+QPushButton {
+    background-color: #31363b;
+    border: 1px solid #5c5c5c;
+    padding: 4px 12px;
+}
+
+QPushButton:hover {
+    background-color: #4f5b62;
+}
+
+/* 状态栏 */
+QStatusBar {
+    background-color: #31363b;
+}
