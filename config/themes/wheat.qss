@@ -8,7 +8,7 @@
  * 不触发子控件背景接管——切勿改用 QWidget 全局选择器） */
 QMainWindow,
 QDialog {
-    background-color: #faf7f2;
+    background-color: #ffffff;
     color: #463f33;
     selection-background-color: #c26a1a;
     selection-color: #ffffff;
@@ -16,8 +16,9 @@ QDialog {
 
 /* ---- 面板分区与标题行（objectName 接线见各面板代码） ---- */
 
+/* 三栏统一纯白，主题性格由文字/强调色/输入色块承载 */
 #SidePanel {
-    background-color: #f7f4ef;
+    background-color: #ffffff;
 }
 
 #PanelTitle {
@@ -41,7 +42,7 @@ QTextEdit {
 }
 
 QPlainTextEdit {
-    background-color: #faf7f2;
+    background-color: #ffffff;
     border: none;
     padding: 4px;
 }
@@ -52,13 +53,14 @@ QPlainTextEdit:focus {
     border: 1px solid rgba(194, 106, 26, 0.45);
 }
 
+/* 侧栏纯白底上的输入控件：浅主题色块（防白上白隐形） */
 #SidePanel QTextEdit,
 #SidePanel QComboBox {
-    background-color: #ffffff;
+    background-color: #f2ede3;
 }
 
 #SidePanel QComboBox:hover {
-    background-color: #f5f0e6;
+    background-color: #eae3d5;
 }
 
 /* 聊天输出区：透明融入侧栏（双层 ID 压过 #SidePanel QTextEdit 规则） */
