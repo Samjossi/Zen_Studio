@@ -2,17 +2,17 @@
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QComboBox, QHBoxLayout, QLabel, QWidget
 
-from llm import MODELS, kimi_available, label_for, list_kimi_models
+from llm import kimi_available, list_kimi_models
 
 
 class ModelBar(QWidget):
     """输入区顶行：模型（后端）+ 版本双下拉，版本列表按后端联动刷新。
 
-    kimi CLI 不可用（未安装/未登录）时对应项禁用；OpenCode/Kilo Code 等
-    后端接入后在此扩展（见 KimiCLI 接入计划第 8 节备案）。
+    本期统一为本机 agent CLI 后端（Kimi CLI，不可用时项禁用）；
+    OpenCode/Kilo Code 等后端接入后恢复多项（见 1455 计划第 8 节备案）。
     """
 
-    #: 后端/版本切换（携带 registry 后端名 + 版本载荷：ModelVersion 或模型别名 str）
+    #: 后端/版本切换（携带 registry 后端名 + 版本载荷：模型别名 str）
     selection_changed = Signal(str, object)
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -20,15 +20,14 @@ class ModelBar(QWidget):
         self._updating = False  # 联动刷新时抑制信号
 
         self._model_combo = QComboBox(self)
-        self._model_combo.addItem("DeepSeek API", "deepseek")
         if kimi_available():
             self._model_combo.addItem("Kimi CLI", "kimi-cli")
         else:
             self._model_combo.addItem("Kimi CLI（未检测到）", "kimi-cli")
-            self._model_combo.model().item(1).setEnabled(False)
+            self._model_combo.model().item(0).setEnabled(False)
 
         self._version_combo = QComboBox(self)
-        self._refresh_versions("deepseek")
+        self._refresh_versions("kimi-cli")
 
         layout = QHBoxLayout(self)
         layout.addWidget(QLabel("模型", self))
@@ -46,10 +45,7 @@ class ModelBar(QWidget):
     def _refresh_versions(self, backend: str) -> None:
         self._updating = True
         self._version_combo.clear()
-        if backend == "deepseek":
-            for version in MODELS:
-                self._version_combo.addItem(label_for(version), version)
-        else:
+        if backend == "kimi-cli":
             for alias in list_kimi_models():
                 self._version_combo.addItem(alias, alias)
         self._updating = False

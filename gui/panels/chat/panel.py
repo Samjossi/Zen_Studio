@@ -2,7 +2,7 @@
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QSplitter, QVBoxLayout, QWidget
 
-from llm import Chunk, DeepSeekLLM, KimiCliLLM, Message, ModelVersion, get_llm
+from llm import Chunk, KimiCliLLM, Message, get_llm
 from gui.panels.chat.input import ChatInput
 from gui.panels.chat.model_bar import ModelBar
 from gui.panels.chat.output import ChatOutput
@@ -21,7 +21,7 @@ class ChatPanel(QWidget):
         self._worker: ChatWorker | None = None
         self._stream_buffer = ""
         self._seen_reasoning = False
-        self._llm_name = "deepseek"  # 当前后端（registry 名）
+        self._llm_name = "kimi-cli"  # 当前后端（registry 名，本期唯一）
 
         self.output = ChatOutput(self)
         self.input = ChatInput(self)
@@ -53,15 +53,13 @@ class ChatPanel(QWidget):
     def _on_selection_changed(self, backend: str, version: object) -> None:
         """切换后端/版本：写 provider 单例状态，下次请求生效。
 
-        上下文不迁移（DeepSeek 历史与 kimi 会话各自独立），切后端时输出提示行。
+        上下文不迁移（各 CLI 会话各自独立），切后端时输出提示行。
         """
         if backend != self._llm_name:
             self.output.append_message("系统", f"已切换到 {backend} 后端，开始新会话")
         self._llm_name = backend
         llm = get_llm(backend)
-        if isinstance(llm, DeepSeekLLM) and isinstance(version, ModelVersion):
-            llm.set_version(version)
-        elif isinstance(llm, KimiCliLLM) and isinstance(version, str):
+        if isinstance(llm, KimiCliLLM) and isinstance(version, str):
             llm.set_model(version)
 
     # ------------------------------------------------------------------
@@ -70,6 +68,11 @@ class ChatPanel(QWidget):
     def _on_send(self, text: str) -> None:
         if self._worker is not None and self._worker.isRunning():
             return  # 上一次未结束，忽略（输入框此时已禁用）
+        try:
+            llm = get_llm(self._llm_name)
+        except KeyError:
+            self.output.append_message("系统", f"后端不可用：{self._llm_name}（未检测到本机 agent CLI）")
+            return
         self.input.clear()
         self._set_busy(True)
 
@@ -82,7 +85,7 @@ class ChatPanel(QWidget):
         messages: list[Message] = [{"role": "system", "content": SYSTEM_PROMPT}]
         messages.extend(self._history)
 
-        self._worker = ChatWorker(get_llm(self._llm_name), messages, self)
+        self._worker = ChatWorker(llm, messages, self)
         self._worker.chunk_received.connect(self._on_chunk)
         self._worker.finished_with_error.connect(self._on_finished)
         self._worker.start()

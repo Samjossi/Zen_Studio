@@ -21,7 +21,7 @@
 | [`panels/file_explorer.py`](panels/file_explorer.py) | 文件树面板（移植自 PyGPT explorer 裁剪版） |
 | [`panels/chat/`](panels/chat/) | 聊天面板子包（左栏）：`panel.py` 装配 / `output.py` 输出区 / `input.py` 输入框 / `model_bar.py` 模型版本行 / `worker.py` 流式线程 |
 
-> LLM 调用层为后端逻辑，位于项目根 [`llm/`](../llm/)（与 `gui/` 平级）：`base.py` Protocol / `registry.py` 注册表 / `providers/deepseek.py` DeepSeek 直连。前端经 `from llm import get_llm` 消费。
+> LLM 调用层为后端逻辑，位于项目根 [`llm/`](../llm/)（与 `gui/` 平级）：`base.py` Protocol / `registry.py` 注册表 / `providers/kimi_cli.py` 本机 Kimi Code CLI 后端。前端经 `from llm import get_llm` 消费。
 
 ## 3. 布局图
 
@@ -47,25 +47,23 @@
 
 | 栏位 | 初始尺寸 | 当前内容 |
 |:---|:---:|:---|
-| 左栏 | 320 px | **AI 聊天面板 `ChatPanel`**（上输出下输入，DeepSeek 流式） |
+| 左栏 | 320 px | **AI 聊天面板 `ChatPanel`**（上输出下输入，本机 Kimi Code CLI） |
 | 中栏（上） | 550 px（高） | 占位面板 |
 | 中栏下 | 250 px（高） | 占位面板 |
 | 右栏 | 250 px | **文件树 `FileExplorer`**（根目录为项目根，双击文件发射 `file_opened` 信号） |
 
 ## 4. 聊天面板（左栏）
 
-`ChatPanel` 上输出（QTextBrowser）下输入（QTextEdit）垂直分栏，Enter 发送 / Shift+Enter 换行；流式调用放 `ChatWorker(QThread)` 后台线程，逐块信号上屏，UI 不冻结。输入区顶行内嵌 `ModelBar`（模型标签 + 版本下拉框），显示当前模型名+版本并可切换。
+`ChatPanel` 上输出（QTextBrowser）下输入（QTextEdit）垂直分栏，Enter 发送 / Shift+Enter 换行；流式调用放 `ChatWorker(QThread)` 后台线程，逐块信号上屏，UI 不冻结。输入区顶行内嵌 `ModelBar`（模型 + 版本双下拉）。对话统一经本机 agent CLI（Kimi Code CLI），代码库零 API KEY。
 
 | 组件 | 说明 |
 |:---|:---|
 | `LanguageModel` Protocol | 统一接口 `chat(messages) -> Iterator[Chunk]`，与 UI 解耦 |
-| `Chunk` | 流式块：`kind="text"` 正文 / `kind="reasoning"` 思维链（仅当次显示，不回传 API） |
-| `LLMRegistry` | 名称 → provider 注册表，`get_llm("deepseek")` 取实例 |
-| `DeepSeekLLM` | openai SDK 直连 DeepSeek，4 个版本项（V4 Flash/Pro × 思考/非思考）；思考模式经 `extra_body` 参数化，`set_version()` 切换，密钥仅从 `api_key/deepseek` 文件读取（取首个 `sk-` 行） |
+| `Chunk` | 流式块：`kind="text"` 正文 / `kind="reasoning"` 过程信息（工具调用摘要灰字展示） |
+| `LLMRegistry` | 名称 → provider 注册表，`get_llm("kimi-cli")` 取实例 |
 | `KimiCliLLM` | 本机 Kimi Code CLI 后端（OAuth 自管凭证）：消息粒度上屏、session_id 续接多轮、工具调用灰字摘要；⚠️ auto 权限下 agent 可在项目目录自主读写/执行 |
-| `ModelBar` | 输入区顶行双下拉：模型（DeepSeek API / Kimi CLI，kimi 不可用时禁用）+ 版本（联动刷新，`label_for()`/模型别名），切换下次请求生效，发送中锁定 |
-| 思考块渲染 | reasoner 思维链以灰字斜体（QTextCharFormat）实时上屏，与正文空行分隔 |
-| 多轮 | 对话历史随请求发送（仅正文）；请求失败的用户消息不入历史，错误上屏不崩溃 |
+| `ModelBar` | 输入区顶行双下拉：模型（本期仅 Kimi CLI，不可用时禁用）+ 版本（模型别名联动刷新），切换下次请求生效，发送中锁定 |
+| 多轮 | 历史由 CLI 会话管理（session_id 续接）；请求失败的用户消息不入历史，错误上屏不崩溃 |
 
 ## 5. 文件树面板（右栏）
 
