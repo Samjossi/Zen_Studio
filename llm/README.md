@@ -20,7 +20,7 @@
 | [`base.py`](base.py) | `LanguageModel` Protocol + `Message` 类型别名 |
 | [`registry.py`](registry.py) | `LLMRegistry`：名称 → provider 实例的注册表 |
 | [`providers/__init__.py`](providers/__init__.py) | provider 子包标记（每家厂商一个文件） |
-| [`providers/deepseek.py`](providers/deepseek.py) | `DeepSeekLLM`：openai SDK 直连 DeepSeek 端点（流式 + 双版本切换 + 思维链分流） |
+| [`providers/deepseek.py`](providers/deepseek.py) | `DeepSeekLLM`：openai SDK 直连 DeepSeek 端点（流式 + 版本项切换 + 思考模式参数化 + 思维链分流） |
 
 ## 3. 接口设计
 
@@ -42,19 +42,20 @@ class LanguageModel(Protocol):
 | 组件 | 说明 |
 |:---|:---|
 | `LanguageModel` | 统一接口，返回 `Iterator[Chunk]` 逐块产出，与 UI 解耦 |
-| `Chunk` | 流式块：`kind="text"` 为正文增量；`kind="reasoning"` 为思维链增量（仅当次显示，**不得回传入请求历史**，否则 DeepSeek 报 400） |
+| `Chunk` | 流式块：`kind="text"` 为正文增量；`kind="reasoning"` 为思维链增量（仅当次显示，**不回传入请求历史**——无工具调用时 API 会忽略，统一不回传最安全） |
 | `LLMRegistry` | `register(name, llm)` / `get(name)` / `names()`；取未注册名称时抛 `KeyError` 并列出可用项 |
-| `DeepSeekLLM` | 首发 provider：端点 `https://api.deepseek.com`，openai SDK `stream=True`；`MODELS` 常量定义两个版本（`deepseek-chat`→V3.2 通用、`deepseek-reasoner`→V3.2 思考），`set_model()` 校验切换（下次请求生效），`label_for(model_id)` 单点维护显示格式、`current_label` 返回当前版本显示名 |
+| `ModelVersion` | 版本项：`api_id` + `alias` + `thinking`（思考开关）+ `send_thinking`（是否下发 thinking 参数） |
+| `DeepSeekLLM` | 首发 provider：端点 `https://api.deepseek.com`，openai SDK `stream=True`；`MODELS` 定义 4 个版本项（V4 Flash/Pro × 思考/非思考）；`set_version()` 校验切换（下次请求生效），经 `extra_body` 下发思考开关；`label_for(version)` 单点维护显示格式、`current_label` 返回当前版本项显示名 |
 
 ## 4. 使用方式
 
 ```python
-from llm import DeepSeekLLM, get_llm
+from llm import MODELS, DeepSeekLLM, get_llm
 
 llm = get_llm("deepseek")  # 默认即 deepseek，参数可省略
 if isinstance(llm, DeepSeekLLM):
-    # set_model 为 DeepSeek 专有（非 Protocol 成员），跨 provider 需 isinstance 判断
-    llm.set_model("deepseek-reasoner")
+    # set_version 为 DeepSeek 专有（非 Protocol 成员），跨 provider 需 isinstance 判断
+    llm.set_version(MODELS[1])  # 切到 V4 Flash · 非思考（默认 MODELS[0] V4 Flash · 思考）
 for chunk in llm.chat([{"role": "user", "content": "你好"}]):
     if chunk.kind == "reasoning":
         print(chunk.text, end="", flush=True)  # 思维链：仅显示，勿入历史

@@ -2,7 +2,7 @@
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QSplitter, QVBoxLayout, QWidget
 
-from llm import Chunk, DeepSeekLLM, Message, get_llm
+from llm import Chunk, DeepSeekLLM, Message, ModelVersion, get_llm
 from gui.panels.chat.input import ChatInput
 from gui.panels.chat.model_bar import ModelBar
 from gui.panels.chat.output import ChatOutput
@@ -49,11 +49,11 @@ class ChatPanel(QWidget):
     # ------------------------------------------------------------------
     # 版本切换
     # ------------------------------------------------------------------
-    def _on_model_changed(self, model_id: str) -> None:
-        """切换版本：写 provider 单例状态，下次请求生效。"""
+    def _on_model_changed(self, version: ModelVersion) -> None:
+        """切换版本项：写 provider 单例状态，下次请求生效。"""
         llm = get_llm("deepseek")
         if isinstance(llm, DeepSeekLLM):
-            llm.set_model(model_id)
+            llm.set_version(version)
 
     # ------------------------------------------------------------------
     # 发送与流式接收
