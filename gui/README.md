@@ -18,7 +18,7 @@
 | [`main_window.py`](main_window.py) | 主窗口：三栏布局 + 菜单栏/状态栏 + 主题切换 |
 | [`theme.py`](theme.py) | 主题加载：读 `config/settings.json` 应用 qss 与全局字体 |
 | [`panels/__init__.py`](panels/__init__.py) | 面板包初始化，对外导出 `FileExplorer` |
-| [`panels/file_explorer.py`](panels/file_explorer.py) | 文件树面板（移植自 PyGPT explorer 裁剪版） |
+| [`panels/file_explorer/`](panels/file_explorer/) | 文件树子包（右栏）：`explorer.py` 主控件 / `model.py` 模型层（噪音过滤，git 装饰预留）/ `actions.py` 右键菜单动作 |
 | [`panels/chat/`](panels/chat/) | 聊天面板子包（左栏）：`panel.py` 装配 / `output.py` 输出区 / `input.py` 输入框 / `model_bar.py` 模型版本行 / `worker.py` 流式线程 / `permission_dialog.py` ACP 工具审批对话框 |
 | [`panels/viewer/`](panels/viewer/) | 文件查看面板子包（中栏上）：`panel.py` 装配 / `code_viewer.py` 只读查看器（行号栏）/ `highlighter.py` Pygments 高亮器 |
 
