@@ -3,6 +3,8 @@ name = "zen-studio"
 version = "0.1.0"
 requires-python = ">=3.12"
 dependencies = [
+    "ptyprocess>=0.7.0",
     "pygments>=2.20.0",
     "pyside6>=6.11.1",
+    "pyte>=0.8.2",
 ]

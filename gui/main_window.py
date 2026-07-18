@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
 
 from gui.panels import FileExplorer, ViewerPanel
 from gui.panels.chat import ChatPanel
+from gui.panels.terminal import TerminalPanel
 from gui.theme import apply_theme, load_settings, save_theme
 
 
@@ -33,11 +34,12 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("Zen Studio")
         self.resize(1200, 800)
 
-        # 中栏垂直拆分：上为文件查看器（只读+高亮），下为占位面板
+        # 中栏垂直拆分：上为文件查看器（只读+高亮），下为内嵌终端（真 PTY）
         middle_splitter = QSplitter(Qt.Orientation.Vertical)
         self.viewer_panel = ViewerPanel()
+        self.terminal_panel = TerminalPanel()
         middle_splitter.addWidget(self.viewer_panel)
-        middle_splitter.addWidget(make_panel("中栏下"))
+        middle_splitter.addWidget(self.terminal_panel)
         middle_splitter.setSizes([550, 250])
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
@@ -106,6 +108,7 @@ class MainWindow(QMainWindow):
         if app is not None:
             apply_theme(app)
         self.viewer_panel.apply_theme(theme)
+        self.terminal_panel.apply_theme(theme)
         self.action_dark.setChecked(theme == "dark")
         self.action_light.setChecked(theme == "light")
         self.statusBar().showMessage(f"已切换为{'暗色' if theme == 'dark' else '浅色'}主题", 3000)

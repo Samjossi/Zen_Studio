@@ -2,7 +2,7 @@
 
 > **状态**：草稿
 > **范围**：`gui/` 包 — Zen Studio 图形界面
-> **时间**：2026-07-19 02:55（UTC+8）
+> **时间**：2026-07-19 04:41（UTC+8）
 
 ---
 
@@ -21,6 +21,7 @@
 | [`panels/file_explorer/`](panels/file_explorer/) | 文件树子包（右栏）：`explorer.py` 主控件 / `model.py` 模型层（噪音过滤，git 装饰预留）/ `actions.py` 右键菜单动作 |
 | [`panels/chat/`](panels/chat/) | 聊天面板子包（左栏）：`panel.py` 装配 / `output.py` 输出区 / `input.py` 输入框 / `model_bar.py` 模型版本行 / `worker.py` 流式线程 / `permission_dialog.py` ACP 工具审批对话框 |
 | [`panels/viewer/`](panels/viewer/) | 文件查看面板子包（中栏上）：`panel.py` 装配 / `code_viewer.py` 只读查看器（行号栏）/ `highlighter.py` Pygments 高亮器 |
+| [`panels/terminal/`](panels/terminal/) | 终端面板子包（中栏下）：`panel.py` 装配 / `widget.py` 自绘终端控件 / `screen.py` pyte 语义层 / `session.py` PTY 会话 / `palette.py` ANSI 双主题色板 |
 
 > LLM 调用层为后端逻辑，位于项目根 [`llm/`](../llm/)（与 `gui/` 平级）：`base.py` Protocol / `registry.py` 注册表 / `providers/kimi_cli.py`（stream-json 子进程）与 `providers/kimi_acp.py`（ACP 长驻）两个 Kimi Code CLI 后端。前端经 `from llm import get_llm` 消费。
 
@@ -50,7 +51,7 @@
 |:---|:---:|:---|
 | 左栏 | 320 px | **AI 聊天面板 `ChatPanel`**（上输出下输入，本机 Kimi Code CLI） |
 | 中栏（上） | 550 px（高） | **文件查看面板 `ViewerPanel`**（只读 + Pygments 高亮 + 行号栏） |
-| 中栏下 | 250 px（高） | 占位面板 |
+| 中栏下 | 250 px（高） | **终端面板 `TerminalPanel`**（真 PTY：ptyprocess + pyte + 自绘 QWidget） |
 | 右栏 | 250 px | **文件树 `FileExplorer`**（根目录为项目根，双击文件经 `file_opened` 信号打开到查看器） |
 
 ## 4. 聊天面板（左栏）
@@ -80,7 +81,19 @@
 | 守卫 | >1 MB 截断并提示；二进制文件占位提示（不尝试解码上屏） |
 | 接线 | `main_window`：`file_explorer.file_opened` → `viewer_panel.open_file`；主题切换 → `viewer_panel.apply_theme` |
 
-## 6. 文件树面板（右栏）
+## 6. 终端面板（中栏下）
+
+`TerminalPanel`：标题行（shell 名 + 状态 + 重开按钮）+ `TerminalWidget` 自绘终端。**真 PTY 终端**（ANSI 颜色/交互程序/`kimi login` 全可用）。AI-first 语境下为**用户终端**（agent 命令镜像待 ACP terminal RPC，备案）。OOP 五层单向依赖（详见 [`work plans/2026-0719-0412_中栏下终端面板实施计划.md`](../work%20plans/2026-0719-0412_中栏下终端面板实施计划.md) §2）：
+
+| 层 | 类 | 说明 |
+|:---|:---|:---|
+| 装配 | `TerminalPanel` | session 字节流 → screen 喂入 → widget 刷新（唯一交汇点）；进程退出提示与重开 |
+| Qt | `TerminalWidget` | 自绘字符网格（同色合并绘制）+ 光标反显、按键 → VT100 静态映射、滚动条映回滚区、30ms 刷新节流 |
+| 语义 | `TerminalScreen` | pyte `HistoryScreen` 容错子类封装（私有 SGR 序列兜底 + 解析异常降级）；快照即纯数据（颜色用名字，主题切换免重算）；`plain_text()` 预留"终端内容喂 AI"出口 |
+| I/O | `PtySession(QObject)` | `ptyprocess.spawn($SHELL)`（cwd=项目根，`TERM=xterm-256color`）；reader 线程 → `data_received` 信号（GUI 线程零锁消费）；`aboutToQuit` 置位防销毁期信号竞态；`terminate` 幂等 + atexit |
+| 配色 | `AnsiPalette` | ANSI 16 色 × 明暗双主题；256 色 hex 串直接解析 |
+
+## 7. 文件树面板（右栏）
 
 `FileExplorer` 移植自 PyGPT explorer 的裁剪版，基于 `QTreeView + QFileSystemModel`（经 `NoiseFilterProxyModel` 排除式过滤噪音目录），无 `window` 式上帝对象依赖，可独立实例化。
 
@@ -92,7 +105,7 @@
 | 噪音过滤 | 默认隐藏 `__pycache__`/`.git`/`.venv`/`node_modules`，视图菜单可切换 |
 | 已剔除 | 向量库索引、zip 打包、拖放剪贴板、qrc 图标（用系统图标） |
 
-## 7. 运行方式
+## 8. 运行方式
 
 ```bash
 # 项目根目录执行
