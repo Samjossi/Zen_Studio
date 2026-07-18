@@ -10,7 +10,7 @@ from gui.panels.terminal.palette import AnsiPalette
 from gui.panels.terminal.screen import TerminalScreen
 from gui.panels.terminal.session import PtySession
 from gui.panels.terminal.widget import TerminalWidget
-from gui.theme import load_settings
+from gui.theme import get_family, load_settings
 
 
 class TerminalPanel(QWidget):
@@ -23,7 +23,8 @@ class TerminalPanel(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setMinimumHeight(self.MIN_HEIGHT)
-        self._palette = AnsiPalette(load_settings()["theme"])
+        # 调色板只认明暗两族（light/dark），当前主题名先转族名
+        self._palette = AnsiPalette(get_family(load_settings()["theme"]))
         self._screen = TerminalScreen()
         self._session = PtySession(self)
 
@@ -78,7 +79,7 @@ class TerminalPanel(QWidget):
         self._status.setText(f"[进程已退出 code {rc}]")
         self._restart.setVisible(True)
 
-    def apply_theme(self, theme: str) -> None:
-        """主题切换：色板换新 + 全量重绘。"""
-        self._palette = AnsiPalette(theme)
+    def apply_theme(self, family: str) -> None:
+        """切换配色族：色板换新 + 全量重绘（入参为族名 light/dark）。"""
+        self._palette = AnsiPalette(family)
         self.terminal.apply_palette(self._palette)

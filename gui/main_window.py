@@ -2,6 +2,7 @@
 from pathlib import Path
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QActionGroup
 from PySide6.QtWidgets import (
     QApplication,
     QMainWindow,
@@ -11,7 +12,14 @@ from PySide6.QtWidgets import (
 from gui.panels import FileExplorer, ViewerPanel
 from gui.panels.chat import ChatPanel
 from gui.panels.terminal import TerminalPanel
-from gui.theme import apply_theme, load_settings, save_theme
+from gui.theme import (
+    apply_theme,
+    available_themes,
+    get_family,
+    get_label,
+    load_settings,
+    save_theme,
+)
 
 
 class MainWindow(QMainWindow):
@@ -80,25 +88,28 @@ class MainWindow(QMainWindow):
 
         menu_view.addSeparator()
 
+        # 主题菜单：按注册表动态生成，QActionGroup 互斥
         current_theme = load_settings()["theme"]
-        self.action_light = menu_view.addAction("浅色主题(&L)")
-        self.action_light.setCheckable(True)
-        self.action_light.setChecked(current_theme == "light")
-        self.action_light.triggered.connect(lambda: self._switch_theme("light"))
-
-        self.action_dark = menu_view.addAction("暗色主题(&D)")
-        self.action_dark.setCheckable(True)
-        self.action_dark.setChecked(current_theme == "dark")
-        self.action_dark.triggered.connect(lambda: self._switch_theme("dark"))
+        self._theme_group = QActionGroup(self)
+        self._theme_group.setExclusive(True)
+        self._theme_actions = {}
+        for name in available_themes():
+            action = menu_view.addAction(get_label(name))
+            action.setCheckable(True)
+            action.setChecked(name == current_theme)
+            action.triggered.connect(lambda checked, n=name: self._switch_theme(n))
+            self._theme_group.addAction(action)
+            self._theme_actions[name] = action
 
     def _switch_theme(self, theme: str) -> None:
-        """切换主题：持久化 + 即时应用，并同步菜单勾选态与查看器配色。"""
+        """切换主题：持久化 + 即时应用，并同步查看器/终端所属族配色。"""
         save_theme(theme)
         app = QApplication.instance()
         if app is not None:
             apply_theme(app)
-        self.viewer_panel.apply_theme(theme)
-        self.terminal_panel.apply_theme(theme)
-        self.action_dark.setChecked(theme == "dark")
-        self.action_light.setChecked(theme == "light")
-        self.statusBar().showMessage(f"已切换为{'暗色' if theme == 'dark' else '浅色'}主题", 3000)
+        family = get_family(theme)  # 高亮/终端/行号配色只认明暗两族
+        self.viewer_panel.apply_theme(family)
+        self.terminal_panel.apply_theme(family)
+        if theme in self._theme_actions:
+            self._theme_actions[theme].setChecked(True)
+        self.statusBar().showMessage(f"已切换为{get_label(theme)}主题", 3000)

@@ -1,0 +1,278 @@
+/* Zen Studio 晴空主题（亮色） —— 冷白微蓝
+ * 结构与云白主题（cloud.qss）同构，仅色值不同；
+ * 色板见 文档/修改记录/2026-0719-0704_多亮色主题体系与现有主题改名计划.md 第 5 节。
+ * 强调色：天蓝 #0284c7。
+ */
+
+QMainWindow,
+QDialog {
+    background-color: #f8fafc;
+    color: #1e293b;
+    selection-background-color: #0284c7;
+    selection-color: #ffffff;
+}
+
+/* ---- 面板分区与标题行（objectName 接线见各面板代码） ---- */
+
+#SidePanel {
+    background-color: #edf3f8;
+}
+
+#PanelTitle {
+    font-weight: 500;
+    padding: 2px 8px;
+}
+
+#PanelHint {
+    color: #7d8da0;
+    padding: 2px 8px;
+}
+
+/* ---- 输入与文本区 ---- */
+
+QLineEdit,
+QTextEdit {
+    background-color: #edf3f8;
+    border: none;
+    border-radius: 6px;
+    padding: 4px 8px;
+}
+
+QPlainTextEdit {
+    background-color: #f8fafc;
+    border: none;
+    padding: 4px;
+}
+
+QLineEdit:focus,
+QTextEdit:focus,
+QPlainTextEdit:focus {
+    border: 1px solid rgba(2, 132, 199, 0.45);
+}
+
+#SidePanel QTextEdit,
+#SidePanel QComboBox {
+    background-color: #ffffff;
+}
+
+#SidePanel QComboBox:hover {
+    background-color: #f0f6fb;
+}
+
+/* 聊天输出区：透明融入侧栏（双层 ID 压过 #SidePanel QTextEdit 规则） */
+#SidePanel #ChatOutput {
+    background-color: transparent;
+    border: none;
+}
+
+/* ---- 树/列表 ---- */
+
+QTreeView,
+QListView {
+    background: transparent;
+    border: none;
+    outline: none;
+}
+
+QTreeView::item,
+QListView::item {
+    padding: 4px;
+    min-height: 20px;
+}
+
+QTreeView::item:hover:!selected,
+QListView::item:hover:!selected {
+    background-color: rgba(2, 132, 199, 0.08);
+}
+
+QTreeView::item:selected,
+QListView::item:selected {
+    background-color: #0284c7;
+    color: #ffffff;
+}
+
+/* ---- 下拉框 ---- */
+
+QComboBox {
+    background-color: #edf3f8;
+    border: none;
+    border-radius: 6px;
+    padding: 3px 8px;
+}
+
+QComboBox:hover {
+    background-color: #e2ecf4;
+}
+
+QComboBox::drop-down {
+    border: none;
+    width: 20px;
+}
+
+QComboBox QAbstractItemView {
+    background-color: #ffffff;
+    color: #1e293b;  /* 顶级浮层，不继承 QMainWindow 颜色 */
+    border: 1px solid rgba(0, 0, 0, 0.10);
+    selection-background-color: #0284c7;
+    selection-color: #ffffff;
+    padding: 4px;
+    outline: none;
+}
+
+/* ---- 菜单栏与菜单 ---- */
+
+QMenuBar {
+    background-color: transparent;
+}
+
+QMenuBar::item {
+    background-color: transparent;
+    padding: 4px 10px;
+    border-radius: 4px;
+}
+
+QMenuBar::item:selected {
+    background-color: #0284c7;
+    color: #ffffff;
+}
+
+QMenu {
+    background-color: #edf3f8;
+    color: #1e293b;  /* 顶级浮层，不继承 QMainWindow 颜色 */
+    border: 1px solid rgba(2, 132, 199, 0.15);
+    border-radius: 8px;
+    padding: 4px;
+}
+
+QMenu::item {
+    padding: 4px 24px 4px 16px;
+    border-radius: 4px;
+}
+
+QMenu::item:selected {
+    background-color: #0284c7;
+    color: #ffffff;
+}
+
+QMenu::separator {
+    height: 1px;
+    background-color: rgba(2, 132, 199, 0.15);
+    margin: 4px 8px;
+}
+
+/* ---- 按钮 ---- */
+
+QPushButton {
+    background-color: transparent;
+    border: none;
+    border-radius: 6px;
+    padding: 4px 12px;
+}
+
+QPushButton:hover {
+    background-color: rgba(2, 132, 199, 0.10);
+}
+
+QPushButton:pressed {
+    background-color: rgba(2, 132, 199, 0.14);
+}
+
+QPushButton:disabled {
+    color: rgba(30, 41, 59, 0.35);
+}
+
+/* ---- 分隔 ---- */
+
+QMainWindow::separator {
+    background-color: #dde7ee;
+    width: 1px;
+    height: 1px;
+}
+
+QSplitter::handle {
+    background-color: transparent;
+}
+
+QSplitter::handle:horizontal {
+    width: 4px;
+}
+
+QSplitter::handle:vertical {
+    height: 4px;
+}
+
+QSplitter::handle:hover {
+    background-color: rgba(2, 132, 199, 0.18);
+}
+
+/* ---- 隐形滚动条 ---- */
+
+QScrollBar:vertical {
+    background: transparent;
+    width: 10px;
+    margin: 0px;
+}
+
+QScrollBar::handle:vertical {
+    background-color: rgba(0, 0, 0, 0.22);
+    border-radius: 5px;
+    min-height: 30px;
+}
+
+QScrollBar::handle:vertical:hover {
+    background-color: rgba(0, 0, 0, 0.38);
+}
+
+QScrollBar::add-line:vertical,
+QScrollBar::sub-line:vertical {
+    height: 0px;
+}
+
+QScrollBar::add-page:vertical,
+QScrollBar::sub-page:vertical {
+    background: none;
+}
+
+QScrollBar:horizontal {
+    background: transparent;
+    height: 10px;
+    margin: 0px;
+}
+
+QScrollBar::handle:horizontal {
+    background-color: rgba(0, 0, 0, 0.22);
+    border-radius: 5px;
+    min-width: 30px;
+}
+
+QScrollBar::handle:horizontal:hover {
+    background-color: rgba(0, 0, 0, 0.38);
+}
+
+QScrollBar::add-line:horizontal,
+QScrollBar::sub-line:horizontal {
+    width: 0px;
+}
+
+QScrollBar::add-page:horizontal,
+QScrollBar::sub-page:horizontal {
+    background: none;
+}
+
+/* ---- 状态栏与工具提示 ---- */
+
+QStatusBar {
+    background-color: transparent;
+}
+
+QStatusBar::item {
+    border: none;
+}
+
+QToolTip {
+    background-color: #323236;
+    color: #f5f5f7;
+    border: none;
+    border-radius: 6px;
+    padding: 4px 8px;
+}
