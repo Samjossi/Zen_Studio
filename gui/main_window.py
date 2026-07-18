@@ -4,28 +4,14 @@ from pathlib import Path
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QApplication,
-    QLabel,
     QMainWindow,
     QSplitter,
-    QVBoxLayout,
-    QWidget,
 )
 
 from gui.panels import FileExplorer, ViewerPanel
 from gui.panels.chat import ChatPanel
 from gui.panels.terminal import TerminalPanel
 from gui.theme import apply_theme, load_settings, save_theme
-
-
-def make_panel(title: str) -> QWidget:
-    """创建一个占位面板。"""
-    panel = QWidget()
-    layout = QVBoxLayout(panel)
-    label = QLabel(title)
-    label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-    layout.addWidget(label)
-    panel.setStyleSheet("QWidget { border: 1px solid #888; }")
-    return panel
 
 
 class MainWindow(QMainWindow):
@@ -41,6 +27,8 @@ class MainWindow(QMainWindow):
         middle_splitter.addWidget(self.viewer_panel)
         middle_splitter.addWidget(self.terminal_panel)
         middle_splitter.setSizes([550, 250])
+        # 防折叠：终端栏最小高度由 TerminalPanel.MIN_HEIGHT 约束（collapsible 默认 true 会无视之）
+        middle_splitter.setCollapsible(1, False)
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
         # 左栏：AI 聊天面板
@@ -55,6 +43,8 @@ class MainWindow(QMainWindow):
         splitter.addWidget(self.file_explorer)
 
         splitter.setSizes([320, 630, 250])
+        # 防折叠：右栏文件树最小宽度由 FileExplorer.MIN_WIDTH 约束
+        splitter.setCollapsible(2, False)
 
         self.setCentralWidget(splitter)
 

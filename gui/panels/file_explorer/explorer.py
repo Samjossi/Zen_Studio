@@ -34,6 +34,12 @@ class FileExplorer(ExplorerActionsMixin, QWidget):
     #: 噪音目录/文件过滤清单
     NOISE_NAMES = {"__pycache__", ".git", ".venv", "node_modules"}
 
+    #: 面板最小宽度（px）：根级最长文件名省略号截断/横向滚动条出现前的阈值
+    #: （实测内容理想宽度 230px，定 240 含跨机器余量）；
+    #: 配合主窗口 splitter.setCollapsible(2, False) 生效；调优方法见
+    #: 文档/修改记录/2026-0719-0610_面板最小尺寸与苹果风界面改造计划.md 2.3 节
+    MIN_WIDTH = 240
+
     def __init__(self, root_dir: str, parent: QWidget | None = None) -> None:
         """
         :param root_dir: 文件树根目录（绝对路径）
@@ -41,6 +47,10 @@ class FileExplorer(ExplorerActionsMixin, QWidget):
         """
         super().__init__(parent)
         self.root_dir = str(Path(root_dir).resolve())
+        self.setMinimumWidth(self.MIN_WIDTH)
+        self.setObjectName("SidePanel")  # 侧栏灰底分区（主题 qss 统一着色）
+        # 自定义 QWidget 子类的 qss 背景需 WA_StyledBackground 才会绘制
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
 
         self.model = QFileSystemModel(self)
         self.model.setRootPath(self.root_dir)
@@ -69,6 +79,7 @@ class FileExplorer(ExplorerActionsMixin, QWidget):
 
         # 只显示根目录名，完整路径悬停可见（修复栏宽截断问题）
         self.path_label = QLabel(Path(self.root_dir).name)
+        self.path_label.setObjectName("PanelTitle")  # 样式由主题 qss 统一
         self.path_label.setToolTip(self.root_dir)
         self.path_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
 

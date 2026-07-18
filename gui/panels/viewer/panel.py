@@ -28,9 +28,9 @@ class ViewerPanel(QWidget):
         self._current_path: str | None = None
 
         self._path_label = QLabel("（未打开文件）", self)
-        self._path_label.setStyleSheet("font-weight: bold;")
+        self._path_label.setObjectName("PanelTitle")  # 样式由主题 qss 统一
         self._hint_label = QLabel("", self)
-        self._hint_label.setStyleSheet("color: #888;")
+        self._hint_label.setObjectName("PanelHint")
 
         title_row = QWidget(self)
         title_layout = QHBoxLayout(title_row)

@@ -9,7 +9,8 @@ class ChatOutput(QTextBrowser):
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self.setOpenExternalLinks(False)
-        self.setStyleSheet("QTextBrowser { border: 1px solid #888; }")
+        # 样式由主题 qss 统一（透明融入侧栏，无边框）
+        self.setObjectName("ChatOutput")
 
     def append_message(self, role: str, content: str) -> None:
         """追加一条完整消息（role 为显示名，如"我"/"AI"）。"""

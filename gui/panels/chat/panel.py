@@ -26,6 +26,9 @@ class ChatPanel(QWidget):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        self.setObjectName("SidePanel")  # 侧栏灰底分区（主题 qss 统一着色）
+        # 自定义 QWidget 子类的 qss 背景需 WA_StyledBackground 才会绘制
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self._history: list[Message] = []
         self._worker: ChatWorker | None = None
         self._stream_buffer = ""

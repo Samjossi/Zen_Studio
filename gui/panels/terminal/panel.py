@@ -16,16 +16,21 @@ from gui.theme import load_settings
 class TerminalPanel(QWidget):
     """中栏下终端面板（真 PTY 单实例：spawn $SHELL，cwd=项目根）。"""
 
+    #: 面板最小高度（px）：标题行约 26px + 约 6 行终端文本，
+    #: 配合主窗口 middle_splitter.setCollapsible(1, False) 生效
+    MIN_HEIGHT = 140
+
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        self.setMinimumHeight(self.MIN_HEIGHT)
         self._palette = AnsiPalette(load_settings()["theme"])
         self._screen = TerminalScreen()
         self._session = PtySession(self)
 
         self._title = QLabel(self._shell_name(), self)
-        self._title.setStyleSheet("font-weight: bold;")
+        self._title.setObjectName("PanelTitle")  # 样式由主题 qss 统一
         self._status = QLabel("", self)
-        self._status.setStyleSheet("color: #888;")
+        self._status.setObjectName("PanelHint")
         self._restart = QPushButton("重开", self)
         self._restart.setFixedHeight(22)
         self._restart.setVisible(False)
