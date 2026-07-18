@@ -20,7 +20,7 @@
 | [`base.py`](base.py) | `LanguageModel` Protocol + `Message` 类型别名 |
 | [`registry.py`](registry.py) | `LLMRegistry`：名称 → provider 实例的注册表 |
 | [`providers/__init__.py`](providers/__init__.py) | provider 子包标记（每家厂商一个文件） |
-| [`providers/deepseek.py`](providers/deepseek.py) | `DeepSeekLLM`：openai SDK 直连 DeepSeek 端点（流式） |
+| [`providers/deepseek.py`](providers/deepseek.py) | `DeepSeekLLM`：openai SDK 直连 DeepSeek 端点（流式 + 双版本切换 + 思维链分流） |
 
 ## 3. 接口设计
 
@@ -28,26 +28,38 @@
 # 消息格式（OpenAI 格式）
 Message = dict[str, str]  # {"role": "system"|"user"|"assistant", "content": str}
 
+@dataclass(frozen=True)
+class Chunk:
+    kind: Literal["text", "reasoning"]  # 正文 / 思维链
+    text: str
+
 class LanguageModel(Protocol):
-    def chat(self, messages: list[Message]) -> Iterator[str]:
-        """发送多轮消息，流式产出文本增量块。"""
+    def chat(self, messages: list[Message]) -> Iterator[Chunk]:
+        """发送多轮消息，流式产出文本/思维链块。"""
         ...
 ```
 
 | 组件 | 说明 |
 |:---|:---|
-| `LanguageModel` | 统一接口，返回 `Iterator[str]` 逐块产出文本增量，与 UI 解耦 |
+| `LanguageModel` | 统一接口，返回 `Iterator[Chunk]` 逐块产出，与 UI 解耦 |
+| `Chunk` | 流式块：`kind="text"` 为正文增量；`kind="reasoning"` 为思维链增量（仅当次显示，**不得回传入请求历史**，否则 DeepSeek 报 400） |
 | `LLMRegistry` | `register(name, llm)` / `get(name)` / `names()`；取未注册名称时抛 `KeyError` 并列出可用项 |
-| `DeepSeekLLM` | 首发 provider：模型 `deepseek-chat`，端点 `https://api.deepseek.com`，openai SDK `stream=True` |
+| `DeepSeekLLM` | 首发 provider：端点 `https://api.deepseek.com`，openai SDK `stream=True`；`MODELS` 常量定义两个版本（`deepseek-chat`→V3.2 通用、`deepseek-reasoner`→V3.2 思考），`set_model()` 校验切换（下次请求生效），`label_for(model_id)` 单点维护显示格式、`current_label` 返回当前版本显示名 |
 
 ## 4. 使用方式
 
 ```python
-from llm import get_llm
+from llm import DeepSeekLLM, get_llm
 
 llm = get_llm("deepseek")  # 默认即 deepseek，参数可省略
+if isinstance(llm, DeepSeekLLM):
+    # set_model 为 DeepSeek 专有（非 Protocol 成员），跨 provider 需 isinstance 判断
+    llm.set_model("deepseek-reasoner")
 for chunk in llm.chat([{"role": "user", "content": "你好"}]):
-    print(chunk, end="", flush=True)
+    if chunk.kind == "reasoning":
+        print(chunk.text, end="", flush=True)  # 思维链：仅显示，勿入历史
+    else:
+        print(chunk.text, end="", flush=True)  # 正文
 ```
 
 > ⚠️ `chat()` 是阻塞式 generator。GUI 中必须放后台线程消费，经信号逐块上屏，避免冻结主线程（参考实现：[`gui/panels/chat/worker.py`](../gui/panels/chat/worker.py)）。

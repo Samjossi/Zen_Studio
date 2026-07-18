@@ -5,10 +5,10 @@ from llm import LanguageModel, Message
 
 
 class ChatWorker(QThread):
-    """在后台线程执行流式 chat，逐块发射文本信号。"""
+    """在后台线程执行流式 chat，逐块发射 Chunk 信号。"""
 
-    #: 流式文本块
-    chunk_received = Signal(str)
+    #: 流式块（Chunk，kind 区分正文/思维链）
+    chunk_received = Signal(object)
     #: 完成（正常或异常均触发，附带错误信息或空串）
     finished_with_error = Signal(str)
 

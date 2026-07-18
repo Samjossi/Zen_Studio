@@ -19,7 +19,7 @@
 | [`theme.py`](theme.py) | 主题加载：读 `config/settings.json` 应用 qss 与全局字体 |
 | [`panels/__init__.py`](panels/__init__.py) | 面板包初始化，对外导出 `FileExplorer` |
 | [`panels/file_explorer.py`](panels/file_explorer.py) | 文件树面板（移植自 PyGPT explorer 裁剪版） |
-| [`panels/chat/`](panels/chat/) | 聊天面板子包（左栏）：`panel.py` 装配 / `output.py` 输出区 / `input.py` 输入框 / `worker.py` 流式线程 |
+| [`panels/chat/`](panels/chat/) | 聊天面板子包（左栏）：`panel.py` 装配 / `output.py` 输出区 / `input.py` 输入框 / `model_bar.py` 模型版本行 / `worker.py` 流式线程 |
 
 > LLM 调用层为后端逻辑，位于项目根 [`llm/`](../llm/)（与 `gui/` 平级）：`base.py` Protocol / `registry.py` 注册表 / `providers/deepseek.py` DeepSeek 直连。前端经 `from llm import get_llm` 消费。
 
@@ -54,14 +54,17 @@
 
 ## 4. 聊天面板（左栏）
 
-`ChatPanel` 上输出（QTextBrowser）下输入（QTextEdit）垂直分栏，Enter 发送 / Shift+Enter 换行；流式调用放 `ChatWorker(QThread)` 后台线程，逐块信号上屏，UI 不冻结。
+`ChatPanel` 上输出（QTextBrowser）下输入（QTextEdit）垂直分栏，Enter 发送 / Shift+Enter 换行；流式调用放 `ChatWorker(QThread)` 后台线程，逐块信号上屏，UI 不冻结。输入区顶行内嵌 `ModelBar`（模型标签 + 版本下拉框），显示当前模型名+版本并可切换。
 
 | 组件 | 说明 |
 |:---|:---|
-| `LanguageModel` Protocol | 统一接口 `chat(messages) -> Iterator[str]`，与 UI 解耦 |
+| `LanguageModel` Protocol | 统一接口 `chat(messages) -> Iterator[Chunk]`，与 UI 解耦 |
+| `Chunk` | 流式块：`kind="text"` 正文 / `kind="reasoning"` 思维链（仅当次显示，不回传 API） |
 | `LLMRegistry` | 名称 → provider 注册表，`get_llm("deepseek")` 取实例 |
-| `DeepSeekLLM` | openai SDK 直连 DeepSeek（`deepseek-chat`），密钥仅从 `api_key/deepseek` 文件读取（取首个 `sk-` 行） |
-| 多轮 | 对话历史随请求发送；请求失败的用户消息不入历史，错误上屏不崩溃 |
+| `DeepSeekLLM` | openai SDK 直连 DeepSeek，双版本（`deepseek-chat` V3.2 通用 / `deepseek-reasoner` V3.2 思考）；`set_model()` 切换，密钥仅从 `api_key/deepseek` 文件读取（取首个 `sk-` 行） |
+| `ModelBar` | 输入区顶行：显示 `DeepSeek · V3.2 通用（deepseek-chat）` 格式（`label_for()` 单点维护），下拉切换版本（下次请求生效），发送中锁定 |
+| 思考块渲染 | reasoner 思维链以灰字斜体（QTextCharFormat）实时上屏，与正文空行分隔 |
+| 多轮 | 对话历史随请求发送（仅正文）；请求失败的用户消息不入历史，错误上屏不崩溃 |
 
 ## 5. 文件树面板（右栏）
 
