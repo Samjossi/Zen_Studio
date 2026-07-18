@@ -2,7 +2,7 @@
 
 > **状态**：已实施
 > **范围**：`llm/` 包 — LLM 调用薄层（本机 agent CLI 后端，代码库零密钥）
-> **时间**：2026-07-18 14:55（UTC+8）
+> **时间**：2026-07-18 16:11（UTC+8）
 
 ---
 
@@ -22,7 +22,7 @@
 | [`base.py`](base.py) | `LanguageModel` Protocol + `Message` 类型别名 + `Chunk` 流式块 |
 | [`registry.py`](registry.py) | `LLMRegistry`：名称 → provider 实例的注册表 |
 | [`providers/__init__.py`](providers/__init__.py) | provider 子包标记（每家厂商一个文件） |
-| [`providers/kimi_cli.py`](providers/kimi_cli.py) | `KimiCliLLM`：本机 Kimi Code CLI 后端（spawn `kimi -p --output-format stream-json` 子进程 + session_id 续接） |
+| [`providers/kimi_cli.py`](providers/kimi_cli.py) | `KimiCliLLM`：本机 Kimi Code CLI 后端（spawn `kimi -p --output-format stream-json` 子进程 + session_id 续接；二进制检测链 PATH → `$KIMI_CODE_HOME/bin` → `~/.kimi-code/bin`） |
 
 ## 3. 接口设计
 
@@ -65,7 +65,14 @@ for chunk in llm.chat([{"role": "user", "content": "你好"}]):
 
 > ⚠️ `chat()` 是阻塞式 generator（CLI 后端为子进程 stdout 读取）。GUI 中必须放后台线程消费，经信号逐块上屏，避免冻结主线程（参考实现：[`gui/panels/chat/worker.py`](../gui/panels/chat/worker.py)）。
 
-多轮对话由 CLI 侧会话管理（首轮后 meta 行回传 `session_id`，后续请求经 `-S` 续接）；调用方无需回传历史（panel 传入的消息列表中仅末条 user 消息被用作 prompt）。子进程非零退出抛 `RuntimeError`，由调用方捕获后上屏，不崩溃。
+多轮对话由 CLI 侧会话管理（首轮后 meta 行回传 `session_id`，后续请求经 `-S` 续接）；调用方无需回传历史（panel 传入的消息列表中仅末条 user 消息被用作 prompt）。子进程非零退出抛 `RuntimeError`（消息附 stderr 尾部诊断），由调用方捕获后上屏，不崩溃。
+
+**Kimi Code CLI 版本要求与行为说明**（依据 0.27.0 实测，详见 [`work plans/2026-0718-1545_KimiCLI新版兼容验证与最小修补实施计划.md`](../work%20plans/2026-0718-1545_KimiCLI新版兼容验证与最小修补实施计划.md)）：
+
+- 版本要求 **≥ 0.2.0**（该版起 stream-json 输出 `session.resume_hint` meta 行，为多轮续接前提；TypeScript 重写版均满足）
+- 二进制检测链：`PATH` → `$KIMI_CODE_HOME/bin/kimi` → `~/.kimi-code/bin/kimi`（桌面启动 PATH 不含安装目录时仍可发现）
+- `-p` 模式默认等后台任务/subagent 完成才退出（0.24.x 起），长耗时单轮属 CLI 预期行为而非卡死
+- stream-json 中可能出现重试等新事件类型（0.23.5 起），解析器按字段名容错跳过，向前兼容
 
 ## 5. 安全模型（零密钥）
 
