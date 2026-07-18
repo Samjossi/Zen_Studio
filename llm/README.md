@@ -10,7 +10,7 @@
 
 `llm/` 是 Zen Studio 的 LLM 调用层，与 [`gui/`](../gui/) 平级。职责单一：把"多轮消息 → 流式文本"抽象为统一接口 `LanguageModel`，经注册表按名称取用 provider。前端仅通过 `from llm import get_llm` 消费，依赖方向为"前端 → 后端"，包内不 import 任何 GUI 代码。
 
-**统一后端策略**：对话统一经本机 agent CLI（当前为 Kimi Code CLI）完成，代码库**不存放、不读取、不输入任何 API KEY**——凭证由各 CLI 自行管理（如 kimi 的 OAuth）。DeepSeek API KEY 直连已于 2026-07-18 移除（见 [`work plans/2026-0718-1455_移除APIKEY直连统一CLI后端实施计划.md`](../work%20plans/2026-0718-1455_移除APIKEY直连统一CLI后端实施计划.md)）。
+**统一后端策略**：对话统一经本机 agent CLI（当前为 Kimi Code CLI）完成，代码库**不存放、不读取、不输入任何 API KEY**——凭证由各 CLI 自行管理（如 kimi 的 OAuth）。DeepSeek API KEY 直连已于 2026-07-18 移除（见 [`文档/修改记录/2026-0718-1455_移除APIKEY直连统一CLI后端实施计划.md`](../文档/修改记录/2026-0718-1455_移除APIKEY直连统一CLI后端实施计划.md)）。
 
 设计蓝本：theia-zen `LanguageModel` Protocol + 注册表模式，选型依据见 [`work options/2026-0718-1215_对话栏AI聊天面板选型报告.md`](../work%20options/2026-0718-1215_对话栏AI聊天面板选型报告.md)。
 
@@ -69,7 +69,7 @@ for chunk in llm.chat([{"role": "user", "content": "你好"}]):
 
 多轮对话由 CLI 侧会话管理（首轮后 meta 行回传 `session_id`，后续请求经 `-S` 续接）；调用方无需回传历史（panel 传入的消息列表中仅末条 user 消息被用作 prompt）。子进程非零退出抛 `RuntimeError`（消息附 stderr 尾部诊断），由调用方捕获后上屏，不崩溃。
 
-**Kimi Code CLI 版本要求与行为说明**（依据 0.27.0 实测，详见 [`work plans/2026-0718-1545_KimiCLI新版兼容验证与最小修补实施计划.md`](../work%20plans/2026-0718-1545_KimiCLI新版兼容验证与最小修补实施计划.md)）：
+**Kimi Code CLI 版本要求与行为说明**（依据 0.27.0 实测，详见 [`文档/修改记录/2026-0718-1545_KimiCLI新版兼容验证与最小修补实施计划.md`](../文档/修改记录/2026-0718-1545_KimiCLI新版兼容验证与最小修补实施计划.md)）：
 
 - 版本要求 **≥ 0.2.0**（该版起 stream-json 输出 `session.resume_hint` meta 行，为多轮续接前提；TypeScript 重写版均满足）
 - 二进制检测链：`PATH` → `$KIMI_CODE_HOME/bin/kimi` → `~/.kimi-code/bin/kimi`（桌面启动 PATH 不含安装目录时仍可发现）
