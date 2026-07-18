@@ -57,6 +57,7 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(splitter)
 
         self._build_menus()
+        self.statusBar().setSizeGripEnabled(False)  # 去掉右下角尺寸把手（原生边框已可缩放）
         self.statusBar().showMessage("就绪")
 
     # ------------------------------------------------------------------
