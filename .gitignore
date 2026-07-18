@@ -18,6 +18,7 @@ __pycache__/
 
 # 临时文件
 .temp/
+.tmp/
 tmp/
 cache/
 
