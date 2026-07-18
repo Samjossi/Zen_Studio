@@ -1,15 +1,24 @@
 """聊天面板装配：上输出 + 下输入（含模型行），连接 LLM 流式线程。"""
-from PySide6.QtCore import Qt
+import threading
+
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import QSplitter, QVBoxLayout, QWidget
 
-from llm import Chunk, KimiCliLLM, Message, get_llm
+from llm import Chunk, KimiAcpLLM, KimiCliLLM, Message, get_llm
 from gui.panels.chat.input import ChatInput
 from gui.panels.chat.model_bar import ModelBar
 from gui.panels.chat.output import ChatOutput
+from gui.panels.chat.permission_dialog import PermissionDialog
 from gui.panels.chat.worker import ChatWorker
 
 #: 系统提示词（第一阶段固定）
 SYSTEM_PROMPT = "你是 Zen Studio IDE 的内置助手，回答简洁，使用中文。"
+
+#: 后端 registry 名 → 显示名（切换提示与忙碌占位文案）
+BACKEND_LABELS = {"kimi-cli": "Kimi CLI", "kimi-acp": "Kimi ACP"}
+
+#: 审批等待超时（秒）；超时按拒绝兜底，防 agent 永久阻塞
+PERMISSION_TIMEOUT_S = 180
 
 
 class ChatPanel(QWidget):
@@ -46,6 +55,40 @@ class ChatPanel(QWidget):
 
         self.input.send_requested.connect(self._on_send)
         self.model_bar.selection_changed.connect(self._on_selection_changed)
+        self._wire_permission_handler()
+
+    # ------------------------------------------------------------------
+    # ACP 审批回环（reader 线程 → GUI 线程模态框）
+    # ------------------------------------------------------------------
+    def _wire_permission_handler(self) -> None:
+        try:
+            llm = get_llm("kimi-acp")
+        except KeyError:
+            return  # kimi 不可用，后端未注册
+        if isinstance(llm, KimiAcpLLM):
+            llm.set_permission_handler(self._ask_permission)
+
+    def _ask_permission(self, params: dict) -> str | None:
+        """ACP 审批处理器：在 agent reader 线程被调用；转 GUI 线程弹模态框。
+
+        返回选中的 optionId；用户关闭或超时返回 None（上层按拒绝兜底）。
+        """
+        done = threading.Event()
+        choice: list[str | None] = [None]
+
+        def ask() -> None:
+            try:
+                dialog = PermissionDialog(params, self)
+                dialog.exec()
+                choice[0] = dialog.selected_option_id()
+            finally:
+                done.set()
+
+        # QTimer.singleShot(receiver, callable)：callable 在 receiver 所在（GUI）线程执行
+        QTimer.singleShot(0, self, ask)
+        if not done.wait(timeout=PERMISSION_TIMEOUT_S):
+            return None
+        return choice[0]
 
     # ------------------------------------------------------------------
     # 后端/版本切换
@@ -56,10 +99,10 @@ class ChatPanel(QWidget):
         上下文不迁移（各 CLI 会话各自独立），切后端时输出提示行。
         """
         if backend != self._llm_name:
-            self.output.append_message("系统", f"已切换到 {backend} 后端，开始新会话")
+            self.output.append_message("系统", f"已切换到 {BACKEND_LABELS.get(backend, backend)} 后端，开始新会话")
         self._llm_name = backend
         llm = get_llm(backend)
-        if isinstance(llm, KimiCliLLM) and isinstance(version, str):
+        if isinstance(llm, (KimiCliLLM, KimiAcpLLM)) and isinstance(version, str):
             llm.set_model(version)
 
     # ------------------------------------------------------------------
@@ -119,7 +162,7 @@ class ChatPanel(QWidget):
         self.input.setEnabled(not busy)
         self.model_bar.setEnabled(not busy)
         if busy:
-            busy_text = "Kimi CLI 响应中…" if self._llm_name == "kimi-cli" else "AI 回复中…"
+            busy_text = f"{BACKEND_LABELS.get(self._llm_name, 'AI')} 响应中…"
         else:
             busy_text = "输入消息，Enter 发送 / Shift+Enter 换行"
         self.input.setPlaceholderText(busy_text)

@@ -2,7 +2,7 @@
 
 > **状态**：已实施
 > **范围**：`llm/` 包 — LLM 调用薄层（本机 agent CLI 后端，代码库零密钥）
-> **时间**：2026-07-18 16:11（UTC+8）
+> **时间**：2026-07-18 17:21（UTC+8）
 
 ---
 
@@ -23,6 +23,7 @@
 | [`registry.py`](registry.py) | `LLMRegistry`：名称 → provider 实例的注册表 |
 | [`providers/__init__.py`](providers/__init__.py) | provider 子包标记（每家厂商一个文件） |
 | [`providers/kimi_cli.py`](providers/kimi_cli.py) | `KimiCliLLM`：本机 Kimi Code CLI 后端（spawn `kimi -p --output-format stream-json` 子进程 + session_id 续接；二进制检测链 PATH → `$KIMI_CODE_HOME/bin` → `~/.kimi-code/bin`） |
+| [`providers/kimi_acp.py`](providers/kimi_acp.py) | `KimiAcpLLM`：Kimi ACP 后端（长驻 `kimi acp` 子进程 + ndjson JSON-RPC；token 级流式、思维链可见、审批反向请求路由） |
 
 ## 3. 接口设计
 
@@ -46,19 +47,20 @@ class LanguageModel(Protocol):
 | `LanguageModel` | 统一接口，返回 `Iterator[Chunk]` 逐块产出，与 UI 解耦 |
 | `Chunk` | 流式块：`kind="text"` 为正文增量；`kind="reasoning"` 为过程信息（思维链或工具调用摘要），仅当次显示、不回传 |
 | `LLMRegistry` | `register(name, llm)` / `get(name)` / `names()`；取未注册名称时抛 `KeyError` 并列出可用项 |
-| `KimiCliLLM` | 唯一 provider：本机 Kimi Code CLI（OAuth 自管凭证）；spawn 子进程逐行解析 JSONL，assistant 正文为**消息粒度**（非 token 流式），`tool_calls` 复用 reasoning 通道灰字展示；历史由 CLI 会话管理（meta 行 `session_id` 续接），`set_model(alias)` 切换模型、`reset_session()` 开新会话；⚠️ `-p` 固定 auto 权限，agent 可在项目目录读写文件与执行命令 |
+| `KimiCliLLM` | provider 之一（`"kimi-cli"`，默认）：本机 Kimi Code CLI（OAuth 自管凭证）；spawn 子进程逐行解析 JSONL，assistant 正文为**消息粒度**（非 token 流式），`tool_calls` 复用 reasoning 通道灰字展示；历史由 CLI 会话管理（meta 行 `session_id` 续接），`set_model(alias)` 切换模型、`reset_session()` 开新会话；⚠️ `-p` 固定 auto 权限，agent 可在项目目录读写文件与执行命令 |
+| `KimiAcpLLM` | provider 之二（`"kimi-acp"`）：长驻 `kimi acp` 子进程经 ndjson JSON-RPC 对接（[ACP 协议](https://agentclientprotocol.com)，Zed/JetBrains 同款集成方式）；**token 级流式**（`agent_message_chunk`）、思维链可见（`agent_thought_chunk` → reasoning 通道）、`session/new` 原生会话、`session/set_config_option` 会话内切模型；工具审批经 `set_permission_handler()` 注入的回调路由（GUI 模态框），无回调时自动允许（等价 `-p` auto），回调返回 None/异常按拒绝兜底；进程崩溃下轮自动重启并开新会话 |
 
 ## 4. 使用方式
 
 ```python
 from llm import KimiCliLLM, get_llm
 
-llm = get_llm()  # 默认 kimi-cli
+llm = get_llm()  # 默认 kimi-cli；get_llm("kimi-acp") 取 ACP 后端（token 流式 + 思维链）
 if isinstance(llm, KimiCliLLM):
     llm.set_model("kimi-code/kimi-for-coding-highspeed")  # 可选，默认 CLI default_model
 for chunk in llm.chat([{"role": "user", "content": "你好"}]):
     if chunk.kind == "reasoning":
-        print(chunk.text, end="", flush=True)  # 工具调用摘要：仅显示
+        print(chunk.text, end="", flush=True)  # 过程信息（思维链/工具摘要）：仅显示
     else:
         print(chunk.text, end="", flush=True)  # 正文
 ```

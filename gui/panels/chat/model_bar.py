@@ -22,6 +22,7 @@ class ModelBar(QWidget):
         self._model_combo = QComboBox(self)
         if kimi_available():
             self._model_combo.addItem("Kimi CLI", "kimi-cli")
+            self._model_combo.addItem("Kimi ACP", "kimi-acp")
         else:
             self._model_combo.addItem("Kimi CLI（未检测到）", "kimi-cli")
             self._model_combo.model().item(0).setEnabled(False)
@@ -45,7 +46,7 @@ class ModelBar(QWidget):
     def _refresh_versions(self, backend: str) -> None:
         self._updating = True
         self._version_combo.clear()
-        if backend == "kimi-cli":
+        if backend in ("kimi-cli", "kimi-acp"):
             for alias in list_kimi_models():
                 self._version_combo.addItem(alias, alias)
         self._updating = False

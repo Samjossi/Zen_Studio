@@ -2,7 +2,7 @@
 
 > **状态**：草稿
 > **范围**：`gui/` 包 — Zen Studio 图形界面
-> **时间**：2026-07-18 07:42（设计，UTC+8）
+> **时间**：2026-07-18 17:21（UTC+8）
 
 ---
 
@@ -19,9 +19,9 @@
 | [`theme.py`](theme.py) | 主题加载：读 `config/settings.json` 应用 qss 与全局字体 |
 | [`panels/__init__.py`](panels/__init__.py) | 面板包初始化，对外导出 `FileExplorer` |
 | [`panels/file_explorer.py`](panels/file_explorer.py) | 文件树面板（移植自 PyGPT explorer 裁剪版） |
-| [`panels/chat/`](panels/chat/) | 聊天面板子包（左栏）：`panel.py` 装配 / `output.py` 输出区 / `input.py` 输入框 / `model_bar.py` 模型版本行 / `worker.py` 流式线程 |
+| [`panels/chat/`](panels/chat/) | 聊天面板子包（左栏）：`panel.py` 装配 / `output.py` 输出区 / `input.py` 输入框 / `model_bar.py` 模型版本行 / `worker.py` 流式线程 / `permission_dialog.py` ACP 工具审批对话框 |
 
-> LLM 调用层为后端逻辑，位于项目根 [`llm/`](../llm/)（与 `gui/` 平级）：`base.py` Protocol / `registry.py` 注册表 / `providers/kimi_cli.py` 本机 Kimi Code CLI 后端。前端经 `from llm import get_llm` 消费。
+> LLM 调用层为后端逻辑，位于项目根 [`llm/`](../llm/)（与 `gui/` 平级）：`base.py` Protocol / `registry.py` 注册表 / `providers/kimi_cli.py`（stream-json 子进程）与 `providers/kimi_acp.py`（ACP 长驻）两个 Kimi Code CLI 后端。前端经 `from llm import get_llm` 消费。
 
 ## 3. 布局图
 
@@ -59,11 +59,13 @@
 | 组件 | 说明 |
 |:---|:---|
 | `LanguageModel` Protocol | 统一接口 `chat(messages) -> Iterator[Chunk]`，与 UI 解耦 |
-| `Chunk` | 流式块：`kind="text"` 正文 / `kind="reasoning"` 过程信息（工具调用摘要灰字展示） |
-| `LLMRegistry` | 名称 → provider 注册表，`get_llm("kimi-cli")` 取实例 |
-| `KimiCliLLM` | 本机 Kimi Code CLI 后端（OAuth 自管凭证）：消息粒度上屏、session_id 续接多轮、工具调用灰字摘要；⚠️ auto 权限下 agent 可在项目目录自主读写/执行 |
-| `ModelBar` | 输入区顶行双下拉：模型（本期仅 Kimi CLI，不可用时禁用）+ 版本（模型别名联动刷新），切换下次请求生效，发送中锁定 |
-| 多轮 | 历史由 CLI 会话管理（session_id 续接）；请求失败的用户消息不入历史，错误上屏不崩溃 |
+| `Chunk` | 流式块：`kind="text"` 正文 / `kind="reasoning"` 过程信息（思维链或工具调用摘要灰字展示） |
+| `LLMRegistry` | 名称 → provider 注册表，`get_llm("kimi-cli" \| "kimi-acp")` 取实例 |
+| `KimiCliLLM` | Kimi Code CLI 后端（spawn `-p` + stream-json）：消息粒度上屏、session_id 续接多轮、工具调用灰字摘要；⚠️ auto 权限下 agent 可在项目目录自主读写/执行 |
+| `KimiAcpLLM` | Kimi ACP 后端（长驻 `kimi acp` + JSON-RPC）：**token 级流式**、思维链可见（`agent_thought_chunk`）、`session/new` 原生会话、`session/set_config_option` 会话内切模型 |
+| `PermissionDialog` | ACP 工具审批模态框：工具名/参数摘要 + 选项按钮（允许一次/始终允许/拒绝）；reader 线程请求转 GUI 线程弹出，180s 无响应按拒绝兜底 |
+| `ModelBar` | 输入区顶行双下拉：模型（Kimi CLI / Kimi ACP，不可用时禁用）+ 版本（模型别名联动刷新），切换下次请求生效，发送中锁定 |
+| 多轮 | 历史由各后端会话管理；请求失败的用户消息不入历史，错误上屏不崩溃 |
 
 ## 5. 文件树面板（右栏）
 
