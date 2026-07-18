@@ -11,7 +11,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from gui.panels import FileExplorer
+from gui.panels import FileExplorer, ViewerPanel
 from gui.panels.chat import ChatPanel
 from gui.theme import apply_theme, load_settings, save_theme
 
@@ -33,9 +33,10 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("Zen Studio")
         self.resize(1200, 800)
 
-        # 中栏垂直拆分：上半部分 + 中栏下
+        # 中栏垂直拆分：上为文件查看器（只读+高亮），下为占位面板
         middle_splitter = QSplitter(Qt.Orientation.Vertical)
-        middle_splitter.addWidget(make_panel("中栏"))
+        self.viewer_panel = ViewerPanel()
+        middle_splitter.addWidget(self.viewer_panel)
         middle_splitter.addWidget(make_panel("中栏下"))
         middle_splitter.setSizes([550, 250])
 
@@ -45,11 +46,10 @@ class MainWindow(QMainWindow):
         splitter.addWidget(self.chat_panel)
         splitter.addWidget(middle_splitter)
 
-        # 右栏：文件树（根目录为项目根）
+        # 右栏：文件树（根目录为项目根）；双击文件 → 中栏查看器打开
         project_root = str(Path(__file__).resolve().parent.parent)
         self.file_explorer = FileExplorer(project_root)
-        # 编辑器未就绪前，临时以打印验证 file_opened 信号
-        self.file_explorer.file_opened.connect(lambda p: print(f"[file_opened] {p}"))
+        self.file_explorer.file_opened.connect(self.viewer_panel.open_file)
         splitter.addWidget(self.file_explorer)
 
         splitter.setSizes([320, 630, 250])
@@ -100,11 +100,12 @@ class MainWindow(QMainWindow):
         self.action_dark.triggered.connect(lambda: self._switch_theme("dark"))
 
     def _switch_theme(self, theme: str) -> None:
-        """切换主题：持久化 + 即时应用，并同步菜单勾选态。"""
+        """切换主题：持久化 + 即时应用，并同步菜单勾选态与查看器配色。"""
         save_theme(theme)
         app = QApplication.instance()
         if app is not None:
             apply_theme(app)
+        self.viewer_panel.apply_theme(theme)
         self.action_dark.setChecked(theme == "dark")
         self.action_light.setChecked(theme == "light")
         self.statusBar().showMessage(f"已切换为{'暗色' if theme == 'dark' else '浅色'}主题", 3000)
