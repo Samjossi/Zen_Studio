@@ -12,15 +12,22 @@
 字体（2026-07-19）：优先注册 assets/fonts/思源黑体/ 自带字体
 （Source Han Sans CN，SIL OFL 1.1，见该目录 LICENSE.txt），
 保障分发一致性与真字重层级；注册失败回退系统 Noto Sans CJK SC。
+
+配置读写（2026-07-19）：通用持久化已抽到 gui/settings.py，
+本模块仅保留主题相关的校验包装与样式应用。
 """
-import json
 from pathlib import Path
 
 from PySide6.QtGui import QFont, QFontDatabase
 from PySide6.QtWidgets import QApplication
 
-CONFIG_DIR = Path(__file__).resolve().parent.parent / "config"
-SETTINGS_FILE = CONFIG_DIR / "settings.json"
+from gui.settings import (
+    CONFIG_DIR,
+    DEFAULT_SETTINGS,
+    load_settings as _load_raw_settings,
+    update_settings,
+)
+
 THEMES_DIR = CONFIG_DIR / "themes"
 
 #: 主题注册表：键 = qss 文件名（不含扩展名）；label = 菜单显示名；family = 族
@@ -43,12 +50,6 @@ BUNDLED_FONT_FILES = (
 )
 BUNDLED_FAMILY = "Source Han Sans CN"
 FALLBACK_FAMILY = "Noto Sans CJK SC"
-
-DEFAULT_SETTINGS = {
-    "theme": "cloud",
-    "font_family": BUNDLED_FAMILY,
-    "font_size": 10,
-}
 
 
 # ----------------------------------------------------------------------
@@ -75,16 +76,11 @@ def get_label(theme: str) -> str:
 
 
 # ----------------------------------------------------------------------
-# 持久化
+# 持久化（通用读写见 gui/settings.py；此处补主题有效性校验）
 # ----------------------------------------------------------------------
 def load_settings() -> dict:
     """读取持久化配置，缺失字段回退默认值；无效主题名静默回退默认主题。"""
-    settings = dict(DEFAULT_SETTINGS)
-    try:
-        with open(SETTINGS_FILE, encoding="utf-8") as f:
-            settings.update(json.load(f))
-    except (OSError, json.JSONDecodeError):
-        pass
+    settings = _load_raw_settings()
     if not is_valid(settings["theme"]):
         settings["theme"] = DEFAULT_SETTINGS["theme"]
     return settings
@@ -92,11 +88,7 @@ def load_settings() -> dict:
 
 def save_theme(theme: str) -> None:
     """回写用户所选主题，实现持久化。"""
-    settings = load_settings()
-    settings["theme"] = theme
-    SETTINGS_FILE.parent.mkdir(exist_ok=True)
-    with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
-        json.dump(settings, f, ensure_ascii=False, indent=2)
+    update_settings({"theme": theme})
 
 
 def _register_bundled_fonts() -> bool:

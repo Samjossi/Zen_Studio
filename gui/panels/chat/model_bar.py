@@ -1,7 +1,13 @@
-"""模型行：模型下拉（后端）+ 版本下拉（输入区顶行）。"""
-from PySide6.QtCore import Signal
+"""模型行：模型下拉（后端）+ 版本下拉（输入区顶行）。
+
+选择持久化（2026-07-19，见 文档/修改记录/2026-0719-0712_GUI窗口状态
+与模型选择持久化计划.md）：启动时 set_selection 恢复上次选择（无效项
+静默回退默认），用户主动切换即时写盘。
+"""
+from PySide6.QtCore import QSignalBlocker, Signal
 from PySide6.QtWidgets import QComboBox, QHBoxLayout, QLabel, QWidget
 
+from gui.settings import load_settings, update_settings
 from llm import kimi_available, list_kimi_models
 
 
@@ -40,6 +46,35 @@ class ModelBar(QWidget):
         self._model_combo.currentIndexChanged.connect(self._on_model_changed)
         self._version_combo.currentIndexChanged.connect(self._on_version_changed)
 
+        # 启动时恢复持久化选择（无记录/无效项回退默认）
+        settings = load_settings()
+        self.set_selection(settings.get("model_backend"), settings.get("model_version"))
+
+    # ------------------------------------------------------------------
+    # 持久化
+    # ------------------------------------------------------------------
+    def current_backend(self) -> str:
+        """当前后端（registry 名）。"""
+        return self._model_combo.currentData()
+
+    def current_version(self) -> str | None:
+        """当前版本（模型别名）；版本列表为空时为 None。"""
+        return self._version_combo.currentData()
+
+    def set_selection(self, backend: str | None, version: str | None) -> None:
+        """恢复持久化选择：定位后端 → 刷新版本列表 → 定位版本。
+
+        全程阻断信号（不触发 selection_changed / 不写盘）；
+        后端或版本已失效时静默回退到可用默认项。
+        """
+        with QSignalBlocker(self._model_combo), QSignalBlocker(self._version_combo):
+            index = self._model_combo.findData(backend) if backend else -1
+            self._model_combo.setCurrentIndex(max(index, 0))
+            self._refresh_versions(self._model_combo.currentData())
+            vindex = self._version_combo.findData(version) if version else -1
+            if self._version_combo.count():
+                self._version_combo.setCurrentIndex(max(vindex, 0))
+
     # ------------------------------------------------------------------
     # 联动
     # ------------------------------------------------------------------
@@ -63,4 +98,7 @@ class ModelBar(QWidget):
 
     def _emit(self, index: int) -> None:
         backend = self._model_combo.currentData()
-        self.selection_changed.emit(backend, self._version_combo.itemData(index))
+        version = self._version_combo.itemData(index)
+        # 用户主动切换（非启动恢复）即时持久化
+        update_settings({"model_backend": backend, "model_version": version})
+        self.selection_changed.emit(backend, version)

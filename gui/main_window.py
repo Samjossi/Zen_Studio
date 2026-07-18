@@ -1,8 +1,13 @@
-"""主窗口：三栏式布局 + 菜单栏/状态栏骨架。"""
+"""主窗口：三栏式布局 + 菜单栏/状态栏骨架。
+
+窗口几何与分隔栏状态持久化（2026-07-19，见 文档/修改记录/
+2026-0719-0712_GUI窗口状态与模型选择持久化计划.md）：
+启动时 restore，closeEvent 时一次性保存；损坏数据静默回退默认布局。
+"""
 from pathlib import Path
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QActionGroup
+from PySide6.QtGui import QActionGroup, QCloseEvent
 from PySide6.QtWidgets import (
     QApplication,
     QMainWindow,
@@ -12,6 +17,7 @@ from PySide6.QtWidgets import (
 from gui.panels import FileExplorer, ViewerPanel
 from gui.panels.chat import ChatPanel
 from gui.panels.terminal import TerminalPanel
+from gui.settings import decode_state, encode_state, update_settings
 from gui.theme import (
     apply_theme,
     available_themes,
@@ -29,36 +35,66 @@ class MainWindow(QMainWindow):
         self.resize(1200, 800)
 
         # 中栏垂直拆分：上为文件查看器（只读+高亮），下为内嵌终端（真 PTY）
-        middle_splitter = QSplitter(Qt.Orientation.Vertical)
+        self._splitter_middle = QSplitter(Qt.Orientation.Vertical)
         self.viewer_panel = ViewerPanel()
         self.terminal_panel = TerminalPanel()
-        middle_splitter.addWidget(self.viewer_panel)
-        middle_splitter.addWidget(self.terminal_panel)
-        middle_splitter.setSizes([550, 250])
+        self._splitter_middle.addWidget(self.viewer_panel)
+        self._splitter_middle.addWidget(self.terminal_panel)
+        self._splitter_middle.setSizes([550, 250])
         # 防折叠：终端栏最小高度由 TerminalPanel.MIN_HEIGHT 约束（collapsible 默认 true 会无视之）
-        middle_splitter.setCollapsible(1, False)
+        self._splitter_middle.setCollapsible(1, False)
 
-        splitter = QSplitter(Qt.Orientation.Horizontal)
+        self._splitter_main = QSplitter(Qt.Orientation.Horizontal)
         # 左栏：AI 聊天面板
         self.chat_panel = ChatPanel()
-        splitter.addWidget(self.chat_panel)
-        splitter.addWidget(middle_splitter)
+        self._splitter_main.addWidget(self.chat_panel)
+        self._splitter_main.addWidget(self._splitter_middle)
 
         # 右栏：文件树（根目录为项目根）；双击文件 → 中栏查看器打开
         project_root = str(Path(__file__).resolve().parent.parent)
         self.file_explorer = FileExplorer(project_root)
         self.file_explorer.file_opened.connect(self.viewer_panel.open_file)
-        splitter.addWidget(self.file_explorer)
+        self._splitter_main.addWidget(self.file_explorer)
 
-        splitter.setSizes([320, 630, 250])
+        self._splitter_main.setSizes([320, 630, 250])
         # 防折叠：右栏文件树最小宽度由 FileExplorer.MIN_WIDTH 约束
-        splitter.setCollapsible(2, False)
+        self._splitter_main.setCollapsible(2, False)
 
-        self.setCentralWidget(splitter)
+        self.setCentralWidget(self._splitter_main)
 
         self._build_menus()
         self.statusBar().setSizeGripEnabled(False)  # 去掉右下角尺寸把手（原生边框已可缩放）
         self.statusBar().showMessage("就绪")
+
+        self._restore_window_state()
+
+    # ------------------------------------------------------------------
+    # 窗口几何与分隔栏状态持久化
+    # ------------------------------------------------------------------
+    def _restore_window_state(self) -> None:
+        """启动时恢复窗口几何与三处分隔栏；无记录或数据损坏时保留默认布局。"""
+        settings = load_settings()
+        geometry = settings.get("window_geometry")
+        if geometry:
+            self.restoreGeometry(decode_state(geometry))
+        for splitter, key in (
+            (self._splitter_main, "splitter_main"),
+            (self._splitter_middle, "splitter_middle"),
+        ):
+            state = settings.get(key)
+            if state:
+                splitter.restoreState(decode_state(state))
+        self.chat_panel.restore_state(settings.get("splitter_chat"))
+
+    def closeEvent(self, event: QCloseEvent) -> None:
+        """关闭时一次性保存窗口几何与三处分隔栏状态。"""
+        update_settings({
+            "window_geometry": encode_state(self.saveGeometry()),
+            "splitter_main": encode_state(self._splitter_main.saveState()),
+            "splitter_middle": encode_state(self._splitter_middle.saveState()),
+            "splitter_chat": self.chat_panel.save_state(),
+        })
+        super().closeEvent(event)
 
     # ------------------------------------------------------------------
     # 菜单栏骨架

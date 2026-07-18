@@ -4,6 +4,7 @@ import threading
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import QSplitter, QVBoxLayout, QWidget
 
+from gui.settings import decode_state, encode_state
 from llm import Chunk, KimiAcpLLM, KimiCliLLM, Message, get_llm
 from gui.panels.chat.input import ChatInput
 from gui.panels.chat.model_bar import ModelBar
@@ -33,11 +34,14 @@ class ChatPanel(QWidget):
         self._worker: ChatWorker | None = None
         self._stream_buffer = ""
         self._seen_reasoning = False
-        self._llm_name = "kimi-cli"  # 当前后端（registry 名，本期唯一）
 
         self.output = ChatOutput(self)
         self.input = ChatInput(self)
         self.model_bar = ModelBar(self)
+        # 启动一致性：后端与版本取 ModelBar 恢复后的持久化选择，
+        # 并主动同步 provider 单例，避免"UI 显示与后端生效"不一致
+        self._llm_name = self.model_bar.current_backend()
+        self._sync_backend_model()
 
         # 输入区容器：模型行在上，输入框在下
         input_area = QWidget(self)
@@ -47,18 +51,30 @@ class ChatPanel(QWidget):
         input_layout.setContentsMargins(0, 0, 0, 0)
         input_layout.setSpacing(0)
 
-        splitter = QSplitter(Qt.Orientation.Vertical)
-        splitter.addWidget(self.output)
-        splitter.addWidget(input_area)
-        splitter.setSizes([550, 180])
+        self._splitter = QSplitter(Qt.Orientation.Vertical)
+        self._splitter.addWidget(self.output)
+        self._splitter.addWidget(input_area)
+        self._splitter.setSizes([550, 180])
 
         layout = QVBoxLayout(self)
-        layout.addWidget(splitter)
+        layout.addWidget(self._splitter)
         layout.setContentsMargins(0, 0, 0, 0)
 
         self.input.send_requested.connect(self._on_send)
         self.model_bar.selection_changed.connect(self._on_selection_changed)
         self._wire_permission_handler()
+
+    # ------------------------------------------------------------------
+    # 输出/输入区分隔栏状态持久化（由 MainWindow 统一调用）
+    # ------------------------------------------------------------------
+    def save_state(self) -> str:
+        """分隔栏状态 → base64 字符串。"""
+        return encode_state(self._splitter.saveState())
+
+    def restore_state(self, state: str | None) -> None:
+        """恢复分隔栏；None 或损坏数据静默保留默认尺寸。"""
+        if state:
+            self._splitter.restoreState(decode_state(state))
 
     # ------------------------------------------------------------------
     # ACP 审批回环（reader 线程 → GUI 线程模态框）
@@ -96,6 +112,16 @@ class ChatPanel(QWidget):
     # ------------------------------------------------------------------
     # 后端/版本切换
     # ------------------------------------------------------------------
+    def _sync_backend_model(self) -> None:
+        """把 ModelBar 当前选中版本写入 provider 单例（启动时调用一次）。"""
+        version = self.model_bar.current_version()
+        try:
+            llm = get_llm(self._llm_name)
+        except KeyError:
+            return  # 后端不可用（未检测到本机 agent CLI），发送时再提示
+        if isinstance(llm, (KimiCliLLM, KimiAcpLLM)) and isinstance(version, str):
+            llm.set_model(version)
+
     def _on_selection_changed(self, backend: str, version: object) -> None:
         """切换后端/版本：写 provider 单例状态，下次请求生效。
 
