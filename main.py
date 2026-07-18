@@ -13,6 +13,7 @@ from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication
 
 from gui import MainWindow
+from gui.theme import apply_theme
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 SCREENSHOT_DIR = PROJECT_ROOT / ".tmp"
@@ -52,6 +53,7 @@ def setup_screenshot(window: MainWindow, interval: int, on_start: bool) -> QTime
 def main() -> None:
     args = parse_args(sys.argv[1:])
     app = QApplication(sys.argv)
+    apply_theme(app)
     window = MainWindow()
     window.show()
 
