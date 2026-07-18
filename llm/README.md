@@ -21,6 +21,7 @@
 | [`registry.py`](registry.py) | `LLMRegistry`：名称 → provider 实例的注册表 |
 | [`providers/__init__.py`](providers/__init__.py) | provider 子包标记（每家厂商一个文件） |
 | [`providers/deepseek.py`](providers/deepseek.py) | `DeepSeekLLM`：openai SDK 直连 DeepSeek 端点（流式 + 版本项切换 + 思考模式参数化 + 思维链分流） |
+| [`providers/kimi_cli.py`](providers/kimi_cli.py) | `KimiCliLLM`：本机 Kimi Code CLI 后端（spawn `kimi -p --output-format stream-json` 子进程 + session_id 续接） |
 
 ## 3. 接口设计
 
@@ -45,7 +46,8 @@ class LanguageModel(Protocol):
 | `Chunk` | 流式块：`kind="text"` 为正文增量；`kind="reasoning"` 为思维链增量（仅当次显示，**不回传入请求历史**——无工具调用时 API 会忽略，统一不回传最安全） |
 | `LLMRegistry` | `register(name, llm)` / `get(name)` / `names()`；取未注册名称时抛 `KeyError` 并列出可用项 |
 | `ModelVersion` | 版本项：`api_id` + `alias` + `thinking`（思考开关）+ `send_thinking`（是否下发 thinking 参数） |
-| `DeepSeekLLM` | 首发 provider：端点 `https://api.deepseek.com`，openai SDK `stream=True`；`MODELS` 定义 4 个版本项（V4 Flash/Pro × 思考/非思考）；`set_version()` 校验切换（下次请求生效），经 `extra_body` 下发思考开关；`label_for(version)` 单点维护显示格式、`current_label` 返回当前版本项显示名 |
+| `DeepSeekLLM` | provider：端点 `https://api.deepseek.com`，openai SDK `stream=True`；`MODELS` 定义 4 个版本项（V4 Flash/Pro × 思考/非思考）；`set_version()` 校验切换（下次请求生效），经 `extra_body` 下发思考开关；`label_for(version)` 单点维护显示格式、`current_label` 返回当前版本项显示名 |
+| `KimiCliLLM` | provider：本机 Kimi Code CLI（OAuth 自管凭证，代码库零密钥）；spawn 子进程逐行解析 JSONL，assistant 正文为**消息粒度**（非 token 流式），`tool_calls` 复用 reasoning 通道灰字展示；历史由 CLI 会话管理（meta 行 `session_id` 续接），`set_model(alias)` 切换模型、`reset_session()` 开新会话；⚠️ `-p` 固定 auto 权限，agent 可在项目目录读写文件与执行命令 |
 
 ## 4. 使用方式
 
@@ -75,6 +77,6 @@ for chunk in llm.chat([{"role": "user", "content": "你好"}]):
 
 ## 6. 新增 provider
 
-1. 在 [`providers/`](providers/) 下新建 `<厂商>.py`，实现 `LanguageModel` 协议（`chat()` 为流式 generator）
-2. 在 [`llm/__init__.py`](__init__.py) 中导入并 `registry.register("<名称>", XxxLLM())`
-3. 密钥文件放项目根 `api_key/<名称>`，读取方式仿 `deepseek._load_api_key`
+1. 在 [`providers/`](providers/) 下新建 `<厂商>.py`，实现 `LanguageModel` 协议（`chat()` 为流式 generator；历史策略由各实现自决——DeepSeek 全量回传、KimiCli 仅取末条 user 消息 + CLI 侧会话）
+2. 在 [`llm/__init__.py`](__init__.py) 中导入并 `registry.register("<名称>", XxxLLM())`（外部 CLI 类 provider 先 `shutil.which` 检测可用性再注册）
+3. 凭证管理：API key 类放项目根 `api_key/<名称>`（读取仿 `deepseek._load_api_key`）；CLI 类凭证由 CLI 自管，代码库不出现密钥

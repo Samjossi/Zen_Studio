@@ -1,28 +1,34 @@
-"""模型行：模型下拉 + 版本下拉（输入区顶行）。"""
+"""模型行：模型下拉（后端）+ 版本下拉（输入区顶行）。"""
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QComboBox, QHBoxLayout, QLabel, QWidget
 
-from llm import MODELS, ModelVersion, label_for
+from llm import MODELS, kimi_available, label_for, list_kimi_models
 
 
 class ModelBar(QWidget):
-    """输入区顶行：模型（厂商）+ 版本双下拉。
+    """输入区顶行：模型（后端）+ 版本双下拉，版本列表按后端联动刷新。
 
-    本期仅 DeepSeek 一家 provider，模型下拉仅一项占位；
-    多 provider 时代模型变更时刷新版本列表（见实施计划第 8 节备案）。
+    kimi CLI 不可用（未安装/未登录）时对应项禁用；OpenCode/Kilo Code 等
+    后端接入后在此扩展（见 KimiCLI 接入计划第 8 节备案）。
     """
 
-    #: 版本切换（携带 ModelVersion）
-    model_changed = Signal(object)
+    #: 后端/版本切换（携带 registry 后端名 + 版本载荷：ModelVersion 或模型别名 str）
+    selection_changed = Signal(str, object)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        self._updating = False  # 联动刷新时抑制信号
+
         self._model_combo = QComboBox(self)
-        self._model_combo.addItem("DeepSeek", "deepseek")
+        self._model_combo.addItem("DeepSeek API", "deepseek")
+        if kimi_available():
+            self._model_combo.addItem("Kimi CLI", "kimi-cli")
+        else:
+            self._model_combo.addItem("Kimi CLI（未检测到）", "kimi-cli")
+            self._model_combo.model().item(1).setEnabled(False)
 
         self._version_combo = QComboBox(self)
-        for version in MODELS:
-            self._version_combo.addItem(label_for(version), version)
+        self._refresh_versions("deepseek")
 
         layout = QHBoxLayout(self)
         layout.addWidget(QLabel("模型", self))
@@ -34,9 +40,30 @@ class ModelBar(QWidget):
         self._model_combo.currentIndexChanged.connect(self._on_model_changed)
         self._version_combo.currentIndexChanged.connect(self._on_version_changed)
 
+    # ------------------------------------------------------------------
+    # 联动
+    # ------------------------------------------------------------------
+    def _refresh_versions(self, backend: str) -> None:
+        self._updating = True
+        self._version_combo.clear()
+        if backend == "deepseek":
+            for version in MODELS:
+                self._version_combo.addItem(label_for(version), version)
+        else:
+            for alias in list_kimi_models():
+                self._version_combo.addItem(alias, alias)
+        self._updating = False
+
     def _on_model_changed(self, index: int) -> None:
-        # 本期仅 DeepSeek 一家；多 provider 时代按所选模型刷新版本列表
-        pass
+        backend = self._model_combo.itemData(index)
+        self._refresh_versions(backend)
+        if self._version_combo.count():
+            self._emit(0)
 
     def _on_version_changed(self, index: int) -> None:
-        self.model_changed.emit(self._version_combo.itemData(index))
+        if not self._updating and index >= 0:
+            self._emit(index)
+
+    def _emit(self, index: int) -> None:
+        backend = self._model_combo.currentData()
+        self.selection_changed.emit(backend, self._version_combo.itemData(index))
