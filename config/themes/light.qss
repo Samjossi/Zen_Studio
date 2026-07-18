@@ -5,7 +5,7 @@
 QWidget {
     background-color: #ffffff;
     color: #000000;
-    selection-background-color: #828282;
+    selection-background-color: #0765d4;
     selection-color: #ffffff;
 }
 
@@ -23,7 +23,7 @@ QPlainTextEdit {
     border: 1px solid #dedede;
 }
 
-/* 树/列表：行高紧凑、悬停微灰、灰底白字选中 */
+/* 树/列表：行高紧凑、悬停微灰、蓝底白字选中（与暗色主题选中色一致） */
 QTreeView,
 QListView {
     background-color: #ffffff;
@@ -43,7 +43,7 @@ QListView::item:hover:!selected {
 
 QTreeView::item:selected,
 QListView::item:selected {
-    background-color: #828282;
+    background-color: #0765d4;
     color: #ffffff;
 }
 
@@ -55,7 +55,7 @@ QMenu {
 
 QMenuBar::item:selected,
 QMenu::item:selected {
-    background-color: #828282;
+    background-color: #0765d4;
     color: #ffffff;
 }
 

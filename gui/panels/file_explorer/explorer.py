@@ -55,6 +55,9 @@ class FileExplorer(ExplorerActionsMixin, QWidget):
         self.tree.setUniformRowHeights(True)
         self.tree.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.tree.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        # 禁止双击/按键触发重命名编辑（防误操作）；
+        # 重命名仅经右键菜单以 tree.edit() 编程式触发，不受此限
+        self.tree.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.tree.customContextMenuRequested.connect(self._open_context_menu)
         self.tree.doubleClicked.connect(self._on_double_clicked)
