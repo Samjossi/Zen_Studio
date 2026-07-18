@@ -2,9 +2,11 @@
 
 AI-first 定位：永久只读（产品决策，`setReadOnly` 可逆）；行号为人与 AI 的对话坐标系。
 行号栏采用 Qt 经典 lineNumberArea 模式。
+软换行（2026-07-19 决策）：WidgetWidthWrap + 单词边界优先，超长行自动折行不出水平滚动条；
+行号按逻辑行（block）编号，折出的续行无行号（与 VS Code 一致）。
 """
 from PySide6.QtCore import QRect, QSize, Qt
-from PySide6.QtGui import QColor, QFontDatabase, QPainter, QTextFormat
+from PySide6.QtGui import QColor, QFontDatabase, QPainter, QTextFormat, QTextOption
 from PySide6.QtWidgets import QApplication, QPlainTextEdit, QTextEdit, QWidget
 
 #: 查看器控件配色（行号/当前行；文本高亮配色见 highlighter.PALETTES）
@@ -29,12 +31,14 @@ class _LineNumberArea(QWidget):
 
 
 class CodeViewer(QPlainTextEdit):
-    """只读代码查看器（等宽字体、行号栏、当前行高亮、不自动换行）。"""
+    """只读代码查看器（等宽字体、行号栏、当前行高亮、软换行）。"""
 
     def __init__(self, theme: str = "light", parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setReadOnly(True)  # AI-first：永久只读（产品决策；setReadOnly 可逆）
-        self.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
+        # 软换行：按控件宽度折行，优先单词边界、无空格长串任意处硬断（不出水平滚动条）
+        self.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
+        self.setWordWrapMode(QTextOption.WrapMode.WrapAtWordBoundaryOrAnywhere)
         font = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
         if app := QApplication.instance():
             font.setPointSizeF(app.font().pointSizeF())
