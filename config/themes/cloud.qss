@@ -17,9 +17,9 @@ QDialog {
 
 /* ---- 面板分区与标题行（objectName 接线见各面板代码） ---- */
 
-/* 侧栏（左/右栏）：浅灰底 */
+/* 侧栏（左/右栏）：向窗口底 #ffffff 微偏一点的灰（三栏似分未分） */
 #SidePanel {
-    background-color: #f5f5f7;
+    background-color: #fafafb;
 }
 /* 面板标题行：统一半粗（真 Medium 字重）；提示为次级灰 */
 #PanelTitle {

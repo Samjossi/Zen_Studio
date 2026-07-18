@@ -17,7 +17,7 @@ QDialog {
 /* ---- 面板分区与标题行（objectName 接线见各面板代码） ---- */
 
 #SidePanel {
-    background-color: #f2ede3;
+    background-color: #f7f4ef;
 }
 
 #PanelTitle {
