@@ -12,7 +12,7 @@
 
 **统一后端策略**：对话统一经本机 agent CLI（当前为 Kimi Code CLI）完成，代码库**不存放、不读取、不输入任何 API KEY**——凭证由各 CLI 自行管理（如 kimi 的 OAuth）。DeepSeek API KEY 直连已于 2026-07-18 移除（见 [`文档/修改记录/2026-0718-1455_移除APIKEY直连统一CLI后端实施计划.md`](../文档/修改记录/2026-0718-1455_移除APIKEY直连统一CLI后端实施计划.md)）。
 
-设计蓝本：theia-zen `LanguageModel` Protocol + 注册表模式，选型依据见 [`work options/2026-0718-1215_对话栏AI聊天面板选型报告.md`](../work%20options/2026-0718-1215_对话栏AI聊天面板选型报告.md)。
+设计蓝本：theia-zen `LanguageModel` Protocol + 注册表模式，选型依据见 [`文档/选型记录/2026-0718-1215_对话栏AI聊天面板选型报告.md`](../文档/选型记录/2026-0718-1215_对话栏AI聊天面板选型报告.md)。
 
 ## 2. 文件结构
 
