@@ -10,7 +10,7 @@
 import shutil
 from pathlib import Path
 
-from PySide6.QtCore import QUrl, Signal, Qt
+from PySide6.QtCore import QSortFilterProxyModel, QUrl, Signal, Qt
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -26,10 +26,33 @@ from PySide6.QtWidgets import (
 )
 
 
+class NoiseFilterProxyModel(QSortFilterProxyModel):
+    """按名称排除噪音目录/文件的代理模型。
+
+    注意：QFileSystemModel.setNameFilters 是"仅显示匹配项"语义，
+    无法实现"排除式"过滤，故改用代理模型。
+    """
+
+    def __init__(self, noise_names: set[str], parent=None) -> None:
+        super().__init__(parent)
+        self.noise_names = noise_names
+        self.filter_enabled = True
+
+    def filterAcceptsRow(self, source_row: int, source_parent) -> bool:
+        if not self.filter_enabled:
+            return True
+        model = self.sourceModel()
+        index = model.index(source_row, 0, source_parent)
+        return model.fileName(index) not in self.noise_names
+
+
 class FileExplorer(QWidget):
     """目录文件浏览器（右栏面板）。"""
 
     file_opened = Signal(str)
+
+    #: 噪音目录/文件过滤清单
+    NOISE_NAMES = {"__pycache__", ".git", ".venv", "node_modules"}
 
     def __init__(self, root_dir: str, parent: QWidget | None = None) -> None:
         """
@@ -43,9 +66,12 @@ class FileExplorer(QWidget):
         self.model.setRootPath(self.root_dir)
         self.model.setReadOnly(False)  # 允许重命名编辑
 
+        self.proxy = NoiseFilterProxyModel(self.NOISE_NAMES, self)
+        self.proxy.setSourceModel(self.model)
+
         self.tree = QTreeView(self)
-        self.tree.setModel(self.model)
-        self.tree.setRootIndex(self.model.index(self.root_dir))
+        self.tree.setModel(self.proxy)
+        self.tree.setRootIndex(self.proxy.mapFromSource(self.model.index(self.root_dir)))
         self.tree.setUniformRowHeights(True)
         self.tree.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.tree.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
@@ -58,7 +84,9 @@ class FileExplorer(QWidget):
         for col in range(1, self.model.columnCount()):
             self.tree.hideColumn(col)
 
-        self.path_label = QLabel(self.root_dir)
+        # 只显示根目录名，完整路径悬停可见（修复栏宽截断问题）
+        self.path_label = QLabel(Path(self.root_dir).name)
+        self.path_label.setToolTip(self.root_dir)
         self.path_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         header = QHBoxLayout()
@@ -72,13 +100,25 @@ class FileExplorer(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
 
     # ------------------------------------------------------------------
+    # 公开接口
+    # ------------------------------------------------------------------
+    def set_noise_filter(self, enabled: bool) -> None:
+        """切换噪音过滤（隐藏 __pycache__、.git、.venv、node_modules）。"""
+        self.proxy.filter_enabled = enabled
+        self.proxy.invalidateFilter()
+
+    # ------------------------------------------------------------------
     # 内部：选中项辅助
     # ------------------------------------------------------------------
+    def _file_path(self, proxy_index) -> str:
+        """代理索引 → 文件系统路径。"""
+        return self.model.filePath(self.proxy.mapToSource(proxy_index))
+
     def _selected_paths(self) -> list[str]:
         """返回当前选中的所有文件系统路径。"""
         paths = []
         for index in self.tree.selectionModel().selectedRows(0):
-            paths.append(self.model.filePath(index))
+            paths.append(self._file_path(index))
         return paths
 
     def _anchor_dir(self) -> Path:
@@ -93,7 +133,7 @@ class FileExplorer(QWidget):
     # 槽函数
     # ------------------------------------------------------------------
     def _on_double_clicked(self, index) -> None:
-        path = Path(self.model.filePath(index))
+        path = Path(self._file_path(index))
         if path.is_file():
             self.file_opened.emit(str(path))
 
@@ -136,7 +176,7 @@ class FileExplorer(QWidget):
     def _action_open(self, index) -> None:
         if not index.isValid():
             return
-        path = Path(self.model.filePath(index))
+        path = Path(self._file_path(index))
         if path.is_dir():
             self.tree.expand(index)
         else:
@@ -145,7 +185,7 @@ class FileExplorer(QWidget):
     def _action_reveal(self, index) -> None:
         if not index.isValid():
             return
-        path = Path(self.model.filePath(index))
+        path = Path(self._file_path(index))
         target = path if path.is_dir() else path.parent
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(target)))
 
