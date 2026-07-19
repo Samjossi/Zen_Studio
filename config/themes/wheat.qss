@@ -33,6 +33,28 @@ QDialog {
     padding: 2px 8px;
 }
 
+/* 终端面板 tab 条：透明融入头部栏，激活态 2px 下划线（Multi_Cli 范式） */
+#TerminalTabs {
+    background: transparent;
+}
+
+#TerminalTabs::tab {
+    background: transparent;
+    color: #9a8f7d;
+    padding: 2px 8px;
+    border: none;
+    border-bottom: 2px solid transparent;
+}
+
+#TerminalTabs::tab:selected {
+    color: #463f33;
+    border-bottom: 2px solid #c26a1a;
+}
+
+#TerminalTabs::tab:hover:!selected {
+    color: #463f33;
+}
+
 /* ---- 输入与文本区：白底 + 1px 暖调描边，焦点实色橙 ---- */
 
 QLineEdit,

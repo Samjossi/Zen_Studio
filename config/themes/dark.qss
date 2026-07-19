@@ -37,6 +37,28 @@ QDialog {
     padding: 2px 8px;
 }
 
+/* 终端面板 tab 条：透明融入头部栏，激活态 2px 下划线（Multi_Cli 范式） */
+#TerminalTabs {
+    background: transparent;
+}
+
+#TerminalTabs::tab {
+    background: transparent;
+    color: #86868b;
+    padding: 2px 8px;
+    border: none;
+    border-bottom: 2px solid transparent;
+}
+
+#TerminalTabs::tab:selected {
+    color: #f5f5f7;
+    border-bottom: 2px solid #0765d4;
+}
+
+#TerminalTabs::tab:hover:!selected {
+    color: #f5f5f7;
+}
+
 /* ---- 输入与文本区：浮起灰底 + 半透明白描边，焦点实色蓝 ----
  * （有 1px 边框后 padding 较无边框版减 1px，保持控件视觉高度一致） */
 

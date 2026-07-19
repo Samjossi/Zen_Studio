@@ -73,6 +73,11 @@ class TerminalScreen:
         """光标（pyte Cursor：x/y/attrs）。"""
         return self._screen.cursor
 
+    @property
+    def title(self) -> str:
+        """终端标题（shell 经 OSC 0/2 序列设置；空串表示未设置）。"""
+        return self._screen.title
+
     # ------------------------------------------------------------------
     # 读取
     # ------------------------------------------------------------------

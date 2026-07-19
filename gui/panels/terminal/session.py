@@ -27,6 +27,7 @@ class PtySession(QObject):
         super().__init__(parent)
         self._proc: PtyProcess | None = None
         self._closing = False  # 应用退出中：reader 线程不再发射信号（防销毁期 UB）
+        self._generation = 0  # 进程代次：重开后旧代 reader 的退出信号作废（防竞态污染新会话状态）
         if app := QCoreApplication.instance():
             app.aboutToQuit.connect(self._on_about_to_quit)
         atexit.register(self.terminate)
@@ -42,12 +43,16 @@ class PtySession(QObject):
     # ------------------------------------------------------------------
     def start(self, columns: int = 80, lines: int = 24) -> None:
         """spawn $SHELL（cwd=项目根，TERM=xterm-256color）并启动 reader 线程。"""
+        # 先换代再 terminate：terminate 内部 sleep 阶梯期间旧 reader 即完成退出检查，
+        # 代次若在其后才递增，旧退出信号（SIGHUP 致死 code 0）会漏过守卫污染新会话
+        self._generation += 1
         self.terminate()
         shell = os.environ.get("SHELL", "/bin/bash")
         env = dict(os.environ, TERM="xterm-256color")
         self._proc = PtyProcess.spawn(
             [shell], cwd=str(PROJECT_ROOT), env=env, dimensions=(lines, columns))
-        threading.Thread(target=self._read_loop, args=(self._proc,), daemon=True).start()
+        threading.Thread(
+            target=self._read_loop, args=(self._proc, self._generation), daemon=True).start()
 
     def terminate(self) -> None:
         """终止子进程（幂等；应用退出经 atexit 兜底）。"""
@@ -81,8 +86,12 @@ class PtySession(QObject):
     # ------------------------------------------------------------------
     # reader 线程
     # ------------------------------------------------------------------
-    def _read_loop(self, proc: PtyProcess) -> None:
-        """阻塞读字节流并转发信号；EOF/异常（进程退出）结束循环。"""
+    def _read_loop(self, proc: PtyProcess, generation: int) -> None:
+        """阻塞读字节流并转发信号；EOF/异常（进程退出）结束循环。
+
+        generation 为 spawn 时的代次：重开后旧代 reader 的退出信号作废，
+        防止 terminate 旧进程产生的晚到退出信号污染新会话状态。
+        """
         try:
             while proc.isalive():
                 try:
@@ -91,7 +100,7 @@ class PtySession(QObject):
                     break
                 if not data:
                     break
-                if self._may_emit():
+                if generation == self._generation and self._may_emit():
                     self.data_received.emit(data)
         finally:
             code = -1
@@ -100,5 +109,5 @@ class PtySession(QObject):
                     code = proc.wait()
             except Exception:  # noqa: BLE001 — 退出码不可得时按 -1
                 code = getattr(proc, "exitstatus", -1) or -1
-            if self._may_emit():
+            if generation == self._generation and self._may_emit():
                 self.process_exited.emit(code)

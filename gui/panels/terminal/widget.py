@@ -2,9 +2,11 @@
 
 组合关系：TerminalScreen（语义快照）+ AnsiPalette（配色）+ PtySession（I/O，鸭子类型）。
 刷新节流 30ms 聚合（帧率封顶 ~33fps，防大量输出刷屏卡顿）。
+阶段二新增：空会话占位绘制、查找命中高亮、Ctrl+F/右键菜单请求信号（均只发事件，
+决策在 panel，保持层间单向依赖）。
 """
-from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QFont, QFontDatabase, QKeyEvent, QPainter, QWheelEvent
+from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtGui import QColor, QFont, QFontDatabase, QKeyEvent, QPainter, QWheelEvent
 from PySide6.QtWidgets import QApplication, QScrollBar, QWidget
 
 from gui.panels.terminal.palette import AnsiPalette
@@ -34,12 +36,20 @@ _KEY_SEQUENCES: dict[int, bytes] = {
 class TerminalWidget(QWidget):
     """自绘终端：字符网格 + 光标 + 键盘 → VT100 + 回滚滚动。"""
 
+    #: 请求打开查找浮层（Ctrl+F；panel 决策，拦截在 VT100 转换之前）
+    find_requested = Signal()
+    #: 请求上下文菜单（global 坐标；菜单内容与动作由 panel 决策）
+    context_menu_requested = Signal(object)
+
     def __init__(self, palette: AnsiPalette, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._palette = palette
         self._screen: TerminalScreen | None = None
         self._session = None  # PtySession（鸭子类型，panel 装配注入）
         self._scroll_offset = 0  # 回滚行数（0=跟随当前屏）
+        self._placeholder = ""  # 空会话占位文本（screen 为 None 时绘制）
+        self._search_runs: list[tuple[int, int, int]] = []  # 查找命中段 (y, x0, x1)
+        self._search_current = -1  # 当前命中索引
 
         font = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
         if app := QApplication.instance():
@@ -64,7 +74,8 @@ class TerminalWidget(QWidget):
     # ------------------------------------------------------------------
     # 装配（panel 注入）
     # ------------------------------------------------------------------
-    def set_screen(self, screen: TerminalScreen) -> None:
+    def set_screen(self, screen: TerminalScreen | None) -> None:
+        """绑定屏幕模型；None 表示空会话（paintEvent 画占位引导文本）。"""
         self._screen = screen
         self._scroll_offset = 0
         self._refresh_scrollbar()
@@ -83,6 +94,22 @@ class TerminalWidget(QWidget):
         self._refresh_scrollbar()
         if not self._refresh_timer.isActive():
             self._refresh_timer.start()
+
+    def set_placeholder(self, text: str) -> None:
+        """空会话占位文本（无会话引导态；screen 为 None 时居中绘制）。"""
+        self._placeholder = text
+        self.update()
+
+    def set_search_highlight(self, runs: list[tuple[int, int, int]], current: int = -1) -> None:
+        """查找命中高亮：runs 为 (y, x0, x1) 半开区间段，current 为当前命中索引。"""
+        self._search_runs = runs
+        self._search_current = current
+        self.update()
+
+    @property
+    def current_match(self) -> int:
+        """当前查找命中索引（无命中为 -1）。"""
+        return self._search_current
 
     # ------------------------------------------------------------------
     # 网格尺寸
@@ -131,6 +158,11 @@ class TerminalWidget(QWidget):
     # 键盘输入
     # ------------------------------------------------------------------
     def keyPressEvent(self, event: QKeyEvent) -> None:
+        # Ctrl+F 请求查找浮层：拦截在 VT100 转换之前（否则按 Ctrl 字母规则发 0x06 给 shell）
+        if (event.key() == Qt.Key.Key_F
+                and event.modifiers() & Qt.KeyboardModifier.ControlModifier):
+            self.find_requested.emit()
+            return
         if self._session is not None and self._session.is_alive():
             if data := self.key_to_bytes(event):
                 self._session.write(data)
@@ -138,6 +170,10 @@ class TerminalWidget(QWidget):
                     self._scrollbar.setValue(self._scrollbar.maximum())
                 return
         super().keyPressEvent(event)
+
+    def contextMenuEvent(self, event) -> None:
+        """右键菜单请求：转发 panel 决策（widget 不碰会话生命周期，保持单向依赖）。"""
+        self.context_menu_requested.emit(event.globalPos())
 
     @staticmethod
     def key_to_bytes(event: QKeyEvent) -> bytes:
@@ -158,9 +194,18 @@ class TerminalWidget(QWidget):
     # 绘制
     # ------------------------------------------------------------------
     def paintEvent(self, event) -> None:
-        if self._screen is None:
-            return
         pal = self._palette
+        if self._screen is None:
+            # 空会话占位：整幅背景 + 居中引导文本
+            painter = QPainter(self)
+            painter.fillRect(self.rect(), pal.default_bg)
+            if self._placeholder:
+                hint = QColor(pal.default_fg)
+                hint.setAlphaF(0.45)
+                painter.setPen(hint)
+                painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, self._placeholder)
+            painter.end()
+            return
         rows, cols = self.grid_size()
         snapshot = self._screen.snapshot(self._scroll_offset)
 
@@ -191,6 +236,13 @@ class TerminalWidget(QWidget):
                     painter.setPen(fg)
                     painter.drawText(px, py + self._ascent, text)
                 x += run
+
+        # 查找高亮叠加（画在光标之前，保持光标可见）：普通命中淡染、当前命中深染
+        for i, (hy, hx0, hx1) in enumerate(self._search_runs):
+            color = (QColor(255, 180, 0, 110) if i == self._search_current
+                     else QColor(255, 220, 100, 55))
+            painter.fillRect(hx0 * self._cell_w, hy * self._cell_h,
+                             (hx1 - hx0) * self._cell_w, self._cell_h, color)
 
         # 光标（仅当前屏视图内）：反显单元格
         cur = self._screen.cursor

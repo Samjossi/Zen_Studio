@@ -83,14 +83,16 @@
 
 ## 6. 终端面板（中栏下）
 
-`TerminalPanel`：标题行（shell 名 + 状态 + 重开按钮）+ `TerminalWidget` 自绘终端。**真 PTY 终端**（ANSI 颜色/交互程序/`kimi login` 全可用）。AI-first 语境下为**用户终端**（agent 命令镜像待 ACP terminal RPC，备案）。OOP 五层单向依赖（详见 [`文档/修改记录/2026-0719-0412_中栏下终端面板实施计划.md`](../文档/修改记录/2026-0719-0412_中栏下终端面板实施计划.md) §2）：
+`TerminalPanel`：单行头部栏（**tab 区**＋固定操作组）+ `TerminalWidget` 自绘终端。**真 PTY 多会话终端**（ANSI 颜色/交互程序/`kimi login` 全可用）。AI-first 语境下为**用户终端**（agent 命令镜像待 ACP terminal RPC，备案）。OOP 五层单向依赖（详见 [`文档/修改记录/2026-0719-0412_中栏下终端面板实施计划.md`](../文档/修改记录/2026-0719-0412_中栏下终端面板实施计划.md) §2）：
+
+头部栏（阶段一/二重构，见 `work plans/2026-0719-0955_*.md`）：左起 tab 区（每会话一 tab：shell 名/OSC 动态标题＋行内 ×；`＋`新建；激活态下划线随主题）＋状态＋「清屏」（写 Ctrl+L，shell 自清）＋「−」隐藏（视图菜单可恢复）；固定高度随字号重算。终端区右键菜单承接重开/终止/关闭（Theia 功能分层）；`Ctrl+F` 查找为右上角浮层（不占布局）。
 
 | 层 | 类 | 说明 |
 |:---|:---|:---|
-| 装配 | `TerminalPanel` | session 字节流 → screen 喂入 → widget 刷新（唯一交汇点）；进程退出提示与重开 |
-| Qt | `TerminalWidget` | 自绘字符网格（同色合并绘制）+ 光标反显、按键 → VT100 静态映射、滚动条映回滚区、30ms 刷新节流 |
-| 语义 | `TerminalScreen` | pyte `HistoryScreen` 容错子类封装（私有 SGR 序列兜底 + 解析异常降级）；快照即纯数据（颜色用名字，主题切换免重算）；`plain_text()` 预留"终端内容喂 AI"出口 |
-| I/O | `PtySession(QObject)` | `ptyprocess.spawn($SHELL)`（cwd=项目根，`TERM=xterm-256color`）；reader 线程 → `data_received` 信号（GUI 线程零锁消费）；`aboutToQuit` 置位防销毁期信号竞态；`terminate` 幂等 + atexit |
+| 装配 | `TerminalPanel` | 多会话栈（每会话一套 PtySession+TerminalScreen，widget 重绑定切换）；tab/动态标题/右键菜单/查找浮层；字节流 → screen 喂入 → widget 刷新（唯一交汇点） |
+| Qt | `TerminalWidget` | 自绘字符网格（同色合并绘制）+ 光标反显、按键 → VT100 静态映射、滚动条映回滚区、30ms 刷新节流；空会话占位绘制、查找命中高亮；Ctrl+F/右键只发信号（决策在 panel） |
+| 语义 | `TerminalScreen` | pyte `HistoryScreen` 容错子类封装（私有 SGR 序列兜底 + 解析异常降级）；快照即纯数据（颜色用名字，主题切换免重算）；`title`（OSC 0/2）供 tab 动态标题；`plain_text()` 预留"终端内容喂 AI"出口 |
+| I/O | `PtySession(QObject)` | `ptyprocess.spawn($SHELL)`（cwd=项目根，`TERM=xterm-256color`）；reader 线程 → `data_received` 信号（GUI 线程零锁消费）；**进程代次守卫**（重开后旧代退出/数据信号作废）；`aboutToQuit` 置位防销毁期信号竞态；`terminate` 幂等 + atexit |
 | 配色 | `AnsiPalette` | ANSI 16 色 × 明暗双主题；256 色 hex 串直接解析 |
 
 ## 7. 文件树面板（右栏）
