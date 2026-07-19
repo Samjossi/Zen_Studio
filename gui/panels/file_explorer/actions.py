@@ -9,6 +9,8 @@ from PySide6.QtCore import QUrl
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import QInputDialog, QMenu, QMessageBox
 
+from gui.popups import make_translucent_popup
+
 
 class ExplorerActionsMixin:
     """右键菜单与动作集。宿主需提供：tree、_file_path、_selected_paths、
@@ -19,7 +21,7 @@ class ExplorerActionsMixin:
     # ------------------------------------------------------------------
     def _open_context_menu(self, pos) -> None:
         index = self.tree.indexAt(pos)
-        menu = QMenu(self)
+        menu = make_translucent_popup(QMenu(self))
 
         action_open = menu.addAction("打开")
         action_reveal = menu.addAction("在文件管理器中显示")

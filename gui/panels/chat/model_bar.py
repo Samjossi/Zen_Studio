@@ -7,6 +7,7 @@
 from PySide6.QtCore import QSignalBlocker, Signal
 from PySide6.QtWidgets import QComboBox, QHBoxLayout, QLabel, QPushButton, QWidget
 
+from gui.popups import make_translucent_combo_popup
 from gui.settings import load_settings, update_settings
 from llm import kimi_available, list_kimi_models
 
@@ -38,6 +39,12 @@ class ModelBar(QWidget):
 
         self._version_combo = QComboBox(self)
         self._refresh_versions("kimi-cli")
+
+        # 下拉弹出层修复：容器矩形面板（StyledPanel）+ 不透明窗口底都会
+        # 在 qss 圆角（QListView 全局规则）外露出直角，需透明 + 去框
+        # （见 gui/popups.py 模块 docstring）
+        for combo in (self._model_combo, self._version_combo):
+            make_translucent_combo_popup(combo)
 
         # 停止按钮：仅 busy（流式响应中）可见，替代三家参考实现的
         # "发送/停止互斥"形态（本项目输入区无发送按钮，Enter 直发）

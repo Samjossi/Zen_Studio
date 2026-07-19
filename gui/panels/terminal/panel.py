@@ -25,6 +25,7 @@ from gui.panels.terminal.palette import AnsiPalette
 from gui.panels.terminal.screen import TerminalScreen
 from gui.panels.terminal.session import PROJECT_ROOT, PtySession
 from gui.panels.terminal.widget import TerminalWidget
+from gui.popups import make_translucent_popup
 from gui.theme import get_family, load_settings
 
 
@@ -347,7 +348,7 @@ class TerminalPanel(QWidget):
     def _on_context_menu(self, global_pos) -> None:
         entry = self._current()
         alive = entry is not None and entry.session.is_alive()
-        menu = QMenu(self)
+        menu = make_translucent_popup(QMenu(self))
         # 剪贴板层：复制执行在 widget（自治），此处仅按状态启停
         act_copy = menu.addAction("复制")
         act_copy.setEnabled(self.terminal.has_selection())

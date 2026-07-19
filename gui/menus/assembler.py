@@ -4,7 +4,7 @@
 ctx 为 MainWindow 本身）+ 在 MODULES 元组中登记位置；
 不触碰任何现有菜单代码（文档/选型记录/2026-0720-0433 选型方案 A2）。
 """
-from PySide6.QtWidgets import QMainWindow
+from PySide6.QtWidgets import QMainWindow, QMenu
 
 from gui.menus import (
     edit_menu,
@@ -15,6 +15,7 @@ from gui.menus import (
     view_menu,
 )
 from gui.menus.registry import ActionRegistry
+from gui.popups import make_translucent_popup
 
 #: 构建顺序即菜单栏顺序：文件/编辑/视图/终端 → 设置（返回 ModelMenu 控制器）→ 帮助
 MODULES = (file_menu, edit_menu, view_menu, terminal_menu)
@@ -36,6 +37,9 @@ class MenuBar:
             module.build(menubar, self._window, self.actions)
         self.model_menu = settings_menu.build(menubar, self._window, self.actions)
         help_menu.build(menubar, self._window, self.actions)
+        # 全部菜单（含子菜单）浮层透明化：qss 圆角外的矩形窗口底不再外露
+        for menu in menubar.findChildren(QMenu):
+            make_translucent_popup(menu)
 
     def get(self, key: str):
         """按注册表键名取 action（如 "view.terminal"）；未登记返回 None。"""
