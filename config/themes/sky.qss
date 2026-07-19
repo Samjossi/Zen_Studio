@@ -6,7 +6,7 @@
 
 QMainWindow,
 QDialog {
-    background-color: #ffffff;
+    background-color: #fdfeff;
     color: #1e293b;
     selection-background-color: #0284c7;
     selection-color: #ffffff;
@@ -14,9 +14,9 @@ QDialog {
 
 /* ---- 面板分区与标题行（objectName 接线见各面板代码） ---- */
 
-/* 三栏统一纯白，主题性格由文字/强调色/输入色块承载 */
+/* 三栏层次：中栏纯白偏主题色 -1 级（#fdfeff），侧栏 -2 级 */
 #SidePanel {
-    background-color: #ffffff;
+    background-color: #fbfdfe;
 }
 
 #PanelTitle {
@@ -40,7 +40,7 @@ QTextEdit {
 }
 
 QPlainTextEdit {
-    background-color: #ffffff;
+    background-color: #fdfeff;
     border: none;
     padding: 4px;
 }
@@ -51,14 +51,14 @@ QPlainTextEdit:focus {
     border: 1px solid rgba(2, 132, 199, 0.45);
 }
 
-/* 侧栏纯白底上的输入控件：浅主题色块（防白上白隐形） */
+/* 侧栏输入控件：纯白融入底色（选项 B），hover 以 -3 级微深色反馈 */
 #SidePanel QTextEdit,
 #SidePanel QComboBox {
-    background-color: #edf3f8;
+    background-color: #ffffff;
 }
 
 #SidePanel QComboBox:hover {
-    background-color: #e2ecf4;
+    background-color: #fafcfd;
 }
 
 /* 聊天输出区：透明融入侧栏（双层 ID 压过 #SidePanel QTextEdit 规则） */
