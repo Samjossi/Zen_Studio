@@ -3,7 +3,8 @@
 2026-07-20（见 work plans/2026-0720-0215_Git变更面板实施计划.md 阶段二）：
 - 文件名按状态着色（复用 theme.GIT_STATUS_COLORS 明暗两族）：天蓝 M / 绿 U / 红 D，
   已删除文件追加删除线字体
-- 右侧绿 `+N` / 红 `-N` 行数（不补零）；未跟踪目录折叠行（`dir/`）无数字
+- 右侧绿 `+N` / 红 `-N` 行数（不补零），两列按内容收紧宽度紧凑贴右；
+  未跟踪文件由数据层逐条列出并补行数（status --untracked-files=all）
 - 双击文件行 → file_opened 绝对路径；删除行双击 → deleted_activated（文件已不存在）
 - 头部栏标题（含数量）+ 「−」收起按钮 → collapse_requested，显隐逻辑归主窗口
 - 空态占位行：changes=None 非 Git 仓库 / 空列表 无变更
@@ -72,8 +73,9 @@ class ChangesPanel(QWidget):
         self._list.setUniformRowHeights(True)
         header_view = self._list.header()
         header_view.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        header_view.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
-        header_view.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        # 增减两列固定宽：随内容收紧（见 _fit_stat_columns），紧凑贴右不留间隙
+        header_view.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
+        header_view.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
         self._list.itemDoubleClicked.connect(self._on_double_clicked)
 
         # PanelCard 圆角卡片包裹（对齐查看器/终端既有样式）
@@ -116,13 +118,34 @@ class ChangesPanel(QWidget):
         if self._changes is None:
             self._title.setText("已变更")
             self._add_placeholder("（非 Git 仓库）")
+            self._fit_stat_columns()
             return
         self._title.setText(f"已变更 ({len(self._changes)})")
         if not self._changes:
             self._add_placeholder("（无变更）")
+            self._fit_stat_columns()
             return
         for entry in self._changes:
             self._add_entry(entry)
+        self._fit_stat_columns()
+
+    #: 增减列横向留白（px）：文本宽 + 2×边距 = 列宽
+    _STAT_COL_PADDING = 6
+    #: 数字列最小宽度（px）：单列即使全空也保留，防列彻底消失引起布局跳动
+    _STAT_COL_MIN = 28
+
+    def _fit_stat_columns(self) -> None:
+        """按当前行内容收紧 +增/-减 两列宽度：取各行文本最大宽度 + 边距。"""
+        metrics = self._list.fontMetrics()
+        for col in (1, 2):
+            widest = 0
+            for row in range(self._list.topLevelItemCount()):
+                text = self._list.topLevelItem(row).text(col)
+                if text:
+                    widest = max(widest, metrics.horizontalAdvance(text))
+            self._list.setColumnWidth(
+                col, max(self._STAT_COL_MIN, widest + 2 * self._STAT_COL_PADDING)
+            )
 
     def _add_placeholder(self, text: str) -> None:
         item = QTreeWidgetItem([text, "", ""])

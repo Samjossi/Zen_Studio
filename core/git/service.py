@@ -95,7 +95,9 @@ class GitStatusService:
         - 排除 ignored；按路径排序
         - added/deleted 来自 numstat；无统计（纯改名/模式变更）为 None
         - 未跟踪文件 numstat 不含，补数行数（仅文本、≤1MB 守卫，
-          二进制/超限为 None）；未跟踪目录折叠条目（`dir/`）不统计
+          二进制/超限为 None）；status 已用 --untracked-files=all 逐条
+          列出，目录折叠条目（`dir/`）仅剩 ignored 场景（已排除），
+          此处保留 ends-with-/ 判断作防御
         """
         result: list[dict] = []
         for rel, st in sorted(self._status.items()):

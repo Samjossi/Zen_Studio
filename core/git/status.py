@@ -1,14 +1,18 @@
-"""`git status --porcelain=v1 -z --ignored` 解析：输出 → {相对路径: 状态}。
+"""`git status --porcelain=v1 -z --ignored --untracked-files=all` 解析：输出 → {相对路径: 状态}。
 
 采用 -z 格式（NUL 分隔、路径原样不转义），从根本上规避中文/空格/
 引号路径的转义解析问题（项目内即有"参考代码/"等中文目录）。
+
+`--untracked-files=all`（2026-07-20）：未跟踪文件逐条列出而非折叠为
+`?? dir/` 目录条目，变更面板才能为每个新文件显示行数统计；
+ignored 目录仍折叠为 `!! dir/`（无需逐条展开）。
 
 状态归并规则（XY 双列：X=暂存区，Y=工作区）：
     冲突 UU/AA/DD/AU/UA/DU/UD → CONFLICT
     任一侧含 D                → DELETED
     任一侧含 M/R/C/A          → MODIFIED（A=已暂存新文件，归入"修改"族）
-    ??                        → UNTRACKED（目录折叠为 `dir/` 形式保留）
-    !!                        → IGNORED（目录折叠同理）
+    ??                        → UNTRACKED
+    !!                        → IGNORED（目录折叠为 `dir/` 形式保留）
 解析失败的条目静默跳过（降级为"干净"），不抛异常。
 """
 from __future__ import annotations
@@ -63,7 +67,9 @@ def _merge_status(code: str) -> str | None:
 
 def status_map(repo_root: str) -> dict[str, str] | None:
     """执行 git status 并解析；失败返回 None（非仓库/超时/无 git）。"""
-    out = run_git(repo_root, "status", "--porcelain=v1", "-z", "--ignored")
+    out = run_git(
+        repo_root, "status", "--porcelain=v1", "-z", "--ignored", "--untracked-files=all"
+    )
     if out is None:
         return None
     return parse_porcelain_z(out)
