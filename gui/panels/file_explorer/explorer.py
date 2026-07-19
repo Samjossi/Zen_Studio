@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
 
 from gui.panels.file_explorer.actions import ExplorerActionsMixin
 from gui.panels.file_explorer.model import NoiseFilterProxyModel
+from gui.theme import get_family, load_settings
 
 
 class FileExplorer(ExplorerActionsMixin, QWidget):
@@ -47,6 +48,8 @@ class FileExplorer(ExplorerActionsMixin, QWidget):
         """
         super().__init__(parent)
         self.root_dir = str(Path(root_dir).resolve())
+        #: 已注入的 Git 状态服务（apply_git_status 设置，主题切换时复用）
+        self._git_service = None
         self.setMinimumWidth(self.MIN_WIDTH)
         self.setObjectName("SidePanel")  # 侧栏灰底分区（主题 qss 统一着色）
         # 自定义 QWidget 子类的 qss 背景需 WA_StyledBackground 才会绘制
@@ -101,6 +104,22 @@ class FileExplorer(ExplorerActionsMixin, QWidget):
         """切换噪音过滤（隐藏 __pycache__、.git、.venv、node_modules）。"""
         self.proxy.filter_enabled = enabled
         self.proxy.invalidateFilter()
+
+    def apply_git_status(self, service, family: str | None = None) -> None:
+        """注入 Git 状态服务并重绘着色（family 缺省取当前主题族）。"""
+        if family is None:
+            family = get_family(load_settings()["theme"])
+        self._git_service = service
+        self.proxy.set_git_service(service if service.enabled else None, family)
+        self.proxy.refresh_colors()
+
+    def apply_theme(self, family: str) -> None:
+        """主题切换时同步 Git 状态色所属族（未注入服务时无副作用）。"""
+        self.proxy.set_git_service(
+            self._git_service if self._git_service is not None and self._git_service.enabled else None,
+            family,
+        )
+        self.proxy.refresh_colors()
 
     # ------------------------------------------------------------------
     # 内部：选中项辅助

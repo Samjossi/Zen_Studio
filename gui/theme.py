@@ -42,6 +42,31 @@ THEME_META: dict[str, dict[str, str]] = {
     "dark": {"label": "暗色", "family": "dark"},
 }
 
+#: Git 状态色注册表（按明暗两族各一套；model 的 ForegroundRole 不走 qss，
+#: 故色值在此集中维护——见 work plans/2026-0720-0131 计划任务 2.3）。
+#: 状态枚举见 core/git/status.py：modified/untracked/deleted/ignored/conflict
+GIT_STATUS_COLORS: dict[str, dict[str, str]] = {
+    "light": {
+        "modified": "#9a6a00",   # 黄橙
+        "untracked": "#1f8a3d",  # 绿
+        "deleted": "#c0392b",    # 红
+        "ignored": "#a8a8a8",    # 灰
+        "conflict": "#d40000",   # 强红
+    },
+    "dark": {
+        "modified": "#e5b567",
+        "untracked": "#4ec971",
+        "deleted": "#e06c75",
+        "ignored": "#6e6e6e",
+        "conflict": "#ff5f5f",
+    },
+}
+
+
+def git_status_color(family: str, status: str) -> str | None:
+    """族名 + Git 状态 → 十六进制色值；未知状态/族返回 None（不着色）。"""
+    return GIT_STATUS_COLORS.get(family, GIT_STATUS_COLORS["light"]).get(status)
+
 #: 自带 UI 字体目录（assets/fonts/思源黑体/，全量 7 档，运行时注册其中三档）
 BUNDLED_FONTS_DIR = Path(__file__).resolve().parent.parent / "assets" / "fonts" / "思源黑体"
 #: 注册三档即可支撑正文/标题/强调层级；其余字重留目录备用

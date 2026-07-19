@@ -3,17 +3,24 @@
 窗口几何与分隔栏状态持久化（2026-07-19，见 文档/修改记录/
 2026-0719-0712_GUI窗口状态与模型选择持久化计划.md）：
 启动时 restore，closeEvent 时一次性保存；损坏数据静默回退默认布局。
+
+Git 状态可视化（2026-07-20，见 work plans/2026-0720-0131 计划阶段四）：
+事件驱动刷新——窗口激活 / 查看器外部重载联动 / 视图菜单手动刷新，
+300ms 去抖后刷新 GitStatusService 并同步文件树着色、查看器差异徽标
+与状态栏统计；非 git 环境下所有入口静默跳过。
 """
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QActionGroup, QCloseEvent
 from PySide6.QtWidgets import (
     QApplication,
+    QLabel,
     QMainWindow,
     QSplitter,
 )
 
+from core.git import GitStatusService
 from gui.panels import FileExplorer, ViewerPanel
 from gui.panels.chat import ChatPanel
 from gui.panels.terminal import TerminalPanel
@@ -64,9 +71,50 @@ class MainWindow(QMainWindow):
 
         self._build_menus()
         self.statusBar().setSizeGripEnabled(False)  # 去掉右下角尺寸把手（原生边框已可缩放）
+        # 状态栏右侧常驻：当前文件 Git 差异统计（无改动/非仓库时为空）
+        self._git_stat_label = QLabel("", self)
+        self.statusBar().addPermanentWidget(self._git_stat_label)
         self.statusBar().showMessage("就绪")
 
+        self._init_git_status()
         self._restore_window_state()
+
+    # ------------------------------------------------------------------
+    # Git 状态可视化：事件驱动刷新（窗口激活 / 外部重载 / 手动菜单）
+    # ------------------------------------------------------------------
+    #: 刷新去抖间隔（ms）：连续触发合并为一次，防进程风暴
+    GIT_REFRESH_DEBOUNCE_MS = 300
+
+    def _init_git_status(self) -> None:
+        """创建状态服务、接线三处事件源，并做启动时的首次刷新。"""
+        self._git_service = GitStatusService(self.file_explorer.root_dir)
+        self.viewer_panel.set_git_service(self._git_service)
+        self._git_debounce = QTimer(self)
+        self._git_debounce.setSingleShot(True)
+        self._git_debounce.setInterval(self.GIT_REFRESH_DEBOUNCE_MS)
+        self._git_debounce.timeout.connect(self._refresh_git_status)
+        self.viewer_panel.externally_reloaded.connect(self._git_debounce.start)
+        # 切换查看文件时同步状态栏统计（查看器徽标由 open_file 内部自刷）
+        self.file_explorer.file_opened.connect(lambda _p: self._update_git_stat_label())
+        self._refresh_git_status()
+
+    def _refresh_git_status(self) -> None:
+        """去抖汇流点：刷新服务 → 文件树着色 → 查看器徽标 → 状态栏统计。"""
+        self._git_service.refresh()
+        self.file_explorer.apply_git_status(self._git_service)
+        self.viewer_panel.refresh_git_badge()
+        self._update_git_stat_label()
+
+    def _update_git_stat_label(self) -> None:
+        """状态栏常驻区显示当前查看文件的 `+a -b` 统计。"""
+        stat = self._git_service.numstat_of(self.viewer_panel.current_path or "")
+        self._git_stat_label.setText(f"+{stat[0]} -{stat[1]}  " if stat else "")
+
+    def changeEvent(self, event) -> None:
+        """窗口重获焦点 → 去抖刷新（兜底终端 checkout 等外部 git 操作）。"""
+        if event.type() == event.Type.ActivationChange and self.isActiveWindow():
+            self._git_debounce.start()
+        super().changeEvent(event)
 
     # ------------------------------------------------------------------
     # 窗口几何与分隔栏状态持久化
@@ -131,6 +179,10 @@ class MainWindow(QMainWindow):
             lambda checked: self.file_explorer.set_noise_filter(checked)
         )
 
+        # Git 状态手动刷新（事件驱动三源之一；非 git 环境静默跳过）
+        action_git_refresh = menu_view.addAction("刷新 Git 状态(&G)")
+        action_git_refresh.triggered.connect(self._refresh_git_status)
+
         menu_view.addSeparator()
 
         # 主题菜单：按注册表动态生成，QActionGroup 互斥
@@ -160,9 +212,10 @@ class MainWindow(QMainWindow):
         app = QApplication.instance()
         if app is not None:
             apply_theme(app)
-        family = get_family(theme)  # 高亮/终端/行号配色只认明暗两族
+        family = get_family(theme)  # 高亮/终端/行号/Git 状态色只认明暗两族
         self.viewer_panel.apply_theme(family)
         self.terminal_panel.apply_theme(family)
+        self.file_explorer.apply_theme(family)
         if theme in self._theme_actions:
             self._theme_actions[theme].setChecked(True)
         self.statusBar().showMessage(f"已切换为{get_label(theme)}主题", 3000)

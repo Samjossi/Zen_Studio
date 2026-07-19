@@ -1,11 +1,16 @@
-"""文件查看面板：标题行（路径 + 状态提示）+ CodeViewer + 外部修改自动重载。
+"""文件查看面板：标题行（路径 + Git 差异徽标 + 状态提示）+ CodeViewer + 外部修改自动重载。
 
 AI-first 主频场景：agent 直接写盘为主修改路径，`QFileSystemWatcher` 监视当前文件，
 外部修改（AI 写盘）→ 防抖自动重载并保留滚动位置，标题行提示"已重新加载"。
+
+Git 差异徽标（2026-07-20，见 work plans/2026-0720-0131 计划阶段三）：
+set_git_service() 注入 GitStatusService 后，open_file 查询 numstat，
+标题行路径后追加 `+a -b` 徽标（无改动/非仓库不显示）；外部重载时发射
+externally_reloaded 供主窗口联动刷新 Git 状态。
 """
 from pathlib import Path
 
-from PySide6.QtCore import QFileSystemWatcher, Qt, QTimer
+from PySide6.QtCore import QFileSystemWatcher, Qt, QTimer, Signal
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
 from gui.panels.viewer.code_viewer import CodeViewer
@@ -23,18 +28,27 @@ HINT_TIMEOUT_MS = 3000
 class ViewerPanel(QWidget):
     """中栏（上）文件查看面板（只读 + 语法高亮 + 外部修改自动重载）。"""
 
+    #: 外部修改自动重载完成时发射（供主窗口联动刷新 Git 状态）
+    externally_reloaded = Signal()
+
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._current_path: str | None = None
+        #: Git 状态服务（set_git_service 注入；None = 差异徽标不启用）
+        self._git_service = None
 
         self._path_label = QLabel("（未打开文件）", self)
         self._path_label.setObjectName("PanelTitle")  # 样式由主题 qss 统一
+        self._git_badge = QLabel("", self)
+        self._git_badge.setObjectName("PanelHint")  # 与提示同款弱化的次要文字样式
+        self._git_badge.setVisible(False)
         self._hint_label = QLabel("", self)
         self._hint_label.setObjectName("PanelHint")
 
         title_row = QWidget(self)
         title_layout = QHBoxLayout(title_row)
         title_layout.addWidget(self._path_label, 1)
+        title_layout.addWidget(self._git_badge)
         title_layout.addWidget(self._hint_label)
         title_layout.setContentsMargins(4, 2, 4, 2)
 
@@ -71,6 +85,11 @@ class ViewerPanel(QWidget):
     # ------------------------------------------------------------------
     # 对外接口
     # ------------------------------------------------------------------
+    @property
+    def current_path(self) -> str | None:
+        """当前查看文件的绝对路径（未打开为 None）。"""
+        return self._current_path
+
     def open_file(self, path: str) -> None:
         """打开文件：读取 → 守卫判定 → 上屏高亮 → 更新 watcher。"""
         p = Path(path)
@@ -99,6 +118,29 @@ class ViewerPanel(QWidget):
         title = str(p) + ("（已截断：超过 1 MB）" if truncated else "")
         self._path_label.setText(title)
         self._current_path = str(p)
+        self.refresh_git_badge()
+
+    def set_git_service(self, service) -> None:
+        """注入 Git 状态服务（None 表示禁用差异徽标）。"""
+        self._git_service = service
+        self.refresh_git_badge()
+
+    def refresh_git_badge(self) -> None:
+        """重查当前文件 numstat 并刷新标题行 `+a -b` 徽标。"""
+        service = self._git_service
+        stat = (
+            service.numstat_of(self._current_path)
+            if service is not None and service.enabled and self._current_path
+            else None
+        )
+        if stat is None:
+            self._git_badge.setVisible(False)
+            self._git_badge.setToolTip("")
+            return
+        added, deleted = stat
+        self._git_badge.setText(f"+{added} -{deleted}")
+        self._git_badge.setToolTip(f"相对 HEAD：新增 {added} 行，删除 {deleted} 行")
+        self._git_badge.setVisible(True)
 
     def apply_theme(self, family: str) -> None:
         """切换配色族：同步高亮器与查看器控件配色（入参为族名 light/dark）。"""
@@ -125,6 +167,7 @@ class ViewerPanel(QWidget):
             return self._show_placeholder(f"（文件已被删除：{self._current_path}）")
         self.open_file(self._current_path)
         self._show_hint("已重新加载（外部修改）")
+        self.externally_reloaded.emit()
 
     # ------------------------------------------------------------------
     # 显示辅助
@@ -136,6 +179,7 @@ class ViewerPanel(QWidget):
         self._highlighter.set_source("", "")
         self._path_label.setText(path or "（未打开文件）")
         self._current_path = None
+        self._git_badge.setVisible(False)
         self._show_hint(text, sticky=True)
 
     def _show_hint(self, text: str, sticky: bool = False) -> None:
