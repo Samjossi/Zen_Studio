@@ -108,6 +108,13 @@ class PtySession(QObject):
                 if not proc.isalive():
                     code = proc.wait()
             except Exception:  # noqa: BLE001 — 退出码不可得时按 -1
-                code = getattr(proc, "exitstatus", -1) or -1
+                # 显式 None 判断：exitstatus 为 0（正常退出）时不能用 or -1 兜底
+                rc = getattr(proc, "exitstatus", None)
+                code = rc if rc is not None else -1
+            if code is None:
+                # ptyprocess：被信号杀死时 wait() 返回 None（exitstatus=None）；
+                # 按 shell 惯例以 128+signo 回报（SIGHUP=129 / SIGINT=130 / SIGKILL=137）
+                sig = getattr(proc, "signalstatus", None)
+                code = 128 + sig if isinstance(sig, int) else -1
             if generation == self._generation and self._may_emit():
                 self.process_exited.emit(code)
