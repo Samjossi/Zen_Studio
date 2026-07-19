@@ -43,7 +43,14 @@ class ChatPanel(QWidget):
         self._llm_name = self.model_bar.current_backend()
         self._sync_backend_model()
 
-        # 输入区容器：模型行在上，输入框在下
+        self._build_layout()
+        self._connect_signals()
+
+    # ------------------------------------------------------------------
+    # UI 构建与接线
+    # ------------------------------------------------------------------
+    def _build_layout(self) -> None:
+        """布局装配：上输出 + 下输入区（模型行在上，输入框在下），垂直分隔。"""
         input_area = QWidget(self)
         input_layout = QVBoxLayout(input_area)
         input_layout.addWidget(self.model_bar)
@@ -60,6 +67,8 @@ class ChatPanel(QWidget):
         layout.addWidget(self._splitter)
         layout.setContentsMargins(0, 0, 0, 0)
 
+    def _connect_signals(self) -> None:
+        """跨组件信号统一接线（本面板的接线图）。"""
         self.input.send_requested.connect(self._on_send)
         self.model_bar.selection_changed.connect(self._on_selection_changed)
         self.model_bar.stop_requested.connect(self._on_stop)

@@ -53,15 +53,27 @@ class TerminalPanel(QWidget):
         self._serial = 0  # tab 序号计数（只增不复用：关闭「终端2」后再新建得「终端3」；全关后归零重计）
         self._find_matches: list[tuple[int, int, int]] = []  # 查找命中段缓存
 
-        # ---- 头部栏：tab 区（左，可滚动）+ 固定操作组（右） ----
+        self._build_header()
+        self._build_terminal_area()
+        self._build_find_bar()
+        self._connect_signals()
+
+        # 首次启动延迟到拿到真实网格尺寸：构造时控件尚未布局（高≈0 → 网格仅 1 行），
+        # 立即 spawn 会让 bash 首屏输出被 pyte resize 的 xterm 沉底语义固定到末行
+        self._pending_start = True
+        self.terminal.installEventFilter(self)
+
+    # ------------------------------------------------------------------
+    # UI 构建（仅装配；跨组件信号统一在 _connect_signals 接线）
+    # ------------------------------------------------------------------
+    def _build_header(self) -> None:
+        """头部栏：tab 区（左，可滚动）+ 固定操作组（右），单行高度锁定。"""
         self._tab_bar = QTabBar(self)
         self._tab_bar.setObjectName("TerminalTabs")
         self._tab_bar.setTabsClosable(True)
         self._tab_bar.setExpanding(False)       # tab 不拉伸，左侧自然排列
         self._tab_bar.setUsesScrollButtons(True)  # 溢出滚动箭头兜底
         self._tab_bar.setDrawBase(False)         # 不画基线，融入头部栏
-        self._tab_bar.currentChanged.connect(self._switch_tab)
-        self._tab_bar.tabCloseRequested.connect(self._close_tab)
 
         self._btn_new = QPushButton("+", self)
         self._btn_new.setFixedSize(28, 22)
@@ -71,7 +83,6 @@ class TerminalPanel(QWidget):
         font.setPointSizeF(font.pointSizeF() + 3)
         self._btn_new.setFont(font)
         self._btn_new.setToolTip("新建终端")
-        self._btn_new.clicked.connect(lambda: self._spawn())
 
         self._status = QLabel("", self)
         self._status.setObjectName("PanelHint")
@@ -80,7 +91,6 @@ class TerminalPanel(QWidget):
         self._btn_clear.setFixedHeight(22)
         self._btn_clear.setToolTip("清屏（Ctrl+L）")
         self._btn_clear.setEnabled(False)
-        self._btn_clear.clicked.connect(self._on_clear)
 
         # 单行头部栏，高度锁定（随字号动态计算），杜绝"标题行膨胀"复发
         self._header = QWidget(self)
@@ -94,6 +104,8 @@ class TerminalPanel(QWidget):
         row.setSpacing(4)
         self._lock_header_height()
 
+    def _build_terminal_area(self) -> None:
+        """终端区：TerminalWidget + 面板主布局（header 在上，终端区吃满剩余高度）。"""
         self.terminal = TerminalWidget(self._palette, self)
         self.terminal.set_placeholder("没有终端，点击 + 创建")
 
@@ -104,11 +116,11 @@ class TerminalPanel(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        # widget 只发原始事件，会话决策全在本层（单向依赖）
-        self.terminal.context_menu_requested.connect(self._on_context_menu)
-        self.terminal.find_requested.connect(self._show_find)
+    def _build_find_bar(self) -> None:
+        """查找浮层：终端区右上角悬浮（不占布局，对齐 Theia 范式）。
 
-        # ---- 查找浮层：终端区右上角悬浮（不占布局，对齐 Theia 范式） ----
+        内部三按钮信号自闭环（局部变量），connect 保留在本方法内，不上收。
+        """
         self._find_bar = QFrame(self.terminal)
         self._find_bar.setObjectName("TerminalFindBar")
         find_row = QHBoxLayout(self._find_bar)
@@ -117,7 +129,6 @@ class TerminalPanel(QWidget):
         self._find_input = QLineEdit(self._find_bar)
         self._find_input.setPlaceholderText("查找（当前屏）")
         self._find_input.setFixedWidth(180)
-        self._find_input.textChanged.connect(self._update_search)
         self._find_input.installEventFilter(self)  # Enter=下一个 / Esc=关闭
         btn_prev = QPushButton("↑", self._find_bar)
         btn_next = QPushButton("↓", self._find_bar)
@@ -135,10 +146,16 @@ class TerminalPanel(QWidget):
         find_row.addWidget(btn_close)
         self._find_bar.setVisible(False)
 
-        # 首次启动延迟到拿到真实网格尺寸：构造时控件尚未布局（高≈0 → 网格仅 1 行），
-        # 立即 spawn 会让 bash 首屏输出被 pyte resize 的 xterm 沉底语义固定到末行
-        self._pending_start = True
-        self.terminal.installEventFilter(self)
+    def _connect_signals(self) -> None:
+        """跨组件信号统一接线（本面板的接线图）。"""
+        self._tab_bar.currentChanged.connect(self._switch_tab)
+        self._tab_bar.tabCloseRequested.connect(self._close_tab)
+        self._btn_new.clicked.connect(lambda: self._spawn())
+        self._btn_clear.clicked.connect(self._on_clear)
+        # widget 只发原始事件，会话决策全在本层（单向依赖）
+        self.terminal.context_menu_requested.connect(self._on_context_menu)
+        self.terminal.find_requested.connect(self._show_find)
+        self._find_input.textChanged.connect(self._update_search)
 
     # ------------------------------------------------------------------
     # 事件过滤：终端区 resize（首启/浮层重定位）+ 查找框按键
