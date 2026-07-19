@@ -72,6 +72,10 @@ class ChangesPanel(QWidget):
         self._list.setRootIsDecorated(False)
         self._list.setUniformRowHeights(True)
         header_view = self._list.header()
+        # 关键：QTreeWidget 默认 stretchLastSection=True 会把最后一列拉伸填满
+        # 剩余空间（-N 列被拉宽，+/- 两列被撑开分离），必须关掉才能让
+        # 文件名列吃满剩余空间、增减两列收紧贴右
+        header_view.setStretchLastSection(False)
         header_view.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         # 增减两列固定宽：随内容收紧（见 _fit_stat_columns），紧凑贴右不留间隙
         header_view.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
