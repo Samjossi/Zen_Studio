@@ -76,6 +76,9 @@ class ChangesPanel(QWidget):
         # 剩余空间（-N 列被拉宽，+/- 两列被撑开分离），必须关掉才能让
         # 文件名列吃满剩余空间、增减两列收紧贴右
         header_view.setStretchLastSection(False)
+        # Qt 样式默认 minimumSectionSize=40 会把 setColumnWidth 钳到 40px，
+        # 收紧到 1 让 _fit_stat_columns 的紧凑宽度（25px 基准）生效
+        header_view.setMinimumSectionSize(1)
         header_view.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         # 增减两列固定宽：随内容收紧（见 _fit_stat_columns），紧凑贴右不留间隙
         header_view.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
@@ -133,10 +136,10 @@ class ChangesPanel(QWidget):
             self._add_entry(entry)
         self._fit_stat_columns()
 
-    #: 增减列横向留白（px）：文本宽 + 2×边距 = 列宽
-    _STAT_COL_PADDING = 6
-    #: 数字列最小宽度（px）：单列即使全空也保留，防列彻底消失引起布局跳动
-    _STAT_COL_MIN = 28
+    #: 增减列横向留白（px）：文本宽 + 2×边距 = 列宽（取 3 紧凑档）
+    _STAT_COL_PADDING = 3
+    #: 数字列基准宽度（px）：典型小数字（+2/-2）即此宽，大数字自动撑大
+    _STAT_COL_MIN = 25
 
     def _fit_stat_columns(self) -> None:
         """按当前行内容收紧 +增/-减 两列宽度：取各行文本最大宽度 + 边距。"""
