@@ -4,6 +4,7 @@
 """
 import os
 
+from PySide6.QtCore import QEvent, QObject, QTimer
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
 from gui.panels.terminal.palette import AnsiPalette
@@ -44,19 +45,39 @@ class TerminalPanel(QWidget):
         row.addWidget(self._restart)
         row.setContentsMargins(4, 2, 4, 2)
 
+        # DEBUG: 临时边框，确认各层容器真实边界（诊断"内容显示在中间"）
+        self.setStyleSheet("TerminalPanel { border: 2px solid red; }")
+        title_row.setStyleSheet("border: 1px solid blue;")
+
         self.terminal = TerminalWidget(self._palette, self)
         self.terminal.set_screen(self._screen)
         self.terminal.set_session(self._session)
 
         layout = QVBoxLayout(self)
         layout.addWidget(title_row)
-        layout.addWidget(self.terminal)
+        # stretch=1：多余高度全给终端区，标题行只保留自身内容高度（防膨胀抢空间）
+        layout.addWidget(self.terminal, 1)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
         self._session.data_received.connect(self._on_data)
         self._session.process_exited.connect(self._on_exited)
-        self._start_session()
+
+        # 首次启动延迟到拿到真实网格尺寸：构造时控件尚未布局（高≈0 → 网格仅 1 行），
+        # 立即 spawn 会让 bash 首屏输出被 pyte resize 的 xterm 沉底语义固定到末行
+        # （表现为大片空行 + 提示符贴底）。等 TerminalWidget 首次有效 resize 再开会话。
+        self._pending_start = True
+        self.terminal.installEventFilter(self)
+
+    def eventFilter(self, watched: QObject, event: QEvent) -> bool:
+        """TerminalWidget 首次获得有效尺寸（≥2 行）时启动首个会话。"""
+        if (watched is self.terminal and self._pending_start
+                and event.type() == QEvent.Type.Resize
+                and self.terminal.grid_size()[0] >= 2):
+            self._pending_start = False
+            # 延迟一轮事件循环：合并窗口管理器紧随其后的二次 resize
+            QTimer.singleShot(0, self._start_session)
+        return super().eventFilter(watched, event)
 
     @staticmethod
     def _shell_name() -> str:
