@@ -28,6 +28,7 @@ class PtySession(QObject):
         self._proc: PtyProcess | None = None
         self._closing = False  # 应用退出中：reader 线程不再发射信号（防销毁期 UB）
         self._generation = 0  # 进程代次：重开后旧代 reader 的退出信号作废（防竞态污染新会话状态）
+        self._cwd = str(PROJECT_ROOT)  # shell 工作目录（start 可改；工作区切换只影响新会话）
         if app := QCoreApplication.instance():
             app.aboutToQuit.connect(self._on_about_to_quit)
         atexit.register(self.terminate)
@@ -41,8 +42,14 @@ class PtySession(QObject):
     # ------------------------------------------------------------------
     # 生命周期
     # ------------------------------------------------------------------
-    def start(self, columns: int = 80, lines: int = 24) -> None:
-        """spawn $SHELL（cwd=项目根，TERM=xterm-256color）并启动 reader 线程。"""
+    def start(self, columns: int = 80, lines: int = 24, cwd: str | None = None) -> None:
+        """spawn $SHELL（TERM=xterm-256color）并启动 reader 线程。
+
+        :param cwd: shell 工作目录；None 沿用上次（重开保持原目录），
+                    缺省为项目根（工作区切换时由 TerminalPanel 传入新根）。
+        """
+        if cwd is not None:
+            self._cwd = cwd
         # 先换代再 terminate：terminate 内部 sleep 阶梯期间旧 reader 即完成退出检查，
         # 代次若在其后才递增，旧退出信号（SIGHUP 致死 code 0）会漏过守卫污染新会话
         self._generation += 1
@@ -50,7 +57,7 @@ class PtySession(QObject):
         shell = os.environ.get("SHELL", "/bin/bash")
         env = dict(os.environ, TERM="xterm-256color")
         self._proc = PtyProcess.spawn(
-            [shell], cwd=str(PROJECT_ROOT), env=env, dimensions=(lines, columns))
+            [shell], cwd=self._cwd, env=env, dimensions=(lines, columns))
         threading.Thread(
             target=self._read_loop, args=(self._proc, self._generation), daemon=True).start()
 

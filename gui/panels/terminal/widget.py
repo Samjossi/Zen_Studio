@@ -104,6 +104,28 @@ class TerminalWidget(QWidget):
         self._palette = palette
         self.update()
 
+    def refresh_font(self) -> None:
+        """全局字号调整：重建等宽字体（跟随 app 字号）并重算单元格。
+
+        网格尺寸随字宽变化 → 经与 resizeEvent 相同的链路同步 screen/session。
+        """
+        font = QFont(mono_family())
+        if app := QApplication.instance():
+            font.setPointSizeF(app.font().pointSizeF())
+        self.setFont(font)
+        fm = self.fontMetrics()
+        self._cell_w = max(1, fm.horizontalAdvance("M"))
+        self._cell_h = max(1, fm.height())
+        self._ascent = fm.ascent()
+        self.clear_selection()  # 网格尺寸变化，选区坐标失效
+        rows, cols = self.grid_size()
+        if self._screen and (self._screen.lines != rows or self._screen.columns != cols):
+            self._screen.resize(rows, cols)
+        if self._session:
+            self._session.resize(rows, cols)
+        self._refresh_scrollbar()
+        self.update()
+
     def notify_data(self) -> None:
         """新数据到达（panel 接线调用）：滚动条跟随 + 节流刷新。"""
         if self._scroll_offset == 0:

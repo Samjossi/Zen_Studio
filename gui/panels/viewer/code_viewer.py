@@ -6,15 +6,21 @@ AI-first 定位：永久只读（产品决策，`setReadOnly` 可逆）；行号
 行号按逻辑行（block）编号，折出的续行无行号（与 VS Code 一致）。
 """
 from PySide6.QtCore import QRect, QSize, Qt
-from PySide6.QtGui import QColor, QFont, QPainter, QTextFormat, QTextOption
+from PySide6.QtGui import QColor, QFont, QPainter, QTextCursor, QTextFormat, QTextOption
 from PySide6.QtWidgets import QApplication, QPlainTextEdit, QTextEdit, QWidget
 
 from gui.theme import mono_family
 
-#: 查看器控件配色（行号/当前行；文本高亮配色见 highlighter.PALETTES）
+#: 查看器控件配色（行号/当前行/查找命中；文本高亮配色见 highlighter.PALETTES）
 CHROME: dict[str, dict[str, str]] = {
-    "light": {"ln_fg": "#999999", "ln_bg": "#f5f5f5", "cur_bg": "#eef4fb"},
-    "dark": {"ln_fg": "#6b717d", "ln_bg": "#26292e", "cur_bg": "#2f333a"},
+    "light": {
+        "ln_fg": "#999999", "ln_bg": "#f5f5f5", "cur_bg": "#eef4fb",
+        "find_bg": "#fff3bf", "find_cur": "#ffd43b",
+    },
+    "dark": {
+        "ln_fg": "#6b717d", "ln_bg": "#26292e", "cur_bg": "#2f333a",
+        "find_bg": "#5c4a0f", "find_cur": "#8a6d1a",
+    },
 }
 
 
@@ -47,6 +53,7 @@ class CodeViewer(QPlainTextEdit):
         self.setFont(font)
 
         self._chrome = CHROME.get(theme, CHROME["light"])
+        self._search_selections: list[QTextEdit.ExtraSelection] = []  # 查找命中高亮
         self._line_area = _LineNumberArea(self)
         self.blockCountChanged.connect(self._update_area_width)
         self.updateRequest.connect(self._update_area)
@@ -62,6 +69,32 @@ class CodeViewer(QPlainTextEdit):
         self._chrome = CHROME.get(theme, CHROME["light"])
         self._line_area.update()
         self._highlight_current_line()
+
+    def refresh_font(self) -> None:
+        """全局字号调整：重建等宽字体（跟随 app 字号），行号栏宽随新字宽重算。"""
+        font = QFont(mono_family())
+        if app := QApplication.instance():
+            font.setPointSizeF(app.font().pointSizeF())
+        self.setFont(font)
+        self._update_area_width()
+        self._line_area.update()
+
+    # ------------------------------------------------------------------
+    # 查找命中高亮（ViewerPanel 查找浮层驱动；与当前行高亮合并上屏）
+    # ------------------------------------------------------------------
+    def set_search_highlights(self, matches: list[QTextCursor], current: int) -> None:
+        """设置查找命中高亮：matches 为命中区间光标列表，current 为当前命中索引。
+
+        空列表即清除（查找浮层关闭/清空输入时调用）。
+        """
+        self._search_selections = []
+        for i, cursor in enumerate(matches):
+            selection = QTextEdit.ExtraSelection()
+            selection.format.setBackground(
+                QColor(self._chrome["find_cur" if i == current else "find_bg"]))
+            selection.cursor = cursor
+            self._search_selections.append(selection)
+        self._refresh_extra_selections()
 
     # ------------------------------------------------------------------
     # 行号栏
@@ -107,12 +140,16 @@ class CodeViewer(QPlainTextEdit):
         painter.end()
 
     # ------------------------------------------------------------------
-    # 当前行高亮
+    # 当前行高亮（与查找命中高亮合并上屏）
     # ------------------------------------------------------------------
     def _highlight_current_line(self) -> None:
+        self._refresh_extra_selections()
+
+    def _refresh_extra_selections(self) -> None:
+        """ExtraSelection 唯一出口：当前行 + 查找命中，防互相覆盖。"""
         selection = QTextEdit.ExtraSelection()
         selection.format.setBackground(QColor(self._chrome["cur_bg"]))
         selection.format.setProperty(QTextFormat.Property.FullWidthSelection, True)
         selection.cursor = self.textCursor()
         selection.cursor.clearSelection()
-        self.setExtraSelections([selection])
+        self.setExtraSelections([selection] + self._search_selections)

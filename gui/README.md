@@ -2,7 +2,7 @@
 
 > **状态**：草稿
 > **范围**：`gui/` 包 — Zen Studio 图形界面
-> **时间**：2026-07-20 04:37（UTC+8）
+> **时间**：2026-07-20 05:49（UTC+8）
 
 ---
 
@@ -15,9 +15,10 @@
 | 文件 | 说明 |
 |:---|:---|
 | [`__init__.py`](__init__.py) | 包初始化，对外导出 `MainWindow` |
-| [`main_window.py`](main_window.py) | 主窗口：三栏布局（右栏再上下拆分）+ 菜单栏/状态栏 + 多主题切换 + 窗口几何/分隔栏状态持久化 + Git 状态事件驱动刷新 |
-| [`settings.py`](settings.py) | 通用配置持久化：读写 `config/settings.json`，"读全量 → 合并 → 写回"统一入口（主题/窗口几何/分隔栏/模型选择共用） |
+| [`main_window.py`](main_window.py) | 主窗口：三栏布局（右栏再上下拆分）+ 状态栏 + 窗口几何/分隔栏状态持久化 + Git 状态事件驱动刷新 + 菜单槽函数（打开文件夹/字号/恢复布局等） |
+| [`settings.py`](settings.py) | 通用配置持久化：读写 `config/settings.json`，"读全量 → 合并 → 写回"统一入口（主题/窗口几何/分隔栏/模型选择/工作区根共用） |
 | [`theme.py`](theme.py) | 主题体系：`THEME_META` 多主题注册表（云白/暖米/晴空/薄荷/暗色，按 light/dark 两族）+ qss 应用 + 自带双字体注册（思源黑体 / 更纱黑体）+ `GIT_STATUS_COLORS` Git 状态色表 |
+| [`menus/`](menus/) | 菜单栏子包：`registry.py` Action 注册表（`菜单.动作` 键名全局可寻址）/ `assembler.py` 装配器 / 每菜单一文件（file/edit/view/terminal/settings/help） |
 | [`panels/__init__.py`](panels/__init__.py) | 面板包初始化，对外导出 `FileExplorer`、`ViewerPanel` |
 | [`panels/file_explorer/`](panels/file_explorer/) | 文件树子包（右栏上）：`explorer.py` 主控件 / `model.py` 模型层（噪音过滤 + Git 状态着色）/ `actions.py` 右键菜单动作 |
 | [`panels/changes/`](panels/changes/) | Git 变更面板子包（右栏下）：`panel.py` 已变更文件列表（状态着色 + 增减行数，VS Code SCM 简化版） |
@@ -35,7 +36,7 @@
 
 ```
 ┌────────────────────────── Zen Studio (1200×800) ──────────────────────────┐
-│  菜单栏：文件 / 编辑 / 视图（面板显隐、噪音过滤、Git 刷新、多主题切换）      │
+│  菜单栏：文件 / 编辑 / 视图 / 终端 / 设置 / 帮助（gui/menus 装配，无快捷键） │
 │ ┌──────────────┬──────────────────────────────────┬──────────────┐      │
 │ │ ┌──────────┐ │                                  │  文件树      │      │
 │ │ │ 输出区   │ │         中栏（上，550 px）        │ FileExplorer │      │
@@ -59,7 +60,23 @@
 | 右栏（上） | 340 px（高） | **文件树 `FileExplorer`**（根目录为项目根，双击文件经 `file_opened` 信号打开到查看器） |
 | 右栏（下） | 170 px（高） | **Git 变更面板 `ChangesPanel`**（已变更文件列表：状态着色 + `+N` `-N` 行数） |
 
-## 4. 聊天面板（左栏）
+## 4. 菜单栏（[`menus/`](menus/) 子包）
+
+模块化菜单 + 全局 Action 注册表（方案选型见 [`文档/选型记录/2026-0720-0433_菜单栏与设置体系方案选型.md`](../文档/选型记录/2026-0720-0433_菜单栏与设置体系方案选型.md)，实施计划见 [`文档/修改记录/2026-0720-0510_菜单栏与设置体系实施计划.md`](../文档/修改记录/2026-0720-0510_菜单栏与设置体系实施计划.md)）。`MainWindow` 以 `MenuBar(self).setup()` 一行完成构建；**全部菜单项不绑定快捷键**（保持简单；文本控件 Qt 内建 Ctrl+C/V/A 属控件级行为，不在此列）。
+
+| 机制 | 说明 |
+|:---|:---|
+| Action 注册表 | `ActionRegistry`（`dict[str, QAction]` 薄封装），键名 = `菜单.动作`（如 `view.terminal`、`appearance.theme.dark`）；任何模块经 `MainWindow.menus.get(key)` 按名取 action 改勾选态/启停 |
+| 每菜单一文件 | `file_menu.py` / `edit_menu.py` / `view_menu.py` / `terminal_menu.py` / `settings_menu.py` / `help_menu.py`，签名统一 `build(menubar, ctx, actions)`（ctx = MainWindow）；新增顶层菜单 = 新文件 + 装配器登记，不触碰现有菜单 |
+| 单选组 | `QActionGroup(exclusive)` + `setData()` 载荷单回调（主题组、AI 模型后端/版本组） |
+| 面板显隐 | 单一入口法：`MainWindow.set_xxx_visible` 同步注册表勾选态与可见性，菜单勾选与面板头部「−」按钮汇入 |
+| 启用态刷新 | 编辑（复制/全选）与终端（清屏/终止）菜单在 `aboutToShow` 按焦点控件能力/会话存活态即时刷新 |
+
+菜单内容速览：**文件**（打开文件 / 打开文件夹=工作区根切换 / 打开配置目录 / 退出）；**编辑**（复制 / 全选——转发焦点控件；查找——按焦点分发终端或查看器浮层）；**视图**（四面板显隐 / 噪音过滤 / 恢复默认布局 / Git 刷新 / 外观▸主题互斥组）；**终端**（新建 / 清屏 / 重开 / 终止，与头部按钮、右键菜单同一实现路径）；**设置**（AI 模型▸与 ModelBar 双向同步、字体大小▸、打开配置文件、恢复默认设置）；**帮助**（关于）。
+
+**工作区根切换**（文件 ▸ 打开文件夹）：`FileExplorer.set_root` 换根 → 聊天输入框 `@相对路径` 基准 → 终端新会话 cwd（已存在会话不动）→ `GitStatusService` 重建四处联动，`workspace_root` 持久化供启动恢复。
+
+## 5. 聊天面板（左栏）
 
 `ChatPanel` 上输出（QTextBrowser）下输入（QTextEdit）垂直分栏，Enter 发送 / Shift+Enter 换行；流式调用放 `ChatWorker(QThread)` 后台线程，逐块信号上屏，UI 不冻结。输入区顶行内嵌 `ModelBar`（模型 + 版本双下拉）。对话统一经本机 agent CLI（Kimi Code CLI），代码库零 API KEY。从文件树或系统文件管理器**拖入文件 → 落点插入 `@工作区相对路径 ` 引用**（纯文本透传，由后端 agent CLI 解析）；模型选择与面板内分栏状态均持久化到 `config/settings.json`。
 
@@ -74,7 +91,7 @@
 | `ModelBar` | 输入区顶行双下拉：模型（Kimi CLI / Kimi ACP，不可用时禁用）+ 版本（模型别名联动刷新），切换下次请求生效，发送中锁定；选择持久化（`model_backend` / `model_version`），启动时恢复 |
 | 多轮 | 历史由各后端会话管理；请求失败的用户消息不入历史，错误上屏不崩溃 |
 
-## 5. 文件查看面板（中栏上）
+## 6. 文件查看面板（中栏上）
 
 `ViewerPanel`：标题行（路径 + **Git 差异徽标** + 状态提示）+ `CodeViewer(QPlainTextEdit)`。**AI-first 定位：永久只读**（代码修改一律经 AI agent 落盘；`setReadOnly` 技术上可逆，不锁死）。选型依据：[`文档/选型记录/2026-0719-0205_中栏代码显示与语法高亮选型报告.md`](../文档/选型记录/2026-0719-0205_中栏代码显示与语法高亮选型报告.md)。
 
@@ -85,9 +102,10 @@
 | 外部修改自动重载 | `QFileSystemWatcher` 监视当前文件（**AI 写盘为主修改路径**），150ms 防抖重载、保留滚动位置、标题行提示"已重新加载"；文件被删显示占位 |
 | Git 差异徽标 | `set_git_service` 注入 `GitStatusService` 后，`open_file` 查询 numstat，标题行路径后追加 `+a -b` 徽标（无改动/非仓库不显示）；外部重载时发射 `externally_reloaded` 供主窗口联动刷新 Git 状态 |
 | 守卫 | >1 MB 截断并提示；二进制文件占位提示（不尝试解码上屏） |
-| 接线 | `main_window`：`file_explorer.file_opened` → `viewer_panel.open_file`；主题切换 → `viewer_panel.apply_theme` |
+| 查找浮层 | 右上角悬浮（不占布局，同终端浮层形态）：当前文档搜索 + 命中高亮（经 `CodeViewer.set_search_highlights` 与当前行高亮合并上屏）+ 上一个/下一个；编辑菜单「查找」按焦点分发进入，Esc 关闭 |
+| 接线 | `main_window`：`file_explorer.file_opened` → `viewer_panel.open_file`；主题切换 → `viewer_panel.apply_theme`；字号调整 → `viewer_panel.refresh_font` |
 
-## 6. 终端面板（中栏下）
+## 7. 终端面板（中栏下）
 
 `TerminalPanel`：单行头部栏（**tab 区**＋固定操作组）+ `TerminalWidget` 自绘终端。**真 PTY 多会话终端**（ANSI 颜色/交互程序/`kimi login` 全可用）。AI-first 语境下为**用户终端**（agent 命令镜像待 ACP terminal RPC，备案）。OOP 五层单向依赖（详见 [`文档/修改记录/2026-0719-0412_中栏下终端面板实施计划.md`](../文档/修改记录/2026-0719-0412_中栏下终端面板实施计划.md) §2）：
 
@@ -98,10 +116,10 @@
 | 装配 | `TerminalPanel` | 多会话栈（每会话一套 PtySession+TerminalScreen，widget 重绑定切换）；tab/动态标题/右键菜单/查找浮层；字节流 → screen 喂入 → widget 刷新（唯一交汇点） |
 | Qt | `TerminalWidget` | 自绘字符网格（同色合并绘制）+ 光标反显、按键 → VT100 静态映射、滚动条映回滚区、30ms 刷新节流；空会话占位绘制、查找命中高亮；Ctrl+F/右键只发信号（决策在 panel） |
 | 语义 | `TerminalScreen` | pyte `HistoryScreen` 容错子类封装（私有 SGR 序列兜底 + 解析异常降级）；快照即纯数据（颜色用名字，主题切换免重算）；`title`（OSC 0/2）供 tab 动态标题；`plain_text()` 预留"终端内容喂 AI"出口 |
-| I/O | `PtySession(QObject)` | `ptyprocess.spawn($SHELL)`（cwd=项目根，`TERM=xterm-256color`）；reader 线程 → `data_received` 信号（GUI 线程零锁消费）；**进程代次守卫**（重开后旧代退出/数据信号作废）；`aboutToQuit` 置位防销毁期信号竞态；`terminate` 幂等 + atexit |
+| I/O | `PtySession(QObject)` | `ptyprocess.spawn($SHELL)`（cwd 可注入：默认项目根，工作区切换后新会话用新根、已存在会话与重开保持原目录，`TERM=xterm-256color`）；reader 线程 → `data_received` 信号（GUI 线程零锁消费）；**进程代次守卫**（重开后旧代退出/数据信号作废）；`aboutToQuit` 置位防销毁期信号竞态；`terminate` 幂等 + atexit |
 | 配色 | `AnsiPalette` | ANSI 16 色 × 明暗双主题；256 色 hex 串直接解析 |
 
-## 7. 文件树面板（右栏上）
+## 8. 文件树面板（右栏上）
 
 `FileExplorer` 移植自 PyGPT explorer 的裁剪版，基于 `QTreeView + QFileSystemModel`（经 `NoiseFilterProxyModel` 排除式过滤噪音目录），无 `window` 式上帝对象依赖，可独立实例化。
 
@@ -115,7 +133,7 @@
 | 拖出 | 选中文件可拖出（`QDrag` + 本地 URL），落入聊天输入框即插入 `@相对路径` 引用 |
 | 已剔除 | 向量库索引、zip 打包、拖放剪贴板（仅保留上述拖出）、qrc 图标（用系统图标） |
 
-## 8. Git 集成（core/git + 变更面板）
+## 9. Git 集成（core/git + 变更面板）
 
 Git 数据层 [`core/git/`](../core/git/) 为零 Qt 依赖的纯 Python 包（subprocess 调系统 git CLI；选型见 [`文档/选型记录/2026-0720-0135_Git文件装饰与简易差异指示方案选型.md`](../文档/选型记录/2026-0720-0135_Git文件装饰与简易差异指示方案选型.md)）。`MainWindow` 持有唯一 `GitStatusService` 实例并注入各面板，**事件驱动刷新**：窗口激活 / 查看器外部重载 / 视图菜单手动刷新三个事件源，经 300ms 去抖汇流后一次刷新 → 文件树着色、查看器徽标、变更面板、状态栏统计四处同步；非 git 环境下所有入口静默跳过。
 
@@ -128,7 +146,7 @@ Git 数据层 [`core/git/`](../core/git/) 为零 Qt 依赖的纯 Python 包（su
 | 头部栏 | 标题（含数量）+ 「−」收起按钮；显隐单一入口归主窗口（视图菜单勾选动作同步） |
 | 空态 | 非 Git 仓库 / 无变更 显示占位行 |
 
-## 9. 运行方式
+## 10. 运行方式
 
 ```bash
 # 项目根目录执行

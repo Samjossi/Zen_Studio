@@ -1,10 +1,10 @@
 """聊天面板装配：上输出 + 下输入（含模型行），连接 LLM 流式线程。"""
 import threading
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import QFrame, QSplitter, QVBoxLayout, QWidget
 
-from gui.settings import decode_state, encode_state
+from gui.settings import decode_state, encode_state, update_settings
 from llm import Chunk, KimiAcpLLM, KimiCliLLM, Message, get_llm
 from gui.panels.chat.input import ChatInput
 from gui.panels.chat.model_bar import ModelBar
@@ -24,6 +24,9 @@ PERMISSION_TIMEOUT_S = 180
 
 class ChatPanel(QWidget):
     """左栏 AI 聊天面板。"""
+
+    #: 发送/停止状态变化（供主窗口联动禁用设置菜单 AI 模型组）
+    busy_changed = Signal(bool)
 
     def __init__(self, parent: QWidget | None = None, workspace_root: str | None = None) -> None:
         """
@@ -106,6 +109,25 @@ class ChatPanel(QWidget):
         """恢复分隔栏；None 或损坏数据静默保留默认尺寸。"""
         if state:
             self._splitter.restoreState(decode_state(state))
+
+    def reset_layout(self) -> None:
+        """恢复默认布局：输出/输入区回初始尺寸（视图菜单「恢复默认布局」）。"""
+        self._splitter.setSizes([550, 180])
+
+    # ------------------------------------------------------------------
+    # 菜单驱动的模型切换（设置菜单 ▸ AI 模型）
+    # ------------------------------------------------------------------
+    def apply_model_selection(self, backend: str, version: str | None) -> None:
+        """菜单驱动切换（等价 ModelBar 用户切换）：恢复 UI + 写盘 + 后端同步。
+
+        ModelBar.set_selection 全程阻断信号（不发 selection_changed、不写盘），
+        故写盘与 provider 同步在此显式补齐；发送中（busy）由菜单侧禁用入口。
+        """
+        self.model_bar.set_selection(backend, version)
+        backend = self.model_bar.current_backend()
+        version = self.model_bar.current_version()
+        update_settings({"model_backend": backend, "model_version": version})
+        self._on_selection_changed(backend, version)
 
     # ------------------------------------------------------------------
     # ACP 审批回环（reader 线程 → GUI 线程模态框）
@@ -241,6 +263,7 @@ class ChatPanel(QWidget):
         # 输入框保持可编辑（Enter 发送有 isRunning 守卫拦截，文本不丢）；
         # 模型行双下拉禁用防切后端，停止按钮 busy 时可见
         self.model_bar.set_busy(busy)
+        self.busy_changed.emit(busy)  # 主窗口联动禁用设置菜单 AI 模型组
         if busy:
             busy_text = f"{BACKEND_LABELS.get(self._llm_name, 'AI')} 响应中…点击 ■ 停止可中断"
         else:

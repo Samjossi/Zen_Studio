@@ -23,7 +23,7 @@ from PySide6.QtWidgets import (
 
 from gui.panels.terminal.palette import AnsiPalette
 from gui.panels.terminal.screen import TerminalScreen
-from gui.panels.terminal.session import PtySession
+from gui.panels.terminal.session import PROJECT_ROOT, PtySession
 from gui.panels.terminal.widget import TerminalWidget
 from gui.theme import get_family, load_settings
 
@@ -52,6 +52,7 @@ class TerminalPanel(QWidget):
         self._sessions: list[_Session] = []
         self._serial = 0  # tab 序号计数（只增不复用：关闭「终端2」后再新建得「终端3」；全关后归零重计）
         self._find_matches: list[tuple[int, int, int]] = []  # 查找命中段缓存
+        self._cwd = str(PROJECT_ROOT)  # 新会话工作目录（工作区切换经 set_cwd 更新；已存在会话不动）
 
         self._build_header()
         self._build_terminal_area()
@@ -211,7 +212,7 @@ class TerminalPanel(QWidget):
         # 闭包捕获 entry：多会话数据各自进各自 screen（不错绑）
         sess.data_received.connect(lambda data, e=entry: self._on_data(e, data))
         sess.process_exited.connect(lambda rc, e=entry: self._on_exited(e, rc))
-        sess.start(cols, rows)
+        sess.start(cols, rows, cwd=self._cwd)
         self._sessions.append(entry)
         idx = self._tab_bar.addTab(entry.title)
         self._tab_bar.setCurrentIndex(idx)  # 触发 _switch_tab 完成绑定
@@ -298,6 +299,47 @@ class TerminalPanel(QWidget):
 
     def tab_count(self) -> int:
         return self._tab_bar.count()
+
+    # ------------------------------------------------------------------
+    # 公开接口（终端菜单/编辑菜单调用；与头部按钮、右键菜单同一实现路径）
+    # ------------------------------------------------------------------
+    def new_session(self) -> None:
+        """新建终端会话（同头部「＋」）。"""
+        self._spawn()
+
+    def clear_active(self) -> None:
+        """清屏当前会话（写 Ctrl+L，shell 自清）。"""
+        self._on_clear()
+
+    def restart_active(self) -> None:
+        """重开当前会话（无会话时等价新建；保持该会话原工作目录）。"""
+        self._restart_active()
+
+    def kill_active(self) -> None:
+        """终止当前会话。"""
+        self._kill_active()
+
+    def active_alive(self) -> bool:
+        """活动会话存在且进程存活（菜单启用态依据）。"""
+        entry = self._current()
+        return entry is not None and entry.session.is_alive()
+
+    def set_cwd(self, cwd: str) -> None:
+        """设置新会话工作目录（工作区切换）；已存在会话不受影响。"""
+        self._cwd = cwd
+
+    def show_find(self) -> None:
+        """打开查找浮层（编辑菜单「查找」焦点分发入口）。"""
+        self._show_find()
+
+    def refresh_font(self) -> None:
+        """全局字号调整：终端字体重建 + 头部栏高度重算。
+
+        活动会话经 TerminalWidget.refresh_font 内的网格重算同步 resize；
+        后台会话在 _switch_tab 切回时按既有逻辑补 resize。
+        """
+        self.terminal.refresh_font()
+        self._lock_header_height()
 
     # ------------------------------------------------------------------
     # 右键菜单（功能分层：复制/粘贴 → 清屏/重开/终止/关闭此终端）

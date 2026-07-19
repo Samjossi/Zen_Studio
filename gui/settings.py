@@ -17,6 +17,10 @@ SETTINGS_FILE = CONFIG_DIR / "settings.json"
 DEFAULT_SETTINGS = {
     "theme": "cloud",
     "font_size": 10,
+    # 全局 UI 字体族（apply_theme 应用；目前固定自带思源黑体，登记供持久化一致）
+    "font_family": "Source Han Sans CN",
+    # 工作区根（打开文件夹切换；None = 项目根目录）
+    "workspace_root": None,
     # 窗口几何与三处分隔栏状态（base64 编码的 QByteArray；None = 无记录用默认布局）
     "window_geometry": None,
     "splitter_main": None,     # 外层水平：聊天 / 中栏 / 文件树

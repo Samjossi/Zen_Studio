@@ -1,4 +1,4 @@
-"""主窗口：三栏式布局 + 菜单栏/状态栏骨架。
+"""主窗口：三栏式布局 + 状态栏；菜单栏由 gui/menus 包装配。
 
 窗口几何与分隔栏状态持久化（2026-07-19，见 文档/修改记录/
 2026-0719-0712_GUI窗口状态与模型选择持久化计划.md）：
@@ -8,27 +8,43 @@ Git 状态可视化（2026-07-20，见 work plans/2026-0720-0131 计划阶段四
 事件驱动刷新——窗口激活 / 查看器外部重载联动 / 视图菜单手动刷新，
 300ms 去抖后刷新 GitStatusService 并同步文件树着色、查看器差异徽标
 与状态栏统计；非 git 环境下所有入口静默跳过。
+
+菜单栏模块化（2026-07-20，见 文档/修改记录/2026-0720-0510_菜单栏与设置体系
+实施计划.md）：全部 addMenu/addAction 迁出至 gui/menus/（每菜单一文件 +
+ActionRegistry 全局注册表）；本类保留面板、槽函数与面板显隐单一入口。
+工作区根切换（打开文件夹）：文件树/聊天@路径/终端 cwd/Git 服务四处联动，
+workspace_root 持久化供启动恢复。
 """
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QActionGroup, QCloseEvent
+from PySide6.QtCore import Qt, QTimer, QUrl
+from PySide6.QtGui import QCloseEvent, QDesktopServices
 from PySide6.QtWidgets import (
     QApplication,
+    QCheckBox,
+    QFileDialog,
     QLabel,
     QMainWindow,
+    QMessageBox,
     QSplitter,
 )
 
 from core.git import GitStatusService
+from gui.menus import MenuBar
 from gui.panels import FileExplorer, ViewerPanel
 from gui.panels.changes import ChangesPanel
 from gui.panels.chat import ChatPanel
 from gui.panels.terminal import TerminalPanel
-from gui.settings import decode_state, encode_state, update_settings
+from gui.settings import (
+    CONFIG_DIR,
+    DEFAULT_SETTINGS,
+    SETTINGS_FILE,
+    decode_state,
+    encode_state,
+    update_settings,
+)
 from gui.theme import (
     apply_theme,
-    available_themes,
     get_family,
     get_label,
     load_settings,
@@ -53,14 +69,18 @@ class MainWindow(QMainWindow):
         self._splitter_middle.setCollapsible(1, False)
 
         self._splitter_main = QSplitter(Qt.Orientation.Horizontal)
-        # 工作区根：文件树根目录与聊天输入框 @相对路径 计算共用同一来源
+        # 工作区根：文件树根目录与聊天输入框 @相对路径 计算共用同一来源；
+        # 持久化的 workspace_root 有效则恢复（打开文件夹切换），无效静默回退项目根
         project_root = str(Path(__file__).resolve().parent.parent)
+        workspace = load_settings().get("workspace_root")
+        if workspace and Path(workspace).is_dir():
+            project_root = str(Path(workspace).resolve())
         # 左栏：AI 聊天面板
         self.chat_panel = ChatPanel(workspace_root=project_root)
         self._splitter_main.addWidget(self.chat_panel)
         self._splitter_main.addWidget(self._splitter_middle)
 
-        # 右栏：垂直拆分——上文件树（根目录为项目根）、下 Git 变更面板；
+        # 右栏：垂直拆分——上文件树（根目录为工作区根）、下 Git 变更面板；
         # 双击文件 → 中栏查看器打开
         self.file_explorer = FileExplorer(project_root)
         self.file_explorer.file_opened.connect(self.viewer_panel.open_file)
@@ -79,7 +99,13 @@ class MainWindow(QMainWindow):
 
         self.setCentralWidget(self._splitter_main)
 
-        self._build_menus()
+        # 菜单栏：gui/menus 包装配（注册表 + AI 模型菜单控制器）
+        self.menus = MenuBar(self)
+        self.menus.setup()
+        # AI 模型双向同步：ModelBar 用户切换 → 菜单勾选态；发送中整组禁用
+        self.chat_panel.model_bar.selection_changed.connect(self._on_modelbar_changed)
+        self.chat_panel.busy_changed.connect(self._on_chat_busy_changed)
+
         self.statusBar().setSizeGripEnabled(False)  # 去掉右下角尺寸把手（原生边框已可缩放）
         # 状态栏右侧常驻：当前文件 Git 差异统计（无改动/非仓库时为空）
         self._git_stat_label = QLabel("", self)
@@ -106,18 +132,18 @@ class MainWindow(QMainWindow):
             lambda path: self.statusBar().showMessage(f"文件已删除，待提交：{path}", 3000)
         )
         self.changes_panel.collapse_requested.connect(
-            lambda: self._set_changes_visible(False)
+            lambda: self.set_changes_visible(False)
         )
         self._git_debounce = QTimer(self)
         self._git_debounce.setSingleShot(True)
         self._git_debounce.setInterval(self.GIT_REFRESH_DEBOUNCE_MS)
-        self._git_debounce.timeout.connect(self._refresh_git_status)
+        self._git_debounce.timeout.connect(self.refresh_git_status)
         self.viewer_panel.externally_reloaded.connect(self._git_debounce.start)
         # 切换查看文件时同步状态栏统计（查看器徽标由 open_file 内部自刷）
         self.file_explorer.file_opened.connect(lambda _p: self._update_git_stat_label())
-        self._refresh_git_status()
+        self.refresh_git_status()
 
-    def _refresh_git_status(self) -> None:
+    def refresh_git_status(self) -> None:
         """去抖汇流点：刷新服务 → 文件树着色 → 查看器徽标 → 变更面板 → 状态栏。"""
         self._git_service.refresh()
         self.file_explorer.apply_git_status(self._git_service)
@@ -163,10 +189,14 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event: QCloseEvent) -> None:
         """关闭时一次性保存窗口几何与四处分隔栏状态。"""
         # 面板隐藏时先恢复可见再保存：避免把 0 尺寸写入持久化（启动始终显示）
-        if not self.terminal_panel.isVisible():
-            self.terminal_panel.setVisible(True)
-        if not self.changes_panel.isVisible():
-            self.changes_panel.setVisible(True)
+        for panel in (
+            self.chat_panel,
+            self.file_explorer,
+            self.terminal_panel,
+            self.changes_panel,
+        ):
+            if not panel.isVisible():
+                panel.setVisible(True)
         update_settings({
             "window_geometry": encode_state(self.saveGeometry()),
             "splitter_main": encode_state(self._splitter_main.saveState()),
@@ -177,79 +207,38 @@ class MainWindow(QMainWindow):
         super().closeEvent(event)
 
     # ------------------------------------------------------------------
-    # 菜单栏骨架
+    # 面板显隐（视图菜单勾选动作与面板内按钮汇入单一入口）
     # ------------------------------------------------------------------
-    def _build_menus(self) -> None:
-        menubar = self.menuBar()
+    def _set_panel_visible(self, key: str, panel, visible: bool) -> None:
+        """显隐单一入口：同步注册表勾选态与可见性（setChecked 不触发 triggered）。"""
+        if action := self.menus.get(key):
+            action.setChecked(visible)
+        panel.setVisible(visible)
 
-        # 文件菜单（骨架）
-        menu_file = menubar.addMenu("文件(&F)")
-        action_quit = menu_file.addAction("退出(&Q)")
-        action_quit.triggered.connect(self.close)
+    def set_chat_visible(self, visible: bool) -> None:
+        self._set_panel_visible("view.chat", self.chat_panel, visible)
 
-        # 编辑菜单（骨架，占位禁用）
-        menu_edit = menubar.addMenu("编辑(&E)")
-        action_placeholder = menu_edit.addAction("（待实现）")
-        action_placeholder.setEnabled(False)
+    def set_explorer_visible(self, visible: bool) -> None:
+        self._set_panel_visible("view.explorer", self.file_explorer, visible)
 
-        # 视图菜单：面板显隐 + 噪音过滤开关 + 主题切换
-        menu_view = menubar.addMenu("视图(&V)")
+    def set_terminal_visible(self, visible: bool) -> None:
+        self._set_panel_visible("view.terminal", self.terminal_panel, visible)
 
-        # 终端面板显隐：勾选动作为单一入口
-        self.action_terminal = menu_view.addAction("终端面板(&T)")
-        self.action_terminal.setCheckable(True)
-        self.action_terminal.setChecked(True)
-        self.action_terminal.triggered.connect(self._set_terminal_visible)
+    def set_changes_visible(self, visible: bool) -> None:
+        self._set_panel_visible("view.changes", self.changes_panel, visible)
 
-        self.action_noise_filter = menu_view.addAction("过滤噪音目录(&N)")
-        self.action_noise_filter.setCheckable(True)
-        self.action_noise_filter.setChecked(True)
-        self.action_noise_filter.triggered.connect(
-            lambda checked: self.file_explorer.set_noise_filter(checked)
-        )
+    def reset_layout(self) -> None:
+        """恢复默认布局：四组 splitter 回初始尺寸（面板显隐状态不变）。"""
+        self._splitter_main.setSizes([320, 630, 250])
+        self._splitter_middle.setSizes([550, 250])
+        self._splitter_right.setSizes([340, 170])
+        self.chat_panel.reset_layout()
+        self.statusBar().showMessage("已恢复默认布局", 2000)
 
-        # 变更面板显隐：勾选动作与面板头部「−」按钮汇入 _set_changes_visible
-        self.action_changes = menu_view.addAction("变更面板(&C)")
-        self.action_changes.setCheckable(True)
-        self.action_changes.setChecked(True)
-        self.action_changes.triggered.connect(self._set_changes_visible)
-
-        # Git 状态手动刷新（事件驱动三源之一；非 git 环境静默跳过）
-        action_git_refresh = menu_view.addAction("刷新 Git 状态(&G)")
-        action_git_refresh.triggered.connect(self._refresh_git_status)
-
-        menu_view.addSeparator()
-
-        # 主题菜单：按注册表动态生成，QActionGroup 互斥
-        current_theme = load_settings()["theme"]
-        self._theme_group = QActionGroup(self)
-        self._theme_group.setExclusive(True)
-        self._theme_actions = {}
-        for name in available_themes():
-            action = menu_view.addAction(get_label(name))
-            action.setCheckable(True)
-            action.setChecked(name == current_theme)
-            action.triggered.connect(lambda checked, n=name: self._switch_theme(n))
-            self._theme_group.addAction(action)
-            self._theme_actions[name] = action
-
-    def _set_terminal_visible(self, visible: bool) -> None:
-        """终端面板显隐单一入口：视图菜单勾选动作与头部栏「−」按钮汇入。
-
-        注意 setChecked 不触发 triggered，勾选态与可见性须在此一并同步。
-        """
-        self.action_terminal.setChecked(visible)
-        self.terminal_panel.setVisible(visible)
-
-    def _set_changes_visible(self, visible: bool) -> None:
-        """变更面板显隐单一入口：视图菜单勾选动作与面板头部「−」按钮汇入。
-
-        注意 setChecked 不触发 triggered，勾选态与可见性须在此一并同步。
-        """
-        self.action_changes.setChecked(visible)
-        self.changes_panel.setVisible(visible)
-
-    def _switch_theme(self, theme: str) -> None:
+    # ------------------------------------------------------------------
+    # 主题切换（视图菜单 ▸ 外观；QActionGroup 单回调读 data 载荷）
+    # ------------------------------------------------------------------
+    def switch_theme(self, theme: str) -> None:
         """切换主题：持久化 + 即时应用，并同步查看器/终端所属族配色。"""
         save_theme(theme)
         app = QApplication.instance()
@@ -260,6 +249,182 @@ class MainWindow(QMainWindow):
         self.terminal_panel.apply_theme(family)
         self.file_explorer.apply_theme(family)
         self.changes_panel.apply_theme(family)
-        if theme in self._theme_actions:
-            self._theme_actions[theme].setChecked(True)
+        if action := self.menus.get(f"appearance.theme.{theme}"):
+            action.setChecked(True)
         self.statusBar().showMessage(f"已切换为{get_label(theme)}主题", 3000)
+
+    # ------------------------------------------------------------------
+    # 文件菜单槽
+    # ------------------------------------------------------------------
+    def open_file_dialog(self) -> None:
+        """打开文件：QFileDialog 选文件 → 查看器完整管线（高亮/徽标）。"""
+        path, _ = QFileDialog.getOpenFileName(self, "打开文件", self.file_explorer.root_dir)
+        if path:
+            self.viewer_panel.open_file(path)
+
+    def open_folder_dialog(self) -> None:
+        """打开文件夹：QFileDialog 选目录 → 工作区根切换（取消无副作用）。"""
+        path = QFileDialog.getExistingDirectory(self, "打开文件夹", self.file_explorer.root_dir)
+        if path:
+            self._switch_workspace(path)
+
+    def open_config_dir(self) -> None:
+        """在系统文件管理器中打开 config/ 目录。"""
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(CONFIG_DIR)))
+
+    def _switch_workspace(self, path: str) -> None:
+        """工作区根切换单一入口：文件树/聊天@路径/终端 cwd/Git 服务四处联动。
+
+        Git 服务重建后复用 refresh_git_status 注入链（viewer/explorer/changes
+        三处经该方法统一消费 self._git_service）；非 git 目录静默跳过。
+        """
+        root = str(Path(path).resolve())
+        if root == self.file_explorer.root_dir:
+            return
+        self.file_explorer.set_root(root)
+        self.chat_panel.input.set_workspace_root(root)
+        self.terminal_panel.set_cwd(root)
+        self._git_service = GitStatusService(root)
+        self.viewer_panel.set_git_service(self._git_service)
+        update_settings({"workspace_root": root})
+        self.refresh_git_status()
+        self.statusBar().showMessage(f"已切换工作区：{root}", 3000)
+
+    # ------------------------------------------------------------------
+    # 编辑菜单槽（复制/全选转发焦点控件；查找按焦点分发）
+    # ------------------------------------------------------------------
+    def focus_supports(self, methods: tuple[str, ...]) -> bool:
+        """焦点控件是否支持任一给定方法（编辑菜单 aboutToShow 启用态依据）。"""
+        widget = QApplication.focusWidget()
+        return widget is not None and any(hasattr(widget, m) for m in methods)
+
+    def copy_focused(self) -> None:
+        """复制：终端自绘控件走 copy_selection，其余走 Qt 标准 copy。"""
+        widget = QApplication.focusWidget()
+        if widget is None:
+            return
+        if hasattr(widget, "copy_selection"):
+            widget.copy_selection()
+        elif hasattr(widget, "copy"):
+            widget.copy()
+
+    def select_all_focused(self) -> None:
+        widget = QApplication.focusWidget()
+        if widget is not None and hasattr(widget, "selectAll"):
+            widget.selectAll()
+
+    def find_focused(self) -> None:
+        """查找按焦点分发：焦点在终端 → 终端浮层；其余 → 查看器浮层。"""
+        widget = QApplication.focusWidget()
+        terminal = self.terminal_panel.terminal
+        if widget is not None and (widget is terminal or terminal.isAncestorOf(widget)):
+            self.terminal_panel.show_find()
+        else:
+            self.viewer_panel.show_find()
+
+    # ------------------------------------------------------------------
+    # 设置菜单槽
+    # ------------------------------------------------------------------
+    #: 字号调整上下界（pt）
+    FONT_SIZE_MIN = 8
+    FONT_SIZE_MAX = 24
+
+    def adjust_font_size(self, delta: int) -> None:
+        """字号增大/减小（步进 1pt，带上下界钳制）。"""
+        size = load_settings()["font_size"] + delta
+        size = max(self.FONT_SIZE_MIN, min(self.FONT_SIZE_MAX, size))
+        self._apply_font_size(size)
+
+    def reset_font_size(self) -> None:
+        self._apply_font_size(DEFAULT_SETTINGS["font_size"])
+
+    def _apply_font_size(self, size: int) -> None:
+        """字号应用链：持久化 → 全局字体 → 查看器/终端等宽字号同步。"""
+        update_settings({"font_size": size})
+        if (app := QApplication.instance()) is not None:
+            apply_theme(app)
+        self.viewer_panel.refresh_font()
+        self.terminal_panel.refresh_font()
+        self.statusBar().showMessage(f"字号：{size} pt", 2000)
+
+    def apply_model_selection(self, backend: str, version: str | None) -> None:
+        """设置菜单驱动的模型切换：收敛到 ChatPanel 后刷新菜单勾选态。"""
+        self.chat_panel.apply_model_selection(backend, version)
+        bar = self.chat_panel.model_bar
+        if self.menus.model_menu is not None:
+            self.menus.model_menu.sync(bar.current_backend(), bar.current_version())
+
+    def _on_modelbar_changed(self, backend: str, version: object) -> None:
+        """ModelBar 用户切换 → 菜单勾选态（setChecked 不触发 triggered，无回环）。"""
+        if self.menus.model_menu is not None:
+            self.menus.model_menu.sync(backend, version if isinstance(version, str) else None)
+
+    def _on_chat_busy_changed(self, busy: bool) -> None:
+        """发送中禁用 AI 模型菜单组（与 ModelBar 双下拉禁用对齐）。"""
+        if self.menus.model_menu is not None:
+            self.menus.model_menu.set_enabled(not busy)
+
+    def open_settings_file(self) -> None:
+        """在只读查看器中打开 settings.json（AI-first：修改经 AI 落盘）。"""
+        self.viewer_panel.open_file(str(SETTINGS_FILE))
+        self.statusBar().showMessage("配置文件为只读查看；修改请经 AI 落盘", 5000)
+
+    def reset_settings(self) -> None:
+        """恢复默认设置：确认框（可保留窗口几何/分隔栏）→ 重置并即时应用。"""
+        box = QMessageBox(self)
+        box.setWindowTitle("恢复默认设置")
+        box.setText("确定要恢复全部默认设置吗？")
+        box.setInformativeText("主题、字号、模型选择、工作区等将重置为默认值。")
+        keep = QCheckBox("保留窗口几何与分隔栏状态", box)
+        keep.setChecked(True)
+        box.setCheckBox(keep)
+        box.setStandardButtons(
+            QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel)
+        box.setDefaultButton(QMessageBox.StandardButton.Cancel)
+        if box.exec() != QMessageBox.StandardButton.Ok:
+            return
+
+        patch = dict(DEFAULT_SETTINGS)
+        if keep.isChecked():
+            current = load_settings()
+            for key in (
+                "window_geometry",
+                "splitter_main",
+                "splitter_middle",
+                "splitter_right",
+                "splitter_chat",
+            ):
+                patch[key] = current.get(key)
+        update_settings(patch)
+
+        # 即时应用：主题（含四面板配色）→ 字号 → 模型 → 噪音过滤 → 工作区
+        settings = load_settings()
+        self.switch_theme(settings["theme"])
+        self._apply_font_size(settings["font_size"])
+        self.chat_panel.apply_model_selection(
+            settings["model_backend"], settings["model_version"])
+        bar = self.chat_panel.model_bar
+        if self.menus.model_menu is not None:
+            self.menus.model_menu.sync(bar.current_backend(), bar.current_version())
+        if action := self.menus.get("view.noise_filter"):
+            action.setChecked(True)
+        self.file_explorer.set_noise_filter(True)
+        default_root = str(Path(__file__).resolve().parent.parent)
+        if self.file_explorer.root_dir != default_root:
+            self._switch_workspace(default_root)
+            update_settings({"workspace_root": None})  # 默认根不落具体路径
+        self.statusBar().showMessage("已恢复默认设置", 3000)
+
+    # ------------------------------------------------------------------
+    # 帮助菜单槽
+    # ------------------------------------------------------------------
+    def show_about(self) -> None:
+        """关于对话框：版本 / 技术栈 / 项目路径。"""
+        project_root = Path(__file__).resolve().parent.parent
+        QMessageBox.about(
+            self,
+            "关于 Zen Studio",
+            "<b>Zen Studio</b> 0.1.0"
+            "<p>AI-first 桌面 IDE：代码修改一律经 AI agent 落盘。</p>"
+            f"<p>技术栈：Python + PySide6<br>项目路径：{project_root}</p>",
+        )
