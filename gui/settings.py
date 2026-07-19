@@ -14,10 +14,8 @@ CONFIG_DIR = Path(__file__).resolve().parent.parent / "config"
 SETTINGS_FILE = CONFIG_DIR / "settings.json"
 
 #: 默认值：文件缺失 / 字段缺失 / JSON 损坏时回退
-#: 注：font_family 字面量与 gui.theme.BUNDLED_FAMILY 同源，改名需同步
 DEFAULT_SETTINGS = {
     "theme": "cloud",
-    "font_family": "Source Han Sans CN",
     "font_size": 10,
     # 窗口几何与三处分隔栏状态（base64 编码的 QByteArray；None = 无记录用默认布局）
     "window_geometry": None,

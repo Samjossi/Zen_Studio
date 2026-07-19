@@ -9,9 +9,11 @@
 ② THEME_META 注册一行（显示名 + 族）。族（light/dark）供语法高亮、
 终端调色板、查看器行号配色等只认明暗两套的模块查表。
 
-字体（2026-07-19）：优先注册 assets/fonts/思源黑体/ 自带字体
-（Source Han Sans CN，SIL OFL 1.1，见该目录 LICENSE.txt），
-保障分发一致性与真字重层级；注册失败回退系统 Noto Sans CJK SC。
+字体（2026-07-19，见 work plans/2026-0719-1152_字体库统一计划.md）：
+双字体族全部自带、统一注册自 assets/fonts/，不引用系统字体——
+① UI 族：思源黑体 Source Han Sans CN（SIL OFL 1.1，7 档注册其三）；
+② 等宽族：更纱黑体 Sarasa Term SC（SIL OFL 1.1，中英 2:1 严格等宽，
+供终端与代码查看器）。注册失败仅打印告警（属打包错误），Qt 自然回退兜底。
 
 配置读写（2026-07-19）：通用持久化已抽到 gui/settings.py，
 本模块仅保留主题相关的校验包装与样式应用。
@@ -40,7 +42,7 @@ THEME_META: dict[str, dict[str, str]] = {
     "dark": {"label": "暗色", "family": "dark"},
 }
 
-#: 自带字体目录（assets/fonts/思源黑体/，全量 7 档，运行时注册其中三档）
+#: 自带 UI 字体目录（assets/fonts/思源黑体/，全量 7 档，运行时注册其中三档）
 BUNDLED_FONTS_DIR = Path(__file__).resolve().parent.parent / "assets" / "fonts" / "思源黑体"
 #: 注册三档即可支撑正文/标题/强调层级；其余字重留目录备用
 BUNDLED_FONT_FILES = (
@@ -49,7 +51,17 @@ BUNDLED_FONT_FILES = (
     "SourceHanSansCN-Bold.otf",
 )
 BUNDLED_FAMILY = "Source Han Sans CN"
-FALLBACK_FAMILY = "Noto Sans CJK SC"
+
+#: 自带等宽字体目录（assets/fonts/更纱黑体/，终端与代码查看器专用）
+MONO_FONTS_DIR = Path(__file__).resolve().parent.parent / "assets" / "fonts" / "更纱黑体"
+MONO_FONT_FILES = (
+    "SarasaTermSC-Regular.ttf",
+    "SarasaTermSC-Bold.ttf",
+)
+MONO_FAMILY = "Sarasa Term SC"
+
+#: 注册幂等标志：主题切换会重入 apply_theme，字体只需注册一次
+_fonts_registered = False
 
 
 # ----------------------------------------------------------------------
@@ -91,23 +103,33 @@ def save_theme(theme: str) -> None:
     update_settings({"theme": theme})
 
 
-def _register_bundled_fonts() -> bool:
-    """注册自带思源黑体三档；任一字重成功即视为可用。"""
+def _register_dir(directory: Path, files: tuple[str, ...]) -> bool:
+    """注册一个字体目录下的指定文件；任一成功即视为该族可用。"""
     ok = False
-    for name in BUNDLED_FONT_FILES:
-        path = BUNDLED_FONTS_DIR / name
+    for name in files:
+        path = directory / name
         if path.is_file():
             ok = (QFontDatabase.addApplicationFont(str(path)) >= 0) or ok
     return ok
 
 
-def _resolve_font_family(settings: dict) -> str:
-    """解析界面字体家族：自带字体可用则用之，否则回退系统字体。"""
-    if settings["font_family"] == BUNDLED_FAMILY:
-        if _register_bundled_fonts():
-            return BUNDLED_FAMILY
-        return FALLBACK_FAMILY
-    return settings["font_family"]
+def register_bundled_fonts() -> None:
+    """注册库内双字体族（幂等）；缺失仅告警（属打包错误），Qt 自然回退兜底。"""
+    global _fonts_registered
+    if _fonts_registered:
+        return
+    _fonts_registered = True
+    if not _register_dir(BUNDLED_FONTS_DIR, BUNDLED_FONT_FILES):
+        print(f"[theme] 警告：UI 字体注册失败（{BUNDLED_FONTS_DIR}），Qt 将回退默认字体")
+    if not _register_dir(MONO_FONTS_DIR, MONO_FONT_FILES):
+        print(f"[theme] 警告：等宽字体注册失败（{MONO_FONTS_DIR}），等宽场景将回退 monospace")
+
+
+def mono_family() -> str:
+    """等宽字体族名：Sarasa Term SC 可用则返回之，否则回退 Qt 泛型 monospace。"""
+    if MONO_FAMILY in QFontDatabase.families():
+        return MONO_FAMILY
+    return "monospace"
 
 
 def apply_theme(app: QApplication) -> None:
@@ -121,4 +143,5 @@ def apply_theme(app: QApplication) -> None:
         # 主题文件缺失时静默回退到 Qt 默认样式
         app.setStyleSheet("")
 
-    app.setFont(QFont(_resolve_font_family(settings), settings["font_size"]))
+    register_bundled_fonts()
+    app.setFont(QFont(BUNDLED_FAMILY, settings["font_size"]))

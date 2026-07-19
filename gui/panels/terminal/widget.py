@@ -11,13 +11,14 @@ from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import (
     QColor,
     QFont,
-    QFontDatabase,
     QGuiApplication,
     QKeyEvent,
     QPainter,
     QWheelEvent,
 )
 from PySide6.QtWidgets import QApplication, QScrollBar, QWidget
+
+from gui.theme import mono_family
 
 from gui.panels.terminal.palette import AnsiPalette
 from gui.panels.terminal.screen import TerminalScreen
@@ -64,7 +65,7 @@ class TerminalWidget(QWidget):
         self._sel_anchor: tuple[int, int] | None = None  # 锚点（按下处）
         self._sel_end: tuple[int, int] | None = None     # 活动端点（拖拽处）
 
-        font = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
+        font = QFont(mono_family())  # 库内等宽族（Sarasa Term SC），注册缺失回退 monospace
         if app := QApplication.instance():
             font.setPointSizeF(app.font().pointSizeF())
         self.setFont(font)

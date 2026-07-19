@@ -6,8 +6,10 @@ AI-first 定位：永久只读（产品决策，`setReadOnly` 可逆）；行号
 行号按逻辑行（block）编号，折出的续行无行号（与 VS Code 一致）。
 """
 from PySide6.QtCore import QRect, QSize, Qt
-from PySide6.QtGui import QColor, QFontDatabase, QPainter, QTextFormat, QTextOption
+from PySide6.QtGui import QColor, QFont, QPainter, QTextFormat, QTextOption
 from PySide6.QtWidgets import QApplication, QPlainTextEdit, QTextEdit, QWidget
+
+from gui.theme import mono_family
 
 #: 查看器控件配色（行号/当前行；文本高亮配色见 highlighter.PALETTES）
 CHROME: dict[str, dict[str, str]] = {
@@ -39,7 +41,7 @@ class CodeViewer(QPlainTextEdit):
         # 软换行：按控件宽度折行，优先单词边界、无空格长串任意处硬断（不出水平滚动条）
         self.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
         self.setWordWrapMode(QTextOption.WrapMode.WrapAtWordBoundaryOrAnywhere)
-        font = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
+        font = QFont(mono_family())  # 库内等宽族（Sarasa Term SC），注册缺失回退 monospace
         if app := QApplication.instance():
             font.setPointSizeF(app.font().pointSizeF())
         self.setFont(font)
