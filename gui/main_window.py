@@ -53,14 +53,15 @@ class MainWindow(QMainWindow):
         self._splitter_middle.setCollapsible(1, False)
 
         self._splitter_main = QSplitter(Qt.Orientation.Horizontal)
+        # 工作区根：文件树根目录与聊天输入框 @相对路径 计算共用同一来源
+        project_root = str(Path(__file__).resolve().parent.parent)
         # 左栏：AI 聊天面板
-        self.chat_panel = ChatPanel()
+        self.chat_panel = ChatPanel(workspace_root=project_root)
         self._splitter_main.addWidget(self.chat_panel)
         self._splitter_main.addWidget(self._splitter_middle)
 
         # 右栏：垂直拆分——上文件树（根目录为项目根）、下 Git 变更面板；
         # 双击文件 → 中栏查看器打开
-        project_root = str(Path(__file__).resolve().parent.parent)
         self.file_explorer = FileExplorer(project_root)
         self.file_explorer.file_opened.connect(self.viewer_panel.open_file)
         self.changes_panel = ChangesPanel()

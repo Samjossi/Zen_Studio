@@ -25,7 +25,11 @@ PERMISSION_TIMEOUT_S = 180
 class ChatPanel(QWidget):
     """左栏 AI 聊天面板。"""
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(self, parent: QWidget | None = None, workspace_root: str | None = None) -> None:
+        """
+        :param parent: 父控件
+        :param workspace_root: 工作区根路径（拖入文件计算 @相对路径 用，由 MainWindow 注入）
+        """
         super().__init__(parent)
         self.setObjectName("SidePanel")  # 侧栏灰底分区（主题 qss 统一着色）
         # 自定义 QWidget 子类的 qss 背景需 WA_StyledBackground 才会绘制
@@ -37,6 +41,8 @@ class ChatPanel(QWidget):
 
         self.output = ChatOutput(self)
         self.input = ChatInput(self)
+        if workspace_root is not None:
+            self.input.set_workspace_root(workspace_root)
         self.model_bar = ModelBar(self)
         # 启动一致性：后端与版本取 ModelBar 恢复后的持久化选择，
         # 并主动同步 provider 单例，避免"UI 显示与后端生效"不一致

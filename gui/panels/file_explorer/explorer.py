@@ -9,9 +9,11 @@
 
 子包拆分：模型层见 model.py（噪音过滤，git 装饰预留），右键动作见 actions.py。
 """
+from collections.abc import Callable
 from pathlib import Path
 
-from PySide6.QtCore import Signal, Qt
+from PySide6.QtCore import QMimeData, QUrl, Signal, Qt
+from PySide6.QtGui import QDrag
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QFileSystemModel,
@@ -25,6 +27,32 @@ from PySide6.QtWidgets import (
 from gui.panels.file_explorer.actions import ExplorerActionsMixin
 from gui.panels.file_explorer.model import NoiseFilterProxyModel
 from gui.theme import get_family, load_settings
+
+
+class _DragOutTreeView(QTreeView):
+    """仅拖出、不接收的树视图（拖拽到 AI 输入框插入 @路径 用）。
+
+    拖拽数据由 paths_provider 回调提供（当前选中项的绝对路径列表），
+    只写 URLs —— QMimeData.setUrls 会自动生成 text/uri-list，等价于
+    PyGPT 手写双写格式，天然兼容系统文件管理器等外部投放/拖出来源。
+    drag 限定 CopyAction：QFileSystemModel 为可写模型，不限定的话
+    拖到接收 MoveAction 的目标会触发文件移动语义。
+    """
+
+    #: 返回当前选中项绝对路径列表的回调（由 FileExplorer 注入）
+    paths_provider: Callable[[], list[str]] | None = None
+
+    def startDrag(self, supported_actions) -> None:
+        if self.paths_provider is None:
+            return super().startDrag(supported_actions)
+        urls = [QUrl.fromLocalFile(p) for p in self.paths_provider()]
+        if not urls:
+            return
+        mime = QMimeData()
+        mime.setUrls(urls)
+        drag = QDrag(self)
+        drag.setMimeData(mime)
+        drag.exec(Qt.DropAction.CopyAction)
 
 
 class FileExplorer(ExplorerActionsMixin, QWidget):
@@ -62,7 +90,12 @@ class FileExplorer(ExplorerActionsMixin, QWidget):
         self.proxy = NoiseFilterProxyModel(self.NOISE_NAMES, self)
         self.proxy.setSourceModel(self.model)
 
-        self.tree = QTreeView(self)
+        self.tree = _DragOutTreeView(self)
+        self.tree.paths_provider = self._selected_paths  # 拖出数据 = 当前选中项
+        self.tree.setDragEnabled(True)  # 允许拖出（dragDropMode 随之变 DragOnly）
+        # 树自身不接收拖放：本期不做树内拖拽移动，防误拖触发文件移动
+        self.tree.setAcceptDrops(False)
+        self.tree.setDropIndicatorShown(False)
         self.tree.setModel(self.proxy)
         self.tree.setRootIndex(self.proxy.mapFromSource(self.model.index(self.root_dir)))
         self.tree.setUniformRowHeights(True)
