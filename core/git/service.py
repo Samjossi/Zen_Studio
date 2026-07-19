@@ -89,6 +89,56 @@ class GitStatusService:
         rel = self._rel(abs_path)
         return self._numstat.get(rel) if rel is not None else None
 
+    def changes(self) -> list[dict]:
+        """聚合变更清单（变更面板数据源）：[{path, status, added, deleted}]。
+
+        - 排除 ignored；按路径排序
+        - added/deleted 来自 numstat；无统计（纯改名/模式变更）为 None
+        - 未跟踪文件 numstat 不含，补数行数（仅文本、≤1MB 守卫，
+          二进制/超限为 None）；未跟踪目录折叠条目（`dir/`）不统计
+        """
+        result: list[dict] = []
+        for rel, st in sorted(self._status.items()):
+            if st == status.IGNORED:
+                continue
+            added = deleted = None
+            if st == status.UNTRACKED:
+                if not rel.endswith("/"):
+                    counted = self._count_lines(rel)
+                    if counted is not None:
+                        added, deleted = counted, 0
+            else:
+                stat = self._numstat.get(rel)
+                if stat is not None:
+                    added, deleted = stat
+            result.append({"path": rel, "status": st, "added": added, "deleted": deleted})
+        return result
+
+    #: 未跟踪文件行数统计的大小上限（字节）
+    UNTRACKED_COUNT_MAX_BYTES = 1_048_576
+
+    def _count_lines(self, rel: str) -> int | None:
+        """未跟踪文件行数统计；二进制/超限/读取失败返回 None。"""
+        if self._repo_root is None:
+            return None
+        p = Path(self._repo_root) / rel
+        try:
+            if p.stat().st_size > self.UNTRACKED_COUNT_MAX_BYTES:
+                return None
+            with p.open("rb") as f:
+                head = f.read(8192)
+                if b"\0" in head:  # 二进制嗅探：首块含 NUL
+                    return None
+                rest = f.read()
+            data = head + rest
+        except OSError:
+            return None
+        # 与 git 行数口径一致：按换行符计数，末尾无换行的尾行也算一行
+        lines = data.count(b"\n")
+        if data and not data.endswith(b"\n"):
+            lines += 1
+        return lines
+
     # ------------------------------------------------------------------
     # 内部
     # ------------------------------------------------------------------
