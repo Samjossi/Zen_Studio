@@ -168,6 +168,22 @@ class _AcpConnection:
     def end_turn(self) -> None:
         self._turn_id = None
 
+    def cancel_turn(self, session_id: str) -> bool:
+        """取消当前轮次：发 `session/cancel` 通知（agent 收到后结束本轮）。
+
+        无活跃轮次或连接已死时返回 False（无害 no-op）；
+        可从任意线程调用（写锁串行化）。连接进程保留，会话不毁。
+        """
+        if self._turn_id is None or not self.alive:
+            return False
+        try:
+            with self._write_lock:
+                self._send({"jsonrpc": "2.0", "method": "session/cancel",
+                            "params": {"sessionId": session_id}})
+        except (OSError, ValueError):
+            return False  # 写入失败说明连接将死，chat 路径按 dead 收尾
+        return True
+
     def purge_updates(self) -> None:
         """清空上一轮残留的迟到通知，防串轮。"""
         while True:
@@ -227,6 +243,16 @@ class KimiAcpLLM(LanguageModel):
             self._conn.terminate()
             self._conn = None
             self._session_id = None
+
+    def cancel(self) -> None:
+        """取消当前轮次（协议级）：发 `session/cancel`；无轮次时 no-op。
+
+        不持 `_turn_lock`（cancel 从 GUI 线程来，锁由 chat 所在 worker 持有）；
+        不终止连接进程——长驻连接是会话资产，仅结束当前轮次。
+        """
+        conn = self._conn
+        if conn is not None and self._session_id:
+            conn.cancel_turn(self._session_id)
 
     def _ensure_session(self) -> _AcpConnection:
         bin_path = _find_bin()

@@ -62,6 +62,7 @@ class ChatPanel(QWidget):
 
         self.input.send_requested.connect(self._on_send)
         self.model_bar.selection_changed.connect(self._on_selection_changed)
+        self.model_bar.stop_requested.connect(self._on_stop)
         self._wire_permission_handler()
 
     # ------------------------------------------------------------------
@@ -160,7 +161,14 @@ class ChatPanel(QWidget):
         self._worker = ChatWorker(llm, messages, self)
         self._worker.chunk_received.connect(self._on_chunk)
         self._worker.finished_with_error.connect(self._on_finished)
+        self._worker.stopped_by_user.connect(self._on_stopped)
         self._worker.start()
+
+    def _on_stop(self) -> None:
+        """停止按钮：协议取消（立即层）+ 标志轮询（检查点层），幂等。"""
+        if self._worker is not None:
+            self._worker.request_stop()
+            self.input.setPlaceholderText("正在停止…")
 
     def _on_chunk(self, chunk: Chunk) -> None:
         if chunk.kind == "reasoning":
@@ -187,11 +195,24 @@ class ChatPanel(QWidget):
         self._set_busy(False)
         self._worker = None
 
+    def _on_stopped(self) -> None:
+        """用户中断收尾（第三态）：整体回滚——中断轮不入历史；
+        屏幕已输出内容不擦除（可复制兜底），追加停止标注。"""
+        if self._seen_reasoning:
+            self.output.end_reasoning()
+            self._seen_reasoning = False
+        self._history.pop()  # 回滚用户消息；半截回复随 _stream_buffer 丢弃
+        self.output.append_stream_chunk("\n⏹ 已手动停止")
+        self.output.end_stream()
+        self._set_busy(False)
+        self._worker = None
+
     def _set_busy(self, busy: bool) -> None:
-        self.input.setEnabled(not busy)
-        self.model_bar.setEnabled(not busy)
+        # 输入框保持可编辑（Enter 发送有 isRunning 守卫拦截，文本不丢）；
+        # 模型行双下拉禁用防切后端，停止按钮 busy 时可见
+        self.model_bar.set_busy(busy)
         if busy:
-            busy_text = f"{BACKEND_LABELS.get(self._llm_name, 'AI')} 响应中…"
+            busy_text = f"{BACKEND_LABELS.get(self._llm_name, 'AI')} 响应中…点击 ■ 停止可中断"
         else:
             busy_text = "输入消息，Enter 发送 / Shift+Enter 换行"
         self.input.setPlaceholderText(busy_text)

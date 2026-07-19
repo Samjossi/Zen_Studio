@@ -5,7 +5,7 @@
 静默回退默认），用户主动切换即时写盘。
 """
 from PySide6.QtCore import QSignalBlocker, Signal
-from PySide6.QtWidgets import QComboBox, QHBoxLayout, QLabel, QWidget
+from PySide6.QtWidgets import QComboBox, QHBoxLayout, QLabel, QPushButton, QWidget
 
 from gui.settings import load_settings, update_settings
 from llm import kimi_available, list_kimi_models
@@ -20,6 +20,9 @@ class ModelBar(QWidget):
 
     #: 后端/版本切换（携带 registry 后端名 + 版本载荷：模型别名 str）
     selection_changed = Signal(str, object)
+
+    #: 请求停止当前生成（busy 时出现的 ■ 停止按钮被点击）
+    stop_requested = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -36,19 +39,40 @@ class ModelBar(QWidget):
         self._version_combo = QComboBox(self)
         self._refresh_versions("kimi-cli")
 
+        # 停止按钮：仅 busy（流式响应中）可见，替代三家参考实现的
+        # "发送/停止互斥"形态（本项目输入区无发送按钮，Enter 直发）
+        self.stop_btn = QPushButton("■ 停止", self)
+        self.stop_btn.setObjectName("chatStopBtn")
+        self.stop_btn.setToolTip("停止当前生成")
+        self.stop_btn.setVisible(False)
+
         layout = QHBoxLayout(self)
         layout.addWidget(QLabel("模型", self))
         layout.addWidget(self._model_combo)
         layout.addWidget(QLabel("版本", self))
         layout.addWidget(self._version_combo, 1)
+        layout.addWidget(self.stop_btn)
         layout.setContentsMargins(4, 2, 4, 2)
 
         self._model_combo.currentIndexChanged.connect(self._on_model_changed)
         self._version_combo.currentIndexChanged.connect(self._on_version_changed)
+        self.stop_btn.clicked.connect(self.stop_requested)
 
         # 启动时恢复持久化选择（无记录/无效项回退默认）
         settings = load_settings()
         self.set_selection(settings.get("model_backend"), settings.get("model_version"))
+
+    # ------------------------------------------------------------------
+    # 忙碌态（流式响应中）
+    # ------------------------------------------------------------------
+    def set_busy(self, busy: bool) -> None:
+        """busy：禁用双下拉（防响应中切后端/版本）+ 显示停止按钮。
+
+        不用整体 setEnabled——停止按钮在 busy 时必须可点。
+        """
+        self._model_combo.setEnabled(not busy)
+        self._version_combo.setEnabled(not busy)
+        self.stop_btn.setVisible(busy)
 
     # ------------------------------------------------------------------
     # 持久化

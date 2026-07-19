@@ -25,3 +25,13 @@ class LanguageModel(Protocol):
             思维链仅当次显示，调用方不得回传入请求历史）
         """
         ...
+
+    def cancel(self) -> None:
+        """取消当前进行中的 chat 调用（协议级，立即打断阻塞等待）。
+
+        无进行中调用时须为无害 no-op；须可从非 chat 所在线程安全调用
+        （典型场景：GUI 线程点击停止，chat 在 worker 线程阻塞）。
+        取消后 chat 生成器应尽快结束（正常耗尽或抛异常均可，
+        残余资源由生成器 finally 兜底清理）。
+        """
+        ...

@@ -64,6 +64,8 @@ class KimiCliLLM(LanguageModel):
     def __init__(self, model: str | None = None) -> None:
         self._model = model  # None = CLI 默认模型（default_model）
         self._session_id: str | None = None
+        #: 当前请求的活动子进程（cancel 目标；chat 开始登记、结束置 None）
+        self._active_proc: subprocess.Popen | None = None
 
     def set_model(self, alias: str) -> None:
         """切换模型别名（下次请求生效）。"""
@@ -72,6 +74,15 @@ class KimiCliLLM(LanguageModel):
     def reset_session(self) -> None:
         """清空会话续接凭证，下次请求开新会话。"""
         self._session_id = None
+
+    def cancel(self) -> None:
+        """取消当前请求：终止活动子进程（stdout EOF，chat 迭代随之结束）。
+
+        无活动进程时 no-op；可从任意线程调用（terminate 仅发信号）。
+        """
+        proc = self._active_proc
+        if proc is not None and proc.poll() is None:
+            proc.terminate()
 
     def chat(self, messages: list[Message]) -> Iterator[Chunk]:
         # 历史由 kimi 会话管理，仅取最后一条 user 消息作 prompt
@@ -97,6 +108,7 @@ class KimiCliLLM(LanguageModel):
             encoding="utf-8",
             errors="replace",
         )
+        self._active_proc = proc  # 登记 cancel 目标
         # stderr 持续排空（thinking/工具进度/错误诊断均走 stderr）：
         # 防管道缓冲写满阻塞子进程；仅保留尾部数块，失败时附进异常
         stderr_tail: list[str] = []
@@ -110,29 +122,40 @@ class KimiCliLLM(LanguageModel):
         drain = threading.Thread(target=_drain_stderr, daemon=True)
         drain.start()
 
-        assert proc.stdout is not None
-        for line in proc.stdout:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                obj = json.loads(line)
-            except json.JSONDecodeError:
-                continue  # 非 JSON 行（兼容未来格式噪声）
-            role = obj.get("role")
-            if role == "assistant":
-                content = obj.get("content")
-                if content:
-                    yield Chunk("text", content)
-                # 工具调用复用灰字通道展示 agent 动作
-                for tc in obj.get("tool_calls") or []:
-                    name = (tc.get("function") or {}).get("name", "?")
-                    yield Chunk("reasoning", f"• 调用工具 {name}\n")
-            elif role == "meta" and obj.get("type") == "session.resume_hint":
-                self._session_id = obj.get("session_id", self._session_id)
-        rc = proc.wait()
-        drain.join(timeout=5)
-        if rc != 0:
-            tail = "".join(stderr_tail).strip()[-500:]
-            detail = f"：{tail}" if tail else ""
-            raise RuntimeError(f"kimi CLI 调用失败（退出码 {rc}）{detail}")
+        try:
+            assert proc.stdout is not None
+            for line in proc.stdout:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    obj = json.loads(line)
+                except json.JSONDecodeError:
+                    continue  # 非 JSON 行（兼容未来格式噪声）
+                role = obj.get("role")
+                if role == "assistant":
+                    content = obj.get("content")
+                    if content:
+                        yield Chunk("text", content)
+                    # 工具调用复用灰字通道展示 agent 动作
+                    for tc in obj.get("tool_calls") or []:
+                        name = (tc.get("function") or {}).get("name", "?")
+                        yield Chunk("reasoning", f"• 调用工具 {name}\n")
+                elif role == "meta" and obj.get("type") == "session.resume_hint":
+                    self._session_id = obj.get("session_id", self._session_id)
+            rc = proc.wait()
+            if rc != 0:
+                tail = "".join(stderr_tail).strip()[-500:]
+                detail = f"：{tail}" if tail else ""
+                raise RuntimeError(f"kimi CLI 调用失败（退出码 {rc}）{detail}")
+        finally:
+            # 统一清理（正常结束/异常/生成器 close 三路径共用）：
+            # 进程存活则终止——cancel 通常已杀，此处兜底；drain 随 EOF 收尾
+            self._active_proc = None
+            if proc.poll() is None:
+                proc.terminate()
+                try:
+                    proc.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+            drain.join(timeout=5)
