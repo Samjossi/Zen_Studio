@@ -47,7 +47,7 @@ THEME_META: dict[str, dict[str, str]] = {
 #: 状态枚举见 core/git/status.py：modified/untracked/deleted/ignored/conflict
 GIT_STATUS_COLORS: dict[str, dict[str, str]] = {
     "light": {
-        "modified": "#9a6a00",   # 黄橙
+        "modified": "#1e88e5",   # 天蓝
         "untracked": "#1f8a3d",  # 绿
         "deleted": "#c0392b",    # 红
         "ignored": "#a8a8a8",    # 灰
