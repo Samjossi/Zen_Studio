@@ -136,23 +136,20 @@ class ChangesPanel(QWidget):
             self._add_entry(entry)
         self._fit_stat_columns()
 
-    #: 增减列横向留白（px）：文本宽 + 2×边距 = 列宽（取 3 紧凑档）
-    _STAT_COL_PADDING = 3
-    #: 数字列基准宽度（px）：典型小数字（+2/-2）即此宽，大数字自动撑大
+    #: 数字列最小宽度（px）：空列时的占位宽，防列彻底消失引起布局跳动
     _STAT_COL_MIN = 25
 
     def _fit_stat_columns(self) -> None:
-        """按当前行内容收紧 +增/-减 两列宽度：取各行文本最大宽度 + 边距。"""
-        metrics = self._list.fontMetrics()
+        """按当前行内容收紧 +增/-减 两列宽度。
+
+        用 sizeHintForColumn 而非 fontMetrics 测量：前者由 QStyle 计算，
+        自动包含 qss 的 ::item padding（主题里 4px 6px，左右共 12px）、
+        边框与视口 padding 等全部样式开销——2026-07-20 实机缺陷（数字列
+        被省略成"…"）的根因就是 fontMetrics 只算文本宽漏掉这 12px。
+        """
         for col in (1, 2):
-            widest = 0
-            for row in range(self._list.topLevelItemCount()):
-                text = self._list.topLevelItem(row).text(col)
-                if text:
-                    widest = max(widest, metrics.horizontalAdvance(text))
-            self._list.setColumnWidth(
-                col, max(self._STAT_COL_MIN, widest + 2 * self._STAT_COL_PADDING)
-            )
+            hint = self._list.sizeHintForColumn(col)
+            self._list.setColumnWidth(col, max(self._STAT_COL_MIN, hint))
 
     def _add_placeholder(self, text: str) -> None:
         item = QTreeWidgetItem([text, "", ""])
