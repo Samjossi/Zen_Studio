@@ -50,7 +50,7 @@ class TerminalPanel(QWidget):
         # 调色板只认明暗两族（light/dark），当前主题名先转族名
         self._palette = AnsiPalette(get_family(load_settings()["theme"]))
         self._sessions: list[_Session] = []
-        self._serial = 0  # tab 序号计数（只增不复用：关闭「终端2」后再新建得「终端3」）
+        self._serial = 0  # tab 序号计数（只增不复用：关闭「终端2」后再新建得「终端3」；全关后归零重计）
         self._find_matches: list[tuple[int, int, int]] = []  # 查找命中段缓存
 
         # ---- 头部栏：tab 区（左，可滚动）+ 固定操作组（右） ----
@@ -213,6 +213,7 @@ class TerminalPanel(QWidget):
         entry.session.terminate()
         self._tab_bar.removeTab(idx)  # currentChanged 自然触发 _switch_tab（索引已对齐）
         if not self._sessions:
+            self._serial = 0  # 全关归零：下一个新建重新从「终端1」开始
             self._switch_tab(-1)
 
     def _restart_active(self) -> None:
