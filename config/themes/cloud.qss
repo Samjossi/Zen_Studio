@@ -1,7 +1,12 @@
-/* Zen Studio 云白主题（亮色，原"浅色主题"） —— 苹果风
+/* Zen Studio 云白主题（亮色） —— 苹果风 + 1px 描边体系
  * 设计依据：文档/修改记录/2026-0719-0610_面板最小尺寸与苹果风界面改造计划.md 3.2/3.3 节
- * 原则：去边框化（色块分区代替描边）、1px 隐形分隔、6~8px 圆角、扁平按钮、
- *       融合式菜单栏/状态栏、隐形滚动条、选中色 #0765d4。
+ * 2026-07-19 描边改版（实测描边层次优于色块分区，取代原"去边框化"版本）：
+ *   · 输入框/下拉：白底 + 灰描边；焦点转实色强调描边（只变色不出框，不跳动）；
+ *   · 树/列表：白底卡片化（描边 + 6px 圆角 + 2px 内留白，选中块不贴边）；
+ *   · 按钮：实体化（白底描边，hover 主题色微染、描边加深）；
+ *   · 代码查看器：白底铺满 + 1px 画框，圆角归零保持文档感；
+ *   · 隐形滚动条 / 融合菜单栏状态栏 / 反色提示等苹果风基底不变。
+ * 强调色 #0765d4；描边 #d2d2d7（悬停加深 #c0c0c5）。
  */
 
 /* 窗口/对话框底色 + 全局文字/选中色（qss 的 color/selection 沿控件树继承，
@@ -21,6 +26,7 @@ QDialog {
 #SidePanel {
     background-color: #fafafb;
 }
+
 /* 面板标题行：统一半粗（真 Medium 字重）；提示为次级灰 */
 #PanelTitle {
     font-weight: 500;
@@ -32,65 +38,59 @@ QDialog {
     padding: 2px 8px;
 }
 
-/* ---- 输入与文本区：无边框圆角色块，焦点微蓝描边 ---- */
+/* ---- 输入与文本区：白底 + 1px 灰描边，焦点实色蓝 ----
+ * （有 1px 边框后 padding 较无边框版减 1px，保持控件视觉高度一致） */
 
 QLineEdit,
 QTextEdit {
-    background-color: #f5f5f7;
-    border: none;
+    background-color: #ffffff;
+    border: 1px solid #d2d2d7;
     border-radius: 6px;
-    padding: 4px 8px;
+    padding: 3px 7px;
 }
 
-/* 代码查看器（中栏内容区）：白底铺满，圆角归零 */
+/* 代码查看器（中栏内容区）：白底铺满 + 1px 描边画框，圆角归零 */
 QPlainTextEdit {
     background-color: #ffffff;
-    border: none;
+    border: 1px solid #d2d2d7;
     padding: 4px;
 }
 
 QLineEdit:focus,
 QTextEdit:focus,
 QPlainTextEdit:focus {
-    border: 1px solid rgba(7, 101, 212, 0.45);
-}
-
-/* 侧栏灰底上的输入控件：白底浮起，与侧栏区分 */
-#SidePanel QTextEdit,
-#SidePanel QComboBox {
-    background-color: #ffffff;
-}
-
-#SidePanel QComboBox:hover {
-    background-color: #f0f0f2;
+    border: 1px solid #0765d4;
 }
 
 /* 聊天输出区：透明融入侧栏
  * （双层 ID 提升特异性：QTextBrowser 是 QTextEdit 子类，
- *   会被上方 #SidePanel QTextEdit 白底规则命中，需压过它） */
+ *   会被上方 QTextEdit 白底描边规则命中，需压过它） */
 #SidePanel #ChatOutput {
     background-color: transparent;
     border: none;
 }
 
-/* ---- 树/列表：透明继承面板底色、无边框、去焦点虚线 ---- */
+/* ---- 树/列表：白底卡片化（描边 + 圆角 + 内留白），去焦点虚线 ---- */
 
 QTreeView,
 QListView {
-    background: transparent;
-    border: none;
+    background: #ffffff;
+    border: 1px solid #d2d2d7;
+    border-radius: 6px;
+    padding: 2px;
     outline: none;
 }
 
 QTreeView::item,
 QListView::item {
-    padding: 4px;
+    padding: 4px 6px;
     min-height: 20px;
+    border-radius: 3px;
 }
 
 QTreeView::item:hover:!selected,
 QListView::item:hover:!selected {
-    background-color: rgba(0, 0, 0, 0.045);
+    background-color: rgba(7, 101, 212, 0.07);
 }
 
 QTreeView::item:selected,
@@ -99,17 +99,17 @@ QListView::item:selected {
     color: #ffffff;
 }
 
-/* ---- 下拉框：无边框灰底圆角 ---- */
+/* ---- 下拉框：白底描边，hover 描边加深 ---- */
 
 QComboBox {
-    background-color: #f5f5f7;
-    border: none;
+    background-color: #ffffff;
+    border: 1px solid #d2d2d7;
     border-radius: 6px;
-    padding: 3px 8px;
+    padding: 2px 7px;
 }
 
 QComboBox:hover {
-    background-color: #ececef;
+    border-color: #c0c0c5;
 }
 
 QComboBox::drop-down {
@@ -120,14 +120,14 @@ QComboBox::drop-down {
 QComboBox QAbstractItemView {
     background-color: #ffffff;
     color: #1d1d1f;  /* 顶级浮层，不继承 QMainWindow 颜色 */
-    border: 1px solid rgba(0, 0, 0, 0.10);
+    border: 1px solid rgba(0, 0, 0, 0.15);
     selection-background-color: #0765d4;
     selection-color: #ffffff;
     padding: 4px;
     outline: none;
 }
 
-/* ---- 菜单栏与菜单：融入窗口、圆角浮层 ---- */
+/* ---- 菜单栏与菜单：融入窗口、圆角浮层（描边保浮层层级） ---- */
 
 QMenuBar {
     background-color: transparent;
@@ -147,7 +147,7 @@ QMenuBar::item:selected {
 QMenu {
     background-color: #f5f5f7;
     color: #1d1d1f;  /* 顶级浮层，不继承 QMainWindow 颜色 */
-    border: 1px solid rgba(0, 0, 0, 0.08);
+    border: 1px solid rgba(0, 0, 0, 0.15);
     border-radius: 8px;
     padding: 4px;
 }
@@ -168,25 +168,28 @@ QMenu::separator {
     margin: 4px 8px;
 }
 
-/* ---- 按钮：扁平无边框，hover 浮现圆角底 ---- */
+/* ---- 按钮：实体化——白底 + 描边，hover 主题色微染 ---- */
 
 QPushButton {
-    background-color: transparent;
-    border: none;
+    background-color: #ffffff;
+    border: 1px solid #d2d2d7;
     border-radius: 6px;
-    padding: 4px 12px;
+    padding: 3px 11px;
 }
 
 QPushButton:hover {
-    background-color: rgba(0, 0, 0, 0.06);
+    background-color: rgba(7, 101, 212, 0.07);
+    border-color: #c0c0c5;
 }
 
 QPushButton:pressed {
-    background-color: rgba(0, 0, 0, 0.10);
+    background-color: rgba(7, 101, 212, 0.12);
 }
 
 QPushButton:disabled {
     color: rgba(29, 29, 31, 0.35);
+    background-color: #f9f9fa;
+    border-color: #e8e8ea;
 }
 
 /* ---- 分隔：1px 低存在感；splitter 把手常态透明、hover 显现 ---- */

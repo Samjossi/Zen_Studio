@@ -1,7 +1,9 @@
-/* Zen Studio 晴空主题（亮色） —— 冷白微蓝
+/* Zen Studio 晴空主题（亮色） —— 冷白微蓝 + 1px 描边体系
  * 结构与云白主题（cloud.qss）同构，仅色值不同；
  * 色板见 文档/修改记录/2026-0719-0704_多亮色主题体系与现有主题改名计划.md 第 5 节。
- * 强调色：天蓝 #0284c7。
+ * 2026-07-19 描边改版：输入/下拉白底描边、树列表卡片化、按钮实体化
+ * （改版要点详见 cloud.qss 头注）。
+ * 强调色 #0284c7；描边 #c6d9e6（悬停加深 #adc9dc）。
  */
 
 QMainWindow,
@@ -29,57 +31,51 @@ QDialog {
     padding: 2px 8px;
 }
 
-/* ---- 输入与文本区 ---- */
+/* ---- 输入与文本区：白底 + 1px 蓝调描边，焦点实色蓝 ---- */
 
 QLineEdit,
 QTextEdit {
-    background-color: #edf3f8;
-    border: none;
+    background-color: #ffffff;
+    border: 1px solid #c6d9e6;
     border-radius: 6px;
-    padding: 4px 8px;
+    padding: 3px 7px;
 }
 
+/* 代码查看器（中栏内容区）：白底铺满 + 1px 描边画框，圆角归零 */
 QPlainTextEdit {
     background-color: #fdfeff;
-    border: none;
+    border: 1px solid #c6d9e6;
     padding: 4px;
 }
 
 QLineEdit:focus,
 QTextEdit:focus,
 QPlainTextEdit:focus {
-    border: 1px solid rgba(2, 132, 199, 0.45);
+    border: 1px solid #0284c7;
 }
 
-/* 侧栏输入控件：纯白融入底色（选项 B），hover 以 -3 级微深色反馈 */
-#SidePanel QTextEdit,
-#SidePanel QComboBox {
-    background-color: #ffffff;
-}
-
-#SidePanel QComboBox:hover {
-    background-color: #fafcfd;
-}
-
-/* 聊天输出区：透明融入侧栏（双层 ID 压过 #SidePanel QTextEdit 规则） */
+/* 聊天输出区：透明融入侧栏（双层 ID 压过 QTextEdit 规则） */
 #SidePanel #ChatOutput {
     background-color: transparent;
     border: none;
 }
 
-/* ---- 树/列表 ---- */
+/* ---- 树/列表：白底卡片化（描边 + 圆角 + 内留白），去焦点虚线 ---- */
 
 QTreeView,
 QListView {
-    background: transparent;
-    border: none;
+    background: #ffffff;
+    border: 1px solid #c6d9e6;
+    border-radius: 6px;
+    padding: 2px;
     outline: none;
 }
 
 QTreeView::item,
 QListView::item {
-    padding: 4px;
+    padding: 4px 6px;
     min-height: 20px;
+    border-radius: 3px;
 }
 
 QTreeView::item:hover:!selected,
@@ -93,17 +89,17 @@ QListView::item:selected {
     color: #ffffff;
 }
 
-/* ---- 下拉框 ---- */
+/* ---- 下拉框：白底描边，hover 描边加深 ---- */
 
 QComboBox {
-    background-color: #edf3f8;
-    border: none;
+    background-color: #ffffff;
+    border: 1px solid #c6d9e6;
     border-radius: 6px;
-    padding: 3px 8px;
+    padding: 2px 7px;
 }
 
 QComboBox:hover {
-    background-color: #e2ecf4;
+    border-color: #adc9dc;
 }
 
 QComboBox::drop-down {
@@ -114,14 +110,14 @@ QComboBox::drop-down {
 QComboBox QAbstractItemView {
     background-color: #ffffff;
     color: #1e293b;  /* 顶级浮层，不继承 QMainWindow 颜色 */
-    border: 1px solid rgba(0, 0, 0, 0.10);
+    border: 1px solid rgba(0, 0, 0, 0.15);
     selection-background-color: #0284c7;
     selection-color: #ffffff;
     padding: 4px;
     outline: none;
 }
 
-/* ---- 菜单栏与菜单 ---- */
+/* ---- 菜单栏与菜单：融入窗口、圆角浮层 ---- */
 
 QMenuBar {
     background-color: transparent;
@@ -141,7 +137,7 @@ QMenuBar::item:selected {
 QMenu {
     background-color: #edf3f8;
     color: #1e293b;  /* 顶级浮层，不继承 QMainWindow 颜色 */
-    border: 1px solid rgba(2, 132, 199, 0.15);
+    border: 1px solid rgba(2, 132, 199, 0.25);
     border-radius: 8px;
     padding: 4px;
 }
@@ -162,28 +158,31 @@ QMenu::separator {
     margin: 4px 8px;
 }
 
-/* ---- 按钮 ---- */
+/* ---- 按钮：实体化——白底 + 描边，hover 主题蓝微染 ---- */
 
 QPushButton {
-    background-color: transparent;
-    border: none;
+    background-color: #ffffff;
+    border: 1px solid #c6d9e6;
     border-radius: 6px;
-    padding: 4px 12px;
+    padding: 3px 11px;
 }
 
 QPushButton:hover {
-    background-color: rgba(2, 132, 199, 0.10);
+    background-color: rgba(2, 132, 199, 0.08);
+    border-color: #adc9dc;
 }
 
 QPushButton:pressed {
-    background-color: rgba(2, 132, 199, 0.14);
+    background-color: rgba(2, 132, 199, 0.13);
 }
 
 QPushButton:disabled {
     color: rgba(30, 41, 59, 0.35);
+    background-color: #fafcfd;
+    border-color: #d9e6ee;
 }
 
-/* ---- 分隔 ---- */
+/* ---- 分隔：1px 低存在感；splitter 把手常态透明、hover 显现 ---- */
 
 QMainWindow::separator {
     background-color: #dde7ee;
@@ -207,7 +206,7 @@ QSplitter::handle:hover {
     background-color: rgba(2, 132, 199, 0.18);
 }
 
-/* ---- 隐形滚动条 ---- */
+/* ---- 隐形滚动条：无箭头、半透明圆角滑块 ---- */
 
 QScrollBar:vertical {
     background: transparent;
