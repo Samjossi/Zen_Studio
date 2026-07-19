@@ -88,6 +88,9 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event: QCloseEvent) -> None:
         """关闭时一次性保存窗口几何与三处分隔栏状态。"""
+        # 终端隐藏时先恢复可见再保存：避免把下段 0 尺寸写入持久化（启动始终显示终端）
+        if not self.terminal_panel.isVisible():
+            self.terminal_panel.setVisible(True)
         update_settings({
             "window_geometry": encode_state(self.saveGeometry()),
             "splitter_main": encode_state(self._splitter_main.saveState()),
@@ -112,8 +115,17 @@ class MainWindow(QMainWindow):
         action_placeholder = menu_edit.addAction("（待实现）")
         action_placeholder.setEnabled(False)
 
-        # 视图菜单：噪音过滤开关 + 主题切换
+        # 视图菜单：面板显隐 + 噪音过滤开关 + 主题切换
         menu_view = menubar.addMenu("视图(&V)")
+
+        # 终端面板显隐：勾选动作为单一入口，头部栏「−」按钮汇入同一状态
+        self.action_terminal = menu_view.addAction("终端面板(&T)")
+        self.action_terminal.setCheckable(True)
+        self.action_terminal.setChecked(True)
+        self.action_terminal.triggered.connect(self._set_terminal_visible)
+        self.terminal_panel.hide_requested.connect(
+            lambda: self._set_terminal_visible(False)
+        )
 
         self.action_noise_filter = menu_view.addAction("过滤噪音目录(&N)")
         self.action_noise_filter.setCheckable(True)
@@ -136,6 +148,14 @@ class MainWindow(QMainWindow):
             action.triggered.connect(lambda checked, n=name: self._switch_theme(n))
             self._theme_group.addAction(action)
             self._theme_actions[name] = action
+
+    def _set_terminal_visible(self, visible: bool) -> None:
+        """终端面板显隐单一入口：视图菜单勾选动作与头部栏「−」按钮汇入。
+
+        注意 setChecked 不触发 triggered，勾选态与可见性须在此一并同步。
+        """
+        self.action_terminal.setChecked(visible)
+        self.terminal_panel.setVisible(visible)
 
     def _switch_theme(self, theme: str) -> None:
         """切换主题：持久化 + 即时应用，并同步查看器/终端所属族配色。"""

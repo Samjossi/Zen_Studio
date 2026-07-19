@@ -4,7 +4,7 @@
 刷新节流 30ms 聚合（帧率封顶 ~33fps，防大量输出刷屏卡顿）。
 """
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QColor, QFont, QFontDatabase, QKeyEvent, QPainter, QWheelEvent
+from PySide6.QtGui import QFont, QFontDatabase, QKeyEvent, QPainter, QWheelEvent
 from PySide6.QtWidgets import QApplication, QScrollBar, QWidget
 
 from gui.panels.terminal.palette import AnsiPalette
@@ -203,9 +203,6 @@ class TerminalWidget(QWidget):
                 painter.setFont(normal_font)
                 painter.setPen(pal.default_bg)
                 painter.drawText(cx, cy + self._ascent, char)
-        # DEBUG: 临时绿框，标出终端网格绘制区的真实边界
-        painter.setPen(QColor("lime"))
-        painter.drawRect(self.rect().adjusted(0, 0, -1, -1))
         painter.end()
 
     def _cell_colors(self, cell):

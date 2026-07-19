@@ -1,10 +1,13 @@
-"""终端面板装配：标题行（shell + 状态 + 重开）+ TerminalWidget + PtySession 生命周期。
+"""终端面板装配：头部栏（shell + 状态 + 清屏/重开/隐藏）+ TerminalWidget + PtySession 生命周期。
 
 接线职责：session 字节流 → screen 喂入 → widget 刷新（层间单向依赖的唯一交汇点）。
+头部栏为正式单行设计（见 work plans/2026-0719-0955_终端面板单行头部栏重构计划_阶段一.md）：
+固定高度防膨胀；清屏走 Ctrl+L 语义（shell 自清，提示符重绘到顶行）；
+隐藏经 hide_requested 信号交由主窗口接线（视图菜单可恢复）。
 """
 import os
 
-from PySide6.QtCore import QEvent, QObject, QTimer
+from PySide6.QtCore import QEvent, QObject, QTimer, Signal
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
 from gui.panels.terminal.palette import AnsiPalette
@@ -17,9 +20,12 @@ from gui.theme import get_family, load_settings
 class TerminalPanel(QWidget):
     """中栏下终端面板（真 PTY 单实例：spawn $SHELL，cwd=项目根）。"""
 
-    #: 面板最小高度（px）：标题行约 26px + 约 6 行终端文本，
+    #: 面板最小高度（px）：头部栏约 28px + 约 5 行终端文本，
     #: 配合主窗口 middle_splitter.setCollapsible(1, False) 生效
     MIN_HEIGHT = 140
+
+    #: 请求隐藏整个面板（头部栏「−」按钮 → 主窗口接线，视图菜单可恢复）
+    hide_requested = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -33,29 +39,39 @@ class TerminalPanel(QWidget):
         self._title.setObjectName("PanelTitle")  # 样式由主题 qss 统一
         self._status = QLabel("", self)
         self._status.setObjectName("PanelHint")
+        self._btn_clear = QPushButton("清屏", self)
+        self._btn_clear.setFixedHeight(22)
+        self._btn_clear.setToolTip("清屏（Ctrl+L）")
+        self._btn_clear.clicked.connect(self._on_clear)
         self._restart = QPushButton("重开", self)
         self._restart.setFixedHeight(22)
-        self._restart.setVisible(False)
         self._restart.clicked.connect(self._start_session)
+        self._btn_hide = QPushButton("−", self)
+        self._btn_hide.setFixedSize(28, 22)
+        self._btn_hide.setToolTip("隐藏终端面板（视图菜单可恢复）")
+        self._btn_hide.clicked.connect(self.hide_requested.emit)
 
-        title_row = QWidget(self)
-        row = QHBoxLayout(title_row)
+        # 单行头部栏：左标识（shell 名 + 状态），右操作组（清屏/重开/隐藏）；
+        # 高度锁定（随字号动态计算），杜绝"标题行膨胀抢终端空间"复发
+        self._header = QWidget(self)
+        self._header.setObjectName("TerminalHeader")  # qss 定制钩子（本期沿用通用规则）
+        row = QHBoxLayout(self._header)
         row.addWidget(self._title, 1)
         row.addWidget(self._status)
+        row.addWidget(self._btn_clear)
         row.addWidget(self._restart)
+        row.addWidget(self._btn_hide)
         row.setContentsMargins(4, 2, 4, 2)
-
-        # DEBUG: 临时边框，确认各层容器真实边界（诊断"内容显示在中间"）
-        self.setStyleSheet("TerminalPanel { border: 2px solid red; }")
-        title_row.setStyleSheet("border: 1px solid blue;")
+        row.setSpacing(4)
+        self._lock_header_height()
 
         self.terminal = TerminalWidget(self._palette, self)
         self.terminal.set_screen(self._screen)
         self.terminal.set_session(self._session)
 
         layout = QVBoxLayout(self)
-        layout.addWidget(title_row)
-        # stretch=1：多余高度全给终端区，标题行只保留自身内容高度（防膨胀抢空间）
+        layout.addWidget(self._header)
+        # stretch=1：多余高度全给终端区（双保险，配合头部栏固定高度）
         layout.addWidget(self.terminal, 1)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
@@ -83,14 +99,25 @@ class TerminalPanel(QWidget):
     def _shell_name() -> str:
         return os.path.basename(os.environ.get("SHELL", "/bin/bash"))
 
+    def _lock_header_height(self) -> None:
+        """锁定头部栏高度：按钮内容高 + 上下边距（随字号动态计算，防文本截断）。"""
+        margins = self._header.layout().contentsMargins()
+        self._header.setFixedHeight(
+            self._btn_clear.sizeHint().height() + margins.top() + margins.bottom())
+
     def _start_session(self) -> None:
         """（重）开会话：重建屏幕模型 + spawn 新进程。"""
         rows, cols = self.terminal.grid_size()
         self._screen = TerminalScreen(cols, rows)
         self.terminal.set_screen(self._screen)
         self._status.setText("")
-        self._restart.setVisible(False)
+        self._btn_clear.setEnabled(True)
         self._session.start(cols, rows)
+
+    def _on_clear(self) -> None:
+        """清屏：写 Ctrl+L，由 shell/readline 自清并把提示符重绘到顶行（真实终端语义）。"""
+        if self._session.is_alive():
+            self._session.write(b"\x0c")
 
     def _on_data(self, data: bytes) -> None:
         self._screen.feed(data)
@@ -98,9 +125,10 @@ class TerminalPanel(QWidget):
 
     def _on_exited(self, rc: int) -> None:
         self._status.setText(f"[进程已退出 code {rc}]")
-        self._restart.setVisible(True)
+        self._btn_clear.setEnabled(False)  # 会话已死，清屏无意义（重开按钮常驻可用）
 
     def apply_theme(self, family: str) -> None:
         """切换配色族：色板换新 + 全量重绘（入参为族名 light/dark）。"""
         self._palette = AnsiPalette(family)
         self.terminal.apply_palette(self._palette)
+        self._lock_header_height()  # 主题切换可能带来字号变化，头部栏高度重算
