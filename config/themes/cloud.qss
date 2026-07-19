@@ -121,10 +121,10 @@ QListView::item:selected {
     color: #ffffff;
 }
 
-/* ---- 下拉框：白底描边，hover 描边加深 ---- */
+/* ---- 下拉框：透明底（随侧栏）+ 描边，hover 描边加深 ---- */
+/* 注意：本体不可设 background-color，否则 QSS 背景接管导致弹出列表选中背景失效（白底白字） */
 
 QComboBox {
-    background-color: #ffffff;
     border: 1px solid #d2d2d7;
     border-radius: 6px;
     padding: 2px 7px;
