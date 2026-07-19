@@ -118,14 +118,11 @@ class MainWindow(QMainWindow):
         # 视图菜单：面板显隐 + 噪音过滤开关 + 主题切换
         menu_view = menubar.addMenu("视图(&V)")
 
-        # 终端面板显隐：勾选动作为单一入口，头部栏「−」按钮汇入同一状态
+        # 终端面板显隐：勾选动作为单一入口
         self.action_terminal = menu_view.addAction("终端面板(&T)")
         self.action_terminal.setCheckable(True)
         self.action_terminal.setChecked(True)
         self.action_terminal.triggered.connect(self._set_terminal_visible)
-        self.terminal_panel.hide_requested.connect(
-            lambda: self._set_terminal_visible(False)
-        )
 
         self.action_noise_filter = menu_view.addAction("过滤噪音目录(&N)")
         self.action_noise_filter.setCheckable(True)

@@ -3,12 +3,12 @@
 接线职责：session 字节流 → screen 喂入 → widget 刷新（层间单向依赖的唯一交汇点）。
 阶段二（见 work plans/2026-0719-0955_终端面板多会话tab区计划_阶段二.md）：
 多会话 tab 区（每会话一套 PtySession+TerminalScreen，widget 重绑定切换）、
-动态标题（OSC 0/2）、右键菜单功能分层、查找浮层（当前屏搜索，不占布局）。
+序号标题（终端N，递增不复用）、右键菜单功能分层、查找浮层（当前屏搜索，不占布局）。
 """
-import os
 from dataclasses import dataclass
 
-from PySide6.QtCore import QEvent, QObject, Qt, QTimer, Signal
+from PySide6.QtCore import QEvent, QObject, Qt, QTimer
+from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -27,9 +27,6 @@ from gui.panels.terminal.session import PtySession
 from gui.panels.terminal.widget import TerminalWidget
 from gui.theme import get_family, load_settings
 
-#: tab 标题最大长度（OSC 注入清洗：去控制字符 + 截断）
-_TAB_TITLE_MAX = 32
-
 
 @dataclass
 class _Session:
@@ -47,15 +44,13 @@ class TerminalPanel(QWidget):
     #: 配合主窗口 middle_splitter.setCollapsible(1, False) 生效
     MIN_HEIGHT = 140
 
-    #: 请求隐藏整个面板（头部栏「−」按钮 → 主窗口接线，视图菜单可恢复）
-    hide_requested = Signal()
-
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setMinimumHeight(self.MIN_HEIGHT)
         # 调色板只认明暗两族（light/dark），当前主题名先转族名
         self._palette = AnsiPalette(get_family(load_settings()["theme"]))
         self._sessions: list[_Session] = []
+        self._serial = 0  # tab 序号计数（只增不复用：关闭「终端2」后再新建得「终端3」）
         self._find_matches: list[tuple[int, int, int]] = []  # 查找命中段缓存
 
         # ---- 头部栏：tab 区（左，可滚动）+ 固定操作组（右） ----
@@ -68,8 +63,13 @@ class TerminalPanel(QWidget):
         self._tab_bar.currentChanged.connect(self._switch_tab)
         self._tab_bar.tabCloseRequested.connect(self._close_tab)
 
-        self._btn_new = QPushButton("＋", self)
+        self._btn_new = QPushButton("+", self)
         self._btn_new.setFixedSize(28, 22)
+        # 加粗加大：继承应用全局字体（思源黑体），字重 Bold、字号 +3pt
+        font = QFont(self.font())
+        font.setBold(True)
+        font.setPointSizeF(font.pointSizeF() + 3)
+        self._btn_new.setFont(font)
         self._btn_new.setToolTip("新建终端")
         self._btn_new.clicked.connect(lambda: self._spawn())
 
@@ -82,26 +82,20 @@ class TerminalPanel(QWidget):
         self._btn_clear.setEnabled(False)
         self._btn_clear.clicked.connect(self._on_clear)
 
-        self._btn_hide = QPushButton("−", self)
-        self._btn_hide.setFixedSize(28, 22)
-        self._btn_hide.setToolTip("隐藏终端面板（视图菜单可恢复）")
-        self._btn_hide.clicked.connect(self.hide_requested.emit)
-
         # 单行头部栏，高度锁定（随字号动态计算），杜绝"标题行膨胀"复发
         self._header = QWidget(self)
         self._header.setObjectName("TerminalHeader")
         row = QHBoxLayout(self._header)
         row.addWidget(self._tab_bar, 1)
-        row.addWidget(self._btn_new)
         row.addWidget(self._status)
         row.addWidget(self._btn_clear)
-        row.addWidget(self._btn_hide)
+        row.addWidget(self._btn_new)  # 最右端：原「−」隐藏按钮位置
         row.setContentsMargins(4, 2, 4, 2)
         row.setSpacing(4)
         self._lock_header_height()
 
         self.terminal = TerminalWidget(self._palette, self)
-        self.terminal.set_placeholder("没有终端，点击 ＋ 创建")
+        self.terminal.set_placeholder("没有终端，点击 + 创建")
 
         layout = QVBoxLayout(self)
         layout.addWidget(self._header)
@@ -172,20 +166,17 @@ class TerminalPanel(QWidget):
     # ------------------------------------------------------------------
     # 会话栈
     # ------------------------------------------------------------------
-    @staticmethod
-    def _shell_name() -> str:
-        return os.path.basename(os.environ.get("SHELL", "/bin/bash"))
-
     def _current(self) -> _Session | None:
         idx = self._tab_bar.currentIndex()
         return self._sessions[idx] if 0 <= idx < len(self._sessions) else None
 
-    def _spawn(self, title: str | None = None) -> None:
+    def _spawn(self) -> None:
         """新建会话：以当前网格尺寸 spawn（此刻控件尺寸已稳定），入栈并切为新 tab。"""
         rows, cols = self.terminal.grid_size()
         sess = PtySession(self)
         screen = TerminalScreen(cols, rows)
-        entry = _Session(session=sess, screen=screen, title=title or self._shell_name())
+        self._serial += 1
+        entry = _Session(session=sess, screen=screen, title=f"终端{self._serial}")
         # 闭包捕获 entry：多会话数据各自进各自 screen（不错绑）
         sess.data_received.connect(lambda data, e=entry: self._on_data(e, data))
         sess.process_exited.connect(lambda rc, e=entry: self._on_exited(e, rc))
@@ -235,8 +226,6 @@ class TerminalPanel(QWidget):
         self.terminal.set_screen(entry.screen)
         entry.session.start(cols, rows)  # PtySession.start 内部幂等 terminate 旧进程
         entry.exit_code = None
-        entry.title = self._shell_name()
-        self._tab_bar.setTabText(self._tab_bar.currentIndex(), entry.title)
         self._refresh_status()
 
     def _kill_active(self) -> None:
@@ -256,14 +245,6 @@ class TerminalPanel(QWidget):
         entry.screen.feed(data)
         if entry is self._current():
             self.terminal.notify_data()
-        # 动态标题：shell 经 OSC 0/2 设置，清洗（去控制字符 + 截断）后同步 tab 文本
-        if raw := entry.screen.title:
-            clean = "".join(c for c in raw if c.isprintable()).strip()[:_TAB_TITLE_MAX]
-            if clean and clean != entry.title:
-                entry.title = clean
-                idx = self._sessions.index(entry)
-                if 0 <= idx < self.tab_count():
-                    self._tab_bar.setTabText(idx, clean)
 
     def _on_exited(self, entry: _Session, rc: int) -> None:
         entry.exit_code = rc
