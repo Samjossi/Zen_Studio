@@ -91,7 +91,8 @@ class FileExplorer(ExplorerActionsMixin, QWidget):
         layout = QVBoxLayout(self)
         layout.addLayout(header)
         layout.addWidget(self.tree)
-        layout.setContentsMargins(0, 0, 0, 0)
+        # 面板外边距：树卡片不贴窗口边缘与 splitter 把手（苹果风卡片间距）
+        layout.setContentsMargins(6, 6, 6, 6)
 
     # ------------------------------------------------------------------
     # 公开接口

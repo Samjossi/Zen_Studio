@@ -21,6 +21,13 @@ QDialog {
     background-color: #fbfdfe;
 }
 
+/* 面板卡片：查看器/终端/聊天的统一圆角包裹（容器 8px > 内容物 6px 圆角） */
+#PanelCard {
+    background-color: #ffffff;
+    border: 1px solid #c6d9e6;
+    border-radius: 8px;
+}
+
 #PanelTitle {
     font-weight: 500;
     padding: 2px 8px;
@@ -63,16 +70,15 @@ QTextEdit {
     padding: 3px 7px;
 }
 
-/* 代码查看器（中栏内容区）：白底铺满 + 1px 描边画框，圆角归零 */
+/* 代码查看器（中栏内容区）：透明融入 #PanelCard 卡片，自身去描边由卡片统一画框 */
 QPlainTextEdit {
-    background-color: #fdfeff;
-    border: 1px solid #c6d9e6;
+    background-color: transparent;
+    border: none;
     padding: 4px;
 }
 
 QLineEdit:focus,
-QTextEdit:focus,
-QPlainTextEdit:focus {
+QTextEdit:focus {
     border: 1px solid #0284c7;
 }
 

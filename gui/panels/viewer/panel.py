@@ -5,8 +5,8 @@ AI-first 主频场景：agent 直接写盘为主修改路径，`QFileSystemWatch
 """
 from pathlib import Path
 
-from PySide6.QtCore import QFileSystemWatcher, QTimer
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QVBoxLayout, QWidget
+from PySide6.QtCore import QFileSystemWatcher, Qt, QTimer
+from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
 from gui.panels.viewer.code_viewer import CodeViewer
 from gui.panels.viewer.highlighter import PygmentsHighlighter
@@ -43,10 +43,22 @@ class ViewerPanel(QWidget):
         self.viewer = CodeViewer(family, self)
         self._highlighter = PygmentsHighlighter(self.viewer.document(), family)
 
+        # PanelCard 圆角卡片包裹：标题行 + 查看器整体入卡，卡片统一描边
+        # （CodeViewer 自身描边已由 qss 去除，防双重边框）
+        card = QFrame(self)
+        card.setObjectName("PanelCard")
+        # 自定义 QFrame 的 qss 背景需 WA_StyledBackground 才会绘制
+        card.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        card_layout = QVBoxLayout(card)
+        card_layout.addWidget(title_row)
+        card_layout.addWidget(self.viewer, 1)
+        card_layout.setContentsMargins(6, 2, 6, 6)
+        card_layout.setSpacing(0)
+
         layout = QVBoxLayout(self)
-        layout.addWidget(title_row)
-        layout.addWidget(self.viewer)
-        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(card, 1)
+        # 面板外边距：卡片不贴窗口边缘与 splitter 把手（苹果风卡片间距）
+        layout.setContentsMargins(6, 6, 6, 2)
         layout.setSpacing(0)
 
         self._watcher = QFileSystemWatcher(self)

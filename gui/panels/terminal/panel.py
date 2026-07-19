@@ -105,15 +105,29 @@ class TerminalPanel(QWidget):
         self._lock_header_height()
 
     def _build_terminal_area(self) -> None:
-        """终端区：TerminalWidget + 面板主布局（header 在上，终端区吃满剩余高度）。"""
+        """终端区：PanelCard 圆角卡片包裹头部栏 + TerminalWidget（卡片统一描边）。
+
+        TerminalWidget 为 paintEvent 自绘背景，qss border-radius 对其无效，
+        故以 QFrame 容器承载圆角：终端矩形缩进卡片内边距内，四角由卡片背景兜住。
+        """
         self.terminal = TerminalWidget(self._palette, self)
         self.terminal.set_placeholder("没有终端，点击 + 创建")
 
-        layout = QVBoxLayout(self)
-        layout.addWidget(self._header)
+        card = QFrame(self)
+        card.setObjectName("PanelCard")
+        # 自定义 QFrame 的 qss 背景需 WA_StyledBackground 才会绘制
+        card.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        card_layout = QVBoxLayout(card)
+        card_layout.addWidget(self._header)
         # stretch=1：多余高度全给终端区（双保险，配合头部栏固定高度）
-        layout.addWidget(self.terminal, 1)
-        layout.setContentsMargins(0, 0, 0, 0)
+        card_layout.addWidget(self.terminal, 1)
+        card_layout.setContentsMargins(6, 2, 6, 6)
+        card_layout.setSpacing(0)
+
+        layout = QVBoxLayout(self)
+        layout.addWidget(card, 1)
+        # 面板外边距：卡片不贴窗口边缘与 splitter 把手（苹果风卡片间距）
+        layout.setContentsMargins(6, 2, 6, 6)
         layout.setSpacing(0)
 
     def _build_find_bar(self) -> None:

@@ -2,7 +2,7 @@
 import threading
 
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtWidgets import QSplitter, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QFrame, QSplitter, QVBoxLayout, QWidget
 
 from gui.settings import decode_state, encode_state
 from llm import Chunk, KimiAcpLLM, KimiCliLLM, Message, get_llm
@@ -50,22 +50,37 @@ class ChatPanel(QWidget):
     # UI 构建与接线
     # ------------------------------------------------------------------
     def _build_layout(self) -> None:
-        """布局装配：上输出 + 下输入区（模型行在上，输入框在下），垂直分隔。"""
+        """布局装配：PanelCard 单卡片整合（输出区 + 模型行 + 输入框）。
+
+        卡片内保留垂直 splitter（输出/输入比例可调、状态持久化不变）；
+        ChatOutput 透明融入卡片白底，输入框/下拉保留自身 6px 圆角嵌于卡内。
+        """
         input_area = QWidget(self)
         input_layout = QVBoxLayout(input_area)
         input_layout.addWidget(self.model_bar)
         input_layout.addWidget(self.input)
-        input_layout.setContentsMargins(0, 0, 0, 0)
-        input_layout.setSpacing(0)
+        input_layout.setContentsMargins(0, 4, 0, 0)
+        input_layout.setSpacing(4)
 
         self._splitter = QSplitter(Qt.Orientation.Vertical)
         self._splitter.addWidget(self.output)
         self._splitter.addWidget(input_area)
         self._splitter.setSizes([550, 180])
 
+        card = QFrame(self)
+        card.setObjectName("PanelCard")
+        # 自定义 QFrame 的 qss 背景需 WA_StyledBackground 才会绘制
+        card.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        card_layout = QVBoxLayout(card)
+        card_layout.addWidget(self._splitter, 1)
+        card_layout.setContentsMargins(8, 6, 8, 8)
+        card_layout.setSpacing(0)
+
         layout = QVBoxLayout(self)
-        layout.addWidget(self._splitter)
-        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(card, 1)
+        # 面板外边距：卡片不贴窗口边缘与 splitter 把手（苹果风卡片间距）
+        layout.setContentsMargins(6, 6, 6, 6)
+        layout.setSpacing(0)
 
     def _connect_signals(self) -> None:
         """跨组件信号统一接线（本面板的接线图）。"""
