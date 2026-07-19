@@ -4,9 +4,19 @@
 刷新节流 30ms 聚合（帧率封顶 ~33fps，防大量输出刷屏卡顿）。
 阶段二新增：空会话占位绘制、查找命中高亮、Ctrl+F/右键菜单请求信号（均只发事件，
 决策在 panel，保持层间单向依赖）。
+阶段三新增：鼠标拖选选区（可视快照行坐标，滚动即清除）、Ctrl+Shift+C 复制 /
+Ctrl+Shift+V 粘贴（写剪贴板无副作用、粘贴与键盘输入同路径，均 widget 自治）。
 """
 from PySide6.QtCore import Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QFont, QFontDatabase, QKeyEvent, QPainter, QWheelEvent
+from PySide6.QtGui import (
+    QColor,
+    QFont,
+    QFontDatabase,
+    QGuiApplication,
+    QKeyEvent,
+    QPainter,
+    QWheelEvent,
+)
 from PySide6.QtWidgets import QApplication, QScrollBar, QWidget
 
 from gui.panels.terminal.palette import AnsiPalette
@@ -50,6 +60,9 @@ class TerminalWidget(QWidget):
         self._placeholder = ""  # 空会话占位文本（screen 为 None 时绘制）
         self._search_runs: list[tuple[int, int, int]] = []  # 查找命中段 (y, x0, x1)
         self._search_current = -1  # 当前命中索引
+        # 选区（可视快照行坐标 (y, x)，端点含端格；None 表示无选区）
+        self._sel_anchor: tuple[int, int] | None = None  # 锚点（按下处）
+        self._sel_end: tuple[int, int] | None = None     # 活动端点（拖拽处）
 
         font = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
         if app := QApplication.instance():
@@ -78,6 +91,7 @@ class TerminalWidget(QWidget):
         """绑定屏幕模型；None 表示空会话（paintEvent 画占位引导文本）。"""
         self._screen = screen
         self._scroll_offset = 0
+        self.clear_selection()  # 换屏（切 tab/重开/清空）选区坐标即失效
         self._refresh_scrollbar()
         self.update()
 
@@ -91,6 +105,9 @@ class TerminalWidget(QWidget):
 
     def notify_data(self) -> None:
         """新数据到达（panel 接线调用）：滚动条跟随 + 节流刷新。"""
+        if self._scroll_offset == 0:
+            # 跟随底部时新输出会推屏，选区指向的内容漂移 → 清除
+            self.clear_selection()
         self._refresh_scrollbar()
         if not self._refresh_timer.isActive():
             self._refresh_timer.start()
@@ -112,6 +129,62 @@ class TerminalWidget(QWidget):
         return self._search_current
 
     # ------------------------------------------------------------------
+    # 选区（阶段三：可视快照行坐标，滚动即清除）
+    # ------------------------------------------------------------------
+    def has_selection(self) -> bool:
+        """是否存在有效选区（退化为点的点击不算）。"""
+        return (self._sel_anchor is not None and self._sel_end is not None
+                and self._sel_anchor != self._sel_end)
+
+    def clear_selection(self) -> None:
+        """清除选区（幂等）；滚动/输入/新数据推屏/换屏/resize 时调用。"""
+        if self._sel_anchor is not None:
+            self._sel_anchor = None
+            self._sel_end = None
+            self.update()
+
+    def selected_text(self) -> str:
+        """选区纯文本：归一化阅读序 + 跨行拼接 + 行尾 rstrip（网格补空白不带上屏）。"""
+        if not self.has_selection() or self._screen is None:
+            return ""
+        (y0, x0), (y1, x1) = self._normalized_selection()
+        snapshot = self._screen.snapshot(self._scroll_offset)
+        y1 = min(y1, len(snapshot) - 1)  # resize 竞态保护
+        lines: list[str] = []
+        for y in range(y0, y1 + 1):
+            row = snapshot[y]
+            a = x0 if y == y0 else 0
+            b = x1 + 1 if y == y1 else len(row)  # 端点含端格 → 半开 +1
+            lines.append("".join(ch for ch, _ in row[a:b]).rstrip())
+        return "\n".join(lines)
+
+    def copy_selection(self) -> None:
+        """复制选区到剪贴板（Ctrl+Shift+C / 右键菜单共用；复制后保留选区）。"""
+        if text := self.selected_text():
+            QGuiApplication.clipboard().setText(text)
+
+    def paste_clipboard(self) -> None:
+        """粘贴剪贴板文本进 shell（与键盘输入同路径，经 session.write）。"""
+        if self._session is not None and self._session.is_alive():
+            if text := QGuiApplication.clipboard().text():
+                self._session.write(text.encode("utf-8"))
+                self.clear_selection()
+                if self._scroll_offset:  # 粘贴后回到底部（同键盘输入语义）
+                    self._scrollbar.setValue(self._scrollbar.maximum())
+
+    def _normalized_selection(self) -> tuple[tuple[int, int], tuple[int, int]]:
+        """选区按阅读序（先 y 后 x）归一化为 (起, 止)；调用前须保证两端点非 None。"""
+        a, b = self._sel_anchor, self._sel_end
+        return (a, b) if a <= b else (b, a)
+
+    def _pos_to_cell(self, pos) -> tuple[int, int]:
+        """像素坐标 → 网格 (y, x)，clamp 进网格（拖入滚动条区不越界）。"""
+        rows, cols = self.grid_size()
+        x = min(max(pos.x() // self._cell_w, 0), cols - 1)
+        y = min(max(pos.y() // self._cell_h, 0), rows - 1)
+        return y, x
+
+    # ------------------------------------------------------------------
     # 网格尺寸
     # ------------------------------------------------------------------
     def grid_size(self) -> tuple[int, int]:
@@ -125,6 +198,7 @@ class TerminalWidget(QWidget):
         super().resizeEvent(event)
         bar_w = self._scrollbar.sizeHint().width()
         self._scrollbar.setGeometry(self.width() - bar_w, 0, bar_w, self.height())
+        self.clear_selection()  # 网格尺寸变化，选区坐标失效
         rows, cols = self.grid_size()
         if self._screen and (self._screen.lines != rows or self._screen.columns != cols):
             self._screen.resize(rows, cols)
@@ -150,9 +224,41 @@ class TerminalWidget(QWidget):
         self.update()
 
     def wheelEvent(self, event: QWheelEvent) -> None:
+        self.clear_selection()  # 回滚即视图迁移，选区坐标失效
         if self._scrollbar.isVisible():
             self._scrollbar.setValue(self._scrollbar.value() - event.angleDelta().y() // 40)
         event.accept()
+
+    # ------------------------------------------------------------------
+    # 鼠标选区（左键拖选；退化为点击则清除）
+    # ------------------------------------------------------------------
+    def mousePressEvent(self, event) -> None:
+        if event.button() == Qt.MouseButton.LeftButton and self._screen is not None:
+            self._sel_anchor = self._pos_to_cell(event.position().toPoint())
+            self._sel_end = self._sel_anchor
+            self.update()  # 覆盖旧选区高亮
+            return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event) -> None:
+        # 未开 mouseTracking：move 仅在按住按键时到达，拖拽场景够用
+        if (self._sel_anchor is not None
+                and event.buttons() & Qt.MouseButton.LeftButton):
+            cell = self._pos_to_cell(event.position().toPoint())
+            if cell != self._sel_end:
+                self._sel_end = cell
+                self.update()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event) -> None:
+        if event.button() == Qt.MouseButton.LeftButton and self._sel_anchor is not None:
+            if self._sel_anchor == self._sel_end:
+                self.clear_selection()  # 退化为点击：不建选区
+            else:
+                self.update()
+            return
+        super().mouseReleaseEvent(event)
 
     # ------------------------------------------------------------------
     # 键盘输入
@@ -163,9 +269,19 @@ class TerminalWidget(QWidget):
                 and event.modifiers() & Qt.KeyboardModifier.ControlModifier):
             self.find_requested.emit()
             return
+        # Ctrl+Shift+C/V 复制粘贴：同样拦截在 VT100 转换之前（Ctrl+C 不加 Shift 仍是 SIGINT）
+        if event.modifiers() == (Qt.KeyboardModifier.ControlModifier
+                                 | Qt.KeyboardModifier.ShiftModifier):
+            if event.key() == Qt.Key.Key_C:
+                self.copy_selection()
+                return
+            if event.key() == Qt.Key.Key_V:
+                self.paste_clipboard()
+                return
         if self._session is not None and self._session.is_alive():
             if data := self.key_to_bytes(event):
                 self._session.write(data)
+                self.clear_selection()  # 输入推屏，选区坐标失效
                 if self._scroll_offset:  # 输入后回到底部
                     self._scrollbar.setValue(self._scrollbar.maximum())
                 return
@@ -236,6 +352,17 @@ class TerminalWidget(QWidget):
                     painter.setPen(fg)
                     painter.drawText(px, py + self._ascent, text)
                 x += run
+
+        # 选区高亮（画在文本之后、查找高亮与光标之前）：前景色淡染，明暗主题通用
+        if self.has_selection():
+            (sy0, sx0), (sy1, sx1) = self._normalized_selection()
+            sel_color = QColor(pal.default_fg)
+            sel_color.setAlphaF(0.28)
+            for sy in range(sy0, min(sy1, len(snapshot) - 1) + 1):
+                a = sx0 if sy == sy0 else 0
+                b = sx1 + 1 if sy == sy1 else cols  # 端点含端格
+                painter.fillRect(a * self._cell_w, sy * self._cell_h,
+                                 (b - a) * self._cell_w, self._cell_h, sel_color)
 
         # 查找高亮叠加（画在光标之前，保持光标可见）：普通命中淡染、当前命中深染
         for i, (hy, hx0, hx1) in enumerate(self._search_runs):

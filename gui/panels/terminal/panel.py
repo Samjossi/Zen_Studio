@@ -8,7 +8,7 @@
 from dataclasses import dataclass
 
 from PySide6.QtCore import QEvent, QObject, Qt, QTimer
-from PySide6.QtGui import QFont
+from PySide6.QtGui import QFont, QGuiApplication
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -268,12 +268,20 @@ class TerminalPanel(QWidget):
         return self._tab_bar.count()
 
     # ------------------------------------------------------------------
-    # 右键菜单（功能分层：清屏/重开/终止/关闭此终端）
+    # 右键菜单（功能分层：复制/粘贴 → 清屏/重开/终止/关闭此终端）
     # ------------------------------------------------------------------
     def _on_context_menu(self, global_pos) -> None:
         entry = self._current()
         alive = entry is not None and entry.session.is_alive()
         menu = QMenu(self)
+        # 剪贴板层：复制执行在 widget（自治），此处仅按状态启停
+        act_copy = menu.addAction("复制")
+        act_copy.setEnabled(self.terminal.has_selection())
+        act_copy.triggered.connect(self.terminal.copy_selection)
+        act_paste = menu.addAction("粘贴")
+        act_paste.setEnabled(alive and bool(QGuiApplication.clipboard().text()))
+        act_paste.triggered.connect(self.terminal.paste_clipboard)
+        menu.addSeparator()
         act_clear = menu.addAction("清屏")
         act_clear.setEnabled(alive)
         act_clear.triggered.connect(self._on_clear)
