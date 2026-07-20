@@ -8,6 +8,22 @@
 """
 from PySide6.QtGui import QAction
 
+# ----------------------------------------------------------------------
+# 跨模块共享的注册表键（注册处与消费处一律引用常量，禁止裸字符串）
+# ----------------------------------------------------------------------
+#: 视图菜单面板显隐键（view_menu 注册 / MainWindow 显隐单一入口消费）
+KEY_VIEW_CHAT = "view.chat"
+KEY_VIEW_EXPLORER = "view.explorer"
+KEY_VIEW_TERMINAL = "view.terminal"
+KEY_VIEW_CHANGES = "view.changes"
+#: 噪音过滤开关键（view_menu 注册 / MainWindow 工作区切换后同步勾选态）
+KEY_VIEW_NOISE_FILTER = "view.noise_filter"
+
+
+def theme_action_key(theme: str) -> str:
+    """外观主题 action 键（view_menu 按注册表枚举注册 / MainWindow.switch_theme 勾选）。"""
+    return f"appearance.theme.{theme}"
+
 
 class ActionRegistry:
     """`dict[str, QAction]` 薄封装：登记 / 按名取用。"""

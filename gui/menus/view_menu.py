@@ -8,7 +8,15 @@
 from PySide6.QtGui import QActionGroup
 from PySide6.QtWidgets import QMainWindow, QMenuBar
 
-from gui.menus.registry import ActionRegistry
+from gui.menus.registry import (
+    KEY_VIEW_CHAT,
+    KEY_VIEW_CHANGES,
+    KEY_VIEW_EXPLORER,
+    KEY_VIEW_NOISE_FILTER,
+    KEY_VIEW_TERMINAL,
+    ActionRegistry,
+    theme_action_key,
+)
 from gui.settings import KEY_THEME
 from gui.theme import list_available_themes, get_label, load_settings
 
@@ -18,10 +26,10 @@ def build(menubar: QMenuBar, ctx: QMainWindow, actions: ActionRegistry) -> None:
 
     # 面板显隐组（勾选动作 → MainWindow 单一入口）
     for key, label, slot in (
-        ("view.chat", "聊天面板(&H)", ctx.set_chat_visible),
-        ("view.explorer", "文件树面板(&E)", ctx.set_explorer_visible),
-        ("view.terminal", "终端面板(&T)", ctx.set_terminal_visible),
-        ("view.changes", "变更面板(&C)", ctx.set_changes_visible),
+        (KEY_VIEW_CHAT, "聊天面板(&H)", ctx.set_chat_visible),
+        (KEY_VIEW_EXPLORER, "文件树面板(&E)", ctx.set_explorer_visible),
+        (KEY_VIEW_TERMINAL, "终端面板(&T)", ctx.set_terminal_visible),
+        (KEY_VIEW_CHANGES, "变更面板(&C)", ctx.set_changes_visible),
     ):
         action = menu.addAction(label)
         action.setCheckable(True)
@@ -35,7 +43,7 @@ def build(menubar: QMenuBar, ctx: QMainWindow, actions: ActionRegistry) -> None:
     action.setCheckable(True)
     action.setChecked(True)
     action.triggered.connect(ctx.file_explorer.set_noise_filter)
-    actions.register("view.noise_filter", action)
+    actions.register(KEY_VIEW_NOISE_FILTER, action)
 
     action = menu.addAction("恢复默认布局(&R)")
     action.triggered.connect(ctx.reset_layout)
@@ -60,5 +68,5 @@ def build(menubar: QMenuBar, ctx: QMainWindow, actions: ActionRegistry) -> None:
         action.setData(name)
         action.setChecked(name == current)
         group.addAction(action)
-        actions.register(f"appearance.theme.{name}", action)
+        actions.register(theme_action_key(name), action)
     group.triggered.connect(lambda act: ctx.switch_theme(act.data()))

@@ -160,9 +160,9 @@ class FileExplorer(QWidget):
         self.path_label.setText(Path(self.root_dir).name)
         self.path_label.setToolTip(self.root_dir)
 
-    def set_noise_filter(self, enabled: bool) -> None:
+    def set_noise_filter(self, is_enabled: bool) -> None:
         """切换噪音过滤（隐藏 __pycache__、.git、.venv、node_modules）。"""
-        self.proxy.is_filter_enabled = enabled
+        self.proxy.is_filter_enabled = is_enabled
         self.proxy.invalidateFilter()
 
     def apply_git_status(self, service: GitStatusService, theme: str | None = None) -> None:

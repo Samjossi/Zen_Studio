@@ -129,7 +129,7 @@ class KimiCliLLM(LanguageModel):
             encoding="utf-8",
             errors="replace",
         )
-        self._active_proc = proc  # 登记 cancel 目标
+        self._active_proc = proc  # cancel() 据此 terminate 当前进程
         return proc
 
     @staticmethod

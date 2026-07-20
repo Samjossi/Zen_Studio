@@ -8,11 +8,10 @@ from gui.settings import (
     KEY_MODEL_BACKEND,
     KEY_MODEL_VERSION,
     KEY_THEME,
-    decode_state,
-    encode_state,
     update_settings,
 )
 from gui.theme import get_theme_palette, load_settings
+from gui.window_state import decode_state, encode_state
 from llm import (
     BACKEND_KIMI_ACP,
     BACKEND_LABELS,
@@ -297,12 +296,12 @@ class ChatPanel(QWidget):
         self._set_busy(False)
         self._worker = None
 
-    def _set_busy(self, busy: bool) -> None:
+    def _set_busy(self, is_busy: bool) -> None:
         # 输入框保持可编辑（Enter 发送有 isRunning 守卫拦截，文本不丢）；
         # 模型行双下拉禁用防切后端，停止按钮 busy 时可见
-        self.model_bar.set_busy(busy)
-        self.busy_changed.emit(busy)  # 主窗口联动禁用设置菜单 AI 模型组
-        if busy:
+        self.model_bar.set_busy(is_busy)
+        self.busy_changed.emit(is_busy)  # 主窗口联动禁用设置菜单 AI 模型组
+        if is_busy:
             busy_text = f"{BACKEND_LABELS.get(self._llm_name, 'AI')} 响应中…点击 ■ 停止可中断"
         else:
             busy_text = "输入消息，Enter 发送 / Shift+Enter 换行"

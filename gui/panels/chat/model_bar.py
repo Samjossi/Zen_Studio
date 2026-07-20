@@ -53,22 +53,22 @@ class ModelBar(QWidget):
 
         # 停止按钮：仅 busy（流式响应中）可见，替代三家参考实现的
         # "发送/停止互斥"形态（本项目输入区无发送按钮，Enter 直发）
-        self.stop_btn = QPushButton("■ 停止", self)
-        self.stop_btn.setObjectName("chatStopBtn")
-        self.stop_btn.setToolTip("停止当前生成")
-        self.stop_btn.setVisible(False)
+        self.stop_button = QPushButton("■ 停止", self)
+        self.stop_button.setObjectName("chatStopButton")
+        self.stop_button.setToolTip("停止当前生成")
+        self.stop_button.setVisible(False)
 
         layout = QHBoxLayout(self)
         layout.addWidget(QLabel("模型", self))
         layout.addWidget(self._model_combo)
         layout.addWidget(QLabel("版本", self))
         layout.addWidget(self._version_combo, 1)
-        layout.addWidget(self.stop_btn)
+        layout.addWidget(self.stop_button)
         layout.setContentsMargins(4, 2, 4, 2)
 
         self._model_combo.currentIndexChanged.connect(self._on_model_changed)
         self._version_combo.currentIndexChanged.connect(self._on_version_changed)
-        self.stop_btn.clicked.connect(self.stop_requested)
+        self.stop_button.clicked.connect(self.stop_requested)
 
         # 启动时恢复持久化选择（无记录/无效项回退默认）
         settings = load_settings()
@@ -77,14 +77,14 @@ class ModelBar(QWidget):
     # ------------------------------------------------------------------
     # 忙碌态（流式响应中）
     # ------------------------------------------------------------------
-    def set_busy(self, busy: bool) -> None:
+    def set_busy(self, is_busy: bool) -> None:
         """busy：禁用双下拉（防响应中切后端/版本）+ 显示停止按钮。
 
         不用整体 setEnabled——停止按钮在 busy 时必须可点。
         """
-        self._model_combo.setEnabled(not busy)
-        self._version_combo.setEnabled(not busy)
-        self.stop_btn.setVisible(busy)
+        self._model_combo.setEnabled(not is_busy)
+        self._version_combo.setEnabled(not is_busy)
+        self.stop_button.setVisible(is_busy)
 
     # ------------------------------------------------------------------
     # 持久化

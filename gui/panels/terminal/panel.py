@@ -153,7 +153,7 @@ class TerminalPanel(QWidget):
         self.terminal.find_requested.connect(self._show_find)
 
     # ------------------------------------------------------------------
-    # 事件过滤：终端区 resize（首启/浮层重定位）+ 查找框按键
+    # 事件过滤：终端区首次有效尺寸触发首个会话启动（浮层定位/按键归 FindBar 自管）
     # ------------------------------------------------------------------
     def eventFilter(self, watched: QObject, event: QEvent) -> bool:
         if watched is self.terminal and event.type() == QEvent.Type.Resize:

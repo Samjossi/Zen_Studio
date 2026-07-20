@@ -15,15 +15,16 @@ from core.git import GitStatusService
 from gui.panels import FileExplorer, ViewerPanel
 from gui.panels.changes import ChangesPanel
 from gui.panels.chat import ChatPanel
-from gui.settings import (
+from gui.theme import load_settings
+from gui.settings import KEY_THEME
+from gui.window_state import (
     KEY_SPLITTER_CHAT,
-    KEY_THEME,
     KEY_WINDOW_GEOMETRY,
     decode_state,
     encode_state,
-    update_settings,
+    load_window_state,
+    update_window_state,
 )
-from gui.theme import load_settings
 
 
 class GitStatusController(QObject):
@@ -45,11 +46,12 @@ class GitStatusController(QObject):
         viewer_panel: ViewerPanel,
         changes_panel: ChangesPanel,
         status_bar: QStatusBar,
-        stat_label: QLabel,
+        stats_label: QLabel,
         collapse_handler: Callable[[], None],
         parent: QObject,
     ) -> None:
         """
+        :param stats_label: 状态栏常驻「+a -b」统计标签
         :param collapse_handler: 变更面板「−」收起的显隐处理（主窗口单一入口槽）
         """
         super().__init__(parent)
@@ -57,7 +59,7 @@ class GitStatusController(QObject):
         self._viewer = viewer_panel
         self._changes = changes_panel
         self._status_bar = status_bar
-        self._stat_label = stat_label
+        self._stats_label = stats_label
         self._service = GitStatusService(file_explorer.root_dir)
         viewer_panel.set_git_service(self._service)
         self._wire_signals(collapse_handler)
@@ -76,13 +78,13 @@ class GitStatusController(QObject):
         """三处事件源接线（变更面板联动 + 文件打开统计同步）。"""
         # 变更面板：双击打开并入查看器管线；删除行双击 → 状态栏提示
         self._changes.file_opened.connect(self._viewer.open_file)
-        self._changes.file_opened.connect(lambda _path: self._update_stat_label())
+        self._changes.file_opened.connect(lambda _path: self._update_stats_label())
         self._changes.deleted_activated.connect(
             lambda path: self._status_bar.showMessage(
                 f"文件已删除，待提交：{path}", self.HINT_TIMEOUT_MS))
         self._changes.collapse_requested.connect(collapse_handler)
         # 切换查看文件时同步状态栏统计（查看器徽标由 open_file 内部自刷）
-        self._explorer.file_opened.connect(lambda _path: self._update_stat_label())
+        self._explorer.file_opened.connect(lambda _path: self._update_stats_label())
 
     # ------------------------------------------------------------------
     # 刷新（去抖汇流点）
@@ -97,7 +99,7 @@ class GitStatusController(QObject):
             self._service.repo_root,
             load_settings()[KEY_THEME],
         )
-        self._update_stat_label()
+        self._update_stats_label()
 
     def schedule_refresh(self) -> None:
         """去抖触发（窗口激活兜底终端 checkout 等外部 git 操作）。"""
@@ -109,14 +111,14 @@ class GitStatusController(QObject):
         self._viewer.set_git_service(self._service)
         self.refresh()
 
-    def _update_stat_label(self) -> None:
+    def _update_stats_label(self) -> None:
         """状态栏常驻区显示当前查看文件的 `+a -b` 统计。"""
-        stat = self._service.numstat_of(self._viewer.current_path or "")
-        self._stat_label.setText(f"+{stat[0]} -{stat[1]}  " if stat else "")
+        line_stats = self._service.numstat_of(self._viewer.current_path or "")
+        self._stats_label.setText(f"+{line_stats[0]} -{line_stats[1]}  " if line_stats else "")
 
 
 class WindowStateStore:
-    """窗口几何与四处 splitter 状态的读写持久化（settings.json 窗口状态键）。"""
+    """窗口几何与四处 splitter 状态的读写持久化（window_state.json）。"""
 
     def __init__(
         self,
@@ -125,7 +127,7 @@ class WindowStateStore:
         chat_panel: ChatPanel,
     ) -> None:
         """
-        :param splitters: 配置键 → splitter（KEY_SPLITTER_MAIN/MIDDLE/RIGHT）
+        :param splitters: 配置键 → splitter（KEY_SPLITTER_MAIN/EDITOR/SIDEBAR）
         :param chat_panel: 聊天面板（其内 splitter 状态经 restore_state/save_state 自管）
         """
         self._window = window
@@ -134,17 +136,17 @@ class WindowStateStore:
 
     def restore(self) -> None:
         """启动时恢复窗口几何与各分隔栏；无记录或数据损坏时保留默认布局。"""
-        settings = load_settings()
-        if geometry := settings.get(KEY_WINDOW_GEOMETRY):
+        state = load_window_state()
+        if geometry := state.get(KEY_WINDOW_GEOMETRY):
             self._window.restoreGeometry(decode_state(geometry))
         for key, splitter in self._splitters.items():
-            if state := settings.get(key):
-                splitter.restoreState(decode_state(state))
-        self._chat_panel.restore_state(settings.get(KEY_SPLITTER_CHAT))
+            if splitter_state := state.get(key):
+                splitter.restoreState(decode_state(splitter_state))
+        self._chat_panel.restore_state(state.get(KEY_SPLITTER_CHAT))
 
     def save(self) -> None:
         """关闭时一次性保存窗口几何与四处分隔栏状态。"""
-        update_settings({
+        update_window_state({
             KEY_WINDOW_GEOMETRY: encode_state(self._window.saveGeometry()),
             **{key: encode_state(splitter.saveState())
                for key, splitter in self._splitters.items()},

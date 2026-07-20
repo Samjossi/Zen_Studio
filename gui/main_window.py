@@ -43,6 +43,14 @@ from PySide6.QtWidgets import (
 from core.paths import PROJECT_ROOT
 from gui.controllers import GitStatusController, WindowStateStore
 from gui.menus import MenuBar
+from gui.menus.registry import (
+    KEY_VIEW_CHAT,
+    KEY_VIEW_CHANGES,
+    KEY_VIEW_EXPLORER,
+    KEY_VIEW_NOISE_FILTER,
+    KEY_VIEW_TERMINAL,
+    theme_action_key,
+)
 from gui.panels import FileExplorer, ViewerPanel
 from gui.panels.changes import ChangesPanel
 from gui.panels.chat import ChatPanel
@@ -53,12 +61,7 @@ from gui.settings import (
     KEY_FONT_SIZE,
     KEY_MODEL_BACKEND,
     KEY_MODEL_VERSION,
-    KEY_SPLITTER_CHAT,
-    KEY_SPLITTER_MAIN,
-    KEY_SPLITTER_EDITOR,
-    KEY_SPLITTER_SIDEBAR,
     KEY_THEME,
-    KEY_WINDOW_GEOMETRY,
     KEY_WORKSPACE_ROOT,
     SETTINGS_FILE,
     update_settings,
@@ -68,6 +71,12 @@ from gui.theme import (
     get_label,
     load_settings,
     save_theme,
+)
+from gui.window_state import (
+    KEY_SPLITTER_EDITOR,
+    KEY_SPLITTER_MAIN,
+    KEY_SPLITTER_SIDEBAR,
+    reset_window_state,
 )
 from llm import LLMRegistry
 
@@ -138,8 +147,8 @@ class MainWindow(QMainWindow):
 
         # 中央容器：窗口级外边距（左/右各 12px——叠面板 6px 得 18px；上 6px——
         # 菜单栏定高截断镜像余量后，菜单栏底→卡片顶 = 6 + 面板 6 = 12px；
-        # 底部 0——底部间距由状态栏定高体系承接）。面板内 6px 外边距继续承担
-        # 卡片↔把手间距，职责分离可独立调参
+        # 底部 0——底部间距由状态栏定高体系承接）。窗口级边距与面板 6px
+        # 职责分离，可独立调参
         central = QWidget(self)
         outer = QVBoxLayout(central)
         outer.setContentsMargins(12, 6, 12, 0)
@@ -176,8 +185,8 @@ class MainWindow(QMainWindow):
         self.statusBar().setSizeGripEnabled(False)  # 去掉右下角尺寸把手（原生边框已可缩放）
         self._fit_statusbar_height()  # 定高紧凑化：底部总间距 18px 一体化（含状态栏）
         # 状态栏右侧常驻：当前文件 Git 差异统计（无改动/非仓库时为空）
-        self._git_stat_label = QLabel("", self)
-        self.statusBar().addPermanentWidget(self._git_stat_label)
+        self._git_stats_label = QLabel("", self)
+        self.statusBar().addPermanentWidget(self._git_stats_label)
         self.statusBar().showMessage("就绪")
 
     # ------------------------------------------------------------------
@@ -190,7 +199,7 @@ class MainWindow(QMainWindow):
             self.viewer_panel,
             self.changes_panel,
             self.statusBar(),
-            self._git_stat_label,
+            self._git_stats_label,
             collapse_handler=lambda: self.set_changes_visible(False),
             parent=self,
         )
@@ -257,23 +266,23 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
     # 面板显隐（视图菜单勾选动作与面板内按钮汇入单一入口）
     # ------------------------------------------------------------------
-    def _set_panel_visible(self, key: str, panel, visible: bool) -> None:
+    def _set_panel_visible(self, key: str, panel, is_visible: bool) -> None:
         """显隐单一入口：同步注册表勾选态与可见性（setChecked 不触发 triggered）。"""
         if action := self.menus.get(key):
-            action.setChecked(visible)
-        panel.setVisible(visible)
+            action.setChecked(is_visible)
+        panel.setVisible(is_visible)
 
-    def set_chat_visible(self, visible: bool) -> None:
-        self._set_panel_visible("view.chat", self.chat_panel, visible)
+    def set_chat_visible(self, is_visible: bool) -> None:
+        self._set_panel_visible(KEY_VIEW_CHAT, self.chat_panel, is_visible)
 
-    def set_explorer_visible(self, visible: bool) -> None:
-        self._set_panel_visible("view.explorer", self.file_explorer, visible)
+    def set_explorer_visible(self, is_visible: bool) -> None:
+        self._set_panel_visible(KEY_VIEW_EXPLORER, self.file_explorer, is_visible)
 
-    def set_terminal_visible(self, visible: bool) -> None:
-        self._set_panel_visible("view.terminal", self.terminal_panel, visible)
+    def set_terminal_visible(self, is_visible: bool) -> None:
+        self._set_panel_visible(KEY_VIEW_TERMINAL, self.terminal_panel, is_visible)
 
-    def set_changes_visible(self, visible: bool) -> None:
-        self._set_panel_visible("view.changes", self.changes_panel, visible)
+    def set_changes_visible(self, is_visible: bool) -> None:
+        self._set_panel_visible(KEY_VIEW_CHANGES, self.changes_panel, is_visible)
 
     def reset_layout(self) -> None:
         """恢复默认布局：四组 splitter 回初始尺寸（面板显隐状态不变）。"""
@@ -297,7 +306,7 @@ class MainWindow(QMainWindow):
         self.file_explorer.apply_theme(theme)
         self.changes_panel.apply_theme(theme)
         self.chat_panel.apply_theme(theme)
-        if action := self.menus.get(f"appearance.theme.{theme}"):
+        if action := self.menus.get(theme_action_key(theme)):
             action.setChecked(True)
         self.statusBar().showMessage(f"已切换为{get_label(theme)}主题", self.STATUS_MSG_TIMEOUT_MS)
 
@@ -433,17 +442,9 @@ class MainWindow(QMainWindow):
             return
 
         patch = dict(DEFAULT_SETTINGS)
-        if keep.isChecked():
-            current = load_settings()
-            for key in (
-                KEY_WINDOW_GEOMETRY,
-                KEY_SPLITTER_MAIN,
-                KEY_SPLITTER_EDITOR,
-                KEY_SPLITTER_SIDEBAR,
-                KEY_SPLITTER_CHAT,
-            ):
-                patch[key] = current.get(key)
         update_settings(patch)
+        if not keep.isChecked():
+            reset_window_state()  # 状态在独立文件：重置即删，重启回默认布局
 
         # 即时应用：主题（含四面板配色）→ 字号 → 模型 → 噪音过滤 → 工作区
         settings = load_settings()
@@ -454,7 +455,7 @@ class MainWindow(QMainWindow):
         bar = self.chat_panel.model_bar
         if self.menus.model_menu is not None:
             self.menus.model_menu.sync(bar.current_backend(), bar.current_version())
-        if action := self.menus.get("view.noise_filter"):
+        if action := self.menus.get(KEY_VIEW_NOISE_FILTER):
             action.setChecked(True)
         self.file_explorer.set_noise_filter(True)
         default_root = str(PROJECT_ROOT)

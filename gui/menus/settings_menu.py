@@ -67,9 +67,9 @@ class ModelMenu:
             self._rebuild_versions(backend)
         self._check_version(version)
 
-    def set_enabled(self, enabled: bool) -> None:
+    def set_enabled(self, is_enabled: bool) -> None:
         """发送中（busy）整组禁用，与 ModelBar 双下拉禁用对齐。"""
-        self._menu.setEnabled(enabled)
+        self._menu.setEnabled(is_enabled)
 
     # ------------------------------------------------------------------
     # 内部

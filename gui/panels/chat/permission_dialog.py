@@ -50,10 +50,10 @@ class PermissionDialog(QDialog):
         buttons = QDialogButtonBox(self)
         for opt in params.get("options") or []:
             label = KIND_LABELS.get(opt.get("kind"), opt.get("name") or opt.get("optionId", "?"))
-            btn = buttons.addButton(label, QDialogButtonBox.ButtonRole.ActionRole)
+            button = buttons.addButton(label, QDialogButtonBox.ButtonRole.ActionRole)
             if opt.get("kind") == "allow_once":
-                btn.setDefault(True)  # 回车默认最保守的允许项
-            btn.clicked.connect(lambda _checked=False, oid=opt.get("optionId"): self._choose(oid))
+                button.setDefault(True)  # 回车默认最保守的允许项
+            button.clicked.connect(lambda _checked=False, oid=opt.get("optionId"): self._choose(oid))
 
         layout = QVBoxLayout(self)
         layout.addWidget(header)

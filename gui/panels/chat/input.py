@@ -44,7 +44,7 @@ class ChatInput(QTextEdit):
     def keyPressEvent(self, event) -> None:
         if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
             if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
-                super().keyPressEvent(event)  # Shift+Enter 换行
+                super().keyPressEvent(event)
                 return
             text = self.toPlainText().strip()
             if text and self.isEnabled():

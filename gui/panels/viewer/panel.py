@@ -158,16 +158,16 @@ class ViewerPanel(QWidget):
     def refresh_git_badge(self) -> None:
         """重查当前文件 numstat 并刷新标题行 `+a -b` 徽标。"""
         service = self._git_service
-        stat = (
+        line_stats = (
             service.numstat_of(self._current_path)
             if service is not None and service.is_enabled and self._current_path
             else None
         )
-        if stat is None:
+        if line_stats is None:
             self._git_badge.setVisible(False)
             self._git_badge.setToolTip("")
             return
-        added, deleted = stat
+        added, deleted = line_stats
         self._git_badge.setText(f"+{added} -{deleted}")
         self._git_badge.setToolTip(f"相对 HEAD：新增 {added} 行，删除 {deleted} 行")
         self._git_badge.setVisible(True)

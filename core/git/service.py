@@ -131,8 +131,8 @@ class GitStatusService:
                 return None, None
             counted = self._count_lines(rel)
             return (counted, 0) if counted is not None else (None, None)
-        stat = self._numstat.get(rel)
-        return stat if stat is not None else (None, None)
+        line_stats = self._numstat.get(rel)
+        return line_stats if line_stats is not None else (None, None)
 
     #: 未跟踪文件行数统计的大小上限（字节）
     UNTRACKED_COUNT_MAX_BYTES = 1_048_576

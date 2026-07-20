@@ -30,7 +30,7 @@ QDialog {
 
 /* 侧栏（左/右栏）：向窗口底微偏一点（三栏似分未分） */
 #SidePanel {
-    background-color: $side_bg;
+    background-color: $sidebar_bg;
 }
 
 /* 面板卡片：查看器/终端/聊天的统一圆角包裹（容器 8px > 内容物 6px 圆角；
@@ -224,18 +224,18 @@ QPushButton {
 }
 
 QPushButton:hover {
-    background-color: $btn_hover_bg;
+    background-color: $button_hover_bg;
     border-color: $border_hover;
 }
 
 QPushButton:pressed {
-    background-color: $btn_pressed_bg;
+    background-color: $button_pressed_bg;
 }
 
 QPushButton:disabled {
-    color: $btn_disabled_text;
-    background-color: $btn_disabled_bg;
-    border-color: $btn_disabled_border;
+    color: $button_disabled_text;
+    background-color: $button_disabled_bg;
+    border-color: $button_disabled_border;
 }
 
 /* ---- 分隔：1px 低存在感；splitter 把手常态透明、hover 显现 ---- */

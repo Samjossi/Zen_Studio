@@ -161,7 +161,7 @@ class ChangesPanel(QWidget):
 
     def _add_placeholder(self, text: str) -> None:
         item = QTreeWidgetItem([text, "", ""])
-        item.setFlags(Qt.ItemFlag.NoItemFlags)  # 不可选不可点
+        item.setFlags(Qt.ItemFlag.NoItemFlags)  # 占位提示行不可交互（双击不触发 file_opened）
         hint_color = git_status_color(self._theme, git_status.IGNORED)
         if hint_color:
             item.setForeground(0, QColor(hint_color))

@@ -366,7 +366,7 @@ class KimiAcpLLM(LanguageModel):
                 raise RuntimeError(f"kimi acp 进程意外退出（退出码 {obj}）")
             if kind == "response":
                 self._raise_on_turn_error(obj)
-                return  # stopReason 到达，本轮结束
+                return
             chunk = self._map_update(obj)
             if chunk:
                 yield chunk
