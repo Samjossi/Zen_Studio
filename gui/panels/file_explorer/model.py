@@ -1,6 +1,6 @@
 """文件树模型层：噪音过滤代理模型 + Git 状态着色。
 
-Git 状态装饰（2026-07-20，见 work plans/2026-0720-0131_Git文件装饰与
+Git 状态装饰（2026-07-20，见 文档/修改记录/2026-0720-0131_Git文件装饰与
 差异统计实施计划.md 阶段二）：代理模型注入 GitStatusService，
 ForegroundRole 按文件状态返回主题色（色值按主题名查 gui/theme.py
 THEME_PALETTES 的 git_status 资源包）。默认仅文件着色，目录保持原色

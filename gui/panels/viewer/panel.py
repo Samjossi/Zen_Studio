@@ -3,7 +3,7 @@
 AI-first 主频场景：agent 直接写盘为主修改路径，`QFileSystemWatcher` 监视当前文件，
 外部修改（AI 写盘）→ 防抖自动重载并保留滚动位置，标题行提示"已重新加载"。
 
-Git 差异徽标（2026-07-20，见 work plans/2026-0720-0131 计划阶段三）：
+Git 差异徽标（2026-07-20，见 文档/修改记录/2026-0720-0131 计划阶段三）：
 set_git_service() 注入 GitStatusService 后，open_file 查询 numstat，
 标题行路径后追加 `+a -b` 徽标（无改动/非仓库不显示）；外部重载时发射
 externally_reloaded 供主窗口联动刷新 Git 状态。
