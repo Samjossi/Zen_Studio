@@ -20,10 +20,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from core.paths import PROJECT_ROOT
 from gui.panels.find_bar import FindBar
 from gui.panels.terminal.palette import AnsiPalette
 from gui.panels.terminal.screen import TerminalScreen
-from gui.panels.terminal.session import PROJECT_ROOT, PtySession
+from gui.panels.terminal.session import PtySession
 from gui.panels.terminal.widget import TerminalWidget
 from gui.popups import make_translucent_popup
 from gui.settings import KEY_THEME

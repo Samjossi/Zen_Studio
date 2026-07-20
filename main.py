@@ -7,16 +7,15 @@
 import argparse
 import sys
 from datetime import datetime
-from pathlib import Path
 
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication
 
+from core.paths import PROJECT_ROOT
 from gui import MainWindow
 from gui.theme import apply_theme
 from llm import build_default_registry
 
-PROJECT_ROOT = Path(__file__).resolve().parent
 SCREENSHOT_DIR = PROJECT_ROOT / ".tmp"
 
 

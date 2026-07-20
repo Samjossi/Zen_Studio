@@ -8,11 +8,17 @@ from gui.popups import exec_standard_context_menu
 class ChatOutput(QTextBrowser):
     """聊天消息显示区（纯文本渲染，第一阶段）。"""
 
-    def __init__(self, parent=None) -> None:
+    def __init__(self, reasoning_color: str, parent=None) -> None:
+        """:param reasoning_color: 思维链前景色（主题资源包 chat.reasoning_fg 注入）。"""
         super().__init__(parent)
         self.setOpenExternalLinks(False)
         # 样式由主题 qss 统一（透明融入侧栏，无边框）
         self.setObjectName("ChatOutput")
+        self._reasoning_color = QColor(reasoning_color)
+
+    def set_reasoning_color(self, color: str) -> None:
+        """主题切换时更新思维链前景色（仅影响此后追加的块）。"""
+        self._reasoning_color = QColor(color)
 
     def contextMenuEvent(self, event) -> None:
         """标准编辑菜单透明化（见 gui/popups.py 与 0751 计划 §3.1）。"""
@@ -38,7 +44,7 @@ class ChatOutput(QTextBrowser):
     def append_reasoning_chunk(self, chunk: str) -> None:
         """思维链块上屏：灰字斜体，与正文样式区分。"""
         fmt = QTextCharFormat()
-        fmt.setForeground(QColor("#888"))
+        fmt.setForeground(self._reasoning_color)
         fmt.setFontItalic(True)
         cursor = self.textCursor()
         cursor.movePosition(cursor.MoveOperation.End)

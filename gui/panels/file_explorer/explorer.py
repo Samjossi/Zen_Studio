@@ -25,7 +25,7 @@ from PySide6.QtWidgets import (
 )
 
 from core.git.service import GitStatusService
-from gui.panels.file_explorer.actions import ExplorerActionsMixin
+from gui.panels.file_explorer.actions import ExplorerActions
 from gui.panels.file_explorer.model import NoiseFilterProxyModel
 from gui.settings import KEY_THEME
 from gui.theme import load_settings
@@ -57,7 +57,7 @@ class _DragOutTreeView(QTreeView):
         drag.exec(Qt.DropAction.CopyAction)
 
 
-class FileExplorer(ExplorerActionsMixin, QWidget):
+class FileExplorer(QWidget):
     """目录文件浏览器（右栏面板）。"""
 
     file_opened = Signal(str)
@@ -87,6 +87,16 @@ class FileExplorer(ExplorerActionsMixin, QWidget):
 
         self._build_model()
         self._build_tree()
+        # 右键动作集：组合注入（依赖显式化，见 actions.py 构造函数签名）
+        self._actions = ExplorerActions(
+            host=self,
+            tree=self.tree,
+            file_path_of=self._file_path,
+            selected_paths=self._selected_paths,
+            anchor_dir=self._anchor_dir,
+            open_file=self.file_opened.emit,
+        )
+        self.tree.customContextMenuRequested.connect(self._actions.open_context_menu)
 
         # 只显示根目录名，完整路径悬停可见（修复栏宽截断问题）
         self.path_label = QLabel(Path(self.root_dir).name)
@@ -131,7 +141,6 @@ class FileExplorer(ExplorerActionsMixin, QWidget):
         # 重命名仅经右键菜单以 tree.edit() 编程式触发，不受此限
         self.tree.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.tree.customContextMenuRequested.connect(self._open_context_menu)
         self.tree.doubleClicked.connect(self._on_double_clicked)
 
         # 只显示名称列，隐藏大小/类型/修改时间列

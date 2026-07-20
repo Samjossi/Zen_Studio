@@ -24,11 +24,13 @@ Git 状态色四套资源包全库各只此一套，四个主题字典直接引�
 """
 from pathlib import Path
 from string import Template
+from typing import TypedDict
 
 from pygments.token import Token
 from PySide6.QtGui import QFont, QFontDatabase
 from PySide6.QtWidgets import QApplication
 
+from core.paths import PROJECT_ROOT
 from gui.settings import (
     CONFIG_DIR,
     DEFAULT_SETTINGS,
@@ -44,8 +46,55 @@ THEMES_DIR = CONFIG_DIR / "themes"
 THEME_TEMPLATE_FILE = THEMES_DIR / "base.qss"
 
 # ----------------------------------------------------------------------
-# 资源包（全部主题数据单点汇聚于本模块；四套资源各只此一套，四主题共享引用）
+# 资源包（全部主题数据单点汇聚于本模块；五套资源各只此一套，四主题共享引用）
 # ----------------------------------------------------------------------
+
+#: 终端配色包键（ANSI 16 色 + 默认前后景 + 查找命中叠加色）
+class TerminalPack(TypedDict):
+    default_fg: str
+    default_bg: str
+    black: str
+    red: str
+    green: str
+    brown: str
+    blue: str
+    magenta: str
+    cyan: str
+    white: str
+    brightblack: str
+    brightred: str
+    brightgreen: str
+    brightbrown: str
+    brightblue: str
+    brightmagenta: str
+    brightcyan: str
+    brightwhite: str
+    find_bg: str
+    find_cur: str
+
+
+#: 查看器控件配色包键（行号/当前行/查找命中）
+class ChromePack(TypedDict):
+    line_number_fg: str
+    line_number_bg: str
+    current_line_bg: str
+    find_bg: str
+    find_cur: str
+
+
+#: Git 状态色包键（状态枚举见 core/git/status.py）
+class GitStatusPack(TypedDict):
+    modified: str
+    untracked: str
+    deleted: str
+    ignored: str
+    conflict: str
+
+
+#: 聊天面板配色包键
+class ChatPack(TypedDict):
+    reasoning_fg: str
+
 
 #: 语法高亮配色包（token 类别 → 样式）
 SYNTAX_PACK: dict = {
@@ -66,25 +115,28 @@ SYNTAX_PACK: dict = {
     Token.Error: {"color": "#CC0000"},
 }
 
-#: 终端 ANSI 16 色包
-TERMINAL_PACK: dict[str, str] = {
+#: 终端配色包：ANSI 16 色 + 查找命中叠加色（find_* 为 #AARRGGBB 带透明度，
+#: AnsiPalette 单独取用、不进 ANSI 颜色名查表）
+TERMINAL_PACK: TerminalPack = {
     "default_fg": "#1a1a1a", "default_bg": "#ffffff",
     "black": "#000000", "red": "#c41a16", "green": "#007a1c", "brown": "#a05000",
     "blue": "#0451a5", "magenta": "#a02c91", "cyan": "#168396", "white": "#767676",
     "brightblack": "#555555", "brightred": "#e5484d", "brightgreen": "#18a058",
     "brightbrown": "#c26a00", "brightblue": "#1a6fd4", "brightmagenta": "#c044ae",
     "brightcyan": "#00a7b5", "brightwhite": "#000000",
+    "find_bg": "#37ffdc64", "find_cur": "#6effb400",
 }
 
 #: 查看器控件配色包（行号/当前行/查找命中）
-CHROME_PACK: dict[str, str] = {
-    "ln_fg": "#999999", "ln_bg": "#f5f5f5", "cur_bg": "#eef4fb",
+CHROME_PACK: ChromePack = {
+    "line_number_fg": "#999999", "line_number_bg": "#f5f5f5",
+    "current_line_bg": "#eef4fb",
     "find_bg": "#fff3bf", "find_cur": "#ffd43b",
 }
 
 #: Git 状态色包（model 的 ForegroundRole 不走 qss，故色值在此集中维护。
 #: 状态枚举见 core/git/status.py：modified/untracked/deleted/ignored/conflict）
-GIT_STATUS_PACK: dict[str, str] = {
+GIT_STATUS_PACK: GitStatusPack = {
     "modified": "#1e88e5",   # 天蓝
     "untracked": "#1f8a3d",  # 绿
     "deleted": "#c0392b",    # 红
@@ -92,8 +144,13 @@ GIT_STATUS_PACK: dict[str, str] = {
     "conflict": "#d40000",   # 强红
 }
 
+#: 聊天面板配色包（思维链灰：与正文样式区分的弱化前景色）
+CHAT_PACK: ChatPack = {
+    "reasoning_fg": "#888888",
+}
+
 # ----------------------------------------------------------------------
-# 主题调色板注册表（qss 令牌 + 四资源包；注册顺序即视图菜单顺序）
+# 主题调色板注册表（qss 令牌 + 五资源包；注册顺序即视图菜单顺序）
 # ----------------------------------------------------------------------
 
 #: qss 令牌键集合（校验脚本据此剔除资源包键，双向比对模板占位符）
@@ -111,9 +168,9 @@ QSS_TOKEN_KEYS = (
 )
 
 #: 资源包键集合（非 qss 令牌，渲染时不参与替换）
-PACK_KEYS = ("label", "syntax", "terminal", "chrome", "git_status")
+PACK_KEYS = ("label", "syntax", "terminal", "chrome", "git_status", "chat")
 
-#: 主题注册表：键 = 主题名；label = 菜单显示名；其余为 qss 令牌 + 四资源包。
+#: 主题注册表：键 = 主题名；label = 菜单显示名；其余为 qss 令牌 + 五资源包。
 #: 四主题引用同一组资源包常量（共享即引用，不复制——全库各只此一套）；
 #: 未来新增主题可全手写或 {**CHROME_PACK, ...} 单项覆盖。
 #:
@@ -150,7 +207,7 @@ THEME_PALETTES: dict[str, dict] = {
         "tooltip_bg": "#323236",
         "tooltip_text": "#f5f5f7",
         "syntax": SYNTAX_PACK, "terminal": TERMINAL_PACK,
-        "chrome": CHROME_PACK, "git_status": GIT_STATUS_PACK,
+        "chrome": CHROME_PACK, "git_status": GIT_STATUS_PACK, "chat": CHAT_PACK,
     },
     "wheat": {
         "label": "暖米",
@@ -181,7 +238,7 @@ THEME_PALETTES: dict[str, dict] = {
         "tooltip_bg": "#323236",
         "tooltip_text": "#f5f5f7",
         "syntax": SYNTAX_PACK, "terminal": TERMINAL_PACK,
-        "chrome": CHROME_PACK, "git_status": GIT_STATUS_PACK,
+        "chrome": CHROME_PACK, "git_status": GIT_STATUS_PACK, "chat": CHAT_PACK,
     },
     "sky": {
         "label": "晴空",
@@ -212,7 +269,7 @@ THEME_PALETTES: dict[str, dict] = {
         "tooltip_bg": "#323236",
         "tooltip_text": "#f5f5f7",
         "syntax": SYNTAX_PACK, "terminal": TERMINAL_PACK,
-        "chrome": CHROME_PACK, "git_status": GIT_STATUS_PACK,
+        "chrome": CHROME_PACK, "git_status": GIT_STATUS_PACK, "chat": CHAT_PACK,
     },
     "mint": {
         "label": "薄荷",
@@ -243,7 +300,7 @@ THEME_PALETTES: dict[str, dict] = {
         "tooltip_bg": "#323236",
         "tooltip_text": "#f5f5f7",
         "syntax": SYNTAX_PACK, "terminal": TERMINAL_PACK,
-        "chrome": CHROME_PACK, "git_status": GIT_STATUS_PACK,
+        "chrome": CHROME_PACK, "git_status": GIT_STATUS_PACK, "chat": CHAT_PACK,
     },
 }
 
@@ -262,7 +319,7 @@ def git_status_color(theme: str, status: str) -> str | None:
 
 
 #: 自带 UI 字体目录（assets/fonts/思源黑体/，全量 7 档，运行时注册其中三档）
-BUNDLED_FONTS_DIR = Path(__file__).resolve().parent.parent / "assets" / "fonts" / "思源黑体"
+BUNDLED_FONTS_DIR = PROJECT_ROOT / "assets" / "fonts" / "思源黑体"
 #: 注册三档即可支撑正文/标题/强调层级；其余字重留目录备用
 BUNDLED_FONT_FILES = (
     "SourceHanSansCN-Regular.otf",
@@ -272,7 +329,7 @@ BUNDLED_FONT_FILES = (
 BUNDLED_FAMILY = "Source Han Sans CN"
 
 #: 自带等宽字体目录（assets/fonts/更纱黑体/，终端与代码查看器专用）
-MONO_FONTS_DIR = Path(__file__).resolve().parent.parent / "assets" / "fonts" / "更纱黑体"
+MONO_FONTS_DIR = PROJECT_ROOT / "assets" / "fonts" / "更纱黑体"
 MONO_FONT_FILES = (
     "SarasaTermSC-Regular.ttf",
     "SarasaTermSC-Bold.ttf",

@@ -13,19 +13,46 @@ import subprocess
 import sys
 import threading
 from collections.abc import Callable
-from pathlib import Path
-from typing import Iterator
+from typing import Iterator, Literal, TypedDict
 
+from core.paths import PROJECT_ROOT  # agent 工作目录限定于项目根
 from llm.base import Chunk, LanguageModel, Message
 from llm.providers.kimi_cli import _find_bin
 
-# 项目根（本文件位于 llm/providers/，上两级为项目根）；agent 工作目录限定于此
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-
 _ACP_TIMEOUT_S = 30  # initialize / session/new / set_config_option 等控制请求超时
 
+
+# ----------------------------------------------------------------------
+# ACP 协议层定型（传输边界 dict 合理，入口处定型；键名依协议原文 camelCase）
+# ----------------------------------------------------------------------
+class PermissionOption(TypedDict, total=False):
+    """`session/request_permission` 的单个选项（agent 提供，optionId 回应用原值）。"""
+    optionId: str
+    name: str
+    kind: str  # allow_once / allow_always / reject_once / reject_always
+
+
+class ToolCallInfo(TypedDict, total=False):
+    """审批请求携带的工具调用信息（键全为可选，agent 实发字段随工具而异）。"""
+    title: str
+    kind: str
+    rawInput: dict
+    content: list
+    locations: list
+
+
+class PermissionParams(TypedDict, total=False):
+    """`session/request_permission` 的 params（ACP 入口定型点）。"""
+    sessionId: str
+    toolCall: ToolCallInfo
+    options: list[PermissionOption]
+
+
 #: 审批处理器签名：session/request_permission params → optionId（None 视为拒绝）
-PermissionHandler = Callable[[dict], str | None]
+PermissionHandler = Callable[[PermissionParams], str | None]
+
+#: 轮次内消息：update/response 载荷为 JSON-RPC 帧，dead 载荷为进程退出码
+_TurnMessage = tuple[Literal["update", "response"], dict] | tuple[Literal["dead"], int | None]
 
 
 class _AcpConnection:
@@ -54,12 +81,16 @@ class _AcpConnection:
         self._next = 0
         self._write_lock = threading.Lock()
         self._pending: dict[int, queue.Queue[dict]] = {}
-        self._updates: queue.Queue[tuple[str, object]] = queue.Queue()
+        self._updates: queue.Queue[_TurnMessage] = queue.Queue()
         self._turn_id: int | None = None  # 活跃轮次的 prompt 请求 id（其响应改走 _updates）
         self.is_alive = True
-        #: 审批处理器（GUI 注入）：params → optionId；None=自动允许（C2 语义）
-        self.permission_handler: PermissionHandler | None = None
+        #: 审批处理器（GUI 经 set_permission_handler 注入）；None=自动允许（C2 语义）
+        self._permission_handler: PermissionHandler | None = None
         threading.Thread(target=self._reader, daemon=True).start()
+
+    def set_permission_handler(self, handler: PermissionHandler | None) -> None:
+        """注入审批处理器（None = 自动允许，C2 语义）。"""
+        self._permission_handler = handler
 
     # ------------------------------------------------------------------
     # 帧收发
@@ -109,12 +140,12 @@ class _AcpConnection:
         """反向请求（agent→client）：审批经 handler 路由（无 handler 自动允许）；
         fs/terminal 未声明能力，兜底 methodNotFound。须及时应答，防 agent 阻塞。"""
         if obj["method"] == "session/request_permission":
-            params = obj.get("params") or {}
+            params: PermissionParams = obj.get("params") or {}
             options = params.get("options") or []
             option_id: str | None = None
-            if self.permission_handler is not None:
+            if self._permission_handler is not None:
                 try:
-                    option_id = self.permission_handler(params)
+                    option_id = self._permission_handler(params)
                 except Exception as e:  # noqa: BLE001 — handler 异常不阻塞 agent，兜底拒绝
                     print(f"[kimi-acp] 审批处理器异常: {e}", file=sys.stderr)
                 if option_id is None:  # 用户取消/超时/handler 异常 → 兜底拒绝
@@ -134,7 +165,7 @@ class _AcpConnection:
                             "error": {"code": -32601, "message": "method not found"}})
 
     @staticmethod
-    def _pick_option(options: list[dict], kind: str) -> str | None:
+    def _pick_option(options: list[PermissionOption], kind: str) -> str | None:
         """按 kind 选 optionId（回应用 agent 提供的 optionId 原值，不臆造）。"""
         option = next((o for o in options if o.get("kind") == kind), None)
         return option["optionId"] if option else None
@@ -204,6 +235,10 @@ class _AcpConnection:
             except queue.Empty:
                 return
 
+    def next_update(self) -> _TurnMessage:
+        """取下一条轮次内消息（阻塞；无超时：agent 轮次可长达数分钟）。"""
+        return self._updates.get()
+
     def terminate(self) -> None:
         if self._proc.poll() is None:
             self._proc.terminate()
@@ -247,7 +282,7 @@ class KimiAcpLLM(LanguageModel):
         """注入审批处理器：params → optionId（None 视为拒绝）；None 恢复自动允许。"""
         self._permission_handler = handler
         if self._conn:
-            self._conn.permission_handler = handler
+            self._conn.set_permission_handler(handler)
 
     def close(self) -> None:
         """终止 agent 子进程（atexit 挂钩；Zen Studio 退出时防残留）。"""
@@ -274,7 +309,7 @@ class KimiAcpLLM(LanguageModel):
             if self._conn is not None:
                 self._conn.terminate()
             self._conn = _AcpConnection(bin_path)
-            self._conn.permission_handler = self._permission_handler  # 重建后恢复注入
+            self._conn.set_permission_handler(self._permission_handler)
             self._session_id = None
             self._conn.request("initialize", {
                 "protocolVersion": 1,
@@ -325,7 +360,7 @@ class KimiAcpLLM(LanguageModel):
     def _iter_turn_chunks(self, conn: _AcpConnection) -> Iterator[Chunk]:
         """轮次内消息消费循环：update → Chunk；response/dead 收尾本轮。"""
         while True:
-            kind, obj = conn._updates.get()  # 无超时：agent 轮次可长达数分钟（同 kimi_cli 语义）
+            kind, obj = conn.next_update()
             if kind == "dead":
                 self._session_id = None
                 raise RuntimeError(f"kimi acp 进程意外退出（退出码 {obj}）")

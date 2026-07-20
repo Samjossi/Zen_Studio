@@ -14,7 +14,7 @@ from PySide6.QtGui import QColor, QFont, QPainter, QTextCursor, QTextFormat, QTe
 from PySide6.QtWidgets import QApplication, QPlainTextEdit, QTextEdit, QWidget
 
 from gui.popups import exec_standard_context_menu
-from gui.theme import get_mono_family
+from gui.theme import ChromePack, get_mono_family
 
 
 class _LineNumberArea(QWidget):
@@ -34,7 +34,7 @@ class _LineNumberArea(QWidget):
 class CodeViewer(QPlainTextEdit):
     """只读代码查看器（等宽字体、行号栏、当前行高亮、软换行）。"""
 
-    def __init__(self, chrome: dict[str, str], parent: QWidget | None = None) -> None:
+    def __init__(self, chrome: ChromePack, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setReadOnly(True)  # AI-first：永久只读（产品决策；setReadOnly 可逆）
         # 软换行：按控件宽度折行，优先单词边界、无空格长串任意处硬断（不出水平滚动条）
@@ -61,7 +61,7 @@ class CodeViewer(QPlainTextEdit):
     # ------------------------------------------------------------------
     # 主题
     # ------------------------------------------------------------------
-    def apply_theme(self, chrome: dict[str, str]) -> None:
+    def apply_theme(self, chrome: ChromePack) -> None:
         """切换行号/当前行配色包并刷新。"""
         self._chrome = chrome
         self._line_area.update()
@@ -119,7 +119,7 @@ class CodeViewer(QPlainTextEdit):
 
     def paint_line_numbers(self, event) -> None:
         painter = QPainter(self._line_area)
-        painter.fillRect(event.rect(), QColor(self._chrome["ln_bg"]))
+        painter.fillRect(event.rect(), QColor(self._chrome["line_number_bg"]))
         block = self.firstVisibleBlock()
         num = block.blockNumber()
         top = round(self.blockBoundingGeometry(block).translated(self.contentOffset()).top())
@@ -127,7 +127,7 @@ class CodeViewer(QPlainTextEdit):
         height = self.fontMetrics().height()
         while block.isValid() and top <= event.rect().bottom():
             if block.isVisible() and bottom >= event.rect().top():
-                painter.setPen(QColor(self._chrome["ln_fg"]))
+                painter.setPen(QColor(self._chrome["line_number_fg"]))
                 painter.drawText(0, top, self._line_area.width() - 4, height,
                                  Qt.AlignmentFlag.AlignRight, str(num + 1))
             block = block.next()
@@ -145,7 +145,7 @@ class CodeViewer(QPlainTextEdit):
     def _refresh_extra_selections(self) -> None:
         """ExtraSelection 唯一出口：当前行 + 查找命中，防互相覆盖。"""
         selection = QTextEdit.ExtraSelection()
-        selection.format.setBackground(QColor(self._chrome["cur_bg"]))
+        selection.format.setBackground(QColor(self._chrome["current_line_bg"]))
         selection.format.setProperty(QTextFormat.Property.FullWidthSelection, True)
         selection.cursor = self.textCursor()
         selection.cursor.clearSelection()

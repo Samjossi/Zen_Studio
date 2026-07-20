@@ -9,17 +9,22 @@ pyte 的颜色表示：基础色为名字串（"red"/"brightred"…），256 色
 """
 from PySide6.QtGui import QColor
 
+from gui.theme import TerminalPack
+
 
 class AnsiPalette:
     """一次主题实例：颜色名 → QColor 查表（256 色 hex 串直接解析）。"""
 
-    def __init__(self, colors: dict[str, str]) -> None:
+    def __init__(self, colors: TerminalPack) -> None:
         self.default_fg = QColor(colors["default_fg"])
         self.default_bg = QColor(colors["default_bg"])
+        #: 查找命中叠加色（普通命中淡染 / 当前命中深染），非 ANSI 颜色名，不进查表
+        self.find_bg = QColor(colors["find_bg"])
+        self.find_cur = QColor(colors["find_cur"])
         self._colors = {
             name: QColor(value)
             for name, value in colors.items()
-            if not name.startswith("default_")
+            if not (name.startswith("default_") or name.startswith("find_"))
         }
 
     def color(self, name: str, fallback: QColor | None = None) -> QColor:

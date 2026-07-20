@@ -22,6 +22,7 @@ from gui.theme import get_mono_family
 
 from gui.panels.terminal.palette import AnsiPalette
 from gui.panels.terminal.screen import TerminalScreen
+from gui.panels.terminal.selection import SelectionController
 
 REFRESH_MS = 30  # 刷新节流间隔
 
@@ -61,9 +62,8 @@ class TerminalWidget(QWidget):
         self._placeholder = ""  # 空会话占位文本（screen 为 None 时绘制）
         self._search_runs: list[tuple[int, int, int]] = []  # 查找命中段 (y, x0, x1)
         self._search_current = -1  # 当前命中索引
-        # 选区（可视快照行坐标 (y, x)，端点含端格；None 表示无选区）
-        self._sel_anchor: tuple[int, int] | None = None  # 锚点（按下处）
-        self._sel_end: tuple[int, int] | None = None     # 活动端点（拖拽处）
+        # 选区状态机（纯逻辑外置 SelectionController；可视快照行坐标，滚动即清除）
+        self._selection = SelectionController()
 
         font = QFont(get_mono_family())  # 库内等宽族（Sarasa Term SC），注册缺失回退 monospace
         if app := QApplication.instance():
@@ -153,34 +153,22 @@ class TerminalWidget(QWidget):
         return self._search_current
 
     # ------------------------------------------------------------------
-    # 选区（阶段三：可视快照行坐标，滚动即清除）
+    # 选区（状态机在 SelectionController；此处为薄委托 + 视图失效时机）
     # ------------------------------------------------------------------
     def has_selection(self) -> bool:
         """是否存在有效选区（退化为点的点击不算）。"""
-        return (self._sel_anchor is not None and self._sel_end is not None
-                and self._sel_anchor != self._sel_end)
+        return self._selection.has_selection()
 
     def clear_selection(self) -> None:
         """清除选区（幂等）；滚动/输入/新数据推屏/换屏/resize 时调用。"""
-        if self._sel_anchor is not None:
-            self._sel_anchor = None
-            self._sel_end = None
+        if self._selection.clear():
             self.update()
 
     def selected_text(self) -> str:
         """选区纯文本：归一化阅读序 + 跨行拼接 + 行尾 rstrip（网格补空白不带上屏）。"""
-        if not self.has_selection() or self._screen is None:
+        if self._screen is None:
             return ""
-        (y0, x0), (y1, x1) = self._normalized_selection()
-        snapshot = self._screen.snapshot(self._scroll_offset)
-        y1 = min(y1, len(snapshot) - 1)  # resize 竞态保护
-        lines: list[str] = []
-        for y in range(y0, y1 + 1):
-            row = snapshot[y]
-            start_col = x0 if y == y0 else 0
-            end_col = x1 + 1 if y == y1 else len(row)  # 端点含端格 → 半开 +1
-            lines.append("".join(ch for ch, _ in row[start_col:end_col]).rstrip())
-        return "\n".join(lines)
+        return self._selection.extract_text(self._screen.snapshot(self._scroll_offset))
 
     def copy_selection(self) -> None:
         """复制选区到剪贴板（Ctrl+Shift+C / 右键菜单共用；复制后保留选区）。"""
@@ -196,17 +184,11 @@ class TerminalWidget(QWidget):
                 if self._scroll_offset:  # 粘贴后回到底部（同键盘输入语义）
                     self._scrollbar.setValue(self._scrollbar.maximum())
 
-    def _normalized_selection(self) -> tuple[tuple[int, int], tuple[int, int]]:
-        """选区按阅读序（先 y 后 x）归一化为 (起, 止)；调用前须保证两端点非 None。"""
-        a, b = self._sel_anchor, self._sel_end
-        return (a, b) if a <= b else (b, a)
-
     def _pos_to_cell(self, pos) -> tuple[int, int]:
         """像素坐标 → 网格 (y, x)，clamp 进网格（拖入滚动条区不越界）。"""
         row_count, column_count = self.get_grid_size()
-        x = min(max(pos.x() // self._cell_w, 0), column_count - 1)
-        y = min(max(pos.y() // self._cell_h, 0), row_count - 1)
-        return y, x
+        return SelectionController.pos_to_cell(
+            pos.x(), pos.y(), self._cell_w, self._cell_h, row_count, column_count)
 
     # ------------------------------------------------------------------
     # 网格尺寸
@@ -255,33 +237,27 @@ class TerminalWidget(QWidget):
         event.accept()
 
     # ------------------------------------------------------------------
-    # 鼠标选区（左键拖选；退化为点击则清除）
+    # 鼠标选区（事件转发 SelectionController；左键拖选，退化为点击则清除）
     # ------------------------------------------------------------------
     def mousePressEvent(self, event) -> None:
         if event.button() == Qt.MouseButton.LeftButton and self._screen is not None:
-            self._sel_anchor = self._pos_to_cell(event.position().toPoint())
-            self._sel_end = self._sel_anchor
+            self._selection.press(self._pos_to_cell(event.position().toPoint()))
             self.update()  # 覆盖旧选区高亮
             return
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event) -> None:
         # 未开 mouseTracking：move 仅在按住按键时到达，拖拽场景够用
-        if (self._sel_anchor is not None
+        if (self._selection.has_anchor()
                 and event.buttons() & Qt.MouseButton.LeftButton):
-            cell = self._pos_to_cell(event.position().toPoint())
-            if cell != self._sel_end:
-                self._sel_end = cell
+            if self._selection.drag(self._pos_to_cell(event.position().toPoint())):
                 self.update()
             return
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event) -> None:
-        if event.button() == Qt.MouseButton.LeftButton and self._sel_anchor is not None:
-            if self._sel_anchor == self._sel_end:
-                self.clear_selection()  # 退化为点击：不建选区
-            else:
-                self.update()
+        if event.button() == Qt.MouseButton.LeftButton and self._selection.release():
+            self.update()
             return
         super().mouseReleaseEvent(event)
 
@@ -389,9 +365,9 @@ class TerminalWidget(QWidget):
 
     def _paint_selection(self, painter: QPainter, snapshot: list, column_count: int) -> None:
         """选区高亮（文本之后、查找与光标之前）：前景色淡染，明暗主题通用。"""
-        if not self.has_selection():
+        if not self._selection.has_selection():
             return
-        (sel_y0, sel_x0), (sel_y1, sel_x1) = self._normalized_selection()
+        (sel_y0, sel_x0), (sel_y1, sel_x1) = self._selection.normalized()
         sel_color = QColor(self._palette.default_fg)
         sel_color.setAlphaF(0.28)
         for sel_y in range(sel_y0, min(sel_y1, len(snapshot) - 1) + 1):
@@ -403,8 +379,8 @@ class TerminalWidget(QWidget):
     def _paint_search_runs(self, painter: QPainter) -> None:
         """查找命中叠加（光标之前，保持光标可见）：普通命中淡染、当前命中深染。"""
         for index, (hit_y, hit_x0, hit_x1) in enumerate(self._search_runs):
-            color = (QColor(255, 180, 0, 110) if index == self._search_current
-                     else QColor(255, 220, 100, 55))
+            color = (self._palette.find_cur if index == self._search_current
+                     else self._palette.find_bg)
             painter.fillRect(hit_x0 * self._cell_w, hit_y * self._cell_h,
                              (hit_x1 - hit_x0) * self._cell_w, self._cell_h, color)
 

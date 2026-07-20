@@ -6,13 +6,11 @@
 import atexit
 import os
 import threading
-from pathlib import Path
 
 from ptyprocess import PtyProcess
 from PySide6.QtCore import QCoreApplication, QObject, Signal
 
-#: 项目根（本文件位于 gui/panels/terminal/，上三级为项目根）；shell 工作目录限定于此
-PROJECT_ROOT = Path(__file__).resolve().parents[3]
+from core.paths import PROJECT_ROOT
 
 
 class PtySession(QObject):

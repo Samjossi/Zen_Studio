@@ -40,6 +40,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from core.paths import PROJECT_ROOT
 from gui.controllers import GitStatusController, WindowStateStore
 from gui.menus import MenuBar
 from gui.panels import FileExplorer, ViewerPanel
@@ -54,8 +55,8 @@ from gui.settings import (
     KEY_MODEL_VERSION,
     KEY_SPLITTER_CHAT,
     KEY_SPLITTER_MAIN,
-    KEY_SPLITTER_MIDDLE,
-    KEY_SPLITTER_RIGHT,
+    KEY_SPLITTER_EDITOR,
+    KEY_SPLITTER_SIDEBAR,
     KEY_THEME,
     KEY_WINDOW_GEOMETRY,
     KEY_WORKSPACE_ROOT,
@@ -74,8 +75,8 @@ from llm import LLMRegistry
 class MainWindow(QMainWindow):
     #: 默认布局尺寸（px）：__init__ 初排与 reset_layout 共用单点来源
     DEFAULT_SIZES_MAIN = [320, 630, 250]    # 外层水平：聊天 / 中栏 / 右栏
-    DEFAULT_SIZES_MIDDLE = [550, 250]       # 中栏垂直：查看器 / 终端
-    DEFAULT_SIZES_RIGHT = [340, 170]        # 右栏垂直：文件树 / 变更面板
+    DEFAULT_SIZES_EDITOR = [550, 250]       # 中栏垂直：查看器 / 终端
+    DEFAULT_SIZES_SIDEBAR = [340, 170]        # 右栏垂直：文件树 / 变更面板
 
     #: 状态栏消息时长（ms）：常规操作反馈 / 轻量提示 / 需细读的说明
     STATUS_MSG_TIMEOUT_MS = 3000
@@ -102,34 +103,34 @@ class MainWindow(QMainWindow):
     def _build_layout(self, llm_registry: LLMRegistry) -> None:
         """布局装配：三栏 splitter（聊天 / 中栏查看器+终端 / 右栏文件树+变更）。"""
         # 中栏垂直拆分：上为文件查看器（只读+高亮），下为内嵌终端（真 PTY）
-        self._splitter_middle = QSplitter(Qt.Orientation.Vertical)
+        self._splitter_editor = QSplitter(Qt.Orientation.Vertical)
         self.viewer_panel = ViewerPanel()
         self.terminal_panel = TerminalPanel()
-        self._splitter_middle.addWidget(self.viewer_panel)
-        self._splitter_middle.addWidget(self.terminal_panel)
-        self._splitter_middle.setSizes(self.DEFAULT_SIZES_MIDDLE)
+        self._splitter_editor.addWidget(self.viewer_panel)
+        self._splitter_editor.addWidget(self.terminal_panel)
+        self._splitter_editor.setSizes(self.DEFAULT_SIZES_EDITOR)
         # 防折叠：终端栏最小高度由 TerminalPanel.MIN_HEIGHT 约束（collapsible 默认 true 会无视之）
-        self._splitter_middle.setCollapsible(1, False)
+        self._splitter_editor.setCollapsible(1, False)
 
         self._splitter_main = QSplitter(Qt.Orientation.Horizontal)
         project_root = self._resolve_workspace_root()
         # 左栏：AI 聊天面板
         self.chat_panel = ChatPanel(llm_registry, workspace_root=project_root)
         self._splitter_main.addWidget(self.chat_panel)
-        self._splitter_main.addWidget(self._splitter_middle)
+        self._splitter_main.addWidget(self._splitter_editor)
 
         # 右栏：垂直拆分——上文件树（根目录为工作区根）、下 Git 变更面板；
         # 双击文件 → 中栏查看器打开
         self.file_explorer = FileExplorer(project_root)
         self.file_explorer.file_opened.connect(self.viewer_panel.open_file)
         self.changes_panel = ChangesPanel()
-        self._splitter_right = QSplitter(Qt.Orientation.Vertical)
-        self._splitter_right.addWidget(self.file_explorer)
-        self._splitter_right.addWidget(self.changes_panel)
-        self._splitter_right.setSizes(self.DEFAULT_SIZES_RIGHT)
+        self._splitter_sidebar = QSplitter(Qt.Orientation.Vertical)
+        self._splitter_sidebar.addWidget(self.file_explorer)
+        self._splitter_sidebar.addWidget(self.changes_panel)
+        self._splitter_sidebar.setSizes(self.DEFAULT_SIZES_SIDEBAR)
         # 防折叠：变更面板最小高度由 ChangesPanel.MIN_HEIGHT 约束
-        self._splitter_right.setCollapsible(1, False)
-        self._splitter_main.addWidget(self._splitter_right)
+        self._splitter_sidebar.setCollapsible(1, False)
+        self._splitter_main.addWidget(self._splitter_sidebar)
 
         self._splitter_main.setSizes(self.DEFAULT_SIZES_MAIN)
         # 防折叠：右栏文件树最小宽度由 FileExplorer.MIN_WIDTH 约束
@@ -152,7 +153,7 @@ class MainWindow(QMainWindow):
 
         文件树根目录与聊天输入框 @相对路径 计算共用同一来源。
         """
-        project_root = str(Path(__file__).resolve().parent.parent)
+        project_root = str(PROJECT_ROOT)
         workspace = load_settings().get(KEY_WORKSPACE_ROOT)
         if workspace and Path(workspace).is_dir():
             return str(Path(workspace).resolve())
@@ -232,8 +233,8 @@ class MainWindow(QMainWindow):
             self,
             {
                 KEY_SPLITTER_MAIN: self._splitter_main,
-                KEY_SPLITTER_MIDDLE: self._splitter_middle,
-                KEY_SPLITTER_RIGHT: self._splitter_right,
+                KEY_SPLITTER_EDITOR: self._splitter_editor,
+                KEY_SPLITTER_SIDEBAR: self._splitter_sidebar,
             },
             self.chat_panel,
         )
@@ -277,8 +278,8 @@ class MainWindow(QMainWindow):
     def reset_layout(self) -> None:
         """恢复默认布局：四组 splitter 回初始尺寸（面板显隐状态不变）。"""
         self._splitter_main.setSizes(self.DEFAULT_SIZES_MAIN)
-        self._splitter_middle.setSizes(self.DEFAULT_SIZES_MIDDLE)
-        self._splitter_right.setSizes(self.DEFAULT_SIZES_RIGHT)
+        self._splitter_editor.setSizes(self.DEFAULT_SIZES_EDITOR)
+        self._splitter_sidebar.setSizes(self.DEFAULT_SIZES_SIDEBAR)
         self.chat_panel.reset_layout()
         self.statusBar().showMessage("已恢复默认布局", self.STATUS_MSG_SHORT_MS)
 
@@ -295,6 +296,7 @@ class MainWindow(QMainWindow):
         self.terminal_panel.apply_theme(theme)
         self.file_explorer.apply_theme(theme)
         self.changes_panel.apply_theme(theme)
+        self.chat_panel.apply_theme(theme)
         if action := self.menus.get(f"appearance.theme.{theme}"):
             action.setChecked(True)
         self.statusBar().showMessage(f"已切换为{get_label(theme)}主题", self.STATUS_MSG_TIMEOUT_MS)
@@ -436,8 +438,8 @@ class MainWindow(QMainWindow):
             for key in (
                 KEY_WINDOW_GEOMETRY,
                 KEY_SPLITTER_MAIN,
-                KEY_SPLITTER_MIDDLE,
-                KEY_SPLITTER_RIGHT,
+                KEY_SPLITTER_EDITOR,
+                KEY_SPLITTER_SIDEBAR,
                 KEY_SPLITTER_CHAT,
             ):
                 patch[key] = current.get(key)
@@ -455,7 +457,7 @@ class MainWindow(QMainWindow):
         if action := self.menus.get("view.noise_filter"):
             action.setChecked(True)
         self.file_explorer.set_noise_filter(True)
-        default_root = str(Path(__file__).resolve().parent.parent)
+        default_root = str(PROJECT_ROOT)
         if self.file_explorer.root_dir != default_root:
             self._switch_workspace(default_root)
             update_settings({KEY_WORKSPACE_ROOT: None})  # 默认根不落具体路径
@@ -466,11 +468,10 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
     def show_about(self) -> None:
         """关于对话框：版本 / 技术栈 / 项目路径。"""
-        project_root = Path(__file__).resolve().parent.parent
         QMessageBox.about(
             self,
             "关于 Zen Studio",
             "<b>Zen Studio</b> 0.1.0"
             "<p>AI-first 桌面 IDE：代码修改一律经 AI agent 落盘。</p>"
-            f"<p>技术栈：Python + PySide6<br>项目路径：{project_root}</p>",
+            f"<p>技术栈：Python + PySide6<br>项目路径：{PROJECT_ROOT}</p>",
         )

@@ -6,7 +6,7 @@ import 无副作用（AFCP 2.3 依赖显式）：CLI 探测与 provider 实例�
 由此在代码文本上可见。
 """
 from llm.base import Chunk, LanguageModel, Message
-from llm.providers.kimi_acp import KimiAcpLLM
+from llm.providers.kimi_acp import KimiAcpLLM, PermissionHandler, PermissionParams
 from llm.providers.kimi_cli import KimiCliLLM, kimi_available, list_kimi_models
 from llm.registry import LLMRegistry
 
@@ -45,4 +45,7 @@ __all__ = [
     "KimiAcpLLM",
     "kimi_available",
     "list_kimi_models",
+    # ACP 协议层定型（审批回环共用）
+    "PermissionHandler",
+    "PermissionParams",
 ]

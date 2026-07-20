@@ -12,12 +12,10 @@ import threading
 from pathlib import Path
 from typing import Iterator
 
+from core.paths import PROJECT_ROOT  # agent 工作目录限定于项目根
 from llm.base import Chunk, LanguageModel, Message
 
 KIMI_BIN = "kimi"
-
-# 项目根（本文件位于 llm/providers/，上两级为项目根）；agent 工作目录限定于此
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _find_bin() -> str | None:

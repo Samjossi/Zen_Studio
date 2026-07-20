@@ -7,10 +7,12 @@ from PySide6.QtWidgets import QFrame, QSplitter, QVBoxLayout, QWidget
 from gui.settings import (
     KEY_MODEL_BACKEND,
     KEY_MODEL_VERSION,
+    KEY_THEME,
     decode_state,
     encode_state,
     update_settings,
 )
+from gui.theme import get_theme_palette, load_settings
 from llm import (
     BACKEND_KIMI_ACP,
     BACKEND_LABELS,
@@ -19,6 +21,7 @@ from llm import (
     KimiCliLLM,
     LLMRegistry,
     Message,
+    PermissionParams,
 )
 from gui.panels.chat.input import ChatInput
 from gui.panels.chat.model_bar import ModelBar
@@ -64,7 +67,7 @@ class ChatPanel(QWidget):
         self._stream_buffer = ""
         self._has_seen_reasoning = False
 
-        self.output = ChatOutput(self)
+        self.output = ChatOutput(self._reasoning_color_of(load_settings()[KEY_THEME]), self)
         self.input = ChatInput(self)
         if workspace_root is not None:
             self.input.set_workspace_root(workspace_root)
@@ -122,6 +125,18 @@ class ChatPanel(QWidget):
         self._wire_permission_handler()
 
     # ------------------------------------------------------------------
+    # 主题（思维链前景色随主题资源包切换；由 MainWindow.switch_theme 统一调用）
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _reasoning_color_of(theme: str) -> str:
+        """主题名 → 思维链前景色（资源包 chat.reasoning_fg）。"""
+        return get_theme_palette(theme)["chat"]["reasoning_fg"]
+
+    def apply_theme(self, theme: str) -> None:
+        """主题切换：更新输出区思维链前景色（仅影响此后追加的块）。"""
+        self.output.set_reasoning_color(self._reasoning_color_of(theme))
+
+    # ------------------------------------------------------------------
     # 输出/输入区分隔栏状态持久化（由 MainWindow 统一调用）
     # ------------------------------------------------------------------
     def save_state(self) -> str:
@@ -163,7 +178,7 @@ class ChatPanel(QWidget):
         if isinstance(llm, KimiAcpLLM):
             llm.set_permission_handler(self._ask_permission)
 
-    def _ask_permission(self, params: dict) -> str | None:
+    def _ask_permission(self, params: PermissionParams) -> str | None:
         """ACP 审批处理器：在 agent reader 线程被调用；转 GUI 线程弹模态框。
 
         返回选中的 optionId；用户关闭或超时返回 None（上层按拒绝兜底）。

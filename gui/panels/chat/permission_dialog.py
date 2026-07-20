@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
 )
 
 from gui.popups import TranslucentMenuPlainTextEdit
+from llm import PermissionParams
 
 #: 选项 kind → 中文按钮文案（agent 提供英文 name 时兜底）
 KIND_LABELS = {
@@ -28,7 +29,7 @@ class PermissionDialog(QDialog):
     关闭/ESC 返回 None，由上层按"拒绝"兜底。
     """
 
-    def __init__(self, params: dict, parent: QWidget | None = None) -> None:
+    def __init__(self, params: PermissionParams, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setWindowTitle("工具审批")
         self.setModal(True)
