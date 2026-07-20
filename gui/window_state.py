@@ -62,13 +62,18 @@ def load_window_state() -> WindowState:
     """读取窗口状态，缺失字段回退默认值；JSON 损坏静默回退全默认。
 
     未登记键读取即丢弃（不写回）：键改名后存量旧键自然失效，无需迁移代码。
+    值级防御：非 ASCII str/None 以外的值一并丢弃——base64 状态值恒为
+    ASCII str，类型或编码异常即视为人为损坏，防 decode_state 的
+    encode("ascii") 抛异常（UnicodeEncodeError/AttributeError 启动崩溃）。
     """
     state = WindowState(DEFAULT_WINDOW_STATE)
     try:
         with open(WINDOW_STATE_FILE, encoding="utf-8") as f:
             data = json.load(f)
         if isinstance(data, dict):
-            state.update({k: v for k, v in data.items() if k in DEFAULT_WINDOW_STATE})
+            state.update({k: v for k, v in data.items()
+                          if k in DEFAULT_WINDOW_STATE
+                          and (v is None or (isinstance(v, str) and v.isascii()))})
     except (OSError, json.JSONDecodeError):
         pass
     return state

@@ -133,6 +133,15 @@ class WindowStateStore:
         self._window = window
         self._splitters = splitters
         self._chat_panel = chat_panel
+        self._is_save_enabled = True
+
+    def disable_save(self) -> None:
+        """本次会话不再回写布局（reset_settings 不保留布局时调用）。
+
+        不阻断则 closeEvent 的无条件 save 会把当前布局写回文件，
+        静默撤销用户刚选择的重置。
+        """
+        self._is_save_enabled = False
 
     def restore(self) -> None:
         """启动时恢复窗口几何与各分隔栏；无记录或数据损坏时保留默认布局。"""
@@ -146,6 +155,8 @@ class WindowStateStore:
 
     def save(self) -> None:
         """关闭时一次性保存窗口几何与四处分隔栏状态。"""
+        if not self._is_save_enabled:
+            return
         update_window_state({
             KEY_WINDOW_GEOMETRY: encode_state(self._window.saveGeometry()),
             **{key: encode_state(splitter.saveState())

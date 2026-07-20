@@ -445,6 +445,8 @@ class MainWindow(QMainWindow):
         update_settings(patch)
         if not keep.isChecked():
             reset_window_state()  # 状态在独立文件：重置即删，重启回默认布局
+            # 阻断同会话 closeEvent 回写当前布局（否则重置被静默撤销）
+            self._state_store.disable_save()
 
         # 即时应用：主题（含四面板配色）→ 字号 → 模型 → 噪音过滤 → 工作区
         settings = load_settings()
