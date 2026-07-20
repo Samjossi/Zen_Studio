@@ -24,8 +24,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from core.git.service import GitStatusService
 from gui.panels.file_explorer.actions import ExplorerActionsMixin
 from gui.panels.file_explorer.model import NoiseFilterProxyModel
+from gui.settings import KEY_THEME
 from gui.theme import load_settings
 
 
@@ -144,21 +146,21 @@ class FileExplorer(ExplorerActionsMixin, QWidget):
 
     def set_noise_filter(self, enabled: bool) -> None:
         """切换噪音过滤（隐藏 __pycache__、.git、.venv、node_modules）。"""
-        self.proxy.filter_enabled = enabled
+        self.proxy.is_filter_enabled = enabled
         self.proxy.invalidateFilter()
 
-    def apply_git_status(self, service, theme: str | None = None) -> None:
+    def apply_git_status(self, service: GitStatusService, theme: str | None = None) -> None:
         """注入 Git 状态服务并重绘着色（theme 缺省取当前主题）。"""
         if theme is None:
-            theme = load_settings()["theme"]
+            theme = load_settings()[KEY_THEME]
         self._git_service = service
-        self.proxy.set_git_service(service if service.enabled else None, theme)
+        self.proxy.set_git_service(service if service.is_enabled else None, theme)
         self.proxy.refresh_colors()
 
     def apply_theme(self, theme: str) -> None:
         """主题切换时同步 Git 状态色所属主题（未注入服务时无副作用）。"""
         self.proxy.set_git_service(
-            self._git_service if self._git_service is not None and self._git_service.enabled else None,
+            self._git_service if self._git_service is not None and self._git_service.is_enabled else None,
             theme,
         )
         self.proxy.refresh_colors()

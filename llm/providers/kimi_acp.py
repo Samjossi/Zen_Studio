@@ -12,6 +12,7 @@ import queue
 import subprocess
 import sys
 import threading
+from collections.abc import Callable
 from pathlib import Path
 from typing import Iterator
 
@@ -22,6 +23,9 @@ from llm.providers.kimi_cli import _find_bin
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 _ACP_TIMEOUT_S = 30  # initialize / session/new / set_config_option 等控制请求超时
+
+#: 审批处理器签名：session/request_permission params → optionId（None 视为拒绝）
+PermissionHandler = Callable[[dict], str | None]
 
 
 class _AcpConnection:
@@ -52,9 +56,9 @@ class _AcpConnection:
         self._pending: dict[int, queue.Queue[dict]] = {}
         self._updates: queue.Queue[tuple[str, object]] = queue.Queue()
         self._turn_id: int | None = None  # 活跃轮次的 prompt 请求 id（其响应改走 _updates）
-        self.alive = True
+        self.is_alive = True
         #: 审批处理器（GUI 注入）：params → optionId；None=自动允许（C2 语义）
-        self.permission_handler = None
+        self.permission_handler: PermissionHandler | None = None
         threading.Thread(target=self._reader, daemon=True).start()
 
     # ------------------------------------------------------------------
@@ -85,13 +89,13 @@ class _AcpConnection:
                 elif "id" in obj:
                     if obj["id"] == self._turn_id:
                         self._updates.put(("response", obj))
-                    elif pq := self._pending.get(obj["id"]):
-                        pq.put(obj)
+                    elif pending_queue := self._pending.get(obj["id"]):
+                        pending_queue.put(obj)
         finally:
-            self.alive = False
+            self.is_alive = False
             self._updates.put(("dead", self._proc.poll()))
-            for pq in self._pending.values():
-                pq.put({"error": {"code": -32099, "message": "kimi acp 进程意外退出"}})
+            for pending_queue in self._pending.values():
+                pending_queue.put({"error": {"code": -32099, "message": "kimi acp 进程意外退出"}})
 
     def _handle_reverse(self, obj: dict) -> None:
         """反向请求（agent→client）：审批经 handler 路由（无 handler 自动允许）；
@@ -124,8 +128,8 @@ class _AcpConnection:
     @staticmethod
     def _pick_option(options: list[dict], kind: str) -> str | None:
         """按 kind 选 optionId（回应用 agent 提供的 optionId 原值，不臆造）。"""
-        opt = next((o for o in options if o.get("kind") == kind), None)
-        return opt["optionId"] if opt else None
+        option = next((o for o in options if o.get("kind") == kind), None)
+        return option["optionId"] if option else None
 
     # ------------------------------------------------------------------
     # 请求原语
@@ -134,20 +138,20 @@ class _AcpConnection:
         """同步请求（轮次外使用）：阻塞至响应/超时/进程死亡。"""
         with self._write_lock:
             self._next += 1
-            rid = self._next
-            pq: queue.Queue[dict] = queue.Queue()
-            self._pending[rid] = pq
+            request_id = self._next
+            pending_queue: queue.Queue[dict] = queue.Queue()
+            self._pending[request_id] = pending_queue
             try:
-                self._send({"jsonrpc": "2.0", "id": rid, "method": method, "params": params})
+                self._send({"jsonrpc": "2.0", "id": request_id, "method": method, "params": params})
             except (OSError, ValueError) as e:
-                self._pending.pop(rid, None)
+                self._pending.pop(request_id, None)
                 raise RuntimeError(f"kimi acp 写入失败：{e}") from e
         try:
-            resp = pq.get(timeout=timeout)
+            resp = pending_queue.get(timeout=timeout)
         except queue.Empty:
             raise RuntimeError(f"kimi acp 请求超时：{method}") from None
         finally:
-            self._pending.pop(rid, None)
+            self._pending.pop(request_id, None)
         if "error" in resp:
             err = resp["error"]
             raise RuntimeError(f"kimi acp {method} 错误 {err.get('code')}：{err.get('message')}")
@@ -174,7 +178,7 @@ class _AcpConnection:
         无活跃轮次或连接已死时返回 False（无害 no-op）；
         可从任意线程调用（写锁串行化）。连接进程保留，会话不毁。
         """
-        if self._turn_id is None or not self.alive:
+        if self._turn_id is None or not self.is_alive:
             return False
         try:
             with self._write_lock:
@@ -199,7 +203,7 @@ class _AcpConnection:
                 self._proc.wait(timeout=5)
             except subprocess.TimeoutExpired:
                 self._proc.kill()
-        self.alive = False
+        self.is_alive = False
 
 
 class KimiAcpLLM(LanguageModel):
@@ -211,7 +215,7 @@ class KimiAcpLLM(LanguageModel):
         self._session_id: str | None = None
         self._turn_lock = threading.Lock()
         #: 审批处理器（由 GUI 注入）：session/request_permission params → optionId | None
-        self._permission_handler = None
+        self._permission_handler: PermissionHandler | None = None
         atexit.register(self.close)
 
     # ------------------------------------------------------------------
@@ -220,7 +224,7 @@ class KimiAcpLLM(LanguageModel):
     def set_model(self, alias: str) -> None:
         """切换模型别名（会话存在则即时生效，失败则降级为下次新会话生效）。"""
         self._model = alias
-        if self._conn and self._conn.alive and self._session_id:
+        if self._conn and self._conn.is_alive and self._session_id:
             try:
                 self._conn.request("session/set_config_option", {
                     "sessionId": self._session_id, "configId": "model", "value": alias}, timeout=10)
@@ -231,7 +235,7 @@ class KimiAcpLLM(LanguageModel):
         """清空会话，下次请求 `session/new` 开新会话（进程保留）。"""
         self._session_id = None
 
-    def set_permission_handler(self, handler) -> None:
+    def set_permission_handler(self, handler: PermissionHandler | None) -> None:
         """注入审批处理器：params → optionId（None 视为拒绝）；None 恢复自动允许。"""
         self._permission_handler = handler
         if self._conn:
@@ -258,7 +262,7 @@ class KimiAcpLLM(LanguageModel):
         bin_path = _find_bin()
         if not bin_path:
             raise RuntimeError("kimi CLI 不可用：PATH 与 ~/.kimi-code/bin 均未找到 kimi")
-        if self._conn is None or not self._conn.alive:
+        if self._conn is None or not self._conn.is_alive:
             if self._conn is not None:
                 self._conn.terminate()
             self._conn = _AcpConnection(bin_path)
@@ -301,7 +305,7 @@ class KimiAcpLLM(LanguageModel):
         with self._turn_lock:  # 串行化轮次，防 inbox 串抢
             conn = self._ensure_session()
             conn.purge_updates()
-            rid = conn.begin_turn("session/prompt", {
+            conn.begin_turn("session/prompt", {
                 "sessionId": self._session_id,
                 "prompt": [{"type": "text", "text": prompt}],
             })

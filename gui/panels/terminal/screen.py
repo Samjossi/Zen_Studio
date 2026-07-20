@@ -39,8 +39,8 @@ BLANK_CELL: tuple[str, CellStyle] = (" ", CellStyle())
 class TerminalScreen:
     """pyte `HistoryScreen` 封装：喂流、快照、尺寸、回滚。"""
 
-    def __init__(self, columns: int = 80, lines: int = 24, history: int = 1000) -> None:
-        self._screen = _TolerantScreen(columns, lines, history=history)
+    def __init__(self, column_count: int = 80, line_count: int = 24, history: int = 1000) -> None:
+        self._screen = _TolerantScreen(column_count, line_count, history=history)
         self._stream = pyte.Stream(self._screen)
 
     # ------------------------------------------------------------------
@@ -57,15 +57,15 @@ class TerminalScreen:
         except Exception as e:  # noqa: BLE001 — pyte 解析容错兜底
             print(f"[terminal] pyte 解析异常（已丢弃该块）: {e}", file=sys.stderr)
 
-    def resize(self, lines: int, columns: int) -> None:
-        self._screen.resize(max(1, lines), max(1, columns))
+    def resize(self, line_count: int, column_count: int) -> None:
+        self._screen.resize(max(1, line_count), max(1, column_count))
 
     @property
-    def columns(self) -> int:
+    def column_count(self) -> int:
         return self._screen.columns
 
     @property
-    def lines(self) -> int:
+    def line_count(self) -> int:
         return self._screen.lines
 
     @property
@@ -81,29 +81,29 @@ class TerminalScreen:
     # ------------------------------------------------------------------
     # 读取
     # ------------------------------------------------------------------
-    def scrollback_lines(self) -> int:
+    def count_scrollback_lines(self) -> int:
         """回滚区行数（顶部滚出历史的行数）。"""
         return len(self._screen.history.top)
 
     def snapshot(self, offset: int = 0) -> list[list[tuple[str, CellStyle]]]:
         """屏幕快照：offset=0 当前屏；offset=N 向上回滚 N 行。
 
-        返回 lines 行 × columns 列的 (字符, CellStyle) 网格，不足补空白。
+        返回 line_count 行 × column_count 列的 (字符, CellStyle) 网格，不足补空白。
         """
-        lines, columns = self._screen.lines, self._screen.columns
+        line_count, column_count = self._screen.lines, self._screen.columns
         buffer = self._screen.buffer
         if offset > 0:
             # 回滚视图：历史行 + 当前屏头部拼接取窗口
-            all_rows = list(self._screen.history.top) + [buffer[y] for y in range(lines)]
-            start = max(0, len(all_rows) - lines - offset)
-            view = all_rows[start:start + lines]
+            all_rows = list(self._screen.history.top) + [buffer[y] for y in range(line_count)]
+            start = max(0, len(all_rows) - line_count - offset)
+            view = all_rows[start:start + line_count]
         else:
-            view = [buffer[y] for y in range(lines)]
+            view = [buffer[y] for y in range(line_count)]
 
         rows: list[list[tuple[str, CellStyle]]] = []
         for line in view:
             row: list[tuple[str, CellStyle]] = []
-            for x in range(columns):
+            for x in range(column_count):
                 ch = line.get(x)
                 if ch is None:
                     row.append(BLANK_CELL)
@@ -112,10 +112,10 @@ class TerminalScreen:
                         fg=ch.fg, bg=ch.bg, bold=ch.bold,
                         reverse=ch.reverse, underline=ch.underscore)))
             rows.append(row)
-        while len(rows) < lines:  # 历史不足一屏时前补空行
-            rows.insert(0, [BLANK_CELL] * columns)
+        while len(rows) < line_count:  # 历史不足一屏时前补空行
+            rows.insert(0, [BLANK_CELL] * column_count)
         return rows
 
-    def plain_text(self) -> str:
+    def to_plain_text(self) -> str:
         """当前屏纯文本（"终端内容喂 AI"的协议出口，本期备用）。"""
         return "\n".join(self._screen.display)

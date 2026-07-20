@@ -47,6 +47,16 @@ from gui.panels.terminal import TerminalPanel
 from gui.settings import (
     CONFIG_DIR,
     DEFAULT_SETTINGS,
+    KEY_FONT_SIZE,
+    KEY_MODEL_BACKEND,
+    KEY_MODEL_VERSION,
+    KEY_SPLITTER_CHAT,
+    KEY_SPLITTER_MAIN,
+    KEY_SPLITTER_MIDDLE,
+    KEY_SPLITTER_RIGHT,
+    KEY_THEME,
+    KEY_WINDOW_GEOMETRY,
+    KEY_WORKSPACE_ROOT,
     SETTINGS_FILE,
     decode_state,
     encode_state,
@@ -58,10 +68,24 @@ from gui.theme import (
     load_settings,
     save_theme,
 )
+from llm import LLMRegistry
 
 
 class MainWindow(QMainWindow):
-    def __init__(self) -> None:
+    #: 默认布局尺寸（px）：__init__ 初排与 reset_layout 共用单点来源
+    DEFAULT_SIZES_MAIN = [320, 630, 250]    # 外层水平：聊天 / 中栏 / 右栏
+    DEFAULT_SIZES_MIDDLE = [550, 250]       # 中栏垂直：查看器 / 终端
+    DEFAULT_SIZES_RIGHT = [340, 170]        # 右栏垂直：文件树 / 变更面板
+
+    #: 状态栏消息时长（ms）：常规操作反馈 / 轻量提示 / 需细读的说明
+    STATUS_MSG_TIMEOUT_MS = 3000
+    STATUS_MSG_SHORT_MS = 2000
+    STATUS_MSG_LONG_MS = 5000
+
+    def __init__(self, llm_registry: LLMRegistry) -> None:
+        """
+        :param llm_registry: LLM 注册表（main.py 显式装配后注入，透传 ChatPanel）
+        """
         super().__init__()
         self.setWindowTitle("Zen Studio")
         self.resize(1200, 800)
@@ -72,7 +96,7 @@ class MainWindow(QMainWindow):
         self.terminal_panel = TerminalPanel()
         self._splitter_middle.addWidget(self.viewer_panel)
         self._splitter_middle.addWidget(self.terminal_panel)
-        self._splitter_middle.setSizes([550, 250])
+        self._splitter_middle.setSizes(self.DEFAULT_SIZES_MIDDLE)
         # 防折叠：终端栏最小高度由 TerminalPanel.MIN_HEIGHT 约束（collapsible 默认 true 会无视之）
         self._splitter_middle.setCollapsible(1, False)
 
@@ -80,11 +104,11 @@ class MainWindow(QMainWindow):
         # 工作区根：文件树根目录与聊天输入框 @相对路径 计算共用同一来源；
         # 持久化的 workspace_root 有效则恢复（打开文件夹切换），无效静默回退项目根
         project_root = str(Path(__file__).resolve().parent.parent)
-        workspace = load_settings().get("workspace_root")
+        workspace = load_settings().get(KEY_WORKSPACE_ROOT)
         if workspace and Path(workspace).is_dir():
             project_root = str(Path(workspace).resolve())
         # 左栏：AI 聊天面板
-        self.chat_panel = ChatPanel(workspace_root=project_root)
+        self.chat_panel = ChatPanel(llm_registry, workspace_root=project_root)
         self._splitter_main.addWidget(self.chat_panel)
         self._splitter_main.addWidget(self._splitter_middle)
 
@@ -96,12 +120,12 @@ class MainWindow(QMainWindow):
         self._splitter_right = QSplitter(Qt.Orientation.Vertical)
         self._splitter_right.addWidget(self.file_explorer)
         self._splitter_right.addWidget(self.changes_panel)
-        self._splitter_right.setSizes([340, 170])
+        self._splitter_right.setSizes(self.DEFAULT_SIZES_RIGHT)
         # 防折叠：变更面板最小高度由 ChangesPanel.MIN_HEIGHT 约束
         self._splitter_right.setCollapsible(1, False)
         self._splitter_main.addWidget(self._splitter_right)
 
-        self._splitter_main.setSizes([320, 630, 250])
+        self._splitter_main.setSizes(self.DEFAULT_SIZES_MAIN)
         # 防折叠：右栏文件树最小宽度由 FileExplorer.MIN_WIDTH 约束
         self._splitter_main.setCollapsible(2, False)
 
@@ -150,7 +174,7 @@ class MainWindow(QMainWindow):
         self.changes_panel.file_opened.connect(self.viewer_panel.open_file)
         self.changes_panel.file_opened.connect(lambda _p: self._update_git_stat_label())
         self.changes_panel.deleted_activated.connect(
-            lambda path: self.statusBar().showMessage(f"文件已删除，待提交：{path}", 3000)
+            lambda path: self.statusBar().showMessage(f"文件已删除，待提交：{path}", self.STATUS_MSG_TIMEOUT_MS)
         )
         self.changes_panel.collapse_requested.connect(
             lambda: self.set_changes_visible(False)
@@ -171,9 +195,9 @@ class MainWindow(QMainWindow):
         self.viewer_panel.refresh_git_badge()
         service = self._git_service
         self.changes_panel.apply_changes(
-            service.changes() if service.enabled else None,
+            service.collect_changes() if service.is_enabled else None,
             service.repo_root,
-            load_settings()["theme"],
+            load_settings()[KEY_THEME],
         )
         self._update_git_stat_label()
 
@@ -196,9 +220,9 @@ class MainWindow(QMainWindow):
 
     def _fit_statusbar_height(self) -> None:
         """状态栏定高：默认 26px；字号调大时按字体度量兜底防裁切。"""
-        fm = self.statusBar().fontMetrics()
+        font_metrics = self.statusBar().fontMetrics()
         self.statusBar().setFixedHeight(
-            max(self.STATUSBAR_HEIGHT_MIN, fm.height() + 4))
+            max(self.STATUSBAR_HEIGHT_MIN, font_metrics.height() + 4))
 
     def _fit_menubar_height(self) -> None:
         """菜单栏定高截断镜像余量：实际高度 = padding-top + 实测项高。
@@ -208,27 +232,27 @@ class MainWindow(QMainWindow):
         margin 路径已被实验否决（QMainWindow 布局不采纳 menubar qss margin），
         故按 actionGeometry 实测项高定高。字号/主题变化后需重入本方法。
         """
-        mb = self.menuBar()
-        if not mb.actions():
+        menu_bar = self.menuBar()
+        if not menu_bar.actions():
             return
-        r = mb.actionGeometry(mb.actions()[0])
-        mb.setFixedHeight(r.y() + r.height())
+        first_item_rect = menu_bar.actionGeometry(menu_bar.actions()[0])
+        menu_bar.setFixedHeight(first_item_rect.y() + first_item_rect.height())
 
     def _restore_window_state(self) -> None:
         """启动时恢复窗口几何与三处分隔栏；无记录或数据损坏时保留默认布局。"""
         settings = load_settings()
-        geometry = settings.get("window_geometry")
+        geometry = settings.get(KEY_WINDOW_GEOMETRY)
         if geometry:
             self.restoreGeometry(decode_state(geometry))
         for splitter, key in (
-            (self._splitter_main, "splitter_main"),
-            (self._splitter_middle, "splitter_middle"),
-            (self._splitter_right, "splitter_right"),
+            (self._splitter_main, KEY_SPLITTER_MAIN),
+            (self._splitter_middle, KEY_SPLITTER_MIDDLE),
+            (self._splitter_right, KEY_SPLITTER_RIGHT),
         ):
             state = settings.get(key)
             if state:
                 splitter.restoreState(decode_state(state))
-        self.chat_panel.restore_state(settings.get("splitter_chat"))
+        self.chat_panel.restore_state(settings.get(KEY_SPLITTER_CHAT))
 
     def closeEvent(self, event: QCloseEvent) -> None:
         """关闭时一次性保存窗口几何与四处分隔栏状态。"""
@@ -242,11 +266,11 @@ class MainWindow(QMainWindow):
             if not panel.isVisible():
                 panel.setVisible(True)
         update_settings({
-            "window_geometry": encode_state(self.saveGeometry()),
-            "splitter_main": encode_state(self._splitter_main.saveState()),
-            "splitter_middle": encode_state(self._splitter_middle.saveState()),
-            "splitter_right": encode_state(self._splitter_right.saveState()),
-            "splitter_chat": self.chat_panel.save_state(),
+            KEY_WINDOW_GEOMETRY: encode_state(self.saveGeometry()),
+            KEY_SPLITTER_MAIN: encode_state(self._splitter_main.saveState()),
+            KEY_SPLITTER_MIDDLE: encode_state(self._splitter_middle.saveState()),
+            KEY_SPLITTER_RIGHT: encode_state(self._splitter_right.saveState()),
+            KEY_SPLITTER_CHAT: self.chat_panel.save_state(),
         })
         super().closeEvent(event)
 
@@ -273,11 +297,11 @@ class MainWindow(QMainWindow):
 
     def reset_layout(self) -> None:
         """恢复默认布局：四组 splitter 回初始尺寸（面板显隐状态不变）。"""
-        self._splitter_main.setSizes([320, 630, 250])
-        self._splitter_middle.setSizes([550, 250])
-        self._splitter_right.setSizes([340, 170])
+        self._splitter_main.setSizes(self.DEFAULT_SIZES_MAIN)
+        self._splitter_middle.setSizes(self.DEFAULT_SIZES_MIDDLE)
+        self._splitter_right.setSizes(self.DEFAULT_SIZES_RIGHT)
         self.chat_panel.reset_layout()
-        self.statusBar().showMessage("已恢复默认布局", 2000)
+        self.statusBar().showMessage("已恢复默认布局", self.STATUS_MSG_SHORT_MS)
 
     # ------------------------------------------------------------------
     # 主题切换（视图菜单 ▸ 外观；QActionGroup 单回调读 data 载荷）
@@ -294,7 +318,7 @@ class MainWindow(QMainWindow):
         self.changes_panel.apply_theme(theme)
         if action := self.menus.get(f"appearance.theme.{theme}"):
             action.setChecked(True)
-        self.statusBar().showMessage(f"已切换为{get_label(theme)}主题", 3000)
+        self.statusBar().showMessage(f"已切换为{get_label(theme)}主题", self.STATUS_MSG_TIMEOUT_MS)
 
     # ------------------------------------------------------------------
     # 文件菜单槽
@@ -329,14 +353,14 @@ class MainWindow(QMainWindow):
         self.terminal_panel.set_cwd(root)
         self._git_service = GitStatusService(root)
         self.viewer_panel.set_git_service(self._git_service)
-        update_settings({"workspace_root": root})
+        update_settings({KEY_WORKSPACE_ROOT: root})
         self.refresh_git_status()
-        self.statusBar().showMessage(f"已切换工作区：{root}", 3000)
+        self.statusBar().showMessage(f"已切换工作区：{root}", self.STATUS_MSG_TIMEOUT_MS)
 
     # ------------------------------------------------------------------
     # 编辑菜单槽（复制/全选转发焦点控件；查找按焦点分发）
     # ------------------------------------------------------------------
-    def focus_supports(self, methods: tuple[str, ...]) -> bool:
+    def focused_widget_supports(self, methods: tuple[str, ...]) -> bool:
         """焦点控件是否支持任一给定方法（编辑菜单 aboutToShow 启用态依据）。"""
         widget = QApplication.focusWidget()
         return widget is not None and any(hasattr(widget, m) for m in methods)
@@ -374,23 +398,23 @@ class MainWindow(QMainWindow):
 
     def adjust_font_size(self, delta: int) -> None:
         """字号增大/减小（步进 1pt，带上下界钳制）。"""
-        size = load_settings()["font_size"] + delta
+        size = load_settings()[KEY_FONT_SIZE] + delta
         size = max(self.FONT_SIZE_MIN, min(self.FONT_SIZE_MAX, size))
         self._apply_font_size(size)
 
     def reset_font_size(self) -> None:
-        self._apply_font_size(DEFAULT_SETTINGS["font_size"])
+        self._apply_font_size(DEFAULT_SETTINGS[KEY_FONT_SIZE])
 
     def _apply_font_size(self, size: int) -> None:
         """字号应用链：持久化 → 全局字体 → 查看器/终端等宽字号同步。"""
-        update_settings({"font_size": size})
+        update_settings({KEY_FONT_SIZE: size})
         if (app := QApplication.instance()) is not None:
             apply_theme(app)
         self._fit_statusbar_height()  # 字号变化后状态栏定高随字体度量重算
         QTimer.singleShot(0, self._fit_menubar_height)  # 菜单栏项高同理（延迟结算）
         self.viewer_panel.refresh_font()
         self.terminal_panel.refresh_font()
-        self.statusBar().showMessage(f"字号：{size} pt", 2000)
+        self.statusBar().showMessage(f"字号：{size} pt", self.STATUS_MSG_SHORT_MS)
 
     def apply_model_selection(self, backend: str, version: str | None) -> None:
         """设置菜单驱动的模型切换：收敛到 ChatPanel 后刷新菜单勾选态。"""
@@ -412,7 +436,7 @@ class MainWindow(QMainWindow):
     def open_settings_file(self) -> None:
         """在只读查看器中打开 settings.json（AI-first：修改经 AI 落盘）。"""
         self.viewer_panel.open_file(str(SETTINGS_FILE))
-        self.statusBar().showMessage("配置文件为只读查看；修改请经 AI 落盘", 5000)
+        self.statusBar().showMessage("配置文件为只读查看；修改请经 AI 落盘", self.STATUS_MSG_LONG_MS)
 
     def reset_settings(self) -> None:
         """恢复默认设置：确认框（可保留窗口几何/分隔栏）→ 重置并即时应用。"""
@@ -433,21 +457,21 @@ class MainWindow(QMainWindow):
         if keep.isChecked():
             current = load_settings()
             for key in (
-                "window_geometry",
-                "splitter_main",
-                "splitter_middle",
-                "splitter_right",
-                "splitter_chat",
+                KEY_WINDOW_GEOMETRY,
+                KEY_SPLITTER_MAIN,
+                KEY_SPLITTER_MIDDLE,
+                KEY_SPLITTER_RIGHT,
+                KEY_SPLITTER_CHAT,
             ):
                 patch[key] = current.get(key)
         update_settings(patch)
 
         # 即时应用：主题（含四面板配色）→ 字号 → 模型 → 噪音过滤 → 工作区
         settings = load_settings()
-        self.switch_theme(settings["theme"])
-        self._apply_font_size(settings["font_size"])
+        self.switch_theme(settings[KEY_THEME])
+        self._apply_font_size(settings[KEY_FONT_SIZE])
         self.chat_panel.apply_model_selection(
-            settings["model_backend"], settings["model_version"])
+            settings[KEY_MODEL_BACKEND], settings[KEY_MODEL_VERSION])
         bar = self.chat_panel.model_bar
         if self.menus.model_menu is not None:
             self.menus.model_menu.sync(bar.current_backend(), bar.current_version())
@@ -457,8 +481,8 @@ class MainWindow(QMainWindow):
         default_root = str(Path(__file__).resolve().parent.parent)
         if self.file_explorer.root_dir != default_root:
             self._switch_workspace(default_root)
-            update_settings({"workspace_root": None})  # 默认根不落具体路径
-        self.statusBar().showMessage("已恢复默认设置", 3000)
+            update_settings({KEY_WORKSPACE_ROOT: None})  # 默认根不落具体路径
+        self.statusBar().showMessage("已恢复默认设置", self.STATUS_MSG_TIMEOUT_MS)
 
     # ------------------------------------------------------------------
     # 帮助菜单槽

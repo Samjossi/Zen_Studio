@@ -8,8 +8,13 @@ from PySide6.QtCore import QSignalBlocker, Signal
 from PySide6.QtWidgets import QComboBox, QHBoxLayout, QLabel, QPushButton, QWidget
 
 from gui.popups import make_translucent_combo_popup
-from gui.settings import load_settings, update_settings
-from llm import kimi_available, list_kimi_models
+from gui.settings import (
+    KEY_MODEL_BACKEND,
+    KEY_MODEL_VERSION,
+    load_settings,
+    update_settings,
+)
+from llm import BACKEND_KIMI_CLI, BACKEND_LABELS, kimi_available, list_kimi_models
 
 
 class ModelBar(QWidget):
@@ -27,18 +32,18 @@ class ModelBar(QWidget):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self._updating = False  # 联动刷新时抑制信号
+        self._is_updating = False  # 联动刷新时抑制信号
 
         self._model_combo = QComboBox(self)
         if kimi_available():
-            self._model_combo.addItem("Kimi CLI", "kimi-cli")
-            self._model_combo.addItem("Kimi ACP", "kimi-acp")
+            for name, label in BACKEND_LABELS.items():
+                self._model_combo.addItem(label, name)
         else:
-            self._model_combo.addItem("Kimi CLI（未检测到）", "kimi-cli")
+            self._model_combo.addItem(f"{BACKEND_LABELS[BACKEND_KIMI_CLI]}（未检测到）", BACKEND_KIMI_CLI)
             self._model_combo.model().item(0).setEnabled(False)
 
         self._version_combo = QComboBox(self)
-        self._refresh_versions("kimi-cli")
+        self._refresh_versions(BACKEND_KIMI_CLI)
 
         # 下拉弹出层修复：容器矩形面板（StyledPanel）+ 不透明窗口底都会
         # 在 qss 圆角（QListView 全局规则）外露出直角，需透明 + 去框
@@ -67,7 +72,7 @@ class ModelBar(QWidget):
 
         # 启动时恢复持久化选择（无记录/无效项回退默认）
         settings = load_settings()
-        self.set_selection(settings.get("model_backend"), settings.get("model_version"))
+        self.set_selection(settings.get(KEY_MODEL_BACKEND), settings.get(KEY_MODEL_VERSION))
 
     # ------------------------------------------------------------------
     # 忙碌态（流式响应中）
@@ -110,12 +115,12 @@ class ModelBar(QWidget):
     # 联动
     # ------------------------------------------------------------------
     def _refresh_versions(self, backend: str) -> None:
-        self._updating = True
+        self._is_updating = True
         self._version_combo.clear()
-        if backend in ("kimi-cli", "kimi-acp"):
+        if backend in BACKEND_LABELS:  # kimi 系后端共用 kimi 模型别名列表
             for alias in list_kimi_models():
                 self._version_combo.addItem(alias, alias)
-        self._updating = False
+        self._is_updating = False
 
     def _on_model_changed(self, index: int) -> None:
         backend = self._model_combo.itemData(index)
@@ -124,12 +129,12 @@ class ModelBar(QWidget):
             self._emit(0)
 
     def _on_version_changed(self, index: int) -> None:
-        if not self._updating and index >= 0:
+        if not self._is_updating and index >= 0:
             self._emit(index)
 
     def _emit(self, index: int) -> None:
         backend = self._model_combo.currentData()
         version = self._version_combo.itemData(index)
         # 用户主动切换（非启动恢复）即时持久化
-        update_settings({"model_backend": backend, "model_version": version})
+        update_settings({KEY_MODEL_BACKEND: backend, KEY_MODEL_VERSION: version})
         self.selection_changed.emit(backend, version)

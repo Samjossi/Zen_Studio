@@ -14,6 +14,7 @@ from PySide6.QtWidgets import QApplication
 
 from gui import MainWindow
 from gui.theme import apply_theme
+from llm import build_default_registry
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 SCREENSHOT_DIR = PROJECT_ROOT / ".tmp"
@@ -30,22 +31,22 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
 def setup_screenshot(window: MainWindow, interval: int, on_start: bool) -> QTimer:
     """配置自动截图计时器，返回计时器（调用方需保持引用）。"""
     SCREENSHOT_DIR.mkdir(exist_ok=True)
-    counter = {"n": 0}
+    screenshot_count = [0]  # 闭包共享计数（nonlocal 需嵌套作用域，列表容器更直白）
 
-    def grab() -> None:
-        counter["n"] += 1
+    def grab_screenshot() -> None:
+        screenshot_count[0] += 1
         stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        path = SCREENSHOT_DIR / f"screenshot_{stamp}_{counter['n']}.png"
+        path = SCREENSHOT_DIR / f"screenshot_{stamp}_{screenshot_count[0]}.png"
         window.grab().save(str(path))
         print(f"[screenshot] {path}")
 
     timer = QTimer(window)
-    timer.timeout.connect(grab)
+    timer.timeout.connect(grab_screenshot)
     timer.start(interval * 1000)
 
     if on_start:
         # 延迟 500ms 待窗口完成首帧渲染
-        QTimer.singleShot(500, grab)
+        QTimer.singleShot(500, grab_screenshot)
 
     return timer
 
@@ -54,7 +55,8 @@ def main() -> None:
     args = parse_args(sys.argv[1:])
     app = QApplication(sys.argv)
     apply_theme(app)
-    window = MainWindow()
+    # LLM 注册表显式装配（探测 + 实例化副作用集中于此），注入主窗口
+    window = MainWindow(llm_registry=build_default_registry())
     window.show()
 
     if args.auto_screenshot:

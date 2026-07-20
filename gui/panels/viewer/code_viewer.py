@@ -14,7 +14,7 @@ from PySide6.QtGui import QColor, QFont, QPainter, QTextCursor, QTextFormat, QTe
 from PySide6.QtWidgets import QApplication, QPlainTextEdit, QTextEdit, QWidget
 
 from gui.popups import exec_standard_context_menu
-from gui.theme import mono_family
+from gui.theme import get_mono_family
 
 
 class _LineNumberArea(QWidget):
@@ -40,7 +40,7 @@ class CodeViewer(QPlainTextEdit):
         # 软换行：按控件宽度折行，优先单词边界、无空格长串任意处硬断（不出水平滚动条）
         self.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
         self.setWordWrapMode(QTextOption.WrapMode.WrapAtWordBoundaryOrAnywhere)
-        font = QFont(mono_family())  # 库内等宽族（Sarasa Term SC），注册缺失回退 monospace
+        font = QFont(get_mono_family())  # 库内等宽族（Sarasa Term SC），注册缺失回退 monospace
         if app := QApplication.instance():
             font.setPointSizeF(app.font().pointSizeF())
         self.setFont(font)
@@ -69,7 +69,7 @@ class CodeViewer(QPlainTextEdit):
 
     def refresh_font(self) -> None:
         """全局字号调整：重建等宽字体（跟随 app 字号），行号栏宽随新字宽重算。"""
-        font = QFont(mono_family())
+        font = QFont(get_mono_family())
         if app := QApplication.instance():
             font.setPointSizeF(app.font().pointSizeF())
         self.setFont(font)

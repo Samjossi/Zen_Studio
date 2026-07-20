@@ -9,7 +9,8 @@ from PySide6.QtGui import QActionGroup
 from PySide6.QtWidgets import QMainWindow, QMenuBar
 
 from gui.menus.registry import ActionRegistry
-from gui.theme import available_themes, get_label, load_settings
+from gui.settings import KEY_THEME
+from gui.theme import list_available_themes, get_label, load_settings
 
 
 def build(menubar: QMenuBar, ctx: QMainWindow, actions: ActionRegistry) -> None:
@@ -52,8 +53,8 @@ def build(menubar: QMenuBar, ctx: QMainWindow, actions: ActionRegistry) -> None:
     submenu = menu.addMenu("外观(&A)")
     group = QActionGroup(ctx)
     group.setExclusive(True)
-    current = load_settings()["theme"]
-    for name in available_themes():
+    current = load_settings()[KEY_THEME]
+    for name in list_available_themes():
         action = submenu.addAction(get_label(name))
         action.setCheckable(True)
         action.setData(name)

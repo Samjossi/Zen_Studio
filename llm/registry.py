@@ -16,5 +16,5 @@ class LLMRegistry:
             raise KeyError(f"未注册的 LLM：{name}（可用：{list(self._providers)}）")
         return self._providers[name]
 
-    def names(self) -> list[str]:
+    def list_names(self) -> list[str]:
         return list(self._providers)

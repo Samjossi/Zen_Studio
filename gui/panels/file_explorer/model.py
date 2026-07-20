@@ -10,7 +10,7 @@ from PySide6.QtCore import QSortFilterProxyModel, Qt
 from PySide6.QtGui import QColor
 
 from core.git.service import GitStatusService
-from gui.theme import git_status_color
+from gui.theme import FALLBACK_THEME, git_status_color
 
 
 class NoiseFilterProxyModel(QSortFilterProxyModel):
@@ -23,16 +23,16 @@ class NoiseFilterProxyModel(QSortFilterProxyModel):
     def __init__(self, noise_names: set[str], parent=None) -> None:
         super().__init__(parent)
         self.noise_names = noise_names
-        self.filter_enabled = True
+        self.is_filter_enabled = True
         #: Git 状态数据源与配色主题（None = 未启用着色，行为与纯过滤一致）
         self._git_service: GitStatusService | None = None
-        self._theme = "cloud"
+        self._theme = FALLBACK_THEME
 
     # ------------------------------------------------------------------
     # 噪音过滤
     # ------------------------------------------------------------------
     def filterAcceptsRow(self, source_row: int, source_parent) -> bool:
-        if not self.filter_enabled:
+        if not self.is_filter_enabled:
             return True
         model = self.sourceModel()
         index = model.index(source_row, 0, source_parent)
@@ -54,7 +54,7 @@ class NoiseFilterProxyModel(QSortFilterProxyModel):
         if (
             role == Qt.ItemDataRole.ForegroundRole
             and self._git_service is not None
-            and self._git_service.enabled
+            and self._git_service.is_enabled
         ):
             source_index = self.mapToSource(proxy_index)
             model = self.sourceModel()

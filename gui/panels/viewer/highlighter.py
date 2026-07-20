@@ -20,14 +20,14 @@ def _build_formats(palette: dict) -> dict:
     """token 类别 → QTextCharFormat 映射表。"""
     formats = {}
     for tok, style in palette.items():
-        fmt = QTextCharFormat()
+        text_format = QTextCharFormat()
         if color := style.get("color"):
-            fmt.setForeground(QColor(color))
+            text_format.setForeground(QColor(color))
         if style.get("bold"):
-            fmt.setFontWeight(QFont.Weight.Bold)
+            text_format.setFontWeight(QFont.Weight.Bold)
         if style.get("italic"):
-            fmt.setFontItalic(True)
-        formats[tok] = fmt
+            text_format.setFontItalic(True)
+        formats[tok] = text_format
     return formats
 
 
@@ -43,7 +43,7 @@ class PygmentsHighlighter(QSyntaxHighlighter):
 
     def __init__(self, document: QTextDocument, pack: dict) -> None:
         super().__init__(document)
-        self._spans: list[tuple[int, int, QTextCharFormat]] = []  # (start, end, fmt)，连续有序
+        self._spans: list[tuple[int, int, QTextCharFormat]] = []  # (start, end, text_format)，连续有序
         self._ends: list[int] = []
         self._formats = _build_formats(pack)
 
@@ -62,11 +62,11 @@ class PygmentsHighlighter(QSyntaxHighlighter):
         pos = 0
         for toktype, value in lex(text, lexer):
             end = pos + len(value)
-            if fmt := _lookup(self._formats, toktype):
-                spans.append((pos, end, fmt))
+            if text_format := _lookup(self._formats, toktype):
+                spans.append((pos, end, text_format))
             pos = end
         self._spans = spans
-        self._ends = [s[1] for s in spans]  # 连续区间，ends 严格递增
+        self._ends = [span[1] for span in spans]  # 连续区间，ends 严格递增
         self.rehighlight()
 
     def highlightBlock(self, text: str) -> None:
@@ -75,9 +75,9 @@ class PygmentsHighlighter(QSyntaxHighlighter):
         block_end = block_start + len(text)
         i = bisect_left(self._ends, block_start + 1)
         while i < len(self._spans):
-            s, e, fmt = self._spans[i]
-            if s >= block_end:
+            span_start, span_end, text_format = self._spans[i]
+            if span_start >= block_end:
                 break
-            self.setFormat(max(s, block_start) - block_start,
-                           min(e, block_end) - max(s, block_start), fmt)
+            self.setFormat(max(span_start, block_start) - block_start,
+                           min(span_end, block_end) - max(span_start, block_start), text_format)
             i += 1

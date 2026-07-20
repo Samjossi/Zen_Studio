@@ -25,7 +25,8 @@ from gui.panels.terminal.screen import TerminalScreen
 from gui.panels.terminal.session import PROJECT_ROOT, PtySession
 from gui.panels.terminal.widget import TerminalWidget
 from gui.popups import TranslucentMenuLineEdit, make_translucent_popup
-from gui.theme import load_settings, theme_palette
+from gui.settings import KEY_THEME
+from gui.theme import load_settings, get_theme_palette
 
 
 @dataclass
@@ -48,7 +49,7 @@ class TerminalPanel(QWidget):
         super().__init__(parent)
         self.setMinimumHeight(self.MIN_HEIGHT)
         # ANSI 配色取自主题调色板（资源包下沉，每主题自带全套）
-        self._palette = AnsiPalette(theme_palette(load_settings()["theme"])["terminal"])
+        self._palette = AnsiPalette(get_theme_palette(load_settings()[KEY_THEME])["terminal"])
         self._sessions: list[_Session] = []
         self._serial = 0  # tab 序号计数（只增不复用：关闭「终端2」后再新建得「终端3」；全关后归零重计）
         self._find_matches: list[tuple[int, int, int]] = []  # 查找命中段缓存
@@ -61,7 +62,7 @@ class TerminalPanel(QWidget):
 
         # 首次启动延迟到拿到真实网格尺寸：构造时控件尚未布局（高≈0 → 网格仅 1 行），
         # 立即 spawn 会让 bash 首屏输出被 pyte resize 的 xterm 沉底语义固定到末行
-        self._pending_start = True
+        self._has_pending_start = True
         self.terminal.installEventFilter(self)
 
     # ------------------------------------------------------------------
@@ -180,8 +181,8 @@ class TerminalPanel(QWidget):
         if watched is self.terminal:
             if event.type() == QEvent.Type.Resize:
                 # TerminalWidget 首次获得有效尺寸（≥2 行）时启动首个会话
-                if self._pending_start and self.terminal.grid_size()[0] >= 2:
-                    self._pending_start = False
+                if self._has_pending_start and self.terminal.get_grid_size()[0] >= 2:
+                    self._has_pending_start = False
                     # 延迟一轮事件循环：合并窗口管理器紧随其后的二次 resize
                     QTimer.singleShot(0, self._spawn)
                 if self._find_bar.isVisible():
@@ -205,30 +206,32 @@ class TerminalPanel(QWidget):
 
     def _spawn(self) -> None:
         """新建会话：以当前网格尺寸 spawn（此刻控件尺寸已稳定），入栈并切为新 tab。"""
-        rows, cols = self.terminal.grid_size()
-        sess = PtySession(self)
-        screen = TerminalScreen(cols, rows)
+        row_count, column_count = self.terminal.get_grid_size()
+        session = PtySession(self)
+        screen = TerminalScreen(column_count, row_count)
         self._serial += 1
-        entry = _Session(session=sess, screen=screen, title=f"终端{self._serial}")
-        # 闭包捕获 entry：多会话数据各自进各自 screen（不错绑）
-        sess.data_received.connect(lambda data, e=entry: self._on_data(e, data))
-        sess.process_exited.connect(lambda rc, e=entry: self._on_exited(e, rc))
-        sess.start(cols, rows, cwd=self._cwd)
-        self._sessions.append(entry)
-        idx = self._tab_bar.addTab(entry.title)
+        session_entry = _Session(session=session, screen=screen, title=f"终端{self._serial}")
+        # 闭包捕获 session_entry：多会话数据各自进各自 screen（不错绑）
+        session.data_received.connect(
+            lambda data, session_entry=session_entry: self._on_data(session_entry, data))
+        session.process_exited.connect(
+            lambda return_code, session_entry=session_entry: self._on_exited(session_entry, return_code))
+        session.start(column_count, row_count, cwd=self._cwd)
+        self._sessions.append(session_entry)
+        idx = self._tab_bar.addTab(session_entry.title)
         self._tab_bar.setCurrentIndex(idx)  # 触发 _switch_tab 完成绑定
 
     def _switch_tab(self, idx: int) -> None:
         """切换活动会话：widget 重绑定 + 尺寸补同步 + 状态/按钮刷新。"""
         if 0 <= idx < len(self._sessions):
-            entry = self._sessions[idx]
-            self.terminal.set_screen(entry.screen)
-            self.terminal.set_session(entry.session)
+            session_entry = self._sessions[idx]
+            self.terminal.set_screen(session_entry.screen)
+            self.terminal.set_session(session_entry.session)
             # 切回时按当前网格补 resize（后台期间面板尺寸可能变过；resize 只作用活动会话）
-            rows, cols = self.terminal.grid_size()
-            if entry.screen.lines != rows or entry.screen.columns != cols:
-                entry.screen.resize(rows, cols)
-                entry.session.resize(rows, cols)
+            row_count, column_count = self.terminal.get_grid_size()
+            if session_entry.screen.line_count != row_count or session_entry.screen.column_count != column_count:
+                session_entry.screen.resize(row_count, column_count)
+                session_entry.session.resize(row_count, column_count)
         else:
             # 空状态：无会话（保留面板，终端区显示占位引导）
             self.terminal.set_screen(None)
@@ -240,10 +243,10 @@ class TerminalPanel(QWidget):
         """关闭会话：进程回收（幂等）+ 断信号 + 出栈；全关后进入空状态。"""
         if not (0 <= idx < len(self._sessions)):
             return
-        entry = self._sessions.pop(idx)
-        entry.session.data_received.disconnect()
-        entry.session.process_exited.disconnect()
-        entry.session.terminate()
+        session_entry = self._sessions.pop(idx)
+        session_entry.session.data_received.disconnect()
+        session_entry.session.process_exited.disconnect()
+        session_entry.session.terminate()
         self._tab_bar.removeTab(idx)  # currentChanged 自然触发 _switch_tab（索引已对齐）
         if not self._sessions:
             self._serial = 0  # 全关归零：下一个新建重新从「终端1」开始
@@ -251,54 +254,54 @@ class TerminalPanel(QWidget):
 
     def _restart_active(self) -> None:
         """重开当前会话（右键菜单；无会话时等价新建）。"""
-        entry = self._current()
-        if entry is None:
+        session_entry = self._current()
+        if session_entry is None:
             self._spawn()
             return
-        rows, cols = self.terminal.grid_size()
-        entry.screen = TerminalScreen(cols, rows)
-        self.terminal.set_screen(entry.screen)
-        entry.session.start(cols, rows)  # PtySession.start 内部幂等 terminate 旧进程
-        entry.exit_code = None
+        row_count, column_count = self.terminal.get_grid_size()
+        session_entry.screen = TerminalScreen(column_count, row_count)
+        self.terminal.set_screen(session_entry.screen)
+        session_entry.session.start(column_count, row_count)  # PtySession.start 内部幂等 terminate 旧进程
+        session_entry.exit_code = None
         self._refresh_status()
 
     def _kill_active(self) -> None:
         """终止当前会话（右键菜单）；退出码经 process_exited 回报。"""
-        if (entry := self._current()) is not None:
-            entry.session.terminate()
+        if (session_entry := self._current()) is not None:
+            session_entry.session.terminate()
 
     def _on_clear(self) -> None:
         """清屏：写 Ctrl+L，由 shell/readline 自清并把提示符重绘到顶行（真实终端语义）。"""
-        if (entry := self._current()) is not None and entry.session.is_alive():
-            entry.session.write(b"\x0c")
+        if (session_entry := self._current()) is not None and session_entry.session.is_alive():
+            session_entry.session.write(b"\x0c")
 
     # ------------------------------------------------------------------
     # 会话事件（信号闭包绑定各自 _Session）
     # ------------------------------------------------------------------
-    def _on_data(self, entry: _Session, data: bytes) -> None:
-        entry.screen.feed(data)
-        if entry is self._current():
+    def _on_data(self, session_entry: _Session, data: bytes) -> None:
+        session_entry.screen.feed(data)
+        if session_entry is self._current():
             self.terminal.notify_data()
 
-    def _on_exited(self, entry: _Session, rc: int) -> None:
-        entry.exit_code = rc
-        if entry is self._current():
+    def _on_exited(self, session_entry: _Session, return_code: int) -> None:
+        session_entry.exit_code = return_code
+        if session_entry is self._current():
             self._refresh_status()
 
     def _refresh_status(self) -> None:
         """状态行与清屏按钮可用态跟随活动会话。"""
-        entry = self._current()
-        if entry is None:
+        session_entry = self._current()
+        if session_entry is None:
             self._status.setText("")
             self._btn_clear.setEnabled(False)
-        elif entry.exit_code is not None:
-            self._status.setText(f"[进程已退出 code {entry.exit_code}]")
+        elif session_entry.exit_code is not None:
+            self._status.setText(f"[进程已退出 code {session_entry.exit_code}]")
             self._btn_clear.setEnabled(False)
         else:
             self._status.setText("")
-            self._btn_clear.setEnabled(entry.session.is_alive())
+            self._btn_clear.setEnabled(session_entry.session.is_alive())
 
-    def tab_count(self) -> int:
+    def count_tabs(self) -> int:
         return self._tab_bar.count()
 
     # ------------------------------------------------------------------
@@ -320,10 +323,10 @@ class TerminalPanel(QWidget):
         """终止当前会话。"""
         self._kill_active()
 
-    def active_alive(self) -> bool:
+    def has_alive_session(self) -> bool:
         """活动会话存在且进程存活（菜单启用态依据）。"""
-        entry = self._current()
-        return entry is not None and entry.session.is_alive()
+        session_entry = self._current()
+        return session_entry is not None and session_entry.session.is_alive()
 
     def set_cwd(self, cwd: str) -> None:
         """设置新会话工作目录（工作区切换）；已存在会话不受影响。"""
@@ -346,29 +349,29 @@ class TerminalPanel(QWidget):
     # 右键菜单（功能分层：复制/粘贴 → 清屏/重开/终止/关闭此终端）
     # ------------------------------------------------------------------
     def _on_context_menu(self, global_pos) -> None:
-        entry = self._current()
-        alive = entry is not None and entry.session.is_alive()
+        session_entry = self._current()
+        has_alive = session_entry is not None and session_entry.session.is_alive()
         menu = make_translucent_popup(QMenu(self))
         # 剪贴板层：复制执行在 widget（自治），此处仅按状态启停
-        act_copy = menu.addAction("复制")
-        act_copy.setEnabled(self.terminal.has_selection())
-        act_copy.triggered.connect(self.terminal.copy_selection)
-        act_paste = menu.addAction("粘贴")
-        act_paste.setEnabled(alive and bool(QGuiApplication.clipboard().text()))
-        act_paste.triggered.connect(self.terminal.paste_clipboard)
+        action_copy = menu.addAction("复制")
+        action_copy.setEnabled(self.terminal.has_selection())
+        action_copy.triggered.connect(self.terminal.copy_selection)
+        action_paste = menu.addAction("粘贴")
+        action_paste.setEnabled(has_alive and bool(QGuiApplication.clipboard().text()))
+        action_paste.triggered.connect(self.terminal.paste_clipboard)
         menu.addSeparator()
-        act_clear = menu.addAction("清屏")
-        act_clear.setEnabled(alive)
-        act_clear.triggered.connect(self._on_clear)
-        act_restart = menu.addAction("重开")
-        act_restart.triggered.connect(self._restart_active)
+        action_clear = menu.addAction("清屏")
+        action_clear.setEnabled(has_alive)
+        action_clear.triggered.connect(self._on_clear)
+        action_restart = menu.addAction("重开")
+        action_restart.triggered.connect(self._restart_active)
         menu.addSeparator()
-        act_kill = menu.addAction("终止")
-        act_kill.setEnabled(alive)
-        act_kill.triggered.connect(self._kill_active)
-        act_close = menu.addAction("关闭此终端")
-        act_close.setEnabled(entry is not None)
-        act_close.triggered.connect(lambda: self._close_tab(self._tab_bar.currentIndex()))
+        action_kill = menu.addAction("终止")
+        action_kill.setEnabled(has_alive)
+        action_kill.triggered.connect(self._kill_active)
+        action_close = menu.addAction("关闭此终端")
+        action_close.setEnabled(session_entry is not None)
+        action_close.triggered.connect(lambda: self._close_tab(self._tab_bar.currentIndex()))
         menu.exec(global_pos)
 
     # ------------------------------------------------------------------
@@ -396,10 +399,10 @@ class TerminalPanel(QWidget):
     def _update_search(self) -> None:
         """在当前活动屏快照中收集全部命中段并高亮首个。"""
         text = self._find_input.text()
-        entry = self._current()
+        session_entry = self._current()
         runs: list[tuple[int, int, int]] = []
-        if text and entry is not None:
-            for y, row in enumerate(entry.screen.snapshot()):
+        if text and session_entry is not None:
+            for y, row in enumerate(session_entry.screen.snapshot()):
                 line = "".join(ch for ch, _ in row)
                 start = 0
                 while (x := line.find(text, start)) >= 0:
@@ -429,6 +432,6 @@ class TerminalPanel(QWidget):
 
     def apply_theme(self, theme: str) -> None:
         """切换主题：色板换新 + 全量重绘（入参为主题名）。"""
-        self._palette = AnsiPalette(theme_palette(theme)["terminal"])
+        self._palette = AnsiPalette(get_theme_palette(theme)["terminal"])
         self.terminal.apply_palette(self._palette)
         self._lock_header_height()  # 主题切换可能带来字号变化，头部栏高度重算

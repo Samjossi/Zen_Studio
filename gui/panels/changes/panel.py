@@ -24,7 +24,8 @@ from PySide6.QtWidgets import (
 )
 
 from core.git import status as git_status
-from gui.theme import git_status_color
+from core.git.service import ChangeEntry
+from gui.theme import FALLBACK_THEME, git_status_color
 
 
 class ChangesPanel(QWidget):
@@ -47,9 +48,9 @@ class ChangesPanel(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
 
         #: 最近一次喂入的数据（apply_theme 重绘复用）
-        self._changes: list[dict] | None = None
+        self._changes: list[ChangeEntry] | None = None
         self._repo_root: str | None = None
-        self._theme = "cloud"
+        self._theme = FALLBACK_THEME
 
         # 头部栏：标题（含数量）+ 「−」收起按钮
         self._title = QLabel("已变更", self)
@@ -106,7 +107,7 @@ class ChangesPanel(QWidget):
     # ------------------------------------------------------------------
     # 公开接口
     # ------------------------------------------------------------------
-    def apply_changes(self, changes: list[dict] | None, repo_root: str | None, theme: str) -> None:
+    def apply_changes(self, changes: list[ChangeEntry] | None, repo_root: str | None, theme: str) -> None:
         """喂入变更数据并重绘（None = 非 Git 仓库/服务未启用）。"""
         self._changes = changes
         self._repo_root = repo_root
@@ -160,9 +161,9 @@ class ChangesPanel(QWidget):
             item.setForeground(0, QColor(hint_color))
         self._list.addTopLevelItem(item)
 
-    def _add_entry(self, entry: dict) -> None:
-        path, st = entry["path"], entry["status"]
-        added, deleted = entry["added"], entry["deleted"]
+    def _add_entry(self, entry: ChangeEntry) -> None:
+        path, file_status = entry.path, entry.status
+        added, deleted = entry.added, entry.deleted
         item = QTreeWidgetItem([
             path,
             f"+{added}" if added else "",
@@ -170,10 +171,10 @@ class ChangesPanel(QWidget):
         ])
         item.setToolTip(0, path)
 
-        color = git_status_color(self._theme, st)
+        color = git_status_color(self._theme, file_status)
         if color:
             item.setForeground(0, QColor(color))
-        if st == git_status.DELETED:
+        if file_status == git_status.DELETED:
             font = QFont(self._list.font())
             font.setStrikeOut(True)
             item.setFont(0, font)
@@ -187,7 +188,7 @@ class ChangesPanel(QWidget):
 
         # UserRole 存 (绝对路径/相对路径, 状态)，双击分派用
         abs_path = f"{self._repo_root}/{path}" if self._repo_root else path
-        item.setData(0, Qt.ItemDataRole.UserRole, (abs_path, st))
+        item.setData(0, Qt.ItemDataRole.UserRole, (abs_path, file_status))
         self._list.addTopLevelItem(item)
 
     # ------------------------------------------------------------------
@@ -197,8 +198,8 @@ class ChangesPanel(QWidget):
         payload = item.data(0, Qt.ItemDataRole.UserRole)
         if payload is None:
             return
-        abs_path, st = payload
-        if st == git_status.DELETED:
+        abs_path, file_status = payload
+        if file_status == git_status.DELETED:
             self.deleted_activated.emit(item.text(0))
         else:
             self.file_opened.emit(abs_path)

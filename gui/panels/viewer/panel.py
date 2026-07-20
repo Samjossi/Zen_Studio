@@ -26,10 +26,12 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from core.git.service import GitStatusService
 from gui.panels.viewer.code_viewer import CodeViewer
 from gui.panels.viewer.highlighter import PygmentsHighlighter
 from gui.popups import TranslucentMenuLineEdit
-from gui.theme import load_settings, theme_palette
+from gui.settings import KEY_THEME
+from gui.theme import load_settings, get_theme_palette
 
 #: 大文件守卫：超过 1 MB 截断显示并提示
 MAX_BYTES = 1_048_576
@@ -49,7 +51,7 @@ class ViewerPanel(QWidget):
         super().__init__(parent)
         self._current_path: str | None = None
         #: Git 状态服务（set_git_service 注入；None = 差异徽标不启用）
-        self._git_service = None
+        self._git_service: GitStatusService | None = None
 
         self._path_label = QLabel("（未打开文件）", self)
         self._path_label.setObjectName("PanelTitle")  # 样式由主题 qss 统一
@@ -67,7 +69,7 @@ class ViewerPanel(QWidget):
         title_layout.setContentsMargins(4, 2, 4, 2)
 
         # 高亮/行号配色取自主题调色板（资源包下沉，每主题自带全套）
-        palette = theme_palette(load_settings()["theme"])
+        palette = get_theme_palette(load_settings()[KEY_THEME])
         self.viewer = CodeViewer(palette["chrome"], self)
         self._highlighter = PygmentsHighlighter(self.viewer.document(), palette["syntax"])
 
@@ -142,7 +144,7 @@ class ViewerPanel(QWidget):
         else:
             self._clear_search()
 
-    def set_git_service(self, service) -> None:
+    def set_git_service(self, service: GitStatusService | None) -> None:
         """注入 Git 状态服务（None 表示禁用差异徽标）。"""
         self._git_service = service
         self.refresh_git_badge()
@@ -152,7 +154,7 @@ class ViewerPanel(QWidget):
         service = self._git_service
         stat = (
             service.numstat_of(self._current_path)
-            if service is not None and service.enabled and self._current_path
+            if service is not None and service.is_enabled and self._current_path
             else None
         )
         if stat is None:
@@ -166,7 +168,7 @@ class ViewerPanel(QWidget):
 
     def apply_theme(self, theme: str) -> None:
         """切换主题：同步高亮器与查看器控件配色包（入参为主题名）。"""
-        palette = theme_palette(theme)
+        palette = get_theme_palette(theme)
         self._highlighter.set_theme(palette["syntax"])
         self.viewer.apply_theme(palette["chrome"])
 

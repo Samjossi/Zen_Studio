@@ -143,11 +143,11 @@ class KimiCliLLM(LanguageModel):
                         yield Chunk("reasoning", f"• 调用工具 {name}\n")
                 elif role == "meta" and obj.get("type") == "session.resume_hint":
                     self._session_id = obj.get("session_id", self._session_id)
-            rc = proc.wait()
-            if rc != 0:
+            return_code = proc.wait()
+            if return_code != 0:
                 tail = "".join(stderr_tail).strip()[-500:]
                 detail = f"：{tail}" if tail else ""
-                raise RuntimeError(f"kimi CLI 调用失败（退出码 {rc}）{detail}")
+                raise RuntimeError(f"kimi CLI 调用失败（退出码 {return_code}）{detail}")
         finally:
             # 统一清理（正常结束/异常/生成器 close 三路径共用）：
             # 进程存活则终止——cancel 通常已杀，此处兜底；drain 随 EOF 收尾

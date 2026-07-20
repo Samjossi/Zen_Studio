@@ -4,8 +4,22 @@ import threading
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import QFrame, QSplitter, QVBoxLayout, QWidget
 
-from gui.settings import decode_state, encode_state, update_settings
-from llm import Chunk, KimiAcpLLM, KimiCliLLM, Message, get_llm
+from gui.settings import (
+    KEY_MODEL_BACKEND,
+    KEY_MODEL_VERSION,
+    decode_state,
+    encode_state,
+    update_settings,
+)
+from llm import (
+    BACKEND_KIMI_ACP,
+    BACKEND_LABELS,
+    Chunk,
+    KimiAcpLLM,
+    KimiCliLLM,
+    LLMRegistry,
+    Message,
+)
 from gui.panels.chat.input import ChatInput
 from gui.panels.chat.model_bar import ModelBar
 from gui.panels.chat.output import ChatOutput
@@ -14,9 +28,6 @@ from gui.panels.chat.worker import ChatWorker
 
 #: 系统提示词（第一阶段固定）
 SYSTEM_PROMPT = "你是 Zen Studio IDE 的内置助手，回答简洁，使用中文。"
-
-#: 后端 registry 名 → 显示名（切换提示与忙碌占位文案）
-BACKEND_LABELS = {"kimi-cli": "Kimi CLI", "kimi-acp": "Kimi ACP"}
 
 #: 审批等待超时（秒）；超时按拒绝兜底，防 agent 永久阻塞
 PERMISSION_TIMEOUT_S = 180
@@ -28,19 +39,30 @@ class ChatPanel(QWidget):
     #: 发送/停止状态变化（供主窗口联动禁用设置菜单 AI 模型组）
     busy_changed = Signal(bool)
 
-    def __init__(self, parent: QWidget | None = None, workspace_root: str | None = None) -> None:
+    #: 默认布局尺寸（px）：输出区 / 输入区（初排与 reset_layout 单点来源）
+    DEFAULT_SPLITTER_SIZES = [550, 180]
+
+    def __init__(
+        self,
+        llm_registry: LLMRegistry,
+        parent: QWidget | None = None,
+        workspace_root: str | None = None,
+    ) -> None:
         """
+        :param llm_registry: LLM 注册表（main.py 显式装配，经 MainWindow 注入）；
+            provider 单例状态（模型选择、审批处理器）由本面板写入
         :param parent: 父控件
         :param workspace_root: 工作区根路径（拖入文件计算 @相对路径 用，由 MainWindow 注入）
         """
         super().__init__(parent)
+        self._llm_registry = llm_registry
         self.setObjectName("SidePanel")  # 侧栏灰底分区（主题 qss 统一着色）
         # 自定义 QWidget 子类的 qss 背景需 WA_StyledBackground 才会绘制
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self._history: list[Message] = []
         self._worker: ChatWorker | None = None
         self._stream_buffer = ""
-        self._seen_reasoning = False
+        self._has_seen_reasoning = False
 
         self.output = ChatOutput(self)
         self.input = ChatInput(self)
@@ -74,7 +96,7 @@ class ChatPanel(QWidget):
         self._splitter = QSplitter(Qt.Orientation.Vertical)
         self._splitter.addWidget(self.output)
         self._splitter.addWidget(input_area)
-        self._splitter.setSizes([550, 180])
+        self._splitter.setSizes(self.DEFAULT_SPLITTER_SIZES)
 
         card = QFrame(self)
         card.setObjectName("PanelCard")
@@ -113,7 +135,7 @@ class ChatPanel(QWidget):
 
     def reset_layout(self) -> None:
         """恢复默认布局：输出/输入区回初始尺寸（视图菜单「恢复默认布局」）。"""
-        self._splitter.setSizes([550, 180])
+        self._splitter.setSizes(self.DEFAULT_SPLITTER_SIZES)
 
     # ------------------------------------------------------------------
     # 菜单驱动的模型切换（设置菜单 ▸ AI 模型）
@@ -127,7 +149,7 @@ class ChatPanel(QWidget):
         self.model_bar.set_selection(backend, version)
         backend = self.model_bar.current_backend()
         version = self.model_bar.current_version()
-        update_settings({"model_backend": backend, "model_version": version})
+        update_settings({KEY_MODEL_BACKEND: backend, KEY_MODEL_VERSION: version})
         self._on_selection_changed(backend, version)
 
     # ------------------------------------------------------------------
@@ -135,7 +157,7 @@ class ChatPanel(QWidget):
     # ------------------------------------------------------------------
     def _wire_permission_handler(self) -> None:
         try:
-            llm = get_llm("kimi-acp")
+            llm = self._llm_registry.get(BACKEND_KIMI_ACP)
         except KeyError:
             return  # kimi 不可用，后端未注册
         if isinstance(llm, KimiAcpLLM):
@@ -170,7 +192,7 @@ class ChatPanel(QWidget):
         """把 ModelBar 当前选中版本写入 provider 单例（启动时调用一次）。"""
         version = self.model_bar.current_version()
         try:
-            llm = get_llm(self._llm_name)
+            llm = self._llm_registry.get(self._llm_name)
         except KeyError:
             return  # 后端不可用（未检测到本机 agent CLI），发送时再提示
         if isinstance(llm, (KimiCliLLM, KimiAcpLLM)) and isinstance(version, str):
@@ -184,7 +206,7 @@ class ChatPanel(QWidget):
         if backend != self._llm_name:
             self.output.append_message("系统", f"已切换到 {BACKEND_LABELS.get(backend, backend)} 后端，开始新会话")
         self._llm_name = backend
-        llm = get_llm(backend)
+        llm = self._llm_registry.get(backend)
         if isinstance(llm, (KimiCliLLM, KimiAcpLLM)) and isinstance(version, str):
             llm.set_model(version)
 
@@ -195,7 +217,7 @@ class ChatPanel(QWidget):
         if self._worker is not None and self._worker.isRunning():
             return  # 上一次未结束，忽略（输入框此时已禁用）
         try:
-            llm = get_llm(self._llm_name)
+            llm = self._llm_registry.get(self._llm_name)
         except KeyError:
             self.output.append_message("系统", f"后端不可用：{self._llm_name}（未检测到本机 agent CLI）")
             return
@@ -206,7 +228,7 @@ class ChatPanel(QWidget):
         self.output.append_message("我", text)
         self.output.begin_stream("AI")
         self._stream_buffer = ""
-        self._seen_reasoning = False
+        self._has_seen_reasoning = False
 
         messages: list[Message] = [{"role": "system", "content": SYSTEM_PROMPT}]
         messages.extend(self._history)
@@ -226,20 +248,20 @@ class ChatPanel(QWidget):
     def _on_chunk(self, chunk: Chunk) -> None:
         if chunk.kind == "reasoning":
             # 思维链只上屏，不入 buffer/历史（DeepSeek 约束：不得回传）
-            self._seen_reasoning = True
+            self._has_seen_reasoning = True
             self.output.append_reasoning_chunk(chunk.text)
             return
-        if self._seen_reasoning:
+        if self._has_seen_reasoning:
             self.output.end_reasoning()  # 思维链与正文之间插空行
-            self._seen_reasoning = False
+            self._has_seen_reasoning = False
         self._stream_buffer += chunk.text
         self.output.append_stream_chunk(chunk.text)
 
     def _on_finished(self, error: str) -> None:
         if error:
-            if self._seen_reasoning:
+            if self._has_seen_reasoning:
                 self.output.end_reasoning()
-                self._seen_reasoning = False
+                self._has_seen_reasoning = False
             self.output.append_stream_chunk(f"\n[请求失败] {error}")
             self._history.pop()  # 失败的用户消息不入历史
         else:
@@ -251,9 +273,9 @@ class ChatPanel(QWidget):
     def _on_stopped(self) -> None:
         """用户中断收尾（第三态）：整体回滚——中断轮不入历史；
         屏幕已输出内容不擦除（可复制兜底），追加停止标注。"""
-        if self._seen_reasoning:
+        if self._has_seen_reasoning:
             self.output.end_reasoning()
-            self._seen_reasoning = False
+            self._has_seen_reasoning = False
         self._history.pop()  # 回滚用户消息；半截回复随 _stream_buffer 丢弃
         self.output.append_stream_chunk("\n⏹ 已手动停止")
         self.output.end_stream()

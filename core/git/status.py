@@ -65,7 +65,7 @@ def _merge_status(code: str) -> str | None:
     return None
 
 
-def status_map(repo_root: str) -> dict[str, str] | None:
+def fetch_status_map(repo_root: str) -> dict[str, str] | None:
     """执行 git status 并解析；失败返回 None（非仓库/超时/无 git）。"""
     out = run_git(
         repo_root, "status", "--porcelain=v1", "-z", "--ignored", "--untracked-files=all"

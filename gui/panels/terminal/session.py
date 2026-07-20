@@ -26,7 +26,7 @@ class PtySession(QObject):
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
         self._proc: PtyProcess | None = None
-        self._closing = False  # 应用退出中：reader 线程不再发射信号（防销毁期 UB）
+        self._is_closing = False  # 应用退出中：reader 线程不再发射信号（防销毁期 UB）
         self._generation = 0  # 进程代次：重开后旧代 reader 的退出信号作废（防竞态污染新会话状态）
         self._cwd = str(PROJECT_ROOT)  # shell 工作目录（start 可改；工作区切换只影响新会话）
         if app := QCoreApplication.instance():
@@ -34,15 +34,15 @@ class PtySession(QObject):
         atexit.register(self.terminate)
 
     def _on_about_to_quit(self) -> None:
-        self._closing = True
+        self._is_closing = True
 
     def _may_emit(self) -> bool:
-        return not self._closing and QCoreApplication.instance() is not None
+        return not self._is_closing and QCoreApplication.instance() is not None
 
     # ------------------------------------------------------------------
     # 生命周期
     # ------------------------------------------------------------------
-    def start(self, columns: int = 80, lines: int = 24, cwd: str | None = None) -> None:
+    def start(self, column_count: int = 80, line_count: int = 24, cwd: str | None = None) -> None:
         """spawn $SHELL（TERM=xterm-256color）并启动 reader 线程。
 
         :param cwd: shell 工作目录；None 沿用上次（重开保持原目录），
@@ -57,7 +57,7 @@ class PtySession(QObject):
         shell = os.environ.get("SHELL", "/bin/bash")
         env = dict(os.environ, TERM="xterm-256color")
         self._proc = PtyProcess.spawn(
-            [shell], cwd=self._cwd, env=env, dimensions=(lines, columns))
+            [shell], cwd=self._cwd, env=env, dimensions=(line_count, column_count))
         threading.Thread(
             target=self._read_loop, args=(self._proc, self._generation), daemon=True).start()
 
@@ -83,10 +83,10 @@ class PtySession(QObject):
             except OSError:
                 pass
 
-    def resize(self, rows: int, cols: int) -> None:
+    def resize(self, row_count: int, column_count: int) -> None:
         if self._proc is not None and self._proc.isalive():
             try:
-                self._proc.setwinsize(max(1, rows), max(1, cols))
+                self._proc.setwinsize(max(1, row_count), max(1, column_count))
             except OSError:
                 pass
 
@@ -116,8 +116,8 @@ class PtySession(QObject):
                     code = proc.wait()
             except Exception:  # noqa: BLE001 — 退出码不可得时按 -1
                 # 显式 None 判断：exitstatus 为 0（正常退出）时不能用 or -1 兜底
-                rc = getattr(proc, "exitstatus", None)
-                code = rc if rc is not None else -1
+                return_code = getattr(proc, "exitstatus", None)
+                code = return_code if return_code is not None else -1
             if code is None:
                 # ptyprocess：被信号杀死时 wait() 返回 None（exitstatus=None）；
                 # 按 shell 惯例以 128+signo 回报（SIGHUP=129 / SIGINT=130 / SIGKILL=137）

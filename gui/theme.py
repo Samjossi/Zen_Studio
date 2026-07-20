@@ -32,6 +32,10 @@ from PySide6.QtWidgets import QApplication
 from gui.settings import (
     CONFIG_DIR,
     DEFAULT_SETTINGS,
+    DEFAULT_THEME,
+    KEY_FONT_SIZE,
+    KEY_THEME,
+    AppSettings,
     load_settings as _load_raw_settings,
     update_settings,
 )
@@ -244,17 +248,17 @@ THEME_PALETTES: dict[str, dict] = {
 }
 
 #: 未知主题名/资源包键的回退主题（防御性兜底；正常路径 is_valid 已拦截）
-FALLBACK_THEME = "cloud"
+FALLBACK_THEME = DEFAULT_THEME
 
 
-def theme_palette(theme: str) -> dict:
+def get_theme_palette(theme: str) -> dict:
     """主题名 → 调色板（含 qss 令牌与四资源包）；未注册回退 FALLBACK_THEME。"""
     return THEME_PALETTES.get(theme, THEME_PALETTES[FALLBACK_THEME])
 
 
 def git_status_color(theme: str, status: str) -> str | None:
     """主题名 + Git 状态 → 十六进制色值；未知状态返回 None（不着色）。"""
-    return theme_palette(theme)["git_status"].get(status)
+    return get_theme_palette(theme)["git_status"].get(status)
 
 
 #: 自带 UI 字体目录（assets/fonts/思源黑体/，全量 7 档，运行时注册其中三档）
@@ -276,13 +280,13 @@ MONO_FONT_FILES = (
 MONO_FAMILY = "Sarasa Term SC"
 
 #: 注册幂等标志：主题切换会重入 apply_theme，字体只需注册一次
-_fonts_registered = False
+_are_fonts_registered = False
 
 
 # ----------------------------------------------------------------------
 # 主题注册表查询与渲染
 # ----------------------------------------------------------------------
-def available_themes() -> list[str]:
+def list_available_themes() -> list[str]:
     """已注册主题名（注册表顺序，供菜单枚举）。"""
     return list(THEME_PALETTES)
 
@@ -300,48 +304,48 @@ def get_label(theme: str) -> str:
 def render_theme(theme: str) -> str:
     """按调色板渲染主题样式表（string.Template 全量替换，缺键抛 KeyError）。"""
     template = Template(THEME_TEMPLATE_FILE.read_text(encoding="utf-8"))
-    return template.substitute(theme_palette(theme))
+    return template.substitute(get_theme_palette(theme))
 
 
 # ----------------------------------------------------------------------
 # 持久化（通用读写见 gui/settings.py；此处补主题有效性校验）
 # ----------------------------------------------------------------------
-def load_settings() -> dict:
+def load_settings() -> AppSettings:
     """读取持久化配置，缺失字段回退默认值；无效主题名静默回退默认主题。"""
     settings = _load_raw_settings()
-    if not is_valid(settings["theme"]):
-        settings["theme"] = DEFAULT_SETTINGS["theme"]
+    if not is_valid(settings[KEY_THEME]):
+        settings[KEY_THEME] = DEFAULT_SETTINGS[KEY_THEME]
     return settings
 
 
 def save_theme(theme: str) -> None:
     """回写用户所选主题，实现持久化。"""
-    update_settings({"theme": theme})
+    update_settings({KEY_THEME: theme})
 
 
 def _register_dir(directory: Path, files: tuple[str, ...]) -> bool:
     """注册一个字体目录下的指定文件；任一成功即视为该族可用。"""
-    ok = False
+    any_font_registered = False
     for name in files:
         path = directory / name
         if path.is_file():
-            ok = (QFontDatabase.addApplicationFont(str(path)) >= 0) or ok
-    return ok
+            any_font_registered = (QFontDatabase.addApplicationFont(str(path)) >= 0) or any_font_registered
+    return any_font_registered
 
 
 def register_bundled_fonts() -> None:
     """注册库内双字体族（幂等）；缺失仅告警（属打包错误），Qt 自然回退兜底。"""
-    global _fonts_registered
-    if _fonts_registered:
+    global _are_fonts_registered
+    if _are_fonts_registered:
         return
-    _fonts_registered = True
+    _are_fonts_registered = True
     if not _register_dir(BUNDLED_FONTS_DIR, BUNDLED_FONT_FILES):
         print(f"[theme] 警告：UI 字体注册失败（{BUNDLED_FONTS_DIR}），Qt 将回退默认字体")
     if not _register_dir(MONO_FONTS_DIR, MONO_FONT_FILES):
         print(f"[theme] 警告：等宽字体注册失败（{MONO_FONTS_DIR}），等宽场景将回退 monospace")
 
 
-def mono_family() -> str:
+def get_mono_family() -> str:
     """等宽字体族名：Sarasa Term SC 可用则返回之，否则回退 Qt 泛型 monospace。"""
     if MONO_FAMILY in QFontDatabase.families():
         return MONO_FAMILY
@@ -353,10 +357,10 @@ def apply_theme(app: QApplication) -> None:
     settings = load_settings()
 
     try:
-        app.setStyleSheet(render_theme(settings["theme"]))
+        app.setStyleSheet(render_theme(settings[KEY_THEME]))
     except OSError:
         # 模板文件缺失（打包错误）时静默回退到 Qt 默认样式
         app.setStyleSheet("")
 
     register_bundled_fonts()
-    app.setFont(QFont(BUNDLED_FAMILY, settings["font_size"]))
+    app.setFont(QFont(BUNDLED_FAMILY, settings[KEY_FONT_SIZE]))

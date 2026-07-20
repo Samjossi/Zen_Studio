@@ -13,11 +13,12 @@ from PySide6.QtGui import QAction, QActionGroup
 from PySide6.QtWidgets import QMainWindow, QMenu, QMenuBar
 
 from gui.menus.registry import ActionRegistry
+from gui.settings import KEY_MODEL_BACKEND, KEY_MODEL_VERSION
 from gui.theme import load_settings
-from llm import kimi_available, list_kimi_models
+from llm import BACKEND_KIMI_CLI, BACKEND_LABELS, kimi_available, list_kimi_models
 
-#: 后端 registry 名 → 显示名（与 ModelBar 下拉项保持一致）
-BACKEND_ITEMS = (("Kimi CLI", "kimi-cli"), ("Kimi ACP", "kimi-acp"))
+#: 后端菜单项（显示名, registry 名）：派生自 llm.BACKEND_LABELS 单一映射
+BACKEND_ITEMS = tuple((label, name) for name, label in BACKEND_LABELS.items())
 
 
 class ModelMenu:
@@ -41,8 +42,8 @@ class ModelMenu:
             action.triggered.connect(lambda _checked=False, n=name: self._pick_backend(n))
         menu.addSeparator()
         # 版本区（动态重建）：初始按持久化后端构建
-        self._rebuild_versions(load_settings().get("model_backend") or "kimi-cli")
-        self._check_backend(load_settings().get("model_backend") or "kimi-cli")
+        self._rebuild_versions(load_settings().get(KEY_MODEL_BACKEND) or BACKEND_KIMI_CLI)
+        self._check_backend(load_settings().get(KEY_MODEL_BACKEND) or BACKEND_KIMI_CLI)
 
     # ------------------------------------------------------------------
     # 菜单 → ModelBar
@@ -95,8 +96,8 @@ class ModelMenu:
             self._version_group.removeAction(action)
             self._menu.removeAction(action)
             action.deleteLater()
-        current = load_settings().get("model_version")
-        if backend in ("kimi-cli", "kimi-acp"):
+        current = load_settings().get(KEY_MODEL_VERSION)
+        if backend in BACKEND_LABELS:  # kimi 系后端共用 kimi 模型别名列表
             for alias in list_kimi_models():
                 action = self._menu.addAction(alias)
                 action.setCheckable(True)

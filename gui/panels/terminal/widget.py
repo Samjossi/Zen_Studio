@@ -18,7 +18,7 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import QApplication, QScrollBar, QWidget
 
-from gui.theme import mono_family
+from gui.theme import get_mono_family
 
 from gui.panels.terminal.palette import AnsiPalette
 from gui.panels.terminal.screen import TerminalScreen
@@ -65,14 +65,14 @@ class TerminalWidget(QWidget):
         self._sel_anchor: tuple[int, int] | None = None  # 锚点（按下处）
         self._sel_end: tuple[int, int] | None = None     # 活动端点（拖拽处）
 
-        font = QFont(mono_family())  # 库内等宽族（Sarasa Term SC），注册缺失回退 monospace
+        font = QFont(get_mono_family())  # 库内等宽族（Sarasa Term SC），注册缺失回退 monospace
         if app := QApplication.instance():
             font.setPointSizeF(app.font().pointSizeF())
         self.setFont(font)
-        fm = self.fontMetrics()
-        self._cell_w = max(1, fm.horizontalAdvance("M"))
-        self._cell_h = max(1, fm.height())
-        self._ascent = fm.ascent()
+        font_metrics = self.fontMetrics()
+        self._cell_w = max(1, font_metrics.horizontalAdvance("M"))
+        self._cell_h = max(1, font_metrics.height())
+        self._ascent = font_metrics.ascent()
 
         self._scrollbar = QScrollBar(Qt.Orientation.Vertical, self)
         self._scrollbar.valueChanged.connect(self._on_scroll)
@@ -109,20 +109,21 @@ class TerminalWidget(QWidget):
 
         网格尺寸随字宽变化 → 经与 resizeEvent 相同的链路同步 screen/session。
         """
-        font = QFont(mono_family())
+        font = QFont(get_mono_family())
         if app := QApplication.instance():
             font.setPointSizeF(app.font().pointSizeF())
         self.setFont(font)
-        fm = self.fontMetrics()
-        self._cell_w = max(1, fm.horizontalAdvance("M"))
-        self._cell_h = max(1, fm.height())
-        self._ascent = fm.ascent()
+        font_metrics = self.fontMetrics()
+        self._cell_w = max(1, font_metrics.horizontalAdvance("M"))
+        self._cell_h = max(1, font_metrics.height())
+        self._ascent = font_metrics.ascent()
         self.clear_selection()  # 网格尺寸变化，选区坐标失效
-        rows, cols = self.grid_size()
-        if self._screen and (self._screen.lines != rows or self._screen.columns != cols):
-            self._screen.resize(rows, cols)
+        row_count, column_count = self.get_grid_size()
+        if self._screen and (self._screen.line_count != row_count
+                             or self._screen.column_count != column_count):
+            self._screen.resize(row_count, column_count)
         if self._session:
-            self._session.resize(rows, cols)
+            self._session.resize(row_count, column_count)
         self._refresh_scrollbar()
         self.update()
 
@@ -176,9 +177,9 @@ class TerminalWidget(QWidget):
         lines: list[str] = []
         for y in range(y0, y1 + 1):
             row = snapshot[y]
-            a = x0 if y == y0 else 0
-            b = x1 + 1 if y == y1 else len(row)  # 端点含端格 → 半开 +1
-            lines.append("".join(ch for ch, _ in row[a:b]).rstrip())
+            start_col = x0 if y == y0 else 0
+            end_col = x1 + 1 if y == y1 else len(row)  # 端点含端格 → 半开 +1
+            lines.append("".join(ch for ch, _ in row[start_col:end_col]).rstrip())
         return "\n".join(lines)
 
     def copy_selection(self) -> None:
@@ -202,31 +203,32 @@ class TerminalWidget(QWidget):
 
     def _pos_to_cell(self, pos) -> tuple[int, int]:
         """像素坐标 → 网格 (y, x)，clamp 进网格（拖入滚动条区不越界）。"""
-        rows, cols = self.grid_size()
-        x = min(max(pos.x() // self._cell_w, 0), cols - 1)
-        y = min(max(pos.y() // self._cell_h, 0), rows - 1)
+        row_count, column_count = self.get_grid_size()
+        x = min(max(pos.x() // self._cell_w, 0), column_count - 1)
+        y = min(max(pos.y() // self._cell_h, 0), row_count - 1)
         return y, x
 
     # ------------------------------------------------------------------
     # 网格尺寸
     # ------------------------------------------------------------------
-    def grid_size(self) -> tuple[int, int]:
-        """(rows, cols) 当前网格尺寸。"""
-        bar_w = self._scrollbar.width() if self._scrollbar.isVisible() else 0
-        cols = max(1, (self.width() - bar_w) // self._cell_w)
-        rows = max(1, self.height() // self._cell_h)
-        return rows, cols
+    def get_grid_size(self) -> tuple[int, int]:
+        """(row_count, column_count) 当前网格尺寸。"""
+        bar_width = self._scrollbar.width() if self._scrollbar.isVisible() else 0
+        column_count = max(1, (self.width() - bar_width) // self._cell_w)
+        row_count = max(1, self.height() // self._cell_h)
+        return row_count, column_count
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
-        bar_w = self._scrollbar.sizeHint().width()
-        self._scrollbar.setGeometry(self.width() - bar_w, 0, bar_w, self.height())
+        bar_width = self._scrollbar.sizeHint().width()
+        self._scrollbar.setGeometry(self.width() - bar_width, 0, bar_width, self.height())
         self.clear_selection()  # 网格尺寸变化，选区坐标失效
-        rows, cols = self.grid_size()
-        if self._screen and (self._screen.lines != rows or self._screen.columns != cols):
-            self._screen.resize(rows, cols)
+        row_count, column_count = self.get_grid_size()
+        if self._screen and (self._screen.line_count != row_count
+                             or self._screen.column_count != column_count):
+            self._screen.resize(row_count, column_count)
         if self._session:
-            self._session.resize(rows, cols)
+            self._session.resize(row_count, column_count)
         self._refresh_scrollbar()
         self.update()
 
@@ -234,15 +236,15 @@ class TerminalWidget(QWidget):
     # 滚动
     # ------------------------------------------------------------------
     def _refresh_scrollbar(self) -> None:
-        total = self._screen.scrollback_lines() if self._screen else 0
+        total = self._screen.count_scrollback_lines() if self._screen else 0
         self._scrollbar.setRange(0, total)
-        self._scrollbar.setPageStep(self.grid_size()[0])
+        self._scrollbar.setPageStep(self.get_grid_size()[0])
         if self._scroll_offset == 0:
             self._scrollbar.setValue(total)  # 跟随底部
         self._scrollbar.setVisible(total > 0)
 
     def _on_scroll(self, value: int) -> None:
-        total = self._screen.scrollback_lines() if self._screen else 0
+        total = self._screen.count_scrollback_lines() if self._screen else 0
         self._scroll_offset = max(0, total - value)
         self.update()
 
@@ -333,29 +335,29 @@ class TerminalWidget(QWidget):
     # 绘制
     # ------------------------------------------------------------------
     def paintEvent(self, event) -> None:
-        pal = self._palette
+        palette = self._palette
         if self._screen is None:
             # 空会话占位：整幅背景 + 居中引导文本
             painter = QPainter(self)
-            painter.fillRect(self.rect(), pal.default_bg)
+            painter.fillRect(self.rect(), palette.default_bg)
             if self._placeholder:
-                hint = QColor(pal.default_fg)
+                hint = QColor(palette.default_fg)
                 hint.setAlphaF(0.45)
                 painter.setPen(hint)
                 painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, self._placeholder)
             painter.end()
             return
-        rows, cols = self.grid_size()
+        row_count, column_count = self.get_grid_size()
         snapshot = self._screen.snapshot(self._scroll_offset)
 
         painter = QPainter(self)
-        painter.fillRect(self.rect(), pal.default_bg)
+        painter.fillRect(self.rect(), palette.default_bg)
         normal_font = QFont(self.font())
         bold_font = QFont(normal_font)
         bold_font.setBold(True)
 
-        for y, row in enumerate(snapshot[:rows]):
-            limit = min(cols, len(row))  # 控件列数可能暂时宽于屏幕列数（resize 竞态）
+        for y, row in enumerate(snapshot[:row_count]):
+            limit = min(column_count, len(row))  # 控件列数可能暂时宽于屏幕列数（resize 竞态）
             py = y * self._cell_h
             x = 0
             while x < limit:
@@ -365,7 +367,7 @@ class TerminalWidget(QWidget):
                 while x + run < limit and self._cell_colors(row[x + run]) == (fg, bg, bold, underline):
                     run += 1
                 px = x * self._cell_w
-                if bg != pal.default_bg:
+                if bg != palette.default_bg:
                     painter.fillRect(px, py, self._cell_w * run, self._cell_h, bg)
                 text = "".join(row[x + i][0] for i in range(run))
                 if any(t != " " for t in text):
@@ -379,13 +381,13 @@ class TerminalWidget(QWidget):
         # 选区高亮（画在文本之后、查找高亮与光标之前）：前景色淡染，明暗主题通用
         if self.has_selection():
             (sy0, sx0), (sy1, sx1) = self._normalized_selection()
-            sel_color = QColor(pal.default_fg)
+            sel_color = QColor(palette.default_fg)
             sel_color.setAlphaF(0.28)
             for sy in range(sy0, min(sy1, len(snapshot) - 1) + 1):
-                a = sx0 if sy == sy0 else 0
-                b = sx1 + 1 if sy == sy1 else cols  # 端点含端格
-                painter.fillRect(a * self._cell_w, sy * self._cell_h,
-                                 (b - a) * self._cell_w, self._cell_h, sel_color)
+                start_col = sx0 if sy == sy0 else 0
+                end_col = sx1 + 1 if sy == sy1 else column_count  # 端点含端格
+                painter.fillRect(start_col * self._cell_w, sy * self._cell_h,
+                                 (end_col - start_col) * self._cell_w, self._cell_h, sel_color)
 
         # 查找高亮叠加（画在光标之前，保持光标可见）：普通命中淡染、当前命中深染
         for i, (hy, hx0, hx1) in enumerate(self._search_runs):
@@ -397,13 +399,13 @@ class TerminalWidget(QWidget):
         # 光标（仅当前屏视图内）：反显单元格
         cur = self._screen.cursor
         if (cur and self._scroll_offset == 0 and cur.y < len(snapshot)
-                and 0 <= cur.x < min(cols, len(snapshot[cur.y]))):
+                and 0 <= cur.x < min(column_count, len(snapshot[cur.y]))):
             cx, cy = cur.x * self._cell_w, cur.y * self._cell_h
-            painter.fillRect(cx, cy, self._cell_w, self._cell_h, pal.default_fg)
+            painter.fillRect(cx, cy, self._cell_w, self._cell_h, palette.default_fg)
             char = snapshot[cur.y][cur.x][0]
             if char != " ":
                 painter.setFont(normal_font)
-                painter.setPen(pal.default_bg)
+                painter.setPen(palette.default_bg)
                 painter.drawText(cx, cy + self._ascent, char)
         painter.end()
 

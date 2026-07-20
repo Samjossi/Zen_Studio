@@ -3,7 +3,7 @@
 使用方式（UI 层）：
     service = GitStatusService(文件树根目录)
     service.refresh()                    # 事件触发时调用（窗口激活/外部重载/手动）
-    if not service.enabled: ...          # 无 git / 非仓库 → 功能整体隐藏
+    if not service.is_enabled: ...       # 无 git / 非仓库 → 功能整体隐藏
     service.status_of(绝对路径)           # 查单文件状态（着色用）
     service.numstat_of(绝对路径)          # 查单文件 (新增, 删除)
 
@@ -12,13 +12,29 @@
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 
 from core.git import numstat, runner, status
 
 
+@dataclass(frozen=True)
+class ChangeEntry:
+    """单条变更记录（变更面板数据源）。
+
+    - path/status 键为相对仓库根路径与状态枚举（见 status.py）
+    - added/deleted 来自 numstat；无统计（纯改名/模式变更、二进制、
+      超大小上限的未跟踪文件）为 None
+    """
+
+    path: str
+    status: str
+    added: int | None
+    deleted: int | None
+
+
 class GitStatusService:
-    """单仓库 Git 状态服务；非仓库/无 git 时 enabled=False 整体降级。"""
+    """单仓库 Git 状态服务；非仓库/无 git 时 is_enabled=False 整体降级。"""
 
     def __init__(self, root_dir: str) -> None:
         """
@@ -34,7 +50,7 @@ class GitStatusService:
     # 环境
     # ------------------------------------------------------------------
     @property
-    def enabled(self) -> bool:
+    def is_enabled(self) -> bool:
         """git 可用且根目录位于仓库内。"""
         return self._repo_root is not None
 
@@ -45,23 +61,22 @@ class GitStatusService:
     # ------------------------------------------------------------------
     # 刷新（事件驱动：窗口激活/外部重载/手动菜单 → 调用此方法）
     # ------------------------------------------------------------------
-    def refresh(self) -> bool:
-        """重新拉取状态与统计；返回 enabled 供调用方决定是否更新 UI。"""
+    def refresh(self) -> None:
+        """重新拉取状态与统计；是否可用由调用方自查 is_enabled。"""
         if not runner.git_available():
             self._repo_root = None
-            return False
+            return
         if self._repo_root is None:
             self._repo_root = runner.find_repo_root(self._root_dir)
             if self._repo_root is None:
-                return False
-        status_result = status.status_map(self._repo_root)
-        numstat_result = numstat.numstat_map(self._repo_root)
+                return
+        status_result = status.fetch_status_map(self._repo_root)
+        numstat_result = numstat.fetch_numstat_map(self._repo_root)
         if status_result is None:
             # 命令失败（如 rebase 中途锁定）：保留旧缓存，静默降级
-            return True
+            return
         self._status = status_result
         self._numstat = numstat_result or {}
-        return True
 
     # ------------------------------------------------------------------
     # 查询
@@ -89,8 +104,8 @@ class GitStatusService:
         rel = self._rel(abs_path)
         return self._numstat.get(rel) if rel is not None else None
 
-    def changes(self) -> list[dict]:
-        """聚合变更清单（变更面板数据源）：[{path, status, added, deleted}]。
+    def collect_changes(self) -> list[ChangeEntry]:
+        """聚合变更清单（变更面板数据源）。
 
         - 排除 ignored；按路径排序
         - added/deleted 来自 numstat；无统计（纯改名/模式变更）为 None
@@ -99,12 +114,12 @@ class GitStatusService:
           列出，目录折叠条目（`dir/`）仅剩 ignored 场景（已排除），
           此处保留 ends-with-/ 判断作防御
         """
-        result: list[dict] = []
-        for rel, st in sorted(self._status.items()):
-            if st == status.IGNORED:
+        result: list[ChangeEntry] = []
+        for rel, file_status in sorted(self._status.items()):
+            if file_status == status.IGNORED:
                 continue
             added = deleted = None
-            if st == status.UNTRACKED:
+            if file_status == status.UNTRACKED:
                 if not rel.endswith("/"):
                     counted = self._count_lines(rel)
                     if counted is not None:
@@ -113,7 +128,7 @@ class GitStatusService:
                 stat = self._numstat.get(rel)
                 if stat is not None:
                     added, deleted = stat
-            result.append({"path": rel, "status": st, "added": added, "deleted": deleted})
+            result.append(ChangeEntry(path=rel, status=file_status, added=added, deleted=deleted))
         return result
 
     #: 未跟踪文件行数统计的大小上限（字节）

@@ -39,7 +39,7 @@ def parse_numstat_z(text: str) -> dict[str, tuple[int, int]]:
     return result
 
 
-def numstat_map(repo_root: str) -> dict[str, tuple[int, int]] | None:
+def fetch_numstat_map(repo_root: str) -> dict[str, tuple[int, int]] | None:
     """执行 git diff --numstat HEAD 并解析；失败返回 None。"""
     out = run_git(repo_root, "diff", "--numstat", "-z", "HEAD")
     if out is None:

@@ -1,9 +1,13 @@
 """LLM 统一接口（仿 theia-zen LanguageModel Protocol）。"""
 from dataclasses import dataclass
-from typing import Iterator, Literal, Protocol
+from typing import Iterator, Literal, Protocol, TypedDict
 
-# 消息格式：{"role": "system"|"user"|"assistant", "content": str}
-Message = dict[str, str]
+
+class Message(TypedDict):
+    """OpenAI 格式对话消息。"""
+
+    role: Literal["system", "user", "assistant"]
+    content: str
 
 
 @dataclass(frozen=True)
