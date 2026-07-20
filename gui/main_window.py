@@ -15,9 +15,12 @@ ActionRegistry 全局注册表）；本类保留面板、槽函数与面板显�
 工作区根切换（打开文件夹）：文件树/聊天@路径/终端 cwd/Git 服务四处联动，
 workspace_root 持久化供启动恢复。
 
-窗口四边距体系（2026-07-20，见 work plans/2026-0720-1218_GUI窗口四周边距
-均衡实施计划.md）：面板内 6px 外边距承担卡片↔把手间距；中央容器补 6px
-窗口级边距（左/上/右）；底部呼吸区由状态栏结构性提供（容器下边距 0）。
+窗口四边距体系（2026-07-20，见 work plans/2026-0720-1218 与 2026-0720-1815
+两份计划）：面板内 6px 外边距承担卡片↔把手间距；中央容器补窗口级边距
+（左/右 12px → 有效 18px；上 6px）；菜单栏 qss padding-top 21px 下移菜单行
+（文字距上缘 24px），其镜像余量由 _fit_menubar_height 定高截断——菜单栏底
+→卡片顶 = 容器 6px + 面板 6px = 12px；底部 32px 一体化 = 面板下边距 6px +
+状态栏定高 26px（_fit_statusbar_height，字号调大按字体度量兜底）。
 """
 from pathlib import Path
 
@@ -102,11 +105,13 @@ class MainWindow(QMainWindow):
         # 防折叠：右栏文件树最小宽度由 FileExplorer.MIN_WIDTH 约束
         self._splitter_main.setCollapsible(2, False)
 
-        # 中央容器：窗口级外边距（左/上/右各 6px；底部 0——状态栏已提供呼吸区），
-        # 面板内 6px 外边距继续承担卡片↔把手间距，职责分离可独立调参
+        # 中央容器：窗口级外边距（左/右各 12px——叠面板 6px 得 18px；上 6px——
+        # 菜单栏定高截断镜像余量后，菜单栏底→卡片顶 = 6 + 面板 6 = 12px；
+        # 底部 0——底部间距由状态栏定高体系承接）。面板内 6px 外边距继续承担
+        # 卡片↔把手间距，职责分离可独立调参
         central = QWidget(self)
         outer = QVBoxLayout(central)
-        outer.setContentsMargins(6, 6, 6, 0)
+        outer.setContentsMargins(12, 6, 12, 0)
         outer.setSpacing(0)
         outer.addWidget(self._splitter_main)
         self.setCentralWidget(central)
@@ -114,11 +119,15 @@ class MainWindow(QMainWindow):
         # 菜单栏：gui/menus 包装配（注册表 + AI 模型菜单控制器）
         self.menus = MenuBar(self)
         self.menus.setup()
+        # 菜单栏定高截断镜像余量（qss padding-top 会被镜像到底部，定值见 base.qss
+        # QMenuBar 段教训注释）；延迟一拍确保样式与布局已结算再测量项高
+        QTimer.singleShot(0, self._fit_menubar_height)
         # AI 模型双向同步：ModelBar 用户切换 → 菜单勾选态；发送中整组禁用
         self.chat_panel.model_bar.selection_changed.connect(self._on_modelbar_changed)
         self.chat_panel.busy_changed.connect(self._on_chat_busy_changed)
 
         self.statusBar().setSizeGripEnabled(False)  # 去掉右下角尺寸把手（原生边框已可缩放）
+        self._fit_statusbar_height()  # 定高紧凑化：底部总间距 18px 一体化（含状态栏）
         # 状态栏右侧常驻：当前文件 Git 差异统计（无改动/非仓库时为空）
         self._git_stat_label = QLabel("", self)
         self.statusBar().addPermanentWidget(self._git_stat_label)
@@ -182,6 +191,29 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
     # 窗口几何与分隔栏状态持久化
     # ------------------------------------------------------------------
+    #: 状态栏定高下界（px）：底部总间距 32px = 面板下边距 6px + 状态栏 26px
+    STATUSBAR_HEIGHT_MIN = 26
+
+    def _fit_statusbar_height(self) -> None:
+        """状态栏定高：默认 26px；字号调大时按字体度量兜底防裁切。"""
+        fm = self.statusBar().fontMetrics()
+        self.statusBar().setFixedHeight(
+            max(self.STATUSBAR_HEIGHT_MIN, fm.height() + 4))
+
+    def _fit_menubar_height(self) -> None:
+        """菜单栏定高截断镜像余量：实际高度 = padding-top + 实测项高。
+
+        qss padding-top 会被 Qt 镜像到菜单栏底部（栏总高 = 内容高 + 2N，
+        见 base.qss QMenuBar 段教训注释与 work plans/2026-0720-1815 计划）；
+        margin 路径已被实验否决（QMainWindow 布局不采纳 menubar qss margin），
+        故按 actionGeometry 实测项高定高。字号/主题变化后需重入本方法。
+        """
+        mb = self.menuBar()
+        if not mb.actions():
+            return
+        r = mb.actionGeometry(mb.actions()[0])
+        mb.setFixedHeight(r.y() + r.height())
+
     def _restore_window_state(self) -> None:
         """启动时恢复窗口几何与三处分隔栏；无记录或数据损坏时保留默认布局。"""
         settings = load_settings()
@@ -354,6 +386,8 @@ class MainWindow(QMainWindow):
         update_settings({"font_size": size})
         if (app := QApplication.instance()) is not None:
             apply_theme(app)
+        self._fit_statusbar_height()  # 字号变化后状态栏定高随字体度量重算
+        QTimer.singleShot(0, self._fit_menubar_height)  # 菜单栏项高同理（延迟结算）
         self.viewer_panel.refresh_font()
         self.terminal_panel.refresh_font()
         self.statusBar().showMessage(f"字号：{size} pt", 2000)

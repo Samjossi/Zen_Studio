@@ -127,7 +127,8 @@ class TerminalPanel(QWidget):
 
         layout = QVBoxLayout(self)
         layout.addWidget(card, 1)
-        # 面板外边距：卡片不贴窗口边缘与 splitter 把手（苹果风卡片间距）
+        # 面板外边距：卡片不贴窗口边缘与 splitter 把手（苹果风卡片间距）；
+        # 下边距 6px + 状态栏定高 26px = 底部总间距 32px（一体化设计）
         layout.setContentsMargins(6, 2, 6, 6)
         layout.setSpacing(0)
 
