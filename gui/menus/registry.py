@@ -1,7 +1,7 @@
 """Action 注册表：菜单动作全局可寻址（选型方案 A2 核心件）。
 
 键名规范：`菜单.动作`（如 `view.terminal`、`file.open_folder`），
-主题等动态组用 `菜单.动作.<载荷>`（如 `appearance.theme.dark`）。
+主题等动态组用 `菜单.动作.<载荷>`（如 `appearance.theme.cloud`）。
 任何模块经 `MainWindow.menus.get("view.terminal")` 按名取 action
 改勾选态/启停，解决"菜单勾选态 ↔ 面板内按钮"跨模块同步
 （见 文档/选型记录/2026-0720-0433_菜单栏与设置体系方案选型.md）。

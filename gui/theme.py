@@ -6,11 +6,12 @@ $token 占位符由 string.Template 按 THEME_PALETTES[主题名] 渲染（缺�
 KeyError，fail-fast）。耦合色（如菜单/下拉同底色）物理同源，不可能漂移；
 新增主题 = THEME_PALETTES 加一行字典。
 
-去明暗族分类（资源包下沉，同日计划 §3.3）：语法高亮/终端 ANSI/查看器行号/
-Git 状态色四套手工调色资源包全部下沉进 THEME_PALETTES，每主题字典自带全套；
-亮色四主题共享的资源包以模块级常量引用（一行，不复制）。架构中不存在任何
-明暗判断代码（get_family 已废除）；介于明暗之间的主题逐值手写或基于共享包
-覆盖单项（如 {**CHROME_A, "find_bg": "#xxx"}）。
+资源包单套化（2026-07-21，见 work plans/2026-0721-0205_dark主题移除与
+资源包单套化实施计划.md）：dark 主题移除，语法高亮/终端 ANSI/查看器行号/
+Git 状态色四套资源包全库各只此一套，四个主题字典直接引用同一模块级常量
+（共享即引用，不复制）。架构中不存在任何明暗判断代码（get_family 已废除、
+明暗双包已删除）；未来新增主题（含中间态/深色）逐值手写或基于共享包覆盖
+单项（如 {**CHROME_PACK, "find_bg": "#xxx"}）。
 
 字体（2026-07-19，见 work plans/2026-0719-1152_字体库统一计划.md）：
 双字体族全部自带、统一注册自 assets/fonts/，不引用系统字体——
@@ -39,11 +40,11 @@ THEMES_DIR = CONFIG_DIR / "themes"
 THEME_TEMPLATE_FILE = THEMES_DIR / "base.qss"
 
 # ----------------------------------------------------------------------
-# 资源包（全部主题数据单点汇聚于本模块；亮色四主题共享 A 包，暗色用 B 包）
+# 资源包（全部主题数据单点汇聚于本模块；四套资源各只此一套，四主题共享引用）
 # ----------------------------------------------------------------------
 
-#: 语法高亮配色包 A（原 viewer/highlighter.py "light" 包；token 类别 → 样式）
-SYNTAX_PACK_A: dict = {
+#: 语法高亮配色包（token 类别 → 样式）
+SYNTAX_PACK: dict = {
     Token.Keyword: {"color": "#0000AF", "bold": True},
     Token.Keyword.Namespace: {"color": "#7A3DB8", "bold": True},
     Token.Name.Builtin: {"color": "#7A3DB8"},
@@ -61,27 +62,8 @@ SYNTAX_PACK_A: dict = {
     Token.Error: {"color": "#CC0000"},
 }
 
-#: 语法高亮配色包 B（原 "dark" 包）
-SYNTAX_PACK_B: dict = {
-    Token.Keyword: {"color": "#6EA6FF", "bold": True},
-    Token.Keyword.Namespace: {"color": "#C678DD", "bold": True},
-    Token.Name.Builtin: {"color": "#56B6C2"},
-    Token.Name.Function: {"color": "#61AFEF"},
-    Token.Name.Class: {"color": "#E5C07B", "bold": True},
-    Token.Name.Decorator: {"color": "#C678DD"},
-    Token.String: {"color": "#98C379"},
-    Token.Number: {"color": "#D19A66"},
-    Token.Comment: {"color": "#7F848E", "italic": True},
-    Token.Operator: {"color": "#ABB2BF"},
-    Token.Generic.Heading: {"color": "#E5C07B", "bold": True},
-    Token.Generic.Subheading: {"color": "#E5C07B", "bold": True},
-    Token.Generic.Strong: {"bold": True},
-    Token.Generic.Emph: {"italic": True},
-    Token.Error: {"color": "#E06C75"},
-}
-
-#: 终端 ANSI 16 色包 A（原 terminal/palette.py "light" 包）
-TERMINAL_PACK_A: dict[str, str] = {
+#: 终端 ANSI 16 色包
+TERMINAL_PACK: dict[str, str] = {
     "default_fg": "#1a1a1a", "default_bg": "#ffffff",
     "black": "#000000", "red": "#c41a16", "green": "#007a1c", "brown": "#a05000",
     "blue": "#0451a5", "magenta": "#a02c91", "cyan": "#168396", "white": "#767676",
@@ -90,46 +72,20 @@ TERMINAL_PACK_A: dict[str, str] = {
     "brightcyan": "#00a7b5", "brightwhite": "#000000",
 }
 
-#: 终端 ANSI 16 色包 B（原 "dark" 包）
-TERMINAL_PACK_B: dict[str, str] = {
-    "default_fg": "#d4d4d4", "default_bg": "#1e1e1e",
-    "black": "#4d4d4d", "red": "#f14c4c", "green": "#23d18b", "brown": "#e5e510",
-    "blue": "#3b8eea", "magenta": "#d670d6", "cyan": "#29b8db", "white": "#e5e5e5",
-    "brightblack": "#666666", "brightred": "#ff6e67", "brightgreen": "#5ff7a0",
-    "brightbrown": "#f4f47c", "brightblue": "#6ea6ff", "brightmagenta": "#e28bff",
-    "brightcyan": "#4de8ff", "brightwhite": "#ffffff",
-}
-
-#: 查看器控件配色包 A（行号/当前行/查找命中；原 code_viewer.CHROME "light" 套）
-CHROME_A: dict[str, str] = {
+#: 查看器控件配色包（行号/当前行/查找命中）
+CHROME_PACK: dict[str, str] = {
     "ln_fg": "#999999", "ln_bg": "#f5f5f5", "cur_bg": "#eef4fb",
     "find_bg": "#fff3bf", "find_cur": "#ffd43b",
 }
 
-#: 查看器控件配色包 B（原 "dark" 套）
-CHROME_B: dict[str, str] = {
-    "ln_fg": "#6b717d", "ln_bg": "#26292e", "cur_bg": "#2f333a",
-    "find_bg": "#5c4a0f", "find_cur": "#8a6d1a",
-}
-
-#: Git 状态色包 A（原 GIT_STATUS_COLORS light 套；model 的 ForegroundRole
-#: 不走 qss，故色值在此集中维护。状态枚举见 core/git/status.py：
-#: modified/untracked/deleted/ignored/conflict）
-GIT_STATUS_A: dict[str, str] = {
+#: Git 状态色包（model 的 ForegroundRole 不走 qss，故色值在此集中维护。
+#: 状态枚举见 core/git/status.py：modified/untracked/deleted/ignored/conflict）
+GIT_STATUS_PACK: dict[str, str] = {
     "modified": "#1e88e5",   # 天蓝
     "untracked": "#1f8a3d",  # 绿
     "deleted": "#c0392b",    # 红
     "ignored": "#a8a8a8",    # 灰
     "conflict": "#d40000",   # 强红
-}
-
-#: Git 状态色包 B（原 dark 套）
-GIT_STATUS_B: dict[str, str] = {
-    "modified": "#e5b567",
-    "untracked": "#4ec971",
-    "deleted": "#e06c75",
-    "ignored": "#6e6e6e",
-    "conflict": "#ff5f5f",
 }
 
 # ----------------------------------------------------------------------
@@ -154,8 +110,8 @@ QSS_TOKEN_KEYS = (
 PACK_KEYS = ("label", "syntax", "terminal", "chrome", "git_status")
 
 #: 主题注册表：键 = 主题名；label = 菜单显示名；其余为 qss 令牌 + 四资源包。
-#: 亮色四主题引用同一组资源包常量（共享即引用，不复制——是"直接选用这包
-#: 资源"而非"被分类"）；中间态主题可全手写或 {**CHROME_A, ...} 单项覆盖。
+#: 四主题引用同一组资源包常量（共享即引用，不复制——全库各只此一套）；
+#: 未来新增主题可全手写或 {**CHROME_PACK, ...} 单项覆盖。
 #:
 #: 1259 教训：亮色四主题 combo_hover_bg 为 transparent——hover 伪态背景不触发
 #: 选中背景接管，透明等价于未设置（见 base.qss 下拉框段注释）；QComboBox 普通态
@@ -189,8 +145,8 @@ THEME_PALETTES: dict[str, dict] = {
         "scrollbar_handle_hover": "rgba(0, 0, 0, 0.38)",
         "tooltip_bg": "#323236",
         "tooltip_text": "#f5f5f7",
-        "syntax": SYNTAX_PACK_A, "terminal": TERMINAL_PACK_A,
-        "chrome": CHROME_A, "git_status": GIT_STATUS_A,
+        "syntax": SYNTAX_PACK, "terminal": TERMINAL_PACK,
+        "chrome": CHROME_PACK, "git_status": GIT_STATUS_PACK,
     },
     "wheat": {
         "label": "暖米",
@@ -220,8 +176,8 @@ THEME_PALETTES: dict[str, dict] = {
         "scrollbar_handle_hover": "rgba(0, 0, 0, 0.38)",
         "tooltip_bg": "#323236",
         "tooltip_text": "#f5f5f7",
-        "syntax": SYNTAX_PACK_A, "terminal": TERMINAL_PACK_A,
-        "chrome": CHROME_A, "git_status": GIT_STATUS_A,
+        "syntax": SYNTAX_PACK, "terminal": TERMINAL_PACK,
+        "chrome": CHROME_PACK, "git_status": GIT_STATUS_PACK,
     },
     "sky": {
         "label": "晴空",
@@ -251,8 +207,8 @@ THEME_PALETTES: dict[str, dict] = {
         "scrollbar_handle_hover": "rgba(0, 0, 0, 0.38)",
         "tooltip_bg": "#323236",
         "tooltip_text": "#f5f5f7",
-        "syntax": SYNTAX_PACK_A, "terminal": TERMINAL_PACK_A,
-        "chrome": CHROME_A, "git_status": GIT_STATUS_A,
+        "syntax": SYNTAX_PACK, "terminal": TERMINAL_PACK,
+        "chrome": CHROME_PACK, "git_status": GIT_STATUS_PACK,
     },
     "mint": {
         "label": "薄荷",
@@ -282,39 +238,8 @@ THEME_PALETTES: dict[str, dict] = {
         "scrollbar_handle_hover": "rgba(0, 0, 0, 0.38)",
         "tooltip_bg": "#323236",
         "tooltip_text": "#f5f5f7",
-        "syntax": SYNTAX_PACK_A, "terminal": TERMINAL_PACK_A,
-        "chrome": CHROME_A, "git_status": GIT_STATUS_A,
-    },
-    "dark": {
-        "label": "暗色",
-        "accent": "#0765d4",
-        "text": "#f5f5f7",
-        "muted_text": "#86868b",
-        "window_bg": "#1e1e1e",
-        "side_bg": "#252527",
-        "card_bg": "#2c2c2e",
-        "border": "rgba(255, 255, 255, 0.16)",
-        "border_hover": "rgba(255, 255, 255, 0.26)",
-        "input_bg": "#3a3a3c",
-        "combo_hover_bg": "#454548",
-        "popup_bg": "#2c2c2e",
-        "popup_border": "rgba(255, 255, 255, 0.18)",
-        "menu_border": "rgba(255, 255, 255, 0.18)",
-        "popup_separator": "rgba(255, 255, 255, 0.12)",
-        "list_item_hover": "rgba(255, 255, 255, 0.07)",
-        "btn_hover_bg": "rgba(7, 101, 212, 0.28)",
-        "btn_pressed_bg": "rgba(7, 101, 212, 0.38)",
-        "btn_disabled_text": "rgba(245, 245, 247, 0.35)",
-        "btn_disabled_bg": "#2a2a2c",
-        "btn_disabled_border": "rgba(255, 255, 255, 0.08)",
-        "separator": "#38383a",
-        "splitter_hover": "rgba(255, 255, 255, 0.14)",
-        "scrollbar_handle": "rgba(255, 255, 255, 0.28)",
-        "scrollbar_handle_hover": "rgba(255, 255, 255, 0.42)",
-        "tooltip_bg": "#ececef",
-        "tooltip_text": "#1d1d1f",
-        "syntax": SYNTAX_PACK_B, "terminal": TERMINAL_PACK_B,
-        "chrome": CHROME_B, "git_status": GIT_STATUS_B,
+        "syntax": SYNTAX_PACK, "terminal": TERMINAL_PACK,
+        "chrome": CHROME_PACK, "git_status": GIT_STATUS_PACK,
     },
 }
 
