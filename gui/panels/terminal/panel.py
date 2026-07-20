@@ -20,11 +20,12 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from gui.panels.find_bar import FindBar
 from gui.panels.terminal.palette import AnsiPalette
 from gui.panels.terminal.screen import TerminalScreen
 from gui.panels.terminal.session import PROJECT_ROOT, PtySession
 from gui.panels.terminal.widget import TerminalWidget
-from gui.popups import TranslucentMenuLineEdit, make_translucent_popup
+from gui.popups import make_translucent_popup
 from gui.settings import KEY_THEME
 from gui.theme import load_settings, get_theme_palette
 
@@ -134,34 +135,11 @@ class TerminalPanel(QWidget):
         layout.setSpacing(0)
 
     def _build_find_bar(self) -> None:
-        """查找浮层：终端区右上角悬浮（不占布局，对齐 Theia 范式）。
-
-        内部三按钮信号自闭环（局部变量），connect 保留在本方法内，不上收。
-        """
-        self._find_bar = QFrame(self.terminal)
-        self._find_bar.setObjectName("TerminalFindBar")
-        find_row = QHBoxLayout(self._find_bar)
-        find_row.setContentsMargins(6, 3, 6, 3)
-        find_row.setSpacing(4)
-        self._find_input = TranslucentMenuLineEdit(self._find_bar)
-        self._find_input.setPlaceholderText("查找（当前屏）")
-        self._find_input.setFixedWidth(180)
-        self._find_input.installEventFilter(self)  # Enter=下一个 / Esc=关闭
-        btn_prev = QPushButton("↑", self._find_bar)
-        btn_next = QPushButton("↓", self._find_bar)
-        btn_close = QPushButton("×", self._find_bar)
-        for b in (btn_prev, btn_next, btn_close):
-            b.setFixedSize(24, 22)
-        btn_prev.setToolTip("上一个")
-        btn_next.setToolTip("下一个")
-        btn_prev.clicked.connect(lambda: self._find_step(-1))
-        btn_next.clicked.connect(lambda: self._find_step(1))
-        btn_close.clicked.connect(self._hide_find)
-        find_row.addWidget(self._find_input)
-        find_row.addWidget(btn_prev)
-        find_row.addWidget(btn_next)
-        find_row.addWidget(btn_close)
-        self._find_bar.setVisible(False)
+        """装配共用 FindBar 组件（外观/定位/按键自闭环），搜索语义接本面板。"""
+        self._find_bar = FindBar(self.terminal, "查找（当前屏）")
+        self._find_bar.input.textChanged.connect(self._update_search)
+        self._find_bar.step_requested.connect(self._find_step)
+        self._find_bar.close_requested.connect(self._hide_find)
 
     def _connect_signals(self) -> None:
         """跨组件信号统一接线（本面板的接线图）。"""
@@ -172,29 +150,17 @@ class TerminalPanel(QWidget):
         # widget 只发原始事件，会话决策全在本层（单向依赖）
         self.terminal.context_menu_requested.connect(self._on_context_menu)
         self.terminal.find_requested.connect(self._show_find)
-        self._find_input.textChanged.connect(self._update_search)
 
     # ------------------------------------------------------------------
     # 事件过滤：终端区 resize（首启/浮层重定位）+ 查找框按键
     # ------------------------------------------------------------------
     def eventFilter(self, watched: QObject, event: QEvent) -> bool:
-        if watched is self.terminal:
-            if event.type() == QEvent.Type.Resize:
-                # TerminalWidget 首次获得有效尺寸（≥2 行）时启动首个会话
-                if self._has_pending_start and self.terminal.get_grid_size()[0] >= 2:
-                    self._has_pending_start = False
-                    # 延迟一轮事件循环：合并窗口管理器紧随其后的二次 resize
-                    QTimer.singleShot(0, self._spawn)
-                if self._find_bar.isVisible():
-                    self._place_find_bar()
-        elif watched is self._find_input and event.type() == QEvent.Type.KeyPress:
-            key = event.key()
-            if key == Qt.Key.Key_Escape:
-                self._hide_find()
-                return True
-            if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
-                self._find_step(1)
-                return True
+        if watched is self.terminal and event.type() == QEvent.Type.Resize:
+            # TerminalWidget 首次获得有效尺寸（≥2 行）时启动首个会话
+            if self._has_pending_start and self.terminal.get_grid_size()[0] >= 2:
+                self._has_pending_start = False
+                # 延迟一轮事件循环：合并窗口管理器紧随其后的二次 resize
+                QTimer.singleShot(0, self._spawn)
         return super().eventFilter(watched, event)
 
     # ------------------------------------------------------------------
@@ -378,11 +344,7 @@ class TerminalPanel(QWidget):
     # 查找浮层（最小版：当前屏搜索 + 命中高亮 + 上一个/下一个）
     # ------------------------------------------------------------------
     def _show_find(self) -> None:
-        self._place_find_bar()
-        self._find_bar.setVisible(True)
-        self._find_bar.raise_()
-        self._find_input.setFocus()
-        self._find_input.selectAll()
+        self._find_bar.show_and_focus()
         self._update_search()
 
     def _hide_find(self) -> None:
@@ -390,15 +352,9 @@ class TerminalPanel(QWidget):
         self._clear_search()
         self.terminal.setFocus()
 
-    def _place_find_bar(self) -> None:
-        """浮层定位于终端区右上角（子控件坐标系，随终端 resize 重定位）。"""
-        self._find_bar.adjustSize()
-        x = max(0, self.terminal.width() - self._find_bar.width() - 16)
-        self._find_bar.move(x, 6)
-
     def _update_search(self) -> None:
         """在当前活动屏快照中收集全部命中段并高亮首个。"""
-        text = self._find_input.text()
+        text = self._find_bar.input.text()
         session_entry = self._current()
         runs: list[tuple[int, int, int]] = []
         if text and session_entry is not None:

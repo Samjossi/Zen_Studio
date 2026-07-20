@@ -51,18 +51,23 @@ class NoiseFilterProxyModel(QSortFilterProxyModel):
         self.layoutChanged.emit()
 
     def data(self, proxy_index, role: int = Qt.ItemDataRole.DisplayRole):
-        if (
-            role == Qt.ItemDataRole.ForegroundRole
-            and self._git_service is not None
-            and self._git_service.is_enabled
-        ):
-            source_index = self.mapToSource(proxy_index)
-            model = self.sourceModel()
-            # 目录不着色（目录聚合为预留开关，默认关闭）
-            if not model.isDir(source_index):
-                status = self._git_service.status_of(model.filePath(source_index))
-                if status is not None:
-                    color = git_status_color(self._theme, status)
-                    if color is not None:
-                        return QColor(color)
+        if role == Qt.ItemDataRole.ForegroundRole:
+            color = self._git_status_color_of(proxy_index)
+            if color is not None:
+                return color
         return super().data(proxy_index, role)
+
+    def _git_status_color_of(self, proxy_index) -> QColor | None:
+        """代理索引 → Git 状态色（服务未启用/目录/无状态/无配色均为 None）。"""
+        if self._git_service is None or not self._git_service.is_enabled:
+            return None
+        source_index = self.mapToSource(proxy_index)
+        model = self.sourceModel()
+        # 目录不着色（目录聚合为预留开关，默认关闭）
+        if model.isDir(source_index):
+            return None
+        file_status = self._git_service.status_of(model.filePath(source_index))
+        if file_status is None:
+            return None
+        color = git_status_color(self._theme, file_status)
+        return QColor(color) if color is not None else None

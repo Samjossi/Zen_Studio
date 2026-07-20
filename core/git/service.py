@@ -108,28 +108,31 @@ class GitStatusService:
         """聚合变更清单（变更面板数据源）。
 
         - 排除 ignored；按路径排序
-        - added/deleted 来自 numstat；无统计（纯改名/模式变更）为 None
-        - 未跟踪文件 numstat 不含，补数行数（仅文本、≤1MB 守卫，
-          二进制/超限为 None）；status 已用 --untracked-files=all 逐条
-          列出，目录折叠条目（`dir/`）仅剩 ignored 场景（已排除），
-          此处保留 ends-with-/ 判断作防御
+        - added/deleted 统计规则见 _line_stats_of（numstat / 未跟踪补数行数）
+        - status 已用 --untracked-files=all 逐条列出
         """
         result: list[ChangeEntry] = []
         for rel, file_status in sorted(self._status.items()):
             if file_status == status.IGNORED:
                 continue
-            added = deleted = None
-            if file_status == status.UNTRACKED:
-                if not rel.endswith("/"):
-                    counted = self._count_lines(rel)
-                    if counted is not None:
-                        added, deleted = counted, 0
-            else:
-                stat = self._numstat.get(rel)
-                if stat is not None:
-                    added, deleted = stat
+            added, deleted = self._line_stats_of(rel, file_status)
             result.append(ChangeEntry(path=rel, status=file_status, added=added, deleted=deleted))
         return result
+
+    def _line_stats_of(self, rel: str, file_status: str) -> tuple[int | None, int | None]:
+        """单条目的 (新增, 删除) 统计；无统计为 (None, None)。
+
+        未跟踪文件 numstat 不含，补数行数（仅文本、≤1MB 守卫，二进制/超限
+        为 None）；目录折叠条目（`dir/`）仅剩 ignored 场景（已排除），
+        此处保留 ends-with-/ 判断作防御。
+        """
+        if file_status == status.UNTRACKED:
+            if rel.endswith("/"):
+                return None, None
+            counted = self._count_lines(rel)
+            return (counted, 0) if counted is not None else (None, None)
+        stat = self._numstat.get(rel)
+        return stat if stat is not None else (None, None)
 
     #: 未跟踪文件行数统计的大小上限（字节）
     UNTRACKED_COUNT_MAX_BYTES = 1_048_576

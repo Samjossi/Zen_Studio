@@ -85,20 +85,43 @@ class KimiCliLLM(LanguageModel):
             proc.terminate()
 
     def chat(self, messages: list[Message]) -> Iterator[Chunk]:
-        # 历史由 kimi 会话管理，仅取最后一条 user 消息作 prompt
-        prompt = next((m["content"] for m in reversed(messages) if m["role"] == "user"), "")
+        prompt = self._extract_prompt(messages)
         if not prompt:
             return
+        proc = self._spawn(self._build_command(prompt))
+        # stderr 持续排空（thinking/工具进度/错误诊断均走 stderr）：
+        # 防管道缓冲写满阻塞子进程；仅保留尾部数块，失败时附进异常
+        stderr_tail: list[str] = []
+        drain = self._start_stderr_drain(proc, stderr_tail)
+        try:
+            yield from self._iter_chunks(proc)
+            self._raise_on_failure(proc, stderr_tail)
+        finally:
+            # 统一清理（正常结束/异常/生成器 close 三路径共用）
+            self._cleanup(proc, drain)
+
+    # ------------------------------------------------------------------
+    # chat 拆分（单一职责私有方法；行为与原单体实现逐行等价）
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _extract_prompt(messages: list[Message]) -> str:
+        """历史由 kimi 会话管理，仅取最后一条 user 消息作 prompt。"""
+        return next((m["content"] for m in reversed(messages) if m["role"] == "user"), "")
+
+    def _build_command(self, prompt: str) -> list[str]:
+        """命令行拼装：`-p` auto 权限 + stream-json；模型/会话续接按需附加。"""
         bin_path = _find_bin()
         if not bin_path:
             raise RuntimeError("kimi CLI 不可用：PATH 与 ~/.kimi-code/bin 均未找到 kimi")
-
         cmd = [bin_path, "-p", prompt, "--output-format", "stream-json"]
         if self._model:
             cmd += ["-m", self._model]
         if self._session_id:
             cmd += ["-S", self._session_id]
+        return cmd
 
+    def _spawn(self, cmd: list[str]) -> subprocess.Popen:
+        """spawn 子进程并登记为 cancel 目标。"""
         proc = subprocess.Popen(
             cmd,
             cwd=PROJECT_ROOT,
@@ -109,53 +132,65 @@ class KimiCliLLM(LanguageModel):
             errors="replace",
         )
         self._active_proc = proc  # 登记 cancel 目标
-        # stderr 持续排空（thinking/工具进度/错误诊断均走 stderr）：
-        # 防管道缓冲写满阻塞子进程；仅保留尾部数块，失败时附进异常
-        stderr_tail: list[str] = []
+        return proc
 
-        def _drain_stderr() -> None:
+    @staticmethod
+    def _start_stderr_drain(proc: subprocess.Popen, stderr_tail: list[str]) -> threading.Thread:
+        """启动 stderr 排空线程（防管道缓冲写满阻塞子进程），返回线程句柄。"""
+        def drain_stderr() -> None:
             assert proc.stderr is not None
             while chunk := proc.stderr.read(4096):
                 stderr_tail.append(chunk)
                 del stderr_tail[:-4]
 
-        drain = threading.Thread(target=_drain_stderr, daemon=True)
-        drain.start()
+        thread = threading.Thread(target=drain_stderr, daemon=True)
+        thread.start()
+        return thread
 
-        try:
-            assert proc.stdout is not None
-            for line in proc.stdout:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    obj = json.loads(line)
-                except json.JSONDecodeError:
-                    continue  # 非 JSON 行（兼容未来格式噪声）
-                role = obj.get("role")
-                if role == "assistant":
-                    content = obj.get("content")
-                    if content:
-                        yield Chunk("text", content)
-                    # 工具调用复用灰字通道展示 agent 动作
-                    for tc in obj.get("tool_calls") or []:
-                        name = (tc.get("function") or {}).get("name", "?")
-                        yield Chunk("reasoning", f"• 调用工具 {name}\n")
-                elif role == "meta" and obj.get("type") == "session.resume_hint":
-                    self._session_id = obj.get("session_id", self._session_id)
-            return_code = proc.wait()
-            if return_code != 0:
-                tail = "".join(stderr_tail).strip()[-500:]
-                detail = f"：{tail}" if tail else ""
-                raise RuntimeError(f"kimi CLI 调用失败（退出码 {return_code}）{detail}")
-        finally:
-            # 统一清理（正常结束/异常/生成器 close 三路径共用）：
-            # 进程存活则终止——cancel 通常已杀，此处兜底；drain 随 EOF 收尾
-            self._active_proc = None
-            if proc.poll() is None:
-                proc.terminate()
-                try:
-                    proc.wait(timeout=3)
-                except subprocess.TimeoutExpired:
-                    proc.kill()
-            drain.join(timeout=5)
+    def _iter_chunks(self, proc: subprocess.Popen) -> Iterator[Chunk]:
+        """stdout JSONL 逐行解析分发；非 JSON 行静默跳过（兼容未来格式噪声）。"""
+        assert proc.stdout is not None
+        for line in proc.stdout:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                obj = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            yield from self._map_message(obj)
+
+    def _map_message(self, obj: dict) -> Iterator[Chunk]:
+        """单条 stream-json 消息 → Chunk 序列；会话续接凭证就地更新。"""
+        role = obj.get("role")
+        if role == "assistant":
+            content = obj.get("content")
+            if content:
+                yield Chunk("text", content)
+            # 工具调用复用灰字通道展示 agent 动作
+            for tool_call in obj.get("tool_calls") or []:
+                name = (tool_call.get("function") or {}).get("name", "?")
+                yield Chunk("reasoning", f"• 调用工具 {name}\n")
+        elif role == "meta" and obj.get("type") == "session.resume_hint":
+            self._session_id = obj.get("session_id", self._session_id)
+
+    @staticmethod
+    def _raise_on_failure(proc: subprocess.Popen, stderr_tail: list[str]) -> None:
+        """退出码非 0 时附 stderr 尾部抛错（cancel 路径由 worker 归一化拦截）。"""
+        return_code = proc.wait()
+        if return_code == 0:
+            return
+        tail = "".join(stderr_tail).strip()[-500:]
+        detail = f"：{tail}" if tail else ""
+        raise RuntimeError(f"kimi CLI 调用失败（退出码 {return_code}）{detail}")
+
+    def _cleanup(self, proc: subprocess.Popen, drain: threading.Thread) -> None:
+        """资源清理：进程存活则终止（cancel 通常已杀，此处兜底）；drain 随 EOF 收尾。"""
+        self._active_proc = None
+        if proc.poll() is None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+        drain.join(timeout=5)

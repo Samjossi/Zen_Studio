@@ -15,21 +15,20 @@ externally_reloaded 供主窗口联动刷新 Git 状态。
 """
 from pathlib import Path
 
-from PySide6.QtCore import QEvent, QFileSystemWatcher, QObject, Qt, QTimer, Signal
+from PySide6.QtCore import QFileSystemWatcher, Qt, QTimer, Signal
 from PySide6.QtGui import QTextCursor
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
-    QPushButton,
     QVBoxLayout,
     QWidget,
 )
 
 from core.git.service import GitStatusService
+from gui.panels.find_bar import FindBar
 from gui.panels.viewer.code_viewer import CodeViewer
 from gui.panels.viewer.highlighter import PygmentsHighlighter
-from gui.popups import TranslucentMenuLineEdit
 from gui.settings import KEY_THEME
 from gui.theme import load_settings, get_theme_palette
 
@@ -53,20 +52,7 @@ class ViewerPanel(QWidget):
         #: Git 状态服务（set_git_service 注入；None = 差异徽标不启用）
         self._git_service: GitStatusService | None = None
 
-        self._path_label = QLabel("（未打开文件）", self)
-        self._path_label.setObjectName("PanelTitle")  # 样式由主题 qss 统一
-        self._git_badge = QLabel("", self)
-        self._git_badge.setObjectName("PanelHint")  # 与提示同款弱化的次要文字样式
-        self._git_badge.setVisible(False)
-        self._hint_label = QLabel("", self)
-        self._hint_label.setObjectName("PanelHint")
-
-        title_row = QWidget(self)
-        title_layout = QHBoxLayout(title_row)
-        title_layout.addWidget(self._path_label, 1)
-        title_layout.addWidget(self._git_badge)
-        title_layout.addWidget(self._hint_label)
-        title_layout.setContentsMargins(4, 2, 4, 2)
+        title_row = self._build_title_row()
 
         # 高亮/行号配色取自主题调色板（资源包下沉，每主题自带全套）
         palette = get_theme_palette(load_settings()[KEY_THEME])
@@ -91,15 +77,35 @@ class ViewerPanel(QWidget):
         layout.setContentsMargins(6, 6, 6, 2)
         layout.setSpacing(0)
 
+        self._init_file_watch()
+        self._build_find_bar()
+
+    def _build_title_row(self) -> QWidget:
+        """标题行：路径标签 + Git 差异徽标 + 提示标签。"""
+        self._path_label = QLabel("（未打开文件）", self)
+        self._path_label.setObjectName("PanelTitle")  # 样式由主题 qss 统一
+        self._git_badge = QLabel("", self)
+        self._git_badge.setObjectName("PanelHint")  # 与提示同款弱化的次要文字样式
+        self._git_badge.setVisible(False)
+        self._hint_label = QLabel("", self)
+        self._hint_label.setObjectName("PanelHint")
+
+        title_row = QWidget(self)
+        title_layout = QHBoxLayout(title_row)
+        title_layout.addWidget(self._path_label, 1)
+        title_layout.addWidget(self._git_badge)
+        title_layout.addWidget(self._hint_label)
+        title_layout.setContentsMargins(4, 2, 4, 2)
+        return title_row
+
+    def _init_file_watch(self) -> None:
+        """外部变更监视：fileChanged → 去抖重载（编辑器等连续写合并为一次）。"""
         self._watcher = QFileSystemWatcher(self)
         self._watcher.fileChanged.connect(self._on_file_changed)
         self._debounce = QTimer(self)
         self._debounce.setSingleShot(True)
         self._debounce.setInterval(RELOAD_DEBOUNCE_MS)
         self._debounce.timeout.connect(self._reload)
-
-        self._build_find_bar()
-        self.viewer.installEventFilter(self)  # resize → 浮层重定位
 
     # ------------------------------------------------------------------
     # 对外接口
@@ -180,57 +186,17 @@ class ViewerPanel(QWidget):
     # 查找浮层（右上角悬浮；当前文档搜索 + 命中高亮 + 上一个/下一个）
     # ------------------------------------------------------------------
     def _build_find_bar(self) -> None:
-        """构建查找浮层（初始隐藏）；内部按钮信号自闭环。"""
-        self._find_bar = QFrame(self.viewer)
-        self._find_bar.setObjectName("TerminalFindBar")  # 复用终端浮层同款样式
-        find_row = QHBoxLayout(self._find_bar)
-        find_row.setContentsMargins(6, 3, 6, 3)
-        find_row.setSpacing(4)
-        self._find_input = TranslucentMenuLineEdit(self._find_bar)
-        self._find_input.setPlaceholderText("查找（当前文档）")
-        self._find_input.setFixedWidth(180)
-        self._find_input.installEventFilter(self)  # Enter=下一个 / Esc=关闭
-        btn_prev = QPushButton("↑", self._find_bar)
-        btn_next = QPushButton("↓", self._find_bar)
-        btn_close = QPushButton("×", self._find_bar)
-        for b in (btn_prev, btn_next, btn_close):
-            b.setFixedSize(24, 22)
-        btn_prev.setToolTip("上一个")
-        btn_next.setToolTip("下一个")
-        btn_prev.clicked.connect(lambda: self._find_step(-1))
-        btn_next.clicked.connect(lambda: self._find_step(1))
-        btn_close.clicked.connect(self._hide_find)
-        find_row.addWidget(self._find_input)
-        find_row.addWidget(btn_prev)
-        find_row.addWidget(btn_next)
-        find_row.addWidget(btn_close)
-        self._find_bar.setVisible(False)
+        """装配共用 FindBar 组件（外观/定位/按键自闭环），搜索语义接本面板。"""
+        self._find_bar = FindBar(self.viewer, "查找（当前文档）")
         self._find_matches: list[QTextCursor] = []
         self._find_current = -1
-        self._find_input.textChanged.connect(self._update_search)
-
-    def eventFilter(self, watched: QObject, event: QEvent) -> bool:
-        """查看器 resize → 浮层重定位；查找框 Esc/Enter 按键处理。"""
-        if watched is self.viewer:
-            if event.type() == QEvent.Type.Resize and self._find_bar.isVisible():
-                self._place_find_bar()
-        elif watched is self._find_input and event.type() == QEvent.Type.KeyPress:
-            key = event.key()
-            if key == Qt.Key.Key_Escape:
-                self._hide_find()
-                return True
-            if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
-                self._find_step(1)
-                return True
-        return super().eventFilter(watched, event)
+        self._find_bar.input.textChanged.connect(self._update_search)
+        self._find_bar.step_requested.connect(self._find_step)
+        self._find_bar.close_requested.connect(self._hide_find)
 
     def show_find(self) -> None:
         """打开查找浮层（编辑菜单「查找」焦点分发入口）。"""
-        self._place_find_bar()
-        self._find_bar.setVisible(True)
-        self._find_bar.raise_()
-        self._find_input.setFocus()
-        self._find_input.selectAll()
+        self._find_bar.show_and_focus()
         self._update_search()
 
     def _hide_find(self) -> None:
@@ -238,15 +204,9 @@ class ViewerPanel(QWidget):
         self._clear_search()
         self.viewer.setFocus()
 
-    def _place_find_bar(self) -> None:
-        """浮层定位于查看器右上角（子控件坐标系，随查看器 resize 重定位）。"""
-        self._find_bar.adjustSize()
-        x = max(0, self.viewer.width() - self._find_bar.width() - 16)
-        self._find_bar.move(x, 6)
-
     def _update_search(self) -> None:
         """收集当前文档全部命中并高亮；有命中即跳转首个。"""
-        text = self._find_input.text()
+        text = self._find_bar.input.text()
         self._find_matches = []
         if text:
             doc = self.viewer.document()

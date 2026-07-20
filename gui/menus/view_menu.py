@@ -44,7 +44,7 @@ def build(menubar: QMenuBar, ctx: QMainWindow, actions: ActionRegistry) -> None:
     menu.addSeparator()
 
     action = menu.addAction("刷新 Git 状态(&G)")
-    action.triggered.connect(ctx.refresh_git_status)
+    action.triggered.connect(ctx.git_controller.refresh)
     actions.register("view.git_refresh", action)
 
     menu.addSeparator()

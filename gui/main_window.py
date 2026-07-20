@@ -12,6 +12,8 @@ Git 状态可视化（2026-07-20，见 文档/修改记录/2026-0720-0131 计划
 菜单栏模块化（2026-07-20，见 文档/修改记录/2026-0720-0510_菜单栏与设置体系
 实施计划.md）：全部 addMenu/addAction 迁出至 gui/menus/（每菜单一文件 +
 ActionRegistry 全局注册表）；本类保留面板、槽函数与面板显隐单一入口。
+控制器外移（2026-07-21，AFCP 整改任务 2.3）：Git 编排（GitStatusController）
+与窗口状态持久化（WindowStateStore）迁出至 gui/controllers.py 组合持有。
 工作区根切换（打开文件夹）：文件树/聊天@路径/终端 cwd/Git 服务四处联动，
 workspace_root 持久化供启动恢复。
 
@@ -38,7 +40,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from core.git import GitStatusService
+from gui.controllers import GitStatusController, WindowStateStore
 from gui.menus import MenuBar
 from gui.panels import FileExplorer, ViewerPanel
 from gui.panels.changes import ChangesPanel
@@ -58,8 +60,6 @@ from gui.settings import (
     KEY_WINDOW_GEOMETRY,
     KEY_WORKSPACE_ROOT,
     SETTINGS_FILE,
-    decode_state,
-    encode_state,
     update_settings,
 )
 from gui.theme import (
@@ -90,6 +90,17 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("Zen Studio")
         self.resize(1200, 800)
 
+        self._build_layout(llm_registry)
+        self._init_statusbar()
+        self._init_git_status()  # 先于菜单装配：视图菜单「刷新 Git 状态」直挂控制器
+        self._init_menus()
+        self._restore_window_state()
+
+    # ------------------------------------------------------------------
+    # 初始化分段（__init__ 拆分；各段职责单一，顺序即装配依赖序）
+    # ------------------------------------------------------------------
+    def _build_layout(self, llm_registry: LLMRegistry) -> None:
+        """布局装配：三栏 splitter（聊天 / 中栏查看器+终端 / 右栏文件树+变更）。"""
         # 中栏垂直拆分：上为文件查看器（只读+高亮），下为内嵌终端（真 PTY）
         self._splitter_middle = QSplitter(Qt.Orientation.Vertical)
         self.viewer_panel = ViewerPanel()
@@ -101,12 +112,7 @@ class MainWindow(QMainWindow):
         self._splitter_middle.setCollapsible(1, False)
 
         self._splitter_main = QSplitter(Qt.Orientation.Horizontal)
-        # 工作区根：文件树根目录与聊天输入框 @相对路径 计算共用同一来源；
-        # 持久化的 workspace_root 有效则恢复（打开文件夹切换），无效静默回退项目根
-        project_root = str(Path(__file__).resolve().parent.parent)
-        workspace = load_settings().get(KEY_WORKSPACE_ROOT)
-        if workspace and Path(workspace).is_dir():
-            project_root = str(Path(workspace).resolve())
+        project_root = self._resolve_workspace_root()
         # 左栏：AI 聊天面板
         self.chat_panel = ChatPanel(llm_registry, workspace_root=project_root)
         self._splitter_main.addWidget(self.chat_panel)
@@ -140,6 +146,20 @@ class MainWindow(QMainWindow):
         outer.addWidget(self._splitter_main)
         self.setCentralWidget(central)
 
+    @staticmethod
+    def _resolve_workspace_root() -> str:
+        """工作区根解析：持久化根有效则恢复，无效静默回退项目根。
+
+        文件树根目录与聊天输入框 @相对路径 计算共用同一来源。
+        """
+        project_root = str(Path(__file__).resolve().parent.parent)
+        workspace = load_settings().get(KEY_WORKSPACE_ROOT)
+        if workspace and Path(workspace).is_dir():
+            return str(Path(workspace).resolve())
+        return project_root
+
+    def _init_menus(self) -> None:
+        """菜单栏装配 + AI 模型双向同步接线。"""
         # 菜单栏：gui/menus 包装配（注册表 + AI 模型菜单控制器）
         self.menus = MenuBar(self)
         self.menus.setup()
@@ -150,6 +170,8 @@ class MainWindow(QMainWindow):
         self.chat_panel.model_bar.selection_changed.connect(self._on_modelbar_changed)
         self.chat_panel.busy_changed.connect(self._on_chat_busy_changed)
 
+    def _init_statusbar(self) -> None:
+        """状态栏：去尺寸把手 + 定高 + Git 统计常驻区 + 就绪消息。"""
         self.statusBar().setSizeGripEnabled(False)  # 去掉右下角尺寸把手（原生边框已可缩放）
         self._fit_statusbar_height()  # 定高紧凑化：底部总间距 18px 一体化（含状态栏）
         # 状态栏右侧常驻：当前文件 Git 差异统计（无改动/非仓库时为空）
@@ -157,59 +179,25 @@ class MainWindow(QMainWindow):
         self.statusBar().addPermanentWidget(self._git_stat_label)
         self.statusBar().showMessage("就绪")
 
-        self._init_git_status()
-        self._restore_window_state()
-
     # ------------------------------------------------------------------
-    # Git 状态可视化：事件驱动刷新（窗口激活 / 外部重载 / 手动菜单）
+    # Git 状态可视化：编排职责外移 GitStatusController（gui/controllers.py）
     # ------------------------------------------------------------------
-    #: 刷新去抖间隔（ms）：连续触发合并为一次，防进程风暴
-    GIT_REFRESH_DEBOUNCE_MS = 300
-
     def _init_git_status(self) -> None:
-        """创建状态服务、接线三处事件源，并做启动时的首次刷新。"""
-        self._git_service = GitStatusService(self.file_explorer.root_dir)
-        self.viewer_panel.set_git_service(self._git_service)
-        # 变更面板：双击打开并入查看器管线；删除行双击 → 状态栏提示
-        self.changes_panel.file_opened.connect(self.viewer_panel.open_file)
-        self.changes_panel.file_opened.connect(lambda _p: self._update_git_stat_label())
-        self.changes_panel.deleted_activated.connect(
-            lambda path: self.statusBar().showMessage(f"文件已删除，待提交：{path}", self.STATUS_MSG_TIMEOUT_MS)
+        """Git 编排控制器装配（服务创建/去抖/四面板扇出刷新）。"""
+        self.git_controller = GitStatusController(
+            self.file_explorer,
+            self.viewer_panel,
+            self.changes_panel,
+            self.statusBar(),
+            self._git_stat_label,
+            collapse_handler=lambda: self.set_changes_visible(False),
+            parent=self,
         )
-        self.changes_panel.collapse_requested.connect(
-            lambda: self.set_changes_visible(False)
-        )
-        self._git_debounce = QTimer(self)
-        self._git_debounce.setSingleShot(True)
-        self._git_debounce.setInterval(self.GIT_REFRESH_DEBOUNCE_MS)
-        self._git_debounce.timeout.connect(self.refresh_git_status)
-        self.viewer_panel.externally_reloaded.connect(self._git_debounce.start)
-        # 切换查看文件时同步状态栏统计（查看器徽标由 open_file 内部自刷）
-        self.file_explorer.file_opened.connect(lambda _p: self._update_git_stat_label())
-        self.refresh_git_status()
-
-    def refresh_git_status(self) -> None:
-        """去抖汇流点：刷新服务 → 文件树着色 → 查看器徽标 → 变更面板 → 状态栏。"""
-        self._git_service.refresh()
-        self.file_explorer.apply_git_status(self._git_service)
-        self.viewer_panel.refresh_git_badge()
-        service = self._git_service
-        self.changes_panel.apply_changes(
-            service.collect_changes() if service.is_enabled else None,
-            service.repo_root,
-            load_settings()[KEY_THEME],
-        )
-        self._update_git_stat_label()
-
-    def _update_git_stat_label(self) -> None:
-        """状态栏常驻区显示当前查看文件的 `+a -b` 统计。"""
-        stat = self._git_service.numstat_of(self.viewer_panel.current_path or "")
-        self._git_stat_label.setText(f"+{stat[0]} -{stat[1]}  " if stat else "")
 
     def changeEvent(self, event) -> None:
         """窗口重获焦点 → 去抖刷新（兜底终端 checkout 等外部 git 操作）。"""
         if event.type() == event.Type.ActivationChange and self.isActiveWindow():
-            self._git_debounce.start()
+            self.git_controller.schedule_refresh()
         super().changeEvent(event)
 
     # ------------------------------------------------------------------
@@ -239,20 +227,17 @@ class MainWindow(QMainWindow):
         menu_bar.setFixedHeight(first_item_rect.y() + first_item_rect.height())
 
     def _restore_window_state(self) -> None:
-        """启动时恢复窗口几何与三处分隔栏；无记录或数据损坏时保留默认布局。"""
-        settings = load_settings()
-        geometry = settings.get(KEY_WINDOW_GEOMETRY)
-        if geometry:
-            self.restoreGeometry(decode_state(geometry))
-        for splitter, key in (
-            (self._splitter_main, KEY_SPLITTER_MAIN),
-            (self._splitter_middle, KEY_SPLITTER_MIDDLE),
-            (self._splitter_right, KEY_SPLITTER_RIGHT),
-        ):
-            state = settings.get(key)
-            if state:
-                splitter.restoreState(decode_state(state))
-        self.chat_panel.restore_state(settings.get(KEY_SPLITTER_CHAT))
+        """启动时恢复窗口几何与各处分隔栏（读写细节外移 WindowStateStore）。"""
+        self._state_store = WindowStateStore(
+            self,
+            {
+                KEY_SPLITTER_MAIN: self._splitter_main,
+                KEY_SPLITTER_MIDDLE: self._splitter_middle,
+                KEY_SPLITTER_RIGHT: self._splitter_right,
+            },
+            self.chat_panel,
+        )
+        self._state_store.restore()
 
     def closeEvent(self, event: QCloseEvent) -> None:
         """关闭时一次性保存窗口几何与四处分隔栏状态。"""
@@ -265,13 +250,7 @@ class MainWindow(QMainWindow):
         ):
             if not panel.isVisible():
                 panel.setVisible(True)
-        update_settings({
-            KEY_WINDOW_GEOMETRY: encode_state(self.saveGeometry()),
-            KEY_SPLITTER_MAIN: encode_state(self._splitter_main.saveState()),
-            KEY_SPLITTER_MIDDLE: encode_state(self._splitter_middle.saveState()),
-            KEY_SPLITTER_RIGHT: encode_state(self._splitter_right.saveState()),
-            KEY_SPLITTER_CHAT: self.chat_panel.save_state(),
-        })
+        self._state_store.save()
         super().closeEvent(event)
 
     # ------------------------------------------------------------------
@@ -342,8 +321,8 @@ class MainWindow(QMainWindow):
     def _switch_workspace(self, path: str) -> None:
         """工作区根切换单一入口：文件树/聊天@路径/终端 cwd/Git 服务四处联动。
 
-        Git 服务重建后复用 refresh_git_status 注入链（viewer/explorer/changes
-        三处经该方法统一消费 self._git_service）；非 git 目录静默跳过。
+        Git 服务重建归 GitStatusController.rebuild（viewer/explorer/changes
+        三处经控制器统一扇出）；非 git 目录静默跳过。
         """
         root = str(Path(path).resolve())
         if root == self.file_explorer.root_dir:
@@ -351,10 +330,8 @@ class MainWindow(QMainWindow):
         self.file_explorer.set_root(root)
         self.chat_panel.input.set_workspace_root(root)
         self.terminal_panel.set_cwd(root)
-        self._git_service = GitStatusService(root)
-        self.viewer_panel.set_git_service(self._git_service)
+        self.git_controller.rebuild(root)
         update_settings({KEY_WORKSPACE_ROOT: root})
-        self.refresh_git_status()
         self.statusBar().showMessage(f"已切换工作区：{root}", self.STATUS_MSG_TIMEOUT_MS)
 
     # ------------------------------------------------------------------

@@ -85,6 +85,28 @@ class FileExplorer(ExplorerActionsMixin, QWidget):
         # 自定义 QWidget 子类的 qss 背景需 WA_StyledBackground 才会绘制
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
 
+        self._build_model()
+        self._build_tree()
+
+        # 只显示根目录名，完整路径悬停可见（修复栏宽截断问题）
+        self.path_label = QLabel(Path(self.root_dir).name)
+        self.path_label.setObjectName("PanelTitle")  # 样式由主题 qss 统一
+        self.path_label.setToolTip(self.root_dir)
+        self.path_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        header = QHBoxLayout()
+        header.addStretch()
+        header.addWidget(self.path_label)
+        header.addStretch()
+
+        layout = QVBoxLayout(self)
+        layout.addLayout(header)
+        layout.addWidget(self.tree)
+        # 面板外边距：树卡片不贴窗口边缘与 splitter 把手（苹果风卡片间距）
+        layout.setContentsMargins(6, 6, 6, 6)
+
+    def _build_model(self) -> None:
+        """文件系统模型 + 噪音过滤代理装配。"""
         self.model = QFileSystemModel(self)
         self.model.setRootPath(self.root_dir)
         self.model.setReadOnly(False)  # 允许重命名编辑
@@ -92,6 +114,8 @@ class FileExplorer(ExplorerActionsMixin, QWidget):
         self.proxy = NoiseFilterProxyModel(self.NOISE_NAMES, self)
         self.proxy.setSourceModel(self.model)
 
+    def _build_tree(self) -> None:
+        """树视图装配：拖出/选择/重命名策略 + 仅名称列。"""
         self.tree = _DragOutTreeView(self)
         self.tree.paths_provider = self._selected_paths  # 拖出数据 = 当前选中项
         self.tree.setDragEnabled(True)  # 允许拖出（dragDropMode 随之变 DragOnly）
@@ -114,23 +138,6 @@ class FileExplorer(ExplorerActionsMixin, QWidget):
         self.tree.setHeaderHidden(True)
         for col in range(1, self.model.columnCount()):
             self.tree.hideColumn(col)
-
-        # 只显示根目录名，完整路径悬停可见（修复栏宽截断问题）
-        self.path_label = QLabel(Path(self.root_dir).name)
-        self.path_label.setObjectName("PanelTitle")  # 样式由主题 qss 统一
-        self.path_label.setToolTip(self.root_dir)
-        self.path_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
-        header = QHBoxLayout()
-        header.addStretch()
-        header.addWidget(self.path_label)
-        header.addStretch()
-
-        layout = QVBoxLayout(self)
-        layout.addLayout(header)
-        layout.addWidget(self.tree)
-        # 面板外边距：树卡片不贴窗口边缘与 splitter 把手（苹果风卡片间距）
-        layout.setContentsMargins(6, 6, 6, 6)
 
     # ------------------------------------------------------------------
     # 公开接口

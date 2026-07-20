@@ -52,39 +52,8 @@ class ChangesPanel(QWidget):
         self._repo_root: str | None = None
         self._theme = FALLBACK_THEME
 
-        # 头部栏：标题（含数量）+ 「−」收起按钮
-        self._title = QLabel("已变更", self)
-        self._title.setObjectName("PanelTitle")
-        btn_collapse = QPushButton("−", self)
-        btn_collapse.setFixedSize(28, 22)
-        btn_collapse.setToolTip("隐藏变更面板")
-        btn_collapse.clicked.connect(self.collapse_requested)
-
-        header = QWidget(self)
-        row = QHBoxLayout(header)
-        row.addWidget(self._title, 1)
-        row.addWidget(btn_collapse)
-        row.setContentsMargins(4, 2, 4, 2)
-
-        # 变更列表：文件名 | +增 | -减（无表头）
-        self._list = QTreeWidget(self)
-        self._list.setColumnCount(3)
-        self._list.setHeaderHidden(True)
-        self._list.setRootIsDecorated(False)
-        self._list.setUniformRowHeights(True)
-        header_view = self._list.header()
-        # 关键：QTreeWidget 默认 stretchLastSection=True 会把最后一列拉伸填满
-        # 剩余空间（-N 列被拉宽，+/- 两列被撑开分离），必须关掉才能让
-        # 文件名列吃满剩余空间、增减两列收紧贴右
-        header_view.setStretchLastSection(False)
-        # Qt 样式默认 minimumSectionSize=40 会把 setColumnWidth 钳到 40px，
-        # 收紧到 1 让 _fit_stat_columns 的紧凑宽度（25px 基准）生效
-        header_view.setMinimumSectionSize(1)
-        header_view.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        # 增减两列固定宽：随内容收紧（见 _fit_stat_columns），紧凑贴右不留间隙
-        header_view.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
-        header_view.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
-        self._list.itemDoubleClicked.connect(self._on_double_clicked)
+        header = self._build_header()
+        self._build_list()
 
         # PanelCard 圆角卡片包裹（对齐查看器/终端既有样式）
         card = QFrame(self)
@@ -103,6 +72,43 @@ class ChangesPanel(QWidget):
         layout.setSpacing(0)
 
         self._render()
+
+    def _build_header(self) -> QWidget:
+        """头部栏：标题（含数量）+ 「−」收起按钮。"""
+        self._title = QLabel("已变更", self)
+        self._title.setObjectName("PanelTitle")
+        collapse_button = QPushButton("−", self)
+        collapse_button.setFixedSize(28, 22)
+        collapse_button.setToolTip("隐藏变更面板")
+        collapse_button.clicked.connect(self.collapse_requested)
+
+        header = QWidget(self)
+        row = QHBoxLayout(header)
+        row.addWidget(self._title, 1)
+        row.addWidget(collapse_button)
+        row.setContentsMargins(4, 2, 4, 2)
+        return header
+
+    def _build_list(self) -> None:
+        """变更列表：文件名 | +增 | -减（无表头）。"""
+        self._list = QTreeWidget(self)
+        self._list.setColumnCount(3)
+        self._list.setHeaderHidden(True)
+        self._list.setRootIsDecorated(False)
+        self._list.setUniformRowHeights(True)
+        header_view = self._list.header()
+        # 关键：QTreeWidget 默认 stretchLastSection=True 会把最后一列拉伸填满
+        # 剩余空间（-N 列被拉宽，+/- 两列被撑开分离），必须关掉才能让
+        # 文件名列吃满剩余空间、增减两列收紧贴右
+        header_view.setStretchLastSection(False)
+        # Qt 样式默认 minimumSectionSize=40 会把 setColumnWidth 钳到 40px，
+        # 收紧到 1 让 _fit_stat_columns 的紧凑宽度（25px 基准）生效
+        header_view.setMinimumSectionSize(1)
+        header_view.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        # 增减两列固定宽：随内容收紧（见 _fit_stat_columns），紧凑贴右不留间隙
+        header_view.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
+        header_view.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
+        self._list.itemDoubleClicked.connect(self._on_double_clicked)
 
     # ------------------------------------------------------------------
     # 公开接口

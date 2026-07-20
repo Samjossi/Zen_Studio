@@ -332,37 +332,46 @@ class TerminalWidget(QWidget):
         return text.encode("utf-8") if text else b""
 
     # ------------------------------------------------------------------
-    # 绘制
+    # 绘制（paintEvent 为编排者；五阶段各成私有方法，绘制顺序即层叠次序）
     # ------------------------------------------------------------------
     def paintEvent(self, event) -> None:
         palette = self._palette
+        painter = QPainter(self)
+        painter.fillRect(self.rect(), palette.default_bg)
         if self._screen is None:
-            # 空会话占位：整幅背景 + 居中引导文本
-            painter = QPainter(self)
-            painter.fillRect(self.rect(), palette.default_bg)
-            if self._placeholder:
-                hint = QColor(palette.default_fg)
-                hint.setAlphaF(0.45)
-                painter.setPen(hint)
-                painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, self._placeholder)
+            self._paint_placeholder(painter)
             painter.end()
             return
         row_count, column_count = self.get_grid_size()
         snapshot = self._screen.snapshot(self._scroll_offset)
-
-        painter = QPainter(self)
-        painter.fillRect(self.rect(), palette.default_bg)
         normal_font = QFont(self.font())
         bold_font = QFont(normal_font)
         bold_font.setBold(True)
+        # 层叠次序：网格 → 选区 → 查找命中 → 光标（后画者覆盖先画者）
+        self._paint_grid(painter, snapshot, row_count, column_count, normal_font, bold_font)
+        self._paint_selection(painter, snapshot, column_count)
+        self._paint_search_runs(painter)
+        self._paint_cursor(painter, snapshot, column_count, normal_font)
+        painter.end()
 
+    def _paint_placeholder(self, painter: QPainter) -> None:
+        """空会话占位：居中引导文本（背景已由 paintEvent 统一填充）。"""
+        if self._placeholder:
+            hint = QColor(self._palette.default_fg)
+            hint.setAlphaF(0.45)
+            painter.setPen(hint)
+            painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, self._placeholder)
+
+    def _paint_grid(self, painter: QPainter, snapshot: list, row_count: int,
+                    column_count: int, normal_font: QFont, bold_font: QFont) -> None:
+        """网格渲染：逐行同色格合并为一趟绘制（减少 fillRect/drawText 调用）。"""
+        palette = self._palette
         for y, row in enumerate(snapshot[:row_count]):
             limit = min(column_count, len(row))  # 控件列数可能暂时宽于屏幕列数（resize 竞态）
             py = y * self._cell_h
             x = 0
             while x < limit:
                 fg, bg, bold, underline = self._cell_colors(row[x])
-                # 相邻同色格合并为一趟绘制（减少 fillRect/drawText 调用）
                 run = 1
                 while x + run < limit and self._cell_colors(row[x + run]) == (fg, bg, bold, underline):
                     run += 1
@@ -378,36 +387,42 @@ class TerminalWidget(QWidget):
                     painter.drawText(px, py + self._ascent, text)
                 x += run
 
-        # 选区高亮（画在文本之后、查找高亮与光标之前）：前景色淡染，明暗主题通用
-        if self.has_selection():
-            (sy0, sx0), (sy1, sx1) = self._normalized_selection()
-            sel_color = QColor(palette.default_fg)
-            sel_color.setAlphaF(0.28)
-            for sy in range(sy0, min(sy1, len(snapshot) - 1) + 1):
-                start_col = sx0 if sy == sy0 else 0
-                end_col = sx1 + 1 if sy == sy1 else column_count  # 端点含端格
-                painter.fillRect(start_col * self._cell_w, sy * self._cell_h,
-                                 (end_col - start_col) * self._cell_w, self._cell_h, sel_color)
+    def _paint_selection(self, painter: QPainter, snapshot: list, column_count: int) -> None:
+        """选区高亮（文本之后、查找与光标之前）：前景色淡染，明暗主题通用。"""
+        if not self.has_selection():
+            return
+        (sel_y0, sel_x0), (sel_y1, sel_x1) = self._normalized_selection()
+        sel_color = QColor(self._palette.default_fg)
+        sel_color.setAlphaF(0.28)
+        for sel_y in range(sel_y0, min(sel_y1, len(snapshot) - 1) + 1):
+            start_col = sel_x0 if sel_y == sel_y0 else 0
+            end_col = sel_x1 + 1 if sel_y == sel_y1 else column_count  # 端点含端格
+            painter.fillRect(start_col * self._cell_w, sel_y * self._cell_h,
+                             (end_col - start_col) * self._cell_w, self._cell_h, sel_color)
 
-        # 查找高亮叠加（画在光标之前，保持光标可见）：普通命中淡染、当前命中深染
-        for i, (hy, hx0, hx1) in enumerate(self._search_runs):
-            color = (QColor(255, 180, 0, 110) if i == self._search_current
+    def _paint_search_runs(self, painter: QPainter) -> None:
+        """查找命中叠加（光标之前，保持光标可见）：普通命中淡染、当前命中深染。"""
+        for index, (hit_y, hit_x0, hit_x1) in enumerate(self._search_runs):
+            color = (QColor(255, 180, 0, 110) if index == self._search_current
                      else QColor(255, 220, 100, 55))
-            painter.fillRect(hx0 * self._cell_w, hy * self._cell_h,
-                             (hx1 - hx0) * self._cell_w, self._cell_h, color)
+            painter.fillRect(hit_x0 * self._cell_w, hit_y * self._cell_h,
+                             (hit_x1 - hit_x0) * self._cell_w, self._cell_h, color)
 
-        # 光标（仅当前屏视图内）：反显单元格
-        cur = self._screen.cursor
-        if (cur and self._scroll_offset == 0 and cur.y < len(snapshot)
-                and 0 <= cur.x < min(column_count, len(snapshot[cur.y]))):
-            cx, cy = cur.x * self._cell_w, cur.y * self._cell_h
-            painter.fillRect(cx, cy, self._cell_w, self._cell_h, palette.default_fg)
-            char = snapshot[cur.y][cur.x][0]
-            if char != " ":
-                painter.setFont(normal_font)
-                painter.setPen(palette.default_bg)
-                painter.drawText(cx, cy + self._ascent, char)
-        painter.end()
+    def _paint_cursor(self, painter: QPainter, snapshot: list,
+                      column_count: int, normal_font: QFont) -> None:
+        """光标（仅当前屏视图内）：反显单元格。"""
+        cursor = self._screen.cursor
+        if not (cursor and self._scroll_offset == 0 and cursor.y < len(snapshot)
+                and 0 <= cursor.x < min(column_count, len(snapshot[cursor.y]))):
+            return
+        cursor_px = cursor.x * self._cell_w
+        cursor_py = cursor.y * self._cell_h
+        painter.fillRect(cursor_px, cursor_py, self._cell_w, self._cell_h, self._palette.default_fg)
+        char = snapshot[cursor.y][cursor.x][0]
+        if char != " ":
+            painter.setFont(normal_font)
+            painter.setPen(self._palette.default_bg)
+            painter.drawText(cursor_px, cursor_py + self._ascent, char)
 
     def _cell_colors(self, cell):
         """(char, CellStyle) → (fg, bg, bold, underline)（应用 reverse 反转）。"""

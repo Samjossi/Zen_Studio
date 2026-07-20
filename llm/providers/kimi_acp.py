@@ -73,29 +73,37 @@ class _AcpConnection:
         try:
             assert self._proc.stdout is not None
             for line in self._proc.stdout:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    obj = json.loads(line)
-                except json.JSONDecodeError:
-                    print(f"[kimi-acp] 非 JSON 帧: {line[:200]}", file=sys.stderr)
-                    continue
-                if "method" in obj and "id" in obj:
-                    self._handle_reverse(obj)  # 反向请求须及时应答，防 agent 阻塞
-                elif "method" in obj:
-                    if obj["method"] == "session/update":
-                        self._updates.put(("update", obj))
-                elif "id" in obj:
-                    if obj["id"] == self._turn_id:
-                        self._updates.put(("response", obj))
-                    elif pending_queue := self._pending.get(obj["id"]):
-                        pending_queue.put(obj)
+                self._dispatch_line(line)
         finally:
             self.is_alive = False
             self._updates.put(("dead", self._proc.poll()))
             for pending_queue in self._pending.values():
                 pending_queue.put({"error": {"code": -32099, "message": "kimi acp 进程意外退出"}})
+
+    def _dispatch_line(self, line: str) -> None:
+        """单帧分发：反向请求 / 轮次内通知与响应（→_updates）/ 控制响应（→_pending）。"""
+        line = line.strip()
+        if not line:
+            return
+        try:
+            obj = json.loads(line)
+        except json.JSONDecodeError:
+            print(f"[kimi-acp] 非 JSON 帧: {line[:200]}", file=sys.stderr)
+            return
+        if "method" in obj and "id" in obj:
+            self._handle_reverse(obj)  # 反向请求须及时应答，防 agent 阻塞
+            return
+        if "method" in obj:
+            if obj["method"] == "session/update":
+                self._updates.put(("update", obj))
+            return
+        if "id" not in obj:
+            return
+        if obj["id"] == self._turn_id:
+            self._updates.put(("response", obj))
+            return
+        if pending_queue := self._pending.get(obj["id"]):
+            pending_queue.put(obj)
 
     def _handle_reverse(self, obj: dict) -> None:
         """反向请求（agent→client）：审批经 handler 路由（无 handler 自动允许）；
@@ -310,22 +318,30 @@ class KimiAcpLLM(LanguageModel):
                 "prompt": [{"type": "text", "text": prompt}],
             })
             try:
-                while True:
-                    kind, obj = conn._updates.get()  # 无超时：agent 轮次可长达数分钟（同 kimi_cli 语义）
-                    if kind == "dead":
-                        self._session_id = None
-                        raise RuntimeError(f"kimi acp 进程意外退出（退出码 {obj}）")
-                    if kind == "response":
-                        resp = obj  # type: ignore[assignment]
-                        if "error" in resp:
-                            err = resp["error"]
-                            raise RuntimeError(f"kimi acp 对话失败 {err.get('code')}：{err.get('message')}")
-                        break  # stopReason 到达，本轮结束
-                    chunk = self._map_update(obj)  # type: ignore[arg-type]
-                    if chunk:
-                        yield chunk
+                yield from self._iter_turn_chunks(conn)
             finally:
                 conn.end_turn()
+
+    def _iter_turn_chunks(self, conn: _AcpConnection) -> Iterator[Chunk]:
+        """轮次内消息消费循环：update → Chunk；response/dead 收尾本轮。"""
+        while True:
+            kind, obj = conn._updates.get()  # 无超时：agent 轮次可长达数分钟（同 kimi_cli 语义）
+            if kind == "dead":
+                self._session_id = None
+                raise RuntimeError(f"kimi acp 进程意外退出（退出码 {obj}）")
+            if kind == "response":
+                self._raise_on_turn_error(obj)
+                return  # stopReason 到达，本轮结束
+            chunk = self._map_update(obj)
+            if chunk:
+                yield chunk
+
+    @staticmethod
+    def _raise_on_turn_error(response: dict) -> None:
+        """prompt 响应含 error 时抛错（stopReason 正常结束为静默返回）。"""
+        if "error" in response:
+            err = response["error"]
+            raise RuntimeError(f"kimi acp 对话失败 {err.get('code')}：{err.get('message')}")
 
     @staticmethod
     def _map_update(obj: dict) -> Chunk | None:
