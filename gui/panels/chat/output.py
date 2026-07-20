@@ -2,6 +2,8 @@
 from PySide6.QtGui import QColor, QTextCharFormat
 from PySide6.QtWidgets import QTextBrowser
 
+from gui.popups import exec_standard_context_menu
+
 
 class ChatOutput(QTextBrowser):
     """聊天消息显示区（纯文本渲染，第一阶段）。"""
@@ -11,6 +13,10 @@ class ChatOutput(QTextBrowser):
         self.setOpenExternalLinks(False)
         # 样式由主题 qss 统一（透明融入侧栏，无边框）
         self.setObjectName("ChatOutput")
+
+    def contextMenuEvent(self, event) -> None:
+        """标准编辑菜单透明化（见 gui/popups.py 与 0751 计划 §3.1）。"""
+        exec_standard_context_menu(self, event)
 
     def append_message(self, role: str, content: str) -> None:
         """追加一条完整消息（role 为显示名，如"我"/"AI"）。"""

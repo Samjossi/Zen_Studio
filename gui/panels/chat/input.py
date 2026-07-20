@@ -4,6 +4,8 @@ from pathlib import Path
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QTextEdit
 
+from gui.popups import exec_standard_context_menu
+
 
 class ChatInput(QTextEdit):
     """聊天输入框。
@@ -28,6 +30,13 @@ class ChatInput(QTextEdit):
     # ------------------------------------------------------------------
     def set_workspace_root(self, root: str) -> None:
         self._workspace_root = Path(root).resolve()
+
+    # ------------------------------------------------------------------
+    # 右键菜单：标准编辑菜单透明化（Qt 内部创建的 QMenu 不经修复点，
+    # 须替代默认 contextMenuEvent——见 gui/popups.py 与 0751 计划 §3.1）
+    # ------------------------------------------------------------------
+    def contextMenuEvent(self, event) -> None:
+        exec_standard_context_menu(self, event)
 
     # ------------------------------------------------------------------
     # 键盘

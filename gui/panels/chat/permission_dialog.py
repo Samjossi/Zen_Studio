@@ -5,11 +5,12 @@ from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QLabel,
-    QPlainTextEdit,
     QPushButton,
     QVBoxLayout,
     QWidget,
 )
+
+from gui.popups import TranslucentMenuPlainTextEdit
 
 #: 选项 kind → 中文按钮文案（agent 提供英文 name 时兜底）
 KIND_LABELS = {
@@ -40,7 +41,7 @@ class PermissionDialog(QDialog):
         header = QLabel(f"Kimi ACP 请求执行工具：<b>{title}</b>（{kind}）", self)
         header.setWordWrap(True)
 
-        detail = QPlainTextEdit(self)
+        detail = TranslucentMenuPlainTextEdit(self)
         detail.setReadOnly(True)
         detail.setPlainText(self._summarize(tool_call))
         detail.setFixedHeight(140)

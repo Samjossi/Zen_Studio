@@ -13,7 +13,6 @@ from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
-    QLineEdit,
     QMenu,
     QPushButton,
     QTabBar,
@@ -25,7 +24,7 @@ from gui.panels.terminal.palette import AnsiPalette
 from gui.panels.terminal.screen import TerminalScreen
 from gui.panels.terminal.session import PROJECT_ROOT, PtySession
 from gui.panels.terminal.widget import TerminalWidget
-from gui.popups import make_translucent_popup
+from gui.popups import TranslucentMenuLineEdit, make_translucent_popup
 from gui.theme import get_family, load_settings
 
 
@@ -142,7 +141,7 @@ class TerminalPanel(QWidget):
         find_row = QHBoxLayout(self._find_bar)
         find_row.setContentsMargins(6, 3, 6, 3)
         find_row.setSpacing(4)
-        self._find_input = QLineEdit(self._find_bar)
+        self._find_input = TranslucentMenuLineEdit(self._find_bar)
         self._find_input.setPlaceholderText("查找（当前屏）")
         self._find_input.setFixedWidth(180)
         self._find_input.installEventFilter(self)  # Enter=下一个 / Esc=关闭

@@ -21,7 +21,6 @@ from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
-    QLineEdit,
     QPushButton,
     QVBoxLayout,
     QWidget,
@@ -29,6 +28,7 @@ from PySide6.QtWidgets import (
 
 from gui.panels.viewer.code_viewer import CodeViewer
 from gui.panels.viewer.highlighter import PygmentsHighlighter
+from gui.popups import TranslucentMenuLineEdit
 from gui.theme import get_family, load_settings
 
 #: 大文件守卫：超过 1 MB 截断显示并提示
@@ -183,7 +183,7 @@ class ViewerPanel(QWidget):
         find_row = QHBoxLayout(self._find_bar)
         find_row.setContentsMargins(6, 3, 6, 3)
         find_row.setSpacing(4)
-        self._find_input = QLineEdit(self._find_bar)
+        self._find_input = TranslucentMenuLineEdit(self._find_bar)
         self._find_input.setPlaceholderText("查找（当前文档）")
         self._find_input.setFixedWidth(180)
         self._find_input.installEventFilter(self)  # Enter=下一个 / Esc=关闭

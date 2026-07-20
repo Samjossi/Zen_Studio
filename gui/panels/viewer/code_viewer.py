@@ -9,6 +9,7 @@ from PySide6.QtCore import QRect, QSize, Qt
 from PySide6.QtGui import QColor, QFont, QPainter, QTextCursor, QTextFormat, QTextOption
 from PySide6.QtWidgets import QApplication, QPlainTextEdit, QTextEdit, QWidget
 
+from gui.popups import exec_standard_context_menu
 from gui.theme import mono_family
 
 #: 查看器控件配色（行号/当前行/查找命中；文本高亮配色见 highlighter.PALETTES）
@@ -60,6 +61,10 @@ class CodeViewer(QPlainTextEdit):
         self.cursorPositionChanged.connect(self._highlight_current_line)
         self._update_area_width()
         self._highlight_current_line()
+
+    def contextMenuEvent(self, event) -> None:
+        """标准编辑菜单透明化（见 gui/popups.py 与 0751 计划 §3.1）。"""
+        exec_standard_context_menu(self, event)
 
     # ------------------------------------------------------------------
     # 主题
