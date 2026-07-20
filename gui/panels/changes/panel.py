@@ -1,7 +1,7 @@
 """Git 变更面板：已变更文件列表（状态着色 + 增减行数），VS Code SCM 面板简化版。
 
 2026-07-20（见 work plans/2026-0720-0215_Git变更面板实施计划.md 阶段二）：
-- 文件名按状态着色（复用 theme.GIT_STATUS_COLORS 明暗两族）：天蓝 M / 绿 U / 红 D，
+- 文件名按状态着色（色值取自主题调色板的 git_status 资源包）：天蓝 M / 绿 U / 红 D，
   已删除文件追加删除线字体
 - 右侧绿 `+N` / 红 `-N` 行数（不补零），两列按内容收紧宽度紧凑贴右；
   未跟踪文件由数据层逐条列出并补行数（status --untracked-files=all）
@@ -49,7 +49,7 @@ class ChangesPanel(QWidget):
         #: 最近一次喂入的数据（apply_theme 重绘复用）
         self._changes: list[dict] | None = None
         self._repo_root: str | None = None
-        self._family = "light"
+        self._theme = "cloud"
 
         # 头部栏：标题（含数量）+ 「−」收起按钮
         self._title = QLabel("已变更", self)
@@ -105,16 +105,16 @@ class ChangesPanel(QWidget):
     # ------------------------------------------------------------------
     # 公开接口
     # ------------------------------------------------------------------
-    def apply_changes(self, changes: list[dict] | None, repo_root: str | None, family: str) -> None:
+    def apply_changes(self, changes: list[dict] | None, repo_root: str | None, theme: str) -> None:
         """喂入变更数据并重绘（None = 非 Git 仓库/服务未启用）。"""
         self._changes = changes
         self._repo_root = repo_root
-        self._family = family
+        self._theme = theme
         self._render()
 
-    def apply_theme(self, family: str) -> None:
-        """主题切换时按新族重绘（数据不变）。"""
-        self._family = family
+    def apply_theme(self, theme: str) -> None:
+        """主题切换时按新主题重绘（数据不变）。"""
+        self._theme = theme
         self._render()
 
     # ------------------------------------------------------------------
@@ -154,7 +154,7 @@ class ChangesPanel(QWidget):
     def _add_placeholder(self, text: str) -> None:
         item = QTreeWidgetItem([text, "", ""])
         item.setFlags(Qt.ItemFlag.NoItemFlags)  # 不可选不可点
-        hint_color = git_status_color(self._family, git_status.IGNORED)
+        hint_color = git_status_color(self._theme, git_status.IGNORED)
         if hint_color:
             item.setForeground(0, QColor(hint_color))
         self._list.addTopLevelItem(item)
@@ -169,7 +169,7 @@ class ChangesPanel(QWidget):
         ])
         item.setToolTip(0, path)
 
-        color = git_status_color(self._family, st)
+        color = git_status_color(self._theme, st)
         if color:
             item.setForeground(0, QColor(color))
         if st == git_status.DELETED:
@@ -180,7 +180,7 @@ class ChangesPanel(QWidget):
         # 增减列：绿 + / 红 -，右对齐（色值复用状态注册表的 untracked/deleted）
         for col, status_key in ((1, git_status.UNTRACKED), (2, git_status.DELETED)):
             item.setTextAlignment(col, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-            stat_color = git_status_color(self._family, status_key)
+            stat_color = git_status_color(self._theme, status_key)
             if stat_color:
                 item.setForeground(col, QColor(stat_color))
 

@@ -4,6 +4,10 @@ AI-first 定位：永久只读（产品决策，`setReadOnly` 可逆）；行号
 行号栏采用 Qt 经典 lineNumberArea 模式。
 软换行（2026-07-19 决策）：WidgetWidthWrap + 单词边界优先，超长行自动折行不出水平滚动条；
 行号按逻辑行（block）编号，折出的续行无行号（与 VS Code 一致）。
+
+控件配色包（2026-07-20 资源包下沉）：行号/当前行/查找命中色值由主题调色板提供
+（gui/theme.py THEME_PALETTES[主题]["chrome"]），构造与换主题时以参数注入；
+文本高亮配色经 highlighter 以 "syntax" 包注入。
 """
 from PySide6.QtCore import QRect, QSize, Qt
 from PySide6.QtGui import QColor, QFont, QPainter, QTextCursor, QTextFormat, QTextOption
@@ -11,18 +15,6 @@ from PySide6.QtWidgets import QApplication, QPlainTextEdit, QTextEdit, QWidget
 
 from gui.popups import exec_standard_context_menu
 from gui.theme import mono_family
-
-#: 查看器控件配色（行号/当前行/查找命中；文本高亮配色见 highlighter.PALETTES）
-CHROME: dict[str, dict[str, str]] = {
-    "light": {
-        "ln_fg": "#999999", "ln_bg": "#f5f5f5", "cur_bg": "#eef4fb",
-        "find_bg": "#fff3bf", "find_cur": "#ffd43b",
-    },
-    "dark": {
-        "ln_fg": "#6b717d", "ln_bg": "#26292e", "cur_bg": "#2f333a",
-        "find_bg": "#5c4a0f", "find_cur": "#8a6d1a",
-    },
-}
 
 
 class _LineNumberArea(QWidget):
@@ -42,7 +34,7 @@ class _LineNumberArea(QWidget):
 class CodeViewer(QPlainTextEdit):
     """只读代码查看器（等宽字体、行号栏、当前行高亮、软换行）。"""
 
-    def __init__(self, theme: str = "light", parent: QWidget | None = None) -> None:
+    def __init__(self, chrome: dict[str, str], parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setReadOnly(True)  # AI-first：永久只读（产品决策；setReadOnly 可逆）
         # 软换行：按控件宽度折行，优先单词边界、无空格长串任意处硬断（不出水平滚动条）
@@ -53,7 +45,7 @@ class CodeViewer(QPlainTextEdit):
             font.setPointSizeF(app.font().pointSizeF())
         self.setFont(font)
 
-        self._chrome = CHROME.get(theme, CHROME["light"])
+        self._chrome = chrome
         self._search_selections: list[QTextEdit.ExtraSelection] = []  # 查找命中高亮
         self._line_area = _LineNumberArea(self)
         self.blockCountChanged.connect(self._update_area_width)
@@ -69,9 +61,9 @@ class CodeViewer(QPlainTextEdit):
     # ------------------------------------------------------------------
     # 主题
     # ------------------------------------------------------------------
-    def apply_theme(self, theme: str) -> None:
-        """切换行号/当前行配色并刷新。"""
-        self._chrome = CHROME.get(theme, CHROME["light"])
+    def apply_theme(self, chrome: dict[str, str]) -> None:
+        """切换行号/当前行配色包并刷新。"""
+        self._chrome = chrome
         self._line_area.update()
         self._highlight_current_line()
 

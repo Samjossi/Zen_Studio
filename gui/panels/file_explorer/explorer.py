@@ -26,7 +26,7 @@ from PySide6.QtWidgets import (
 
 from gui.panels.file_explorer.actions import ExplorerActionsMixin
 from gui.panels.file_explorer.model import NoiseFilterProxyModel
-from gui.theme import get_family, load_settings
+from gui.theme import load_settings
 
 
 class _DragOutTreeView(QTreeView):
@@ -147,19 +147,19 @@ class FileExplorer(ExplorerActionsMixin, QWidget):
         self.proxy.filter_enabled = enabled
         self.proxy.invalidateFilter()
 
-    def apply_git_status(self, service, family: str | None = None) -> None:
-        """注入 Git 状态服务并重绘着色（family 缺省取当前主题族）。"""
-        if family is None:
-            family = get_family(load_settings()["theme"])
+    def apply_git_status(self, service, theme: str | None = None) -> None:
+        """注入 Git 状态服务并重绘着色（theme 缺省取当前主题）。"""
+        if theme is None:
+            theme = load_settings()["theme"]
         self._git_service = service
-        self.proxy.set_git_service(service if service.enabled else None, family)
+        self.proxy.set_git_service(service if service.enabled else None, theme)
         self.proxy.refresh_colors()
 
-    def apply_theme(self, family: str) -> None:
-        """主题切换时同步 Git 状态色所属族（未注入服务时无副作用）。"""
+    def apply_theme(self, theme: str) -> None:
+        """主题切换时同步 Git 状态色所属主题（未注入服务时无副作用）。"""
         self.proxy.set_git_service(
             self._git_service if self._git_service is not None and self._git_service.enabled else None,
-            family,
+            theme,
         )
         self.proxy.refresh_colors()
 

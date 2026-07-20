@@ -29,7 +29,7 @@ from PySide6.QtWidgets import (
 from gui.panels.viewer.code_viewer import CodeViewer
 from gui.panels.viewer.highlighter import PygmentsHighlighter
 from gui.popups import TranslucentMenuLineEdit
-from gui.theme import get_family, load_settings
+from gui.theme import load_settings, theme_palette
 
 #: 大文件守卫：超过 1 MB 截断显示并提示
 MAX_BYTES = 1_048_576
@@ -66,10 +66,10 @@ class ViewerPanel(QWidget):
         title_layout.addWidget(self._hint_label)
         title_layout.setContentsMargins(4, 2, 4, 2)
 
-        # 高亮/行号配色只认明暗两族（light/dark），当前主题名先转族名
-        family = get_family(load_settings()["theme"])
-        self.viewer = CodeViewer(family, self)
-        self._highlighter = PygmentsHighlighter(self.viewer.document(), family)
+        # 高亮/行号配色取自主题调色板（资源包下沉，每主题自带全套）
+        palette = theme_palette(load_settings()["theme"])
+        self.viewer = CodeViewer(palette["chrome"], self)
+        self._highlighter = PygmentsHighlighter(self.viewer.document(), palette["syntax"])
 
         # PanelCard 圆角卡片包裹：标题行 + 查看器整体入卡，卡片统一描边
         # （CodeViewer 自身描边已由 qss 去除，防双重边框）
@@ -164,10 +164,11 @@ class ViewerPanel(QWidget):
         self._git_badge.setToolTip(f"相对 HEAD：新增 {added} 行，删除 {deleted} 行")
         self._git_badge.setVisible(True)
 
-    def apply_theme(self, family: str) -> None:
-        """切换配色族：同步高亮器与查看器控件配色（入参为族名 light/dark）。"""
-        self._highlighter.set_theme(family)
-        self.viewer.apply_theme(family)
+    def apply_theme(self, theme: str) -> None:
+        """切换主题：同步高亮器与查看器控件配色包（入参为主题名）。"""
+        palette = theme_palette(theme)
+        self._highlighter.set_theme(palette["syntax"])
+        self.viewer.apply_theme(palette["chrome"])
 
     def refresh_font(self) -> None:
         """全局字号调整：查看器等宽字体重建（行号栏宽随新字宽重算）。"""

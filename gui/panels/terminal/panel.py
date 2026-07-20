@@ -25,7 +25,7 @@ from gui.panels.terminal.screen import TerminalScreen
 from gui.panels.terminal.session import PROJECT_ROOT, PtySession
 from gui.panels.terminal.widget import TerminalWidget
 from gui.popups import TranslucentMenuLineEdit, make_translucent_popup
-from gui.theme import get_family, load_settings
+from gui.theme import load_settings, theme_palette
 
 
 @dataclass
@@ -47,8 +47,8 @@ class TerminalPanel(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setMinimumHeight(self.MIN_HEIGHT)
-        # 调色板只认明暗两族（light/dark），当前主题名先转族名
-        self._palette = AnsiPalette(get_family(load_settings()["theme"]))
+        # ANSI 配色取自主题调色板（资源包下沉，每主题自带全套）
+        self._palette = AnsiPalette(theme_palette(load_settings()["theme"])["terminal"])
         self._sessions: list[_Session] = []
         self._serial = 0  # tab 序号计数（只增不复用：关闭「终端2」后再新建得「终端3」；全关后归零重计）
         self._find_matches: list[tuple[int, int, int]] = []  # 查找命中段缓存
@@ -426,8 +426,8 @@ class TerminalPanel(QWidget):
         self._header.setFixedHeight(
             self._btn_clear.sizeHint().height() + margins.top() + margins.bottom())
 
-    def apply_theme(self, family: str) -> None:
-        """切换配色族：色板换新 + 全量重绘（入参为族名 light/dark）。"""
-        self._palette = AnsiPalette(family)
+    def apply_theme(self, theme: str) -> None:
+        """切换主题：色板换新 + 全量重绘（入参为主题名）。"""
+        self._palette = AnsiPalette(theme_palette(theme)["terminal"])
         self.terminal.apply_palette(self._palette)
         self._lock_header_height()  # 主题切换可能带来字号变化，头部栏高度重算

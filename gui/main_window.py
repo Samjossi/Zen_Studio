@@ -45,7 +45,6 @@ from gui.settings import (
 )
 from gui.theme import (
     apply_theme,
-    get_family,
     get_label,
     load_settings,
     save_theme,
@@ -152,7 +151,7 @@ class MainWindow(QMainWindow):
         self.changes_panel.apply_changes(
             service.changes() if service.enabled else None,
             service.repo_root,
-            get_family(load_settings()["theme"]),
+            load_settings()["theme"],
         )
         self._update_git_stat_label()
 
@@ -239,16 +238,15 @@ class MainWindow(QMainWindow):
     # 主题切换（视图菜单 ▸ 外观；QActionGroup 单回调读 data 载荷）
     # ------------------------------------------------------------------
     def switch_theme(self, theme: str) -> None:
-        """切换主题：持久化 + 即时应用，并同步查看器/终端所属族配色。"""
+        """切换主题：持久化 + 即时应用，并同步四面板各自的主题资源包。"""
         save_theme(theme)
         app = QApplication.instance()
         if app is not None:
             apply_theme(app)
-        family = get_family(theme)  # 高亮/终端/行号/Git 状态色只认明暗两族
-        self.viewer_panel.apply_theme(family)
-        self.terminal_panel.apply_theme(family)
-        self.file_explorer.apply_theme(family)
-        self.changes_panel.apply_theme(family)
+        self.viewer_panel.apply_theme(theme)
+        self.terminal_panel.apply_theme(theme)
+        self.file_explorer.apply_theme(theme)
+        self.changes_panel.apply_theme(theme)
         if action := self.menus.get(f"appearance.theme.{theme}"):
             action.setChecked(True)
         self.statusBar().showMessage(f"已切换为{get_label(theme)}主题", 3000)

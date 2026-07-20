@@ -1,36 +1,19 @@
-"""ANSI 调色板：16 色 × 明暗双主题（渲染层消费：颜色名 → QColor）。
+"""ANSI 调色板：颜色名 → QColor 查表（渲染层消费）。
 
 pyte 的颜色表示：基础色为名字串（"red"/"brightred"…），256 色为 6 位 hex 串，
 默认前后景为 "default"。
+
+配色包（2026-07-20 资源包下沉）：16 色表由主题调色板提供
+（gui/theme.py THEME_PALETTES[主题]["terminal"]），构造时以参数注入，
+本模块不再自存配色表。
 """
 from PySide6.QtGui import QColor
-
-#: 明暗双主题 16 色表（与 config/themes/ 同源色板）
-PALETTES: dict[str, dict[str, str]] = {
-    "light": {
-        "default_fg": "#1a1a1a", "default_bg": "#ffffff",
-        "black": "#000000", "red": "#c41a16", "green": "#007a1c", "brown": "#a05000",
-        "blue": "#0451a5", "magenta": "#a02c91", "cyan": "#168396", "white": "#767676",
-        "brightblack": "#555555", "brightred": "#e5484d", "brightgreen": "#18a058",
-        "brightbrown": "#c26a00", "brightblue": "#1a6fd4", "brightmagenta": "#c044ae",
-        "brightcyan": "#00a7b5", "brightwhite": "#000000",
-    },
-    "dark": {
-        "default_fg": "#d4d4d4", "default_bg": "#1e1e1e",
-        "black": "#4d4d4d", "red": "#f14c4c", "green": "#23d18b", "brown": "#e5e510",
-        "blue": "#3b8eea", "magenta": "#d670d6", "cyan": "#29b8db", "white": "#e5e5e5",
-        "brightblack": "#666666", "brightred": "#ff6e67", "brightgreen": "#5ff7a0",
-        "brightbrown": "#f4f47c", "brightblue": "#6ea6ff", "brightmagenta": "#e28bff",
-        "brightcyan": "#4de8ff", "brightwhite": "#ffffff",
-    },
-}
 
 
 class AnsiPalette:
     """一次主题实例：颜色名 → QColor 查表（256 色 hex 串直接解析）。"""
 
-    def __init__(self, theme: str) -> None:
-        colors = PALETTES.get(theme, PALETTES["light"])
+    def __init__(self, colors: dict[str, str]) -> None:
         self.default_fg = QColor(colors["default_fg"])
         self.default_bg = QColor(colors["default_bg"])
         self._colors = {

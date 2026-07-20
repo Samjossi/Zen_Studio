@@ -2,6 +2,10 @@
 
 只读查看器场景设计：内容仅在打开/重载/换主题时整体变化，无需 QSyntaxHighlighter
 逐行增量状态机；整文档 lexing 使多行 token（块注释/多行字符串）天然正确。
+
+配色包（2026-07-20 资源包下沉）：token 类别 → 样式字典由主题调色板提供
+（gui/theme.py THEME_PALETTES[主题]["syntax"]），构造与换主题时以参数注入，
+本模块不再自存配色表。
 """
 from bisect import bisect_left
 
@@ -10,44 +14,6 @@ from pygments.lexers import get_lexer_for_filename
 from pygments.lexers.special import TextLexer
 from pygments.token import Token
 from PySide6.QtGui import QColor, QFont, QSyntaxHighlighter, QTextCharFormat, QTextDocument
-
-#: 明暗双主题高亮配色表（token 类别 → 样式；色板与 config/themes/ 同源）
-PALETTES: dict[str, dict] = {
-    "light": {
-        Token.Keyword: {"color": "#0000AF", "bold": True},
-        Token.Keyword.Namespace: {"color": "#7A3DB8", "bold": True},
-        Token.Name.Builtin: {"color": "#7A3DB8"},
-        Token.Name.Function: {"color": "#803080"},
-        Token.Name.Class: {"color": "#2050A0", "bold": True},
-        Token.Name.Decorator: {"color": "#806000"},
-        Token.String: {"color": "#007A1C"},
-        Token.Number: {"color": "#A0522D"},
-        Token.Comment: {"color": "#888888", "italic": True},
-        Token.Operator: {"color": "#333333"},
-        Token.Generic.Heading: {"color": "#2050A0", "bold": True},
-        Token.Generic.Subheading: {"color": "#2050A0", "bold": True},
-        Token.Generic.Strong: {"bold": True},
-        Token.Generic.Emph: {"italic": True},
-        Token.Error: {"color": "#CC0000"},
-    },
-    "dark": {
-        Token.Keyword: {"color": "#6EA6FF", "bold": True},
-        Token.Keyword.Namespace: {"color": "#C678DD", "bold": True},
-        Token.Name.Builtin: {"color": "#56B6C2"},
-        Token.Name.Function: {"color": "#61AFEF"},
-        Token.Name.Class: {"color": "#E5C07B", "bold": True},
-        Token.Name.Decorator: {"color": "#C678DD"},
-        Token.String: {"color": "#98C379"},
-        Token.Number: {"color": "#D19A66"},
-        Token.Comment: {"color": "#7F848E", "italic": True},
-        Token.Operator: {"color": "#ABB2BF"},
-        Token.Generic.Heading: {"color": "#E5C07B", "bold": True},
-        Token.Generic.Subheading: {"color": "#E5C07B", "bold": True},
-        Token.Generic.Strong: {"bold": True},
-        Token.Generic.Emph: {"italic": True},
-        Token.Error: {"color": "#E06C75"},
-    },
-}
 
 
 def _build_formats(palette: dict) -> dict:
@@ -75,15 +41,15 @@ def _lookup(formats: dict, toktype) -> QTextCharFormat | None:
 class PygmentsHighlighter(QSyntaxHighlighter):
     """整文档 lexing 的区间缓存高亮器（按文件名探测 lexer，未知类型回退纯文本）。"""
 
-    def __init__(self, document: QTextDocument, theme: str) -> None:
+    def __init__(self, document: QTextDocument, pack: dict) -> None:
         super().__init__(document)
         self._spans: list[tuple[int, int, QTextCharFormat]] = []  # (start, end, fmt)，连续有序
         self._ends: list[int] = []
-        self._formats = _build_formats(PALETTES.get(theme, PALETTES["light"]))
+        self._formats = _build_formats(pack)
 
-    def set_theme(self, theme: str) -> None:
-        """切换主题：重建格式表并重绘（区间缓存与颜色无关，可复用）。"""
-        self._formats = _build_formats(PALETTES.get(theme, PALETTES["light"]))
+    def set_theme(self, pack: dict) -> None:
+        """切换主题：以新配色包重建格式表并重绘（区间缓存与颜色无关，可复用）。"""
+        self._formats = _build_formats(pack)
         self.rehighlight()
 
     def set_source(self, filename: str, text: str) -> None:
