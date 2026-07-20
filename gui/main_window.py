@@ -14,6 +14,10 @@ Git 状态可视化（2026-07-20，见 work plans/2026-0720-0131 计划阶段四
 ActionRegistry 全局注册表）；本类保留面板、槽函数与面板显隐单一入口。
 工作区根切换（打开文件夹）：文件树/聊天@路径/终端 cwd/Git 服务四处联动，
 workspace_root 持久化供启动恢复。
+
+窗口四边距体系（2026-07-20，见 work plans/2026-0720-1218_GUI窗口四周边距
+均衡实施计划.md）：面板内 6px 外边距承担卡片↔把手间距；中央容器补 6px
+窗口级边距（左/上/右）；底部呼吸区由状态栏结构性提供（容器下边距 0）。
 """
 from pathlib import Path
 
@@ -27,6 +31,8 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMessageBox,
     QSplitter,
+    QVBoxLayout,
+    QWidget,
 )
 
 from core.git import GitStatusService
@@ -96,7 +102,14 @@ class MainWindow(QMainWindow):
         # 防折叠：右栏文件树最小宽度由 FileExplorer.MIN_WIDTH 约束
         self._splitter_main.setCollapsible(2, False)
 
-        self.setCentralWidget(self._splitter_main)
+        # 中央容器：窗口级外边距（左/上/右各 6px；底部 0——状态栏已提供呼吸区），
+        # 面板内 6px 外边距继续承担卡片↔把手间距，职责分离可独立调参
+        central = QWidget(self)
+        outer = QVBoxLayout(central)
+        outer.setContentsMargins(6, 6, 6, 0)
+        outer.setSpacing(0)
+        outer.addWidget(self._splitter_main)
+        self.setCentralWidget(central)
 
         # 菜单栏：gui/menus 包装配（注册表 + AI 模型菜单控制器）
         self.menus = MenuBar(self)
