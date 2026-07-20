@@ -136,8 +136,9 @@ QComboBox::drop-down {
 }
 
 QComboBox QAbstractItemView {
-    background-color: #ffffff;
+    background-color: #edf5ed;
     color: #20301f;  /* 顶级浮层，不继承 QMainWindow 颜色 */
+    border-radius: 8px;
     border: 1px solid rgba(0, 0, 0, 0.15);
     selection-background-color: #15803d;
     selection-color: #ffffff;
