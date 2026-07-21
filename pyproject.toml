@@ -1,6 +1,7 @@
 [project]
 name = "zen-studio"
 version = "0.1.0"
+description = "AI 优先的桌面 IDE：以本机 agent CLI 为统一后端（零密钥），集聊天、代码查看、文件树与真 PTY 终端于一体"
 requires-python = ">=3.12"
 dependencies = [
     "ptyprocess>=0.7.0",
