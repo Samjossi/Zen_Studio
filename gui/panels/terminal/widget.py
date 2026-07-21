@@ -6,6 +6,8 @@
 决策在 panel，保持层间单向依赖）。
 阶段三新增：鼠标拖选选区（可视快照行坐标，滚动即清除）、Ctrl+Shift+C 复制 /
 Ctrl+Shift+V 粘贴（写剪贴板无副作用、粘贴与键盘输入同路径，均 widget 自治）。
+2026-07-21 新增：复制/粘贴快捷键反转开关（set_swap_copy_paste，设置菜单勾选项
+经 panel 即时注入；反转后 Ctrl+C/V 复制粘贴、Ctrl+Shift+C/V 回落 VT100 转换）。
 """
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import (
@@ -64,6 +66,8 @@ class TerminalWidget(QWidget):
         self._search_current = -1  # 当前命中索引
         # 选区状态机（纯逻辑外置 SelectionController；可视快照行坐标，滚动即清除）
         self._selection = SelectionController()
+        # 复制/粘贴快捷键反转标志（panel 装配注入；默认 False = Ctrl+Shift+C/V 复制粘贴）
+        self._swap_copy_paste = False
 
         font = QFont(get_mono_family())  # 库内等宽族（Sarasa Term SC），注册缺失回退 monospace
         if app := QApplication.instance():
@@ -98,6 +102,14 @@ class TerminalWidget(QWidget):
 
     def set_session(self, session) -> None:
         self._session = session
+
+    def set_swap_copy_paste(self, enabled: bool) -> None:
+        """复制/粘贴快捷键反转（设置菜单勾选项，即时生效、无需重启）。
+
+        True：Ctrl+C/V 复制粘贴，Ctrl+Shift+C/V 不拦截、落入 key_to_bytes
+        发 \\x03（SIGINT）/ \\x16（quoted-insert）；False 为默认的反向布局。
+        """
+        self._swap_copy_paste = enabled
 
     def apply_palette(self, palette: AnsiPalette) -> None:
         """主题切换：换色板全量重绘（屏幕模型只含颜色名，免重算）。"""
@@ -171,7 +183,7 @@ class TerminalWidget(QWidget):
         return self._selection.extract_text(self._screen.snapshot(self._scroll_offset))
 
     def copy_selection(self) -> None:
-        """复制选区到剪贴板（Ctrl+Shift+C / 右键菜单共用；复制后保留选区）。"""
+        """复制选区到剪贴板（快捷键与右键菜单共用入口；复制后保留选区）。"""
         if text := self.selected_text():
             QGuiApplication.clipboard().setText(text)
 
@@ -270,9 +282,16 @@ class TerminalWidget(QWidget):
                 and event.modifiers() & Qt.KeyboardModifier.ControlModifier):
             self.find_requested.emit()
             return
-        # Ctrl+Shift+C/V 复制粘贴：同样拦截在 VT100 转换之前（Ctrl+C 不加 Shift 仍是 SIGINT）
-        if event.modifiers() == (Qt.KeyboardModifier.ControlModifier
-                                 | Qt.KeyboardModifier.ShiftModifier):
+        # 复制粘贴快捷键：拦截在 VT100 转换之前。默认 Ctrl+Shift+C/V；
+        # 反转模式（设置 ▸ 终端：Ctrl+C/V 复制粘贴）改为 Ctrl+C/V 复制粘贴，
+        # Ctrl+Shift+C/V 不拦截、自然落入 key_to_bytes 发 \x03(SIGINT)/\x16(quoted-insert)
+        # ——key_to_bytes 只检查 Ctrl 不排斥 Shift，反向路径零新增代码。
+        # 已知预期行为（严格交换，无智能回退）：反转模式下无选区按 Ctrl+C 无任何效果。
+        copy_paste_modifiers = (Qt.KeyboardModifier.ControlModifier
+                                if self._swap_copy_paste else
+                                Qt.KeyboardModifier.ControlModifier
+                                | Qt.KeyboardModifier.ShiftModifier)
+        if event.modifiers() == copy_paste_modifiers:
             if event.key() == Qt.Key.Key_C:
                 self.copy_selection()
                 return

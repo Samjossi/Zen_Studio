@@ -13,7 +13,11 @@ from PySide6.QtGui import QAction, QActionGroup
 from PySide6.QtWidgets import QMainWindow, QMenu, QMenuBar
 
 from gui.menus.registry import ActionRegistry
-from gui.settings import KEY_MODEL_BACKEND, KEY_MODEL_VERSION
+from gui.settings import (
+    KEY_MODEL_BACKEND,
+    KEY_MODEL_VERSION,
+    KEY_TERMINAL_SWAP_COPY_PASTE,
+)
 from gui.theme import load_settings
 from llm import BACKEND_KIMI_CLI, BACKEND_LABELS, kimi_available, list_kimi_models
 
@@ -122,6 +126,15 @@ def build(menubar: QMenuBar, ctx: QMainWindow, actions: ActionRegistry) -> Model
         action = submenu.addAction(label)
         action.triggered.connect(slot)
         actions.register(key, action)
+
+    menu.addSeparator()
+
+    # 终端复制/粘贴快捷键反转（布尔开关：持久化 + MainWindow 即时下发终端面板）
+    action = menu.addAction("终端：Ctrl+C/V 复制粘贴(&T)")
+    action.setCheckable(True)
+    action.setChecked(load_settings()[KEY_TERMINAL_SWAP_COPY_PASTE])
+    action.triggered.connect(ctx.set_terminal_swap_copy_paste)
+    actions.register("settings.terminal_swap_copy_paste", action)
 
     menu.addSeparator()
 

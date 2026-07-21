@@ -27,7 +27,7 @@ from gui.panels.terminal.screen import TerminalScreen
 from gui.panels.terminal.session import PtySession
 from gui.panels.terminal.widget import TerminalWidget
 from gui.popups import make_translucent_popup
-from gui.settings import KEY_THEME
+from gui.settings import KEY_TERMINAL_SWAP_COPY_PASTE, KEY_THEME
 from gui.theme import load_settings, get_theme_palette
 
 
@@ -61,6 +61,9 @@ class TerminalPanel(QWidget):
         self._build_terminal_area()
         self._build_find_bar()
         self._connect_signals()
+
+        # 复制/粘贴快捷键反转初值注入（设置菜单勾选后经 set_swap_copy_paste 即时改）
+        self.terminal.set_swap_copy_paste(load_settings()[KEY_TERMINAL_SWAP_COPY_PASTE])
 
         # 首次启动延迟到拿到真实网格尺寸：构造时控件尚未布局（高≈0 → 网格仅 1 行），
         # 立即 spawn 会让 bash 首屏输出被 pyte resize 的 xterm 沉底语义固定到末行
@@ -298,6 +301,14 @@ class TerminalPanel(QWidget):
     def set_cwd(self, cwd: str) -> None:
         """设置新会话工作目录（工作区切换）；已存在会话不受影响。"""
         self._cwd = cwd
+
+    def set_swap_copy_paste(self, enabled: bool) -> None:
+        """复制/粘贴快捷键反转（设置菜单勾选项，即时生效、无需重启）。
+
+        全面板仅一个 TerminalWidget（多会话重绑定复用同一控件），
+        下发一次即对所有现存与新建会话生效，无多实例下发问题。
+        """
+        self.terminal.set_swap_copy_paste(enabled)
 
     def show_find(self) -> None:
         """打开查找浮层（编辑菜单「查找」焦点分发入口）。"""

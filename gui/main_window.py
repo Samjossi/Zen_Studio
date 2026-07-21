@@ -61,6 +61,7 @@ from gui.settings import (
     KEY_FONT_SIZE,
     KEY_MODEL_BACKEND,
     KEY_MODEL_VERSION,
+    KEY_TERMINAL_SWAP_COPY_PASTE,
     KEY_THEME,
     KEY_WORKSPACE_ROOT,
     SETTINGS_FILE,
@@ -411,6 +412,13 @@ class MainWindow(QMainWindow):
         if self.menus.model_menu is not None:
             self.menus.model_menu.sync(bar.current_backend(), bar.current_version())
 
+    def set_terminal_swap_copy_paste(self, checked: bool) -> None:
+        """终端复制/粘贴快捷键反转：持久化 + 即时下发终端面板（无需重启）。"""
+        update_settings({KEY_TERMINAL_SWAP_COPY_PASTE: checked})
+        self.terminal_panel.set_swap_copy_paste(checked)
+        hint = "Ctrl+C/V 复制粘贴" if checked else "Ctrl+Shift+C/V 复制粘贴"
+        self.statusBar().showMessage(f"终端快捷键：{hint}", self.STATUS_MSG_SHORT_MS)
+
     def _on_modelbar_changed(self, backend: str, version: object) -> None:
         """ModelBar 用户切换 → 菜单勾选态（setChecked 不触发 triggered，无回环）。"""
         if self.menus.model_menu is not None:
@@ -448,7 +456,7 @@ class MainWindow(QMainWindow):
             # 阻断同会话 closeEvent 回写当前布局（否则重置被静默撤销）
             self._state_store.disable_save()
 
-        # 即时应用：主题（含四面板配色）→ 字号 → 模型 → 噪音过滤 → 工作区
+        # 即时应用：主题（含四面板配色）→ 字号 → 模型 → 噪音过滤 → 终端快捷键 → 工作区
         settings = load_settings()
         self.switch_theme(settings[KEY_THEME])
         self._apply_font_size(settings[KEY_FONT_SIZE])
@@ -460,6 +468,10 @@ class MainWindow(QMainWindow):
         if action := self.menus.get(KEY_VIEW_NOISE_FILTER):
             action.setChecked(True)
         self.file_explorer.set_noise_filter(True)
+        swap = settings[KEY_TERMINAL_SWAP_COPY_PASTE]  # 重置后为默认 False
+        self.terminal_panel.set_swap_copy_paste(swap)
+        if action := self.menus.get("settings.terminal_swap_copy_paste"):
+            action.setChecked(swap)
         default_root = str(PROJECT_ROOT)
         if self.file_explorer.root_dir != default_root:
             self._switch_workspace(default_root)
