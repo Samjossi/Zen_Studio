@@ -29,9 +29,18 @@ class PermissionDialog(QDialog):
     关闭/ESC 返回 None，由上层按"拒绝"兜底。
     """
 
-    def __init__(self, params: PermissionParams, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        params: PermissionParams,
+        parent: QWidget | None = None,
+        danger_reason: str | None = None,
+    ) -> None:
+        """
+        :param danger_reason: 危险命令黑名单命中原因（方案 F）；非 None 时
+            标题改警示并展示原因行（危险场景三态按钮保留，用户可拒）
+        """
         super().__init__(parent)
-        self.setWindowTitle("工具审批")
+        self.setWindowTitle("危险命令审批" if danger_reason else "工具审批")
         self.setModal(True)
         self._option_id: str | None = None
 
@@ -41,6 +50,12 @@ class PermissionDialog(QDialog):
 
         header = QLabel(f"Kimi ACP 请求执行工具：<b>{title}</b>（{kind}）", self)
         header.setWordWrap(True)
+
+        warning: QLabel | None = None
+        if danger_reason:
+            warning = QLabel(f"⚠ 命中危险命令黑名单：{danger_reason}", self)
+            warning.setWordWrap(True)
+            warning.setStyleSheet("color: #c0392b; font-weight: bold;")
 
         detail = TranslucentMenuPlainTextEdit(self)
         detail.setReadOnly(True)
@@ -57,6 +72,8 @@ class PermissionDialog(QDialog):
 
         layout = QVBoxLayout(self)
         layout.addWidget(header)
+        if warning is not None:
+            layout.addWidget(warning)
         layout.addWidget(detail)
         layout.addWidget(buttons)
 

@@ -16,7 +16,9 @@ from gui.menus.registry import ActionRegistry
 from gui.settings import (
     KEY_MODEL_BACKEND,
     KEY_MODEL_VERSION,
+    KEY_PERMISSION_AUTO_ALLOW,
     KEY_TERMINAL_SWAP_COPY_PASTE,
+    update_settings,
 )
 from gui.theme import load_settings
 from llm import BACKEND_KIMI_CLI, BACKEND_LABELS, kimi_available, list_kimi_models
@@ -135,6 +137,15 @@ def build(menubar: QMenuBar, ctx: QMainWindow, actions: ActionRegistry) -> Model
     action.setChecked(load_settings()[KEY_TERMINAL_SWAP_COPY_PASTE])
     action.triggered.connect(ctx.set_terminal_swap_copy_paste)
     actions.register("settings.terminal_swap_copy_paste", action)
+
+    # AI 工具自动放行（方案 F 默认放手）：勾选即持久化，审批决策读取时
+    # 即时生效（无需下发）；取消勾选 = 逃生舱，恢复逐次确认弹窗现状
+    action = menu.addAction("AI 工具自动放行（危险命令仍弹窗）(&A)")
+    action.setCheckable(True)
+    action.setChecked(load_settings()[KEY_PERMISSION_AUTO_ALLOW])
+    action.triggered.connect(
+        lambda checked=False: update_settings({KEY_PERMISSION_AUTO_ALLOW: bool(checked)}))
+    actions.register("settings.permission_auto_allow", action)
 
     menu.addSeparator()
 

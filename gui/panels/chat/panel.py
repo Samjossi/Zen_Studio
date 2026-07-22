@@ -13,7 +13,7 @@ from gui.panels.chat.input import ChatInput
 from gui.panels.chat.output import ChatOutput
 from gui.panels.chat.permission_queue import PERMISSION_QUEUE
 from gui.panels.chat.worker import ChatWorker
-from gui.settings import KEY_THEME
+from gui.settings import KEY_PERMISSION_AUTO_ALLOW, KEY_THEME
 from gui.theme import get_theme_palette, load_settings
 from gui.window_state import decode_state, encode_state
 from llm import (
@@ -28,6 +28,7 @@ from llm import (
     PermissionParams,
     kimi_available,
 )
+from llm.permission_policy import DECISION_ALLOW, decide_permission, select_option_id
 
 #: 系统提示词（第一阶段固定）
 SYSTEM_PROMPT = "你是 Zen Studio IDE 的内置助手，回答简洁，使用中文。"
@@ -187,13 +188,26 @@ class ChatPanel(QWidget):
         self._splitter.setSizes(self.DEFAULT_SPLITTER_SIZES)
 
     # ------------------------------------------------------------------
-    # ACP 审批回环（reader 线程 → 全局队列 → GUI 线程串行弹框）
+    # ACP 审批回环（方案 F 默认放手：纯逻辑前置决策，仅黑名单命中走队列弹框）
     # ------------------------------------------------------------------
     def _ask_permission(self, params: PermissionParams) -> str | None:
-        """ACP 审批处理器：在 agent reader 线程被调用；提交全局审批队列。
+        """ACP 审批处理器：在 agent reader 线程被调用。
 
-        返回选中的 optionId；用户关闭或超时返回 None（上层按拒绝兜底）。
+        自动放行开关开（默认）：decide_permission 纯函数前置决策——allow 直接
+        同步返回 optionId（零 GUI、零阻塞，不触碰队列/QTimer）；仅危险命令
+        黑名单命中才提交全局审批队列弹窗（附命中原因）。开关关：逃生舱，
+        恢复逐次确认现状（全部走弹窗）。返回 None 由上层按拒绝兜底。
         """
+        if load_settings()[KEY_PERMISSION_AUTO_ALLOW]:
+            decision, reason = decide_permission(params)
+            if decision == DECISION_ALLOW:
+                option_id = select_option_id(params.get("options") or [])
+                if option_id is not None:
+                    return option_id
+                # 决策为 allow 但 agent 未提供 allow 类选项：不静默拒绝
+                # （None 会被上层兜底为 reject），降级普通弹窗交还用户裁决
+                return PERMISSION_QUEUE.ask(params, self)
+            return PERMISSION_QUEUE.ask(params, self, danger_reason=reason)
         return PERMISSION_QUEUE.ask(params, self)
 
     # ------------------------------------------------------------------

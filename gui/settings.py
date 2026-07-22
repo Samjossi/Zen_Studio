@@ -11,7 +11,7 @@ settings.json，update_settings 以 flock 串行化"读-合并-写"三步根治�
 写临时文件 + os.replace 原子覆盖防文件损坏；工作区根改由启动参数决定，
 不再持久化（KEY_WORKSPACE_ROOT 已删，存量旧键读取即丢弃自然失效）。
 
-键空间由 AppSettings 定型（6 个固定键），消费侧一律经 KEY_* 常量
+键空间由 AppSettings 定型（7 个固定键），消费侧一律经 KEY_* 常量
 引用键名，禁止裸字符串键（AFCP 3.1：数据结构显式）。
 """
 import fcntl
@@ -38,6 +38,7 @@ KEY_FONT_FAMILY = "font_family"
 KEY_MODEL_BACKEND = "model_backend"
 KEY_MODEL_VERSION = "model_version"
 KEY_TERMINAL_SWAP_COPY_PASTE = "terminal_swap_copy_paste"
+KEY_PERMISSION_AUTO_ALLOW = "permission_auto_allow"
 
 #: 默认主题名（全库唯一来源；theme.py FALLBACK_THEME 与各面板缺省主题均引用此值，
 #: 不可反向引用 theme.py——theme 依赖本模块，反向成环）
@@ -45,7 +46,7 @@ DEFAULT_THEME = "cloud"
 
 
 class AppSettings(TypedDict):
-    """settings.json 全量结构（6 个固定键，均为用户偏好）。"""
+    """settings.json 全量结构（7 个固定键，均为用户偏好）。"""
 
     theme: str                   # 主题名（gui/theme.py 注册表键）
     font_size: int               # 全局 UI 字号（pt）
@@ -56,6 +57,9 @@ class AppSettings(TypedDict):
     model_version: str | None
     #: 终端复制/粘贴快捷键反转（True：Ctrl+C/V 复制粘贴，Ctrl+Shift+C/V 发 SIGINT/\x16）
     terminal_swap_copy_paste: bool
+    #: AI 工具自动放行（方案 F 默认放手；True：仅危险命令黑名单命中弹窗，
+    #: False：恢复逐次确认现状——逃生舱）
+    permission_auto_allow: bool
 
 
 class AppSettingsPatch(TypedDict, total=False):
@@ -67,6 +71,7 @@ class AppSettingsPatch(TypedDict, total=False):
     model_backend: str
     model_version: str | None
     terminal_swap_copy_paste: bool
+    permission_auto_allow: bool
 
 
 #: 默认值：文件缺失 / 字段缺失 / JSON 损坏时回退
@@ -77,6 +82,7 @@ DEFAULT_SETTINGS: AppSettings = {
     KEY_MODEL_BACKEND: BACKEND_KIMI_CLI,
     KEY_MODEL_VERSION: None,
     KEY_TERMINAL_SWAP_COPY_PASTE: False,
+    KEY_PERMISSION_AUTO_ALLOW: True,
 }
 
 

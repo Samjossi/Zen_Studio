@@ -19,7 +19,7 @@ from llm import PermissionParams
 #: 审批等待超时（秒）；超时按拒绝兜底，防 agent 永久阻塞
 PERMISSION_TIMEOUT_S = 180
 
-#: 队列条目：[params, parent, choice, done, is_stale, is_claimed]
+#: 队列条目：[params, parent, choice, done, is_stale, is_claimed, danger_reason]
 _Entry = list
 
 
@@ -31,14 +31,21 @@ class PermissionQueue:
         self._pending: deque[_Entry] = deque()
         self._is_showing = False
 
-    def ask(self, params: PermissionParams, parent: QWidget) -> str | None:
+    def ask(
+        self,
+        params: PermissionParams,
+        parent: QWidget,
+        danger_reason: str | None = None,
+    ) -> str | None:
         """agent reader 线程调用：排队等弹窗，返回 optionId（None = 拒绝兜底）。
 
+        :param danger_reason: 危险命令黑名单命中原因（方案 F）；非 None 时
+            对话框加警示标题与原因行
         超时条目仅当未被 pump 认领时才标记作废（is_stale），消除"已按拒绝
         兜底、僵尸弹框仍弹出占队"的 TOCTOU 窗口；已认领（弹窗中）则结果
         自然丢弃。
         """
-        entry: _Entry = [params, parent, None, threading.Event(), False, False]
+        entry: _Entry = [params, parent, None, threading.Event(), False, False, danger_reason]
         with self._lock:
             self._pending.append(entry)
         # QTimer.singleShot(receiver, callable)：callable 在 receiver 所在
@@ -81,7 +88,7 @@ class PermissionQueue:
         try:
             if not isValid(entry[1]):  # parent 标签排队期间被关闭销毁
                 return
-            dialog = PermissionDialog(entry[0], entry[1])
+            dialog = PermissionDialog(entry[0], entry[1], danger_reason=entry[6])
             dialog.exec()
             entry[2] = dialog.selected_option_id()
         except RuntimeError:
