@@ -72,13 +72,13 @@
 | 面板显隐 | 单一入口法：`MainWindow.set_xxx_visible` 同步注册表勾选态与可见性，菜单勾选与面板头部「−」按钮汇入 |
 | 启用态刷新 | 编辑（复制/全选）与终端（清屏/终止）菜单在 `aboutToShow` 按焦点控件能力/会话存活态即时刷新 |
 
-菜单内容速览：**文件**（打开文件 / 在新窗口打开文件夹=多开进程 / 打开配置目录 / 退出）；**编辑**（复制 / 全选——转发焦点控件；查找——按焦点分发终端或查看器浮层）；**视图**（四面板显隐 / 噪音过滤 / 恢复默认布局 / Git 刷新 / 外观▸主题互斥组）；**终端**（新建 / 清屏 / 重开 / 终止，与头部按钮、右键菜单同一实现路径）；**设置**（AI 模型▸与 ModelBar 双向同步、字体大小▸、打开配置文件、恢复默认设置）；**帮助**（关于）。
+菜单内容速览：**文件**（打开文件 / 在新窗口打开文件夹=多开进程 / 打开配置目录 / 退出）；**编辑**（复制 / 全选——转发焦点控件；查找——按焦点分发终端或查看器浮层）；**视图**（四面板显隐 / 噪音过滤 / 恢复默认布局 / Git 刷新 / 外观▸主题互斥组）；**终端**（新建 / 清屏 / 重开 / 终止，与头部按钮、右键菜单同一实现路径）；**设置**（设置中心…——唯一偏好配置面 / 打开配置文件 / 恢复默认设置，三项入口菜单）；**帮助**（关于）。
 
 **多开工作区**（文件 ▸ 在新窗口打开文件夹，2026-07-22 多实例多标签改造）：一进程绑定一工作区根（启动参数 `uv run main.py [folder]` 注入，缺省回退项目根），「打开文件夹」改为 `subprocess.Popen` 起新进程；进程边界天然隔离文件树/终端/Git/agent cwd。非默认工作区窗口标题标注根路径。共享配置并发治理：`settings.json` 经 flock 文件锁串行化"读-合并-写" + 原子写；窗口状态按工作区哈希分文件（`config/window_state_<hash8>.json`），各窗口恢复各自几何。
 
 ## 5. 聊天面板（左栏）
 
-`ChatTabs` 标签容器（上限 4）：顶部全局 `ModelBar`（模型 + 版本双下拉，全部标签共享同一选择，切换广播到所有标签），下方每标签一个独立 `ChatPanel`。`ChatPanel` 上输出（QTextBrowser）下输入（QTextEdit）垂直分栏，Enter 发送 / Shift+Enter 换行；流式调用放 `ChatWorker(QThread)` 后台线程，逐块信号上屏，UI 不冻结。每标签**自持 provider 实例**（独立 `kimi acp` 连接，标签间完全隔离可并行）。对话统一经本机 agent CLI（Kimi Code CLI），代码库零 API KEY。从文件树或系统文件管理器**拖入文件 → 落点插入 `@工作区相对路径 ` 引用**（纯文本透传，由后端 agent CLI 解析）；模型选择持久化到 `config/settings.json`。多标签审批经全局 `PermissionQueue` 串行弹窗；任一标签响应中即禁用全局 ModelBar 与设置菜单 AI 模型组。
+`ChatTabs` 标签容器（上限 4）：顶部全局 `ModelBar`（模型 + 版本双下拉，全部标签共享同一选择，切换广播到所有标签），下方每标签一个独立 `ChatPanel`。`ChatPanel` 上输出（QTextBrowser）下输入（QTextEdit）垂直分栏，Enter 发送 / Shift+Enter 换行；流式调用放 `ChatWorker(QThread)` 后台线程，逐块信号上屏，UI 不冻结。每标签**自持 provider 实例**（独立 `kimi acp` 连接，标签间完全隔离可并行）。对话统一经本机 agent CLI（Kimi Code CLI），代码库零 API KEY。从文件树或系统文件管理器**拖入文件 → 落点插入 `@工作区相对路径 ` 引用**（纯文本透传，由后端 agent CLI 解析）；模型选择持久化到 `config/settings.json`。多标签审批经全局 `PermissionQueue` 串行弹窗；任一标签响应中即禁用全局 ModelBar 与设置中心模型页。
 
 **标签全关与关闭异步化**（2026-07-22，work plans/2026-0722-1117）：标签可全部关闭——零标签时 `QStackedWidget` 切到占位页（提示 + 「新建会话」按钮），ModelBar 常驻；序号非全关不复用（防指代漂移），全关即重置回「会话 1」。关闭路径两段式：GUI 段毫秒级（`request_stop` + 断信号 + 起 daemon 清理线程），线程段先 `terminate`（杀 acp 进程并幂等注入死讯/错误帧，主动解封 worker 的 `next_update()`/`request()` 阻塞点）后 `worker.wait(3000)`，结束经 `QTimer.singleShot` 回 GUI 线程 `deleteLater`——关闭标签 GUI 零冻结，且不销毁运行中的 QThread。
 
@@ -129,7 +129,7 @@
 | 浏览 | 目录展开/折叠（懒加载）、多选（Ctrl/Shift） |
 | 信号 | `file_opened(str)` — 双击文件时发射绝对路径，已接 `ViewerPanel.open_file`（中栏上查看器） |
 | 右键菜单 | 打开、在文件管理器中显示、新建文件、新建目录、重命名、删除（带确认） |
-| 噪音过滤 | 默认隐藏 `__pycache__`/`.git`/`.venv`/`node_modules`，视图菜单可切换 |
+| 噪音过滤 | 默认隐藏 `__pycache__`/`.git`/`.venv`/`node_modules`；持久化偏好（`noise_filter`），视图菜单与设置中心外观页双入口 |
 | Git 状态着色 | 代理模型注入 `GitStatusService`，`ForegroundRole` 按文件状态查 `theme.GIT_STATUS_COLORS` 着色（天蓝 M / 绿 U / 红 D）；默认仅文件着色，目录聚合着色为预留开关 |
 | 拖出 | 选中文件可拖出（`QDrag` + 本地 URL），落入聊天输入框即插入 `@相对路径` 引用 |
 | 已剔除 | 向量库索引、zip 打包、拖放剪贴板（仅保留上述拖出）、qrc 图标（用系统图标） |

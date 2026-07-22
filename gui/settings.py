@@ -11,7 +11,7 @@ settings.json，update_settings 以 flock 串行化"读-合并-写"三步根治�
 写临时文件 + os.replace 原子覆盖防文件损坏；工作区根改由启动参数决定，
 不再持久化（KEY_WORKSPACE_ROOT 已删，存量旧键读取即丢弃自然失效）。
 
-键空间由 AppSettings 定型（7 个固定键），消费侧一律经 KEY_* 常量
+键空间由 AppSettings 定型（8 个固定键），消费侧一律经 KEY_* 常量
 引用键名，禁止裸字符串键（AFCP 3.1：数据结构显式）。
 
 权限键演进（2026-07-22，work plans/2026-0722-1240 计划）：二态
@@ -46,6 +46,7 @@ KEY_MODEL_BACKEND = "model_backend"
 KEY_MODEL_VERSION = "model_version"
 KEY_TERMINAL_SWAP_COPY_PASTE = "terminal_swap_copy_paste"
 KEY_PERMISSION_MODE = "permission_mode"
+KEY_NOISE_FILTER = "noise_filter"
 
 #: 旧权限键（2026-0722-1240 计划前）：仅用于 load_settings 一次性迁移读取，
 #: 消费侧禁止引用（未登记新键时它已不在 DEFAULT_SETTINGS 内，不写回）
@@ -57,7 +58,7 @@ DEFAULT_THEME = "cloud"
 
 
 class AppSettings(TypedDict):
-    """settings.json 全量结构（7 个固定键，均为用户偏好）。"""
+    """settings.json 全量结构（8 个固定键，均为用户偏好）。"""
 
     theme: str                   # 主题名（gui/theme.py 注册表键）
     font_size: int               # 全局 UI 字号（pt）
@@ -72,6 +73,9 @@ class AppSettings(TypedDict):
     #: confirm_all 逐次确认 / confirm_execute 仅命令确认 / auto_guarded 智能
     #: 放行+黑名单兜底（默认）/ auto_all 全部放行）
     permission_mode: str
+    #: 文件树噪音过滤（隐藏 __pycache__/.git/.venv/node_modules；P2 由会话态
+    #: 升级为持久化偏好，work plans/2026-0722-1344 计划 §4）
+    noise_filter: bool
 
 
 class AppSettingsPatch(TypedDict, total=False):
@@ -84,6 +88,7 @@ class AppSettingsPatch(TypedDict, total=False):
     model_version: str | None
     terminal_swap_copy_paste: bool
     permission_mode: str
+    noise_filter: bool
 
 
 #: 默认值：文件缺失 / 字段缺失 / JSON 损坏时回退
@@ -95,6 +100,7 @@ DEFAULT_SETTINGS: AppSettings = {
     KEY_MODEL_VERSION: None,
     KEY_TERMINAL_SWAP_COPY_PASTE: False,
     KEY_PERMISSION_MODE: DEFAULT_PERMISSION_MODE,
+    KEY_NOISE_FILTER: True,
 }
 
 

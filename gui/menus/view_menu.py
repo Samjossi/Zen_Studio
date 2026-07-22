@@ -17,7 +17,7 @@ from gui.menus.registry import (
     ActionRegistry,
     theme_action_key,
 )
-from gui.settings import KEY_THEME
+from gui.settings import KEY_NOISE_FILTER, KEY_THEME
 from gui.theme import list_available_themes, get_label, load_settings
 
 
@@ -39,10 +39,11 @@ def build(menubar: QMenuBar, ctx: QMainWindow, actions: ActionRegistry) -> None:
 
     menu.addSeparator()
 
+    # 噪音过滤：初态读持久化（P2 升级为偏好）；触发走 MainWindow 收敛点
     action = menu.addAction("过滤噪音目录(&N)")
     action.setCheckable(True)
-    action.setChecked(True)
-    action.triggered.connect(ctx.file_explorer.set_noise_filter)
+    action.setChecked(load_settings()[KEY_NOISE_FILTER])
+    action.triggered.connect(ctx.set_noise_filter)
     actions.register(KEY_VIEW_NOISE_FILTER, action)
 
     action = menu.addAction("恢复默认布局(&R)")

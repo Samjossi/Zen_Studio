@@ -1,12 +1,21 @@
-"""设置中心对话框：左导航 + 右分页（AI 工具权限 / AI 模型 / 外观 / 终端 / 高级）。
+"""设置中心对话框：左导航 + 右分页（页面注册表驱动，唯一偏好配置面）。
 
-实施依据：work plans/2026-0722-1240_设置中心对话框与AI工具权限四态实施计划.md。
+实施依据：work plans/2026-0722-1240（对话框落地）与 2026-0722-1344
+（页面注册表重构 + 设置中心唯一配置面）两份计划。
 - 排入逻辑：安全风险 × 使用频率排序，破坏性操作（恢复默认）沉底
 - 生效纪律：控件 change 即时持久化 + 即时应用，无确定/取消（沿用菜单勾选
   先例）；仅「关闭」（Esc 同效）；非模态单例，边改边看主窗口效果
 - 纯 GUI 装配层：应用逻辑全部委托 MainWindow 现有应用槽（零业务逻辑，
   同菜单文件先例）；状态同步由 MainWindow._sync_settings_dialog 回调 reload
 - 防回环：reload 全程 _reloading 标志抑制槽响应（同 ModelBar._is_updating 先例）
+
+新增设置项标准流程（2026-0722-1344 计划 §3.2，AI/人均须遵循）：
+1. gui/settings.py 加 KEY_* 常量 + AppSettings 键 + 默认值
+2. 选归宿页（或新页）：写 _build_xxx_page（控件 change 接 MainWindow
+   应用槽或 update_settings）
+3. 写 _reload_xxx(settings)（控件态回读，由 reload 的 _reloading 抑制）
+4. _PAGE_REGISTRY 加一行——骨架与 reload 分发零改动
+（页数 >8 再引入导航分组：注册表扩 category 字段即可，不提前实现）
 """
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -34,6 +43,7 @@ from gui.settings import (
     KEY_FONT_SIZE,
     KEY_MODEL_BACKEND,
     KEY_MODEL_VERSION,
+    KEY_NOISE_FILTER,
     KEY_PERMISSION_MODE,
     KEY_TERMINAL_SWAP_COPY_PASTE,
     KEY_THEME,
@@ -53,13 +63,24 @@ from llm.permission_policy import (
 _STYLE_HINT = "color: gray;"
 _STYLE_DANGER = f"color: {WARNING_COLOR};"
 
+#: 页面注册表：(导航名, 构建方法名, 重载方法名)；元组顺序即导航顺序。
+#: 新增设置页 = 写 _build_xxx_page / _reload_xxx 两函数 + 此处加一行，
+#: 骨架与 reload 分发零改动（AFCP 3.4 常量化；同 menus/assembler.MODULES 先例）
+_PAGE_REGISTRY: tuple[tuple[str, str, str | None], ...] = (
+    ("AI 工具权限", "_build_permission_page", "_reload_permission"),
+    ("AI 模型", "_build_model_page", "_reload_model"),
+    ("外观", "_build_appearance_page", "_reload_appearance"),
+    ("终端", "_build_terminal_page", "_reload_terminal"),
+    ("高级", "_build_advanced_page", None),
+)
+
 
 class SettingsDialog(QDialog):
-    """设置中心：非模态单例（MainWindow 持有），五页导航。
+    """设置中心：非模态单例（MainWindow 持有），页面注册表驱动导航。
 
     :param ctx: MainWindow（鸭子类型：apply_model_selection / switch_theme /
-        set_font_size / set_terminal_swap_copy_paste / open_settings_file /
-        reset_settings / chat_tabs；FONT_SIZE_MIN/MAX 类常量）
+        set_font_size / set_terminal_swap_copy_paste / set_noise_filter /
+        open_settings_file / reset_settings / chat_tabs；FONT_SIZE_MIN/MAX 类常量）
     """
 
     def __init__(self, ctx) -> None:
@@ -77,15 +98,9 @@ class SettingsDialog(QDialog):
         self._nav = QListWidget(self)
         self._nav.setFixedWidth(140)
         self._stack = QStackedWidget(self)
-        for name, page in (
-            ("AI 工具权限", self._build_permission_page()),
-            ("AI 模型", self._build_model_page()),
-            ("外观", self._build_appearance_page()),
-            ("终端", self._build_terminal_page()),
-            ("高级", self._build_advanced_page()),
-        ):
+        for name, build_name, _ in _PAGE_REGISTRY:
             self._nav.addItem(name)
-            self._stack.addWidget(page)
+            self._stack.addWidget(getattr(self, build_name)())
         self._nav.currentRowChanged.connect(self._stack.setCurrentIndex)
         self._nav.setCurrentRow(0)
 
@@ -181,7 +196,7 @@ class SettingsDialog(QDialog):
         layout.addRow("后端", self._backend_combo)
         layout.addRow("版本", self._version_combo)
         hint = self._make_hint(
-            "与聊天面板顶部模型行、设置菜单 ▸ AI 模型同步；AI 响应中暂不可切换。", page)
+            "与聊天面板顶部模型行双向同步；AI 响应中暂不可切换。", page)
         hint.setWordWrap(True)
         layout.addRow(hint)
         self._backend_combo.activated.connect(self._on_backend_activated)
@@ -202,7 +217,7 @@ class SettingsDialog(QDialog):
         self._version_combo.setEnabled(enabled and self._backend_available)
 
     # ------------------------------------------------------------------
-    # 外观页（主题下拉 + 字号 SpinBox）
+    # 外观页（主题下拉 + 字号 SpinBox + 文件树小节）
     # ------------------------------------------------------------------
     def _build_appearance_page(self) -> QWidget:
         page = QWidget(self)
@@ -218,8 +233,14 @@ class SettingsDialog(QDialog):
         layout.addRow("主题", self._theme_combo)
         layout.addRow("字号", self._font_spin)
         layout.addRow(self._make_hint("主题与字号即时应用全窗口（含各面板配色）。"))
+        # 文件树小节（P2 首个迁移验证项：噪音过滤由视图菜单会话态升级为偏好）
+        self._noise_check = QCheckBox("过滤噪音目录", page)
+        layout.addRow("文件树", self._noise_check)
+        layout.addRow(self._make_hint(
+            "隐藏 __pycache__ / .git / .venv / node_modules；与视图菜单同一开关。"))
         self._theme_combo.activated.connect(self._on_theme_activated)
         self._font_spin.valueChanged.connect(self._on_font_changed)
+        self._noise_check.toggled.connect(self._on_noise_toggled)
         return page
 
     def _on_theme_activated(self, index: int) -> None:
@@ -228,6 +249,10 @@ class SettingsDialog(QDialog):
     def _on_font_changed(self, value: int) -> None:
         if not self._reloading:
             self._ctx.set_font_size(value)
+
+    def _on_noise_toggled(self, checked: bool) -> None:
+        if not self._reloading:
+            self._ctx.set_noise_filter(checked)
 
     # ------------------------------------------------------------------
     # 终端页
@@ -240,8 +265,7 @@ class SettingsDialog(QDialog):
         self._swap_check.toggled.connect(self._on_swap_toggled)
         layout.addWidget(self._swap_check)
         hint = self._make_hint(
-            "勾选后：Ctrl+C/V 复制粘贴，Ctrl+Shift+C/V 发中断（SIGINT）/粘贴标记。\n"
-            "与设置菜单 ▸「终端：Ctrl+C/V 复制粘贴」同一开关。", page)
+            "勾选后：Ctrl+C/V 复制粘贴，Ctrl+Shift+C/V 发中断（SIGINT）/粘贴标记。", page)
         hint.setWordWrap(True)
         layout.addWidget(hint)
         return page
@@ -274,20 +298,31 @@ class SettingsDialog(QDialog):
     # 状态重载（MainWindow._sync_settings_dialog 唯一回调入口）
     # ------------------------------------------------------------------
     def reload(self) -> None:
-        """从持久化全量重读并刷新五页控件态；全程抑制控件槽（防回环）。"""
+        """从持久化全量重读，按 _PAGE_REGISTRY 分发各页 reload；全程抑制控件槽。"""
         self._reloading = True
         try:
             settings = load_settings()
-            mode = settings[KEY_PERMISSION_MODE]
-            radio = self._mode_radios.get(mode) or self._mode_radios[DEFAULT_PERMISSION_MODE]
-            radio.setChecked(True)
-            self._reload_model(settings)
-            theme_index = self._theme_combo.findData(settings[KEY_THEME])
-            self._theme_combo.setCurrentIndex(max(theme_index, 0))
-            self._font_spin.setValue(settings[KEY_FONT_SIZE])
-            self._swap_check.setChecked(settings[KEY_TERMINAL_SWAP_COPY_PASTE])
+            for _, _, reload_name in _PAGE_REGISTRY:
+                if reload_name is not None:
+                    getattr(self, reload_name)(settings)
         finally:
             self._reloading = False
+
+    def _reload_permission(self, settings) -> None:
+        """权限页：定位持久化档位（未知档静默回退默认档）。"""
+        mode = settings[KEY_PERMISSION_MODE]
+        radio = self._mode_radios.get(mode) or self._mode_radios[DEFAULT_PERMISSION_MODE]
+        radio.setChecked(True)
+
+    def _reload_appearance(self, settings) -> None:
+        """外观页：主题 / 字号 / 文件树噪音过滤回读。"""
+        theme_index = self._theme_combo.findData(settings[KEY_THEME])
+        self._theme_combo.setCurrentIndex(max(theme_index, 0))
+        self._font_spin.setValue(settings[KEY_FONT_SIZE])
+        self._noise_check.setChecked(settings[KEY_NOISE_FILTER])
+
+    def _reload_terminal(self, settings) -> None:
+        self._swap_check.setChecked(settings[KEY_TERMINAL_SWAP_COPY_PASTE])
 
     def _reload_model(self, settings) -> None:
         """模型页：定位后端 → 版本列表（缓存优先） → 定位版本（静默回退默认项）。

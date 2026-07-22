@@ -63,6 +63,7 @@ from gui.settings import (
     KEY_FONT_SIZE,
     KEY_MODEL_BACKEND,
     KEY_MODEL_VERSION,
+    KEY_NOISE_FILTER,
     KEY_TERMINAL_SWAP_COPY_PASTE,
     KEY_THEME,
     SETTINGS_FILE,
@@ -108,6 +109,10 @@ class MainWindow(QMainWindow):
 
         #: 设置中心对话框（非模态单例，首次打开时惰性创建）
         self._settings_dialog: SettingsDialog | None = None
+        #: 对话框同步挂起计数（>0 时 _sync_settings_dialog 短路）：批量应用路径
+        #: （如 reset_settings 多槽连发）挂起期间各槽内置 sync 被抑制，结束后
+        #: 单次终态 reload，避免 N 槽触发 N+1 次全量 reload（flock 磁盘读）
+        self._dialog_sync_suspend = 0
 
         self._build_layout()
         self._init_statusbar()
@@ -166,16 +171,17 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(central)
 
     def _init_menus(self) -> None:
-        """菜单栏装配 + AI 模型双向同步接线。"""
-        # 菜单栏：gui/menus 包装配（注册表 + AI 模型菜单控制器）
+        """菜单栏装配 + 模型选择/忙闲信号接线。"""
         self.menus = MenuBar(self)
         self.menus.setup()
         # 菜单栏定高截断镜像余量（qss padding-top 会被镜像到底部，定值见 base.qss
         # QMenuBar 段教训注释）；延迟一拍确保样式与布局已结算再测量项高
         QTimer.singleShot(0, self._fit_menubar_height)
-        # AI 模型双向同步：ModelBar 用户切换 → 菜单勾选态；发送中整组禁用
+        # 模型选择：ModelBar 用户切换 → 设置中心同步；发送中模型页禁用
         self.chat_tabs.model_bar.selection_changed.connect(self._on_modelbar_changed)
         self.chat_tabs.busy_changed.connect(self._on_chat_busy_changed)
+        # 噪音过滤持久化（P2）：启动按持久化恢复文件树过滤态
+        self.file_explorer.set_noise_filter(load_settings()[KEY_NOISE_FILTER])
 
     def _init_statusbar(self) -> None:
         """状态栏：去尺寸把手 + 定高 + Git 统计常驻区 + 就绪消息。"""
@@ -370,7 +376,7 @@ class MainWindow(QMainWindow):
             self.viewer_panel.show_find()
 
     # ------------------------------------------------------------------
-    # 设置中心对话框（设置菜单 ▸ 设置中心…，Ctrl+,；非模态单例）
+    # 设置中心对话框（设置菜单 ▸ 设置中心…；非模态单例）
     # ------------------------------------------------------------------
     def open_settings_dialog(self) -> None:
         """打开设置中心：首次惰性创建，重复打开 raise 现有实例。"""
@@ -381,7 +387,12 @@ class MainWindow(QMainWindow):
         self._settings_dialog.activateWindow()
 
     def _sync_settings_dialog(self) -> None:
-        """设置项经收敛点变化后同步对话框控件态（打开期间；reload 防回环）。"""
+        """设置项经收敛点变化后同步对话框控件态（打开期间；reload 防回环）。
+
+        _dialog_sync_suspend > 0（批量应用路径）时短路，由批末单次终态 reload。
+        """
+        if self._dialog_sync_suspend:
+            return
         if self._settings_dialog is not None and self._settings_dialog.isVisible():
             self._settings_dialog.reload()
 
@@ -391,13 +402,6 @@ class MainWindow(QMainWindow):
     #: 字号调整上下界（pt）
     FONT_SIZE_MIN = 8
     FONT_SIZE_MAX = 24
-
-    def adjust_font_size(self, delta: int) -> None:
-        """字号增大/减小（步进 1pt，带上下界钳制）。"""
-        self.set_font_size(load_settings()[KEY_FONT_SIZE] + delta)
-
-    def reset_font_size(self) -> None:
-        self._apply_font_size(DEFAULT_SETTINGS[KEY_FONT_SIZE])
 
     def set_font_size(self, size: int) -> None:
         """字号绝对设定（设置中心对话框入口；钳制后走统一应用链）。"""
@@ -417,11 +421,8 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(f"字号：{size} pt", self.STATUS_MSG_SHORT_MS)
 
     def apply_model_selection(self, backend: str, version: str | None) -> None:
-        """设置菜单/设置中心驱动的模型切换：收敛到 ChatPanel 后刷新各方勾选态。"""
+        """设置中心驱动的模型切换：收敛到 ChatPanel 后同步设置中心控件态。"""
         self.chat_tabs.apply_model_selection(backend, version)
-        bar = self.chat_tabs.model_bar
-        if self.menus.model_menu is not None:
-            self.menus.model_menu.sync(bar.current_backend(), bar.current_version())
         self._sync_settings_dialog()
 
     def set_terminal_swap_copy_paste(self, checked: bool) -> None:
@@ -432,16 +433,26 @@ class MainWindow(QMainWindow):
         hint = "Ctrl+C/V 复制粘贴" if checked else "Ctrl+Shift+C/V 复制粘贴"
         self.statusBar().showMessage(f"终端快捷键：{hint}", self.STATUS_MSG_SHORT_MS)
 
-    def _on_modelbar_changed(self, backend: str, version: object) -> None:
-        """ModelBar 用户切换 → 菜单勾选态（setChecked 不触发 triggered，无回环）。"""
-        if self.menus.model_menu is not None:
-            self.menus.model_menu.sync(backend, version if isinstance(version, str) else None)
+    def set_noise_filter(self, is_enabled: bool) -> None:
+        """噪音过滤（视图菜单/设置中心外观页双入口收敛点）。
+
+        持久化 + 即时下发文件树 + 同步视图菜单勾选态与设置中心控件态
+        （setChecked 不触发 triggered，无回环）。
+        """
+        update_settings({KEY_NOISE_FILTER: is_enabled})
+        self.file_explorer.set_noise_filter(is_enabled)
+        if action := self.menus.get(KEY_VIEW_NOISE_FILTER):
+            action.setChecked(is_enabled)
+        self._sync_settings_dialog()
+        state = "开" if is_enabled else "关"
+        self.statusBar().showMessage(f"噪音过滤：{state}", self.STATUS_MSG_SHORT_MS)
+
+    def _on_modelbar_changed(self, _backend: str, _version: object) -> None:
+        """ModelBar 用户切换 → 设置中心模型页同步（reload 防回环）。"""
         self._sync_settings_dialog()
 
     def _on_chat_busy_changed(self, busy: bool) -> None:
-        """发送中禁用 AI 模型菜单组与设置中心模型页（与 ModelBar 对齐）。"""
-        if self.menus.model_menu is not None:
-            self.menus.model_menu.set_enabled(not busy)
+        """发送中禁用设置中心模型页（与 ModelBar 双下拉禁用对齐）。"""
         if self._settings_dialog is not None:
             self._settings_dialog.set_model_enabled(not busy)
 
@@ -472,19 +483,24 @@ class MainWindow(QMainWindow):
             # 阻断同会话 closeEvent 回写当前布局（否则重置被静默撤销）
             self._state_store.disable_save()
 
-        # 即时应用：主题（含四面板配色）→ 字号 → 模型 → 噪音过滤 → 终端快捷键
+        # 即时应用：主题（含四面板配色）→ 字号 → 模型 → 噪音过滤 → 终端快捷键。
+        # 挂起对话框 sync：各应用槽内置 _sync_settings_dialog 被抑制（否则 N 槽
+        # 连发触发 N+1 次全量 reload，前 N 次读中间态即被覆盖），批末单次终态 reload
         settings = load_settings()
-        self.switch_theme(settings[KEY_THEME])
-        self._apply_font_size(settings[KEY_FONT_SIZE])
-        self.apply_model_selection(
-            settings[KEY_MODEL_BACKEND], settings[KEY_MODEL_VERSION])
-        if action := self.menus.get(KEY_VIEW_NOISE_FILTER):
-            action.setChecked(True)
-        self.file_explorer.set_noise_filter(True)
-        swap = settings[KEY_TERMINAL_SWAP_COPY_PASTE]  # 重置后为默认 False
-        self.terminal_panel.set_swap_copy_paste(swap)
-        if action := self.menus.get("settings.terminal_swap_copy_paste"):
-            action.setChecked(swap)
+        self._dialog_sync_suspend += 1
+        try:
+            self.switch_theme(settings[KEY_THEME])
+            self._apply_font_size(settings[KEY_FONT_SIZE])
+            self.apply_model_selection(
+                settings[KEY_MODEL_BACKEND], settings[KEY_MODEL_VERSION])
+            noise = settings[KEY_NOISE_FILTER]  # 重置后为默认 True
+            if action := self.menus.get(KEY_VIEW_NOISE_FILTER):
+                action.setChecked(noise)
+            self.file_explorer.set_noise_filter(noise)
+            swap = settings[KEY_TERMINAL_SWAP_COPY_PASTE]  # 重置后为默认 False
+            self.terminal_panel.set_swap_copy_paste(swap)
+        finally:
+            self._dialog_sync_suspend -= 1
         self._sync_settings_dialog()
         self.statusBar().showMessage("已恢复默认设置", self.STATUS_MSG_TIMEOUT_MS)
 
