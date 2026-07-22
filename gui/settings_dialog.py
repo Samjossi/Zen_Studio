@@ -47,7 +47,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QSize, Qt
 from PySide6.QtGui import QFont
 
 from gui.popups import make_translucent_combo_popup
@@ -85,12 +85,15 @@ _STYLE_DANGER = f"color: {WARNING_COLOR};"
 _STYLE_RADIO = "font-weight: bold;"
 #: 单选描述缩进（radio 指示器宽 16 + 间距 4，与指示器视觉对齐；1510 计划 D5）
 _DESC_INDENT = 20
-#: 导航宽度带（min/max 非 Fixed；1510 计划 D1）与项内边距/行高
-#: （仅覆 padding/min-height，颜色选择器留 app 级 qss 统一换肤；
-#: min-height 24 + padding 8 = 项高 32）
+#: 导航宽度带（min/max 非 Fixed；1510 计划 D1）与项高/内边距。
+#: 项高经 sizeHint 设定（跨 QStyle 可靠）：qss min-height 对 item delegate
+#: 的采纳依赖平台样式——offscreen（Fusion）生效，但 Linux 原生样式不采纳，
+#: 项高压过字高致相邻项文字重叠（1510 复核修复）；qss 仅覆 padding
+#: （不决定行高，无平台差异），颜色选择器留 app 级 qss 统一换肤
 _NAV_MIN_WIDTH = 160
 _NAV_MAX_WIDTH = 200
-_NAV_ITEM_QSS = "QListWidget::item { padding: 4px 12px; min-height: 24px; }"
+_NAV_ITEM_HEIGHT = 32
+_NAV_ITEM_QSS = "QListWidget::item { padding: 4px 12px; }"
 #: 页标题字号（pt，加粗；副标题取 muted_text 令牌）
 _TITLE_FONT_SIZE_PT = 14
 #: 黑名单只读区固定高度（防展开撑变形；1510 计划 D13）
@@ -146,7 +149,11 @@ class SettingsDialog(QDialog):
         self._nav.setStyleSheet(_NAV_ITEM_QSS)
         self._stack = QStackedWidget(self)
         for name, _, build_name, _ in _PAGE_REGISTRY:
-            self._nav.addItem(QListWidgetItem(name))
+            item = QListWidgetItem(name)
+            # 宽 0 占位（列表模式项宽由视口定）：QSize(-1, h) 为无效尺寸，
+            # setSizeHint 会按清除语义丢掉高度（1510 复核修复实测）
+            item.setSizeHint(QSize(0, _NAV_ITEM_HEIGHT))
+            self._nav.addItem(item)
             self._stack.addWidget(getattr(self, build_name)())
         self._nav.currentRowChanged.connect(self._on_nav_changed)
         self._build_chrome()
