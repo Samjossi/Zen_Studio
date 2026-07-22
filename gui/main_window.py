@@ -16,6 +16,9 @@ ActionRegistry 全局注册表）；本类保留面板、槽函数与面板显�
 与窗口状态持久化（WindowStateStore）迁出至 gui/controllers.py 组合持有。
 多开工作区（2026-07-22，见 work plans/2026-0722-0756 计划）：一进程绑定
 一工作区根（启动参数注入，不再窗口内切换）；「打开文件夹」改为起新进程。
+文件菜单扩展（2026-07-22，work plans/2026-0722-1901）：「新建窗口」同根
+多开入口；「最近打开的文件」子菜单——ViewerPanel.file_opened 信号收口
+全部打开入口 → RecentFilesStore 按工作区隔离存 window_state_<hash8>.json。
 
 窗口四边距体系（2026-07-20，见 文档/修改记录/2026-0720-1218 与 2026-0720-1815
 两份计划）：面板内 6px 外边距承担卡片↔把手间距；中央容器补窗口级边距
@@ -57,6 +60,7 @@ from gui.panels import FileExplorer, ViewerPanel
 from gui.panels.changes import ChangesPanel
 from gui.panels.chat import ChatTabs
 from gui.panels.terminal import TerminalPanel
+from gui.recent_files import RecentFilesStore
 from gui.settings import (
     CONFIG_DIR,
     DEFAULT_SETTINGS,
@@ -80,6 +84,7 @@ from gui.window_state import (
     KEY_SPLITTER_EDITOR,
     KEY_SPLITTER_MAIN,
     KEY_SPLITTER_SIDEBAR,
+    window_state_file_for,
 )
 
 
@@ -146,6 +151,10 @@ class MainWindow(QMainWindow):
         # 双击文件 → 中栏查看器打开
         self.file_explorer = FileExplorer(workspace_root)
         self.file_explorer.file_opened.connect(self.viewer_panel.open_file)
+        # 最近打开文件记录（work plans/2026-0722-1901）：查看器成功打开
+        # （4 处入口收口于 file_opened 信号）→ 存取层去重置顶，按工作区隔离
+        self.recent_files = RecentFilesStore(window_state_file_for(workspace_root))
+        self.viewer_panel.file_opened.connect(self.recent_files.add)
         self.changes_panel = ChangesPanel()
         self._splitter_sidebar = QSplitter(Qt.Orientation.Vertical)
         self._splitter_sidebar.addWidget(self.file_explorer)
@@ -327,6 +336,10 @@ class MainWindow(QMainWindow):
         if path:
             self.viewer_panel.open_file(path)
 
+    def new_window(self) -> None:
+        """新建窗口：以当前工作区根起新进程（同根多开，不弹对话框）。"""
+        self._spawn_window(self._workspace_root)
+
     def open_folder_in_new_window(self) -> None:
         """在新窗口打开文件夹：QFileDialog 选目录 → 起新进程（取消无副作用）。
 
@@ -337,10 +350,26 @@ class MainWindow(QMainWindow):
             self, "在新窗口打开文件夹", self.file_explorer.root_dir)
         if not path:
             return
-        folder = str(Path(path).resolve())
+        self._spawn_window(str(Path(path).resolve()))
+
+    def _spawn_window(self, folder: str) -> None:
+        """起新进程开指定工作区根（新建窗口 / 在新窗口打开文件夹共用）。"""
         subprocess.Popen([sys.executable, str(PROJECT_ROOT / "main.py"), folder])
         self.statusBar().showMessage(
             f"已在新窗口打开：{folder}", self.STATUS_MSG_TIMEOUT_MS)
+
+    def open_recent_file(self, path: str) -> None:
+        """最近文件回放：探活 → 查看器打开（成功经 file_opened 信号自动置顶）。
+
+        文件已消失则从列表剔除并状态栏提示（与变更面板「文件已删除」
+        提示风格一致）。
+        """
+        if Path(path).is_file():
+            self.viewer_panel.open_file(path)
+        else:
+            self.recent_files.remove(path)
+            self.statusBar().showMessage(
+                "文件已不存在，已从列表移除", self.STATUS_MSG_TIMEOUT_MS)
 
     def open_config_dir(self) -> None:
         """在系统文件管理器中打开 config/ 目录。"""

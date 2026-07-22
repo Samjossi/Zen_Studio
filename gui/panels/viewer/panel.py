@@ -45,6 +45,9 @@ class ViewerPanel(QWidget):
 
     #: 外部修改自动重载完成时发射（供主窗口联动刷新 Git 状态）
     externally_reloaded = Signal()
+    #: 文件成功打开（含外部重载）时发射绝对路径（供最近打开文件记录，
+    #: work plans/2026-0722-1901）；守卫/占位分支不发射——只记真正上屏的文件
+    file_opened = Signal(str)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -143,6 +146,7 @@ class ViewerPanel(QWidget):
         title = str(p) + ("（已截断：超过 1 MB）" if truncated else "")
         self._path_label.setText(title)
         self._current_path = str(p)
+        self.file_opened.emit(self._current_path)
         self.refresh_git_badge()
         # 查找浮层开启中换文件/重载：按新文档重搜；未开启则清残留高亮
         if self._find_bar.isVisible():

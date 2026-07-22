@@ -1,10 +1,17 @@
-"""文件菜单：打开文件 / 在新窗口打开文件夹（多开进程）/ 打开配置目录 / 退出。
+"""文件菜单：打开文件 / 新建窗口 / 在新窗口打开文件夹（多开进程）/
+打开配置目录 / 最近打开的文件（动态子菜单）/ 退出。
 
 全部菜单项不绑定快捷键（选型 §4.4：保持简单）。
 「退出」setMenuRole(NoRole) 防 macOS 系统菜单抢走（PyGPT 经验）。
+「新建窗口」（work plans/2026-0722-1901）：同工作区根起新进程，与
+「在新窗口打开文件夹」（换根多开）互补。
+「最近打开的文件」：aboutToShow 动态重建，记录源为 ViewerPanel.file_opened
+信号 → RecentFilesStore（按工作区隔离，存 window_state_<hash8>.json）。
 """
+from pathlib import Path
+
 from PySide6.QtGui import QAction
-from PySide6.QtWidgets import QMainWindow, QMenuBar
+from PySide6.QtWidgets import QMainWindow, QMenu, QMenuBar
 
 from gui.menus.registry import ActionRegistry
 
@@ -16,6 +23,10 @@ def build(menubar: QMenuBar, ctx: QMainWindow, actions: ActionRegistry) -> None:
     action.triggered.connect(ctx.open_file_dialog)
     actions.register("file.open", action)
 
+    action = menu.addAction("新建窗口(&N)")
+    action.triggered.connect(ctx.new_window)
+    actions.register("file.new_window", action)
+
     action = menu.addAction("在新窗口打开文件夹(&W)…")
     action.triggered.connect(ctx.open_folder_in_new_window)
     actions.register("file.open_folder", action)
@@ -24,9 +35,37 @@ def build(menubar: QMenuBar, ctx: QMainWindow, actions: ActionRegistry) -> None:
     action.triggered.connect(ctx.open_config_dir)
     actions.register("file.open_config_dir", action)
 
+    recent_menu = menu.addMenu("最近打开的文件(&R)")
+    recent_menu.aboutToShow.connect(lambda: _rebuild_recent_menu(recent_menu, ctx))
+    actions.register("file.recent_files", recent_menu.menuAction())
+
     menu.addSeparator()
 
     action = menu.addAction("退出(&Q)")
     action.setMenuRole(QAction.MenuRole.NoRole)  # 防 macOS 抢入应用菜单
     action.triggered.connect(ctx.close)
     actions.register("file.quit", action)
+
+
+def _rebuild_recent_menu(menu: QMenu, ctx: QMainWindow) -> None:
+    """aboutToShow 动态重建：记录逐条生成；空列表占位；末尾「清除列表」。
+
+    显示名 `文件名  —  所在目录`（工作区外路径可辨识），toolTip 全路径。
+    """
+    menu.clear()
+    paths = ctx.recent_files.list()
+    if paths:
+        for path in paths:
+            p = Path(path)
+            action = menu.addAction(f"{p.name}  —  {p.parent}")
+            action.setToolTip(path)
+            action.triggered.connect(
+                lambda checked=False, target=path: ctx.open_recent_file(target))
+    else:
+        # 禁用占位项：防子菜单整个消失导致菜单位置跳动
+        placeholder = menu.addAction("（空）")
+        placeholder.setEnabled(False)
+    menu.addSeparator()
+    clear = menu.addAction("清除列表(&L)")
+    clear.setEnabled(bool(paths))
+    clear.triggered.connect(ctx.recent_files.clear)
