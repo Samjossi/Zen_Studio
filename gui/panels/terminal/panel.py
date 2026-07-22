@@ -8,7 +8,7 @@
 from dataclasses import dataclass
 
 from PySide6.QtCore import QEvent, QObject, Qt, QTimer
-from PySide6.QtGui import QFont, QGuiApplication
+from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QMenu,
     QPushButton,
     QTabBar,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -83,20 +84,22 @@ class TerminalPanel(QWidget):
         self._tab_bar.setUsesScrollButtons(True)  # 溢出滚动箭头兜底
         self._tab_bar.setDrawBase(False)         # 不画基线，融入头部栏
 
-        self._btn_new = QPushButton("+", self)
-        self._btn_new.setFixedSize(28, 22)
-        # 加粗加大：继承应用全局字体（思源黑体），字重 Bold、字号 +3pt
-        font = QFont(self.font())
-        font.setBold(True)
-        font.setPointSizeF(font.pointSizeF() + 3)
-        self._btn_new.setFont(font)
+        # 「+」新建终端：QToolButton 复刻聊天侧接线（tabs.py），零固定尺寸
+        # 零自定字体，走全局 QToolButton 实体化 qss——QPushButton +
+        # setFixedSize(28,22) + Bold+3pt 的旧 hack 内容盒仅约 4px 宽，
+        # 字形被水平裁切只剩一截横线（2026-0722-1815 计划 P1）
+        self._btn_new = QToolButton(self)
+        self._btn_new.setText("+")
         self._btn_new.setToolTip("新建终端")
 
         self._status = QLabel("", self)
         self._status.setObjectName("PanelHint")
 
         self._btn_clear = QPushButton("清屏", self)
-        self._btn_clear.setFixedHeight(22)
+        # 不锁高度：sizeHint 随字号自适应，头部栏高由 _lock_header_height
+        # 按真实内容高计算（旧 setFixedHeight(22) 内容盒仅 14px，中文
+        # 字形截顶且锁高公式被污染——2026-0722-1815 计划 P2）；
+        # 紧凑感由 base.qss #TerminalHeader QPushButton padding 收敛承载
         self._btn_clear.setToolTip("清屏（Ctrl+L）")
         self._btn_clear.setEnabled(False)
 
@@ -108,7 +111,8 @@ class TerminalPanel(QWidget):
         row.addWidget(self._status)
         row.addWidget(self._btn_clear)
         row.addWidget(self._btn_new)  # 最右端：原「−」隐藏按钮位置
-        row.setContentsMargins(4, 2, 4, 2)
+        # 右端 6px 对齐面板级 6px 外边距体系（《规范》§6.3）
+        row.setContentsMargins(4, 2, 6, 2)
         row.setSpacing(4)
         self._lock_header_height()
 

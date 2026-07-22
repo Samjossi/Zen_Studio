@@ -305,6 +305,13 @@ QToolButton:disabled {
     border-color: $button_disabled_border;
 }
 
+/* 终端头部栏按钮：padding 收敛保持头部紧凑（替代旧 setFixedHeight(22)
+ * 锁高——固定高度内容盒仅 14px 致中文截顶，2026-0722-1815 计划 P2）；
+ * 作用域内仅「清屏」一个 QPushButton，无误伤面 */
+#TerminalHeader QPushButton {
+    padding: 2px 8px;
+}
+
 /* ---- 分隔：1px 低存在感；splitter 把手常态透明、hover 显现 ---- */
 
 QMainWindow::separator {
