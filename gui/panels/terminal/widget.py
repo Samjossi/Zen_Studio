@@ -8,11 +8,15 @@
 Ctrl+Shift+V 粘贴（写剪贴板无副作用、粘贴与键盘输入同路径，均 widget 自治）。
 2026-07-21 新增：复制/粘贴快捷键反转开关（set_swap_copy_paste，设置菜单勾选项
 经 panel 即时注入；反转后 Ctrl+C/V 复制粘贴、Ctrl+Shift+C/V 回落 VT100 转换）。
+2026-07-22 修复：字符格宽改 QFontMetricsF 浮点度量（work plans/2026-0722-2013）——
+QFontMetrics int 接口截断前进宽（8.484→8），drawText 浮点排版与之每字差 0.484px
+沿 run 累积，实机 xcb 上后画 run 盖前字、网格光标切字成残片（offscreen 自洽不可见）。
 """
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import (
     QColor,
     QFont,
+    QFontMetricsF,
     QGuiApplication,
     QKeyEvent,
     QPainter,
@@ -73,10 +77,7 @@ class TerminalWidget(QWidget):
         if app := QApplication.instance():
             font.setPointSizeF(app.font().pointSizeF())
         self.setFont(font)
-        font_metrics = self.fontMetrics()
-        self._cell_width = max(1, font_metrics.horizontalAdvance("M"))
-        self._cell_height = max(1, font_metrics.height())
-        self._ascent = font_metrics.ascent()
+        self._measure_font()
 
         self._scrollbar = QScrollBar(Qt.Orientation.Vertical, self)
         self._scrollbar.valueChanged.connect(self._on_scroll)
@@ -125,10 +126,7 @@ class TerminalWidget(QWidget):
         if app := QApplication.instance():
             font.setPointSizeF(app.font().pointSizeF())
         self.setFont(font)
-        font_metrics = self.fontMetrics()
-        self._cell_width = max(1, font_metrics.horizontalAdvance("M"))
-        self._cell_height = max(1, font_metrics.height())
-        self._ascent = font_metrics.ascent()
+        self._measure_font()
         self.clear_selection()  # 网格尺寸变化，选区坐标失效
         row_count, column_count = self.get_grid_size()
         if self._screen and (self._screen.line_count != row_count
@@ -205,11 +203,31 @@ class TerminalWidget(QWidget):
     # ------------------------------------------------------------------
     # 网格尺寸
     # ------------------------------------------------------------------
+    def _measure_font(self) -> None:
+        """字体度量 → 单元格尺寸（__init__ 与 refresh_font 共用单点）。
+
+        格宽必须用 QFontMetricsF 浮点度量：drawText 按设计浮点前进宽逐字
+        排版，而 QFontMetrics 为 int 接口（Sarasa 13pt M 前进宽 8.484 → 8
+        截断），两套度量每字差 0.484px 沿 run 累积——第 51 字处文本偏右
+        ≈3 格，后画 run 盖前字、网格光标块切字成残片（实机 xcb 独有，
+        offscreen 度量自洽不可见；work plans/2026-0722-2013）。
+        格高/基线维持 int：垂直方向每行独立定位，无行内累积路径。
+        """
+        metrics_f = QFontMetricsF(self.font())
+        self._cell_width = max(1.0, metrics_f.horizontalAdvance("M"))
+        font_metrics = self.fontMetrics()
+        self._cell_height = max(1, font_metrics.height())
+        self._ascent = font_metrics.ascent()
+
     def get_grid_size(self) -> tuple[int, int]:
-        """(row_count, column_count) 当前网格尺寸。"""
+        """(row_count, column_count) 当前网格尺寸。
+
+        浮点格宽下 // 返回 float，须 int 收敛（screen.resize / session.resize
+        / setPageStep 均要求 int）。
+        """
         bar_width = self._scrollbar.width() if self._scrollbar.isVisible() else 0
-        column_count = max(1, (self.width() - bar_width) // self._cell_width)
-        row_count = max(1, self.height() // self._cell_height)
+        column_count = max(1, int((self.width() - bar_width) // self._cell_width))
+        row_count = max(1, int(self.height() // self._cell_height))
         return row_count, column_count
 
     def resizeEvent(self, event) -> None:

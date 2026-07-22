@@ -84,9 +84,13 @@ class SelectionController:
         return "\n".join(lines)
 
     @staticmethod
-    def pos_to_cell(px: int, py: int, cell_w: int, cell_h: int,
+    def pos_to_cell(px: int, py: int, cell_w: float, cell_h: float,
                     row_count: int, column_count: int) -> Cell:
-        """像素坐标 → 网格 (y, x)，clamp 进网格（拖入滚动条区不越界）。"""
-        x = min(max(px // cell_w, 0), column_count - 1)
-        y = min(max(py // cell_h, 0), row_count - 1)
+        """像素坐标 → 网格 (y, x)，clamp 进网格（拖入滚动条区不越界）。
+
+        格宽为浮点度量（work plans/2026-0722-2013），// 结果须 int 收敛
+        ——返回坐标下游作切片索引，float 会 TypeError。
+        """
+        x = min(max(int(px // cell_w), 0), column_count - 1)
+        y = min(max(int(py // cell_h), 0), row_count - 1)
         return y, x
