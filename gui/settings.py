@@ -13,6 +13,12 @@ settings.json，update_settings 以 flock 串行化"读-合并-写"三步根治�
 
 键空间由 AppSettings 定型（7 个固定键），消费侧一律经 KEY_* 常量
 引用键名，禁止裸字符串键（AFCP 3.1：数据结构显式）。
+
+权限键演进（2026-07-22，work plans/2026-0722-1240 计划）：二态
+permission_auto_allow 布尔替换为四态 permission_mode 字符串枚举
+（confirm_all / confirm_execute / auto_guarded / auto_all，模式常量单一
+来源在 llm/permission_policy.py）；旧键读取时一次性迁移（false →
+confirm_all，见 load_settings），迁移后随下次写盘自然消亡。
 """
 import fcntl
 import json
@@ -23,6 +29,7 @@ from typing import TypedDict
 
 from core.paths import PROJECT_ROOT
 from llm import BACKEND_KIMI_CLI
+from llm.permission_policy import DEFAULT_PERMISSION_MODE, MODE_CONFIRM_ALL
 
 CONFIG_DIR = PROJECT_ROOT / "config"
 SETTINGS_FILE = CONFIG_DIR / "settings.json"
@@ -38,7 +45,11 @@ KEY_FONT_FAMILY = "font_family"
 KEY_MODEL_BACKEND = "model_backend"
 KEY_MODEL_VERSION = "model_version"
 KEY_TERMINAL_SWAP_COPY_PASTE = "terminal_swap_copy_paste"
-KEY_PERMISSION_AUTO_ALLOW = "permission_auto_allow"
+KEY_PERMISSION_MODE = "permission_mode"
+
+#: 旧权限键（2026-0722-1240 计划前）：仅用于 load_settings 一次性迁移读取，
+#: 消费侧禁止引用（未登记新键时它已不在 DEFAULT_SETTINGS 内，不写回）
+_LEGACY_KEY_PERMISSION_AUTO_ALLOW = "permission_auto_allow"
 
 #: 默认主题名（全库唯一来源；theme.py FALLBACK_THEME 与各面板缺省主题均引用此值，
 #: 不可反向引用 theme.py——theme 依赖本模块，反向成环）
@@ -57,9 +68,10 @@ class AppSettings(TypedDict):
     model_version: str | None
     #: 终端复制/粘贴快捷键反转（True：Ctrl+C/V 复制粘贴，Ctrl+Shift+C/V 发 SIGINT/\x16）
     terminal_swap_copy_paste: bool
-    #: AI 工具自动放行（方案 F 默认放手；True：仅危险命令黑名单命中弹窗，
-    #: False：恢复逐次确认现状——逃生舱）
-    permission_auto_allow: bool
+    #: AI 工具权限模式（四态枚举，值域见 llm/permission_policy.PERMISSION_MODES：
+    #: confirm_all 逐次确认 / confirm_execute 仅命令确认 / auto_guarded 智能
+    #: 放行+黑名单兜底（默认）/ auto_all 全部放行）
+    permission_mode: str
 
 
 class AppSettingsPatch(TypedDict, total=False):
@@ -71,7 +83,7 @@ class AppSettingsPatch(TypedDict, total=False):
     model_backend: str
     model_version: str | None
     terminal_swap_copy_paste: bool
-    permission_auto_allow: bool
+    permission_mode: str
 
 
 #: 默认值：文件缺失 / 字段缺失 / JSON 损坏时回退
@@ -82,7 +94,7 @@ DEFAULT_SETTINGS: AppSettings = {
     KEY_MODEL_BACKEND: BACKEND_KIMI_CLI,
     KEY_MODEL_VERSION: None,
     KEY_TERMINAL_SWAP_COPY_PASTE: False,
-    KEY_PERMISSION_AUTO_ALLOW: True,
+    KEY_PERMISSION_MODE: DEFAULT_PERMISSION_MODE,
 }
 
 
@@ -91,6 +103,9 @@ def load_settings() -> AppSettings:
 
     未登记键读取即丢弃（不写回）：键改名/键迁移（如窗口状态键迁入
     window_state.json）后存量旧键自然失效，无需迁移代码。
+    例外（review 修复）：旧 permission_auto_allow=false 用户显式选择过最
+    保守的逐次确认，静默落入默认中间档是安全姿态降级——读取时一次性
+    映射为 confirm_all（不写回，旧键随下次 update_settings 全量写回消亡）。
     """
     settings = AppSettings(DEFAULT_SETTINGS)
     try:
@@ -98,6 +113,9 @@ def load_settings() -> AppSettings:
             data = json.load(f)
         if isinstance(data, dict):
             settings.update({k: v for k, v in data.items() if k in DEFAULT_SETTINGS})
+            if (KEY_PERMISSION_MODE not in data
+                    and data.get(_LEGACY_KEY_PERMISSION_AUTO_ALLOW) is False):
+                settings[KEY_PERMISSION_MODE] = MODE_CONFIRM_ALL
     except (OSError, json.JSONDecodeError):
         pass
     return settings

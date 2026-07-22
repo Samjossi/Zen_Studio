@@ -22,7 +22,7 @@ from gui.panels.chat.input import ChatInput
 from gui.panels.chat.output import ChatOutput
 from gui.panels.chat.permission_queue import PERMISSION_QUEUE
 from gui.panels.chat.worker import ChatWorker
-from gui.settings import KEY_PERMISSION_AUTO_ALLOW, KEY_THEME
+from gui.settings import KEY_PERMISSION_MODE, KEY_THEME
 from gui.theme import get_theme_palette, load_settings
 from gui.window_state import decode_state, encode_state
 from llm import (
@@ -214,27 +214,24 @@ class ChatPanel(QWidget):
         self._splitter.setSizes(self.DEFAULT_SPLITTER_SIZES)
 
     # ------------------------------------------------------------------
-    # ACP 审批回环（方案 F 默认放手：纯逻辑前置决策，仅黑名单命中走队列弹框）
+    # ACP 审批回环（权限四态：纯逻辑前置决策，弹窗面由档位决定）
     # ------------------------------------------------------------------
     def _ask_permission(self, params: PermissionParams) -> str | None:
         """ACP 审批处理器：在 agent reader 线程被调用。
 
-        自动放行开关开（默认）：decide_permission 纯函数前置决策——allow 直接
-        同步返回 optionId（零 GUI、零阻塞，不触碰队列/QTimer）；仅危险命令
-        黑名单命中才提交全局审批队列弹窗（附命中原因）。开关关：逃生舱，
-        恢复逐次确认现状（全部走弹窗）。返回 None 由上层按拒绝兜底。
+        decide_permission 按当前 permission_mode 四态前置决策——allow 直接
+        同步返回 optionId（零 GUI、零阻塞，不触碰队列/QTimer）；ask 提交
+        全局审批队列弹窗（黑名单命中附原因）。返回 None 由上层按拒绝兜底。
         """
-        if load_settings()[KEY_PERMISSION_AUTO_ALLOW]:
-            decision, reason = decide_permission(params)
-            if decision == DECISION_ALLOW:
-                option_id = select_option_id(params.get("options") or [])
-                if option_id is not None:
-                    return option_id
-                # 决策为 allow 但 agent 未提供 allow 类选项：不静默拒绝
-                # （None 会被上层兜底为 reject），降级普通弹窗交还用户裁决
-                return PERMISSION_QUEUE.ask(params, self)
-            return PERMISSION_QUEUE.ask(params, self, danger_reason=reason)
-        return PERMISSION_QUEUE.ask(params, self)
+        decision, reason = decide_permission(params, load_settings()[KEY_PERMISSION_MODE])
+        if decision == DECISION_ALLOW:
+            option_id = select_option_id(params.get("options") or [])
+            if option_id is not None:
+                return option_id
+            # 决策为 allow 但 agent 未提供 allow 类选项：不静默拒绝
+            # （None 会被上层兜底为 reject），降级普通弹窗交还用户裁决
+            return PERMISSION_QUEUE.ask(params, self)
+        return PERMISSION_QUEUE.ask(params, self, danger_reason=reason)
 
     # ------------------------------------------------------------------
     # 发送与流式接收

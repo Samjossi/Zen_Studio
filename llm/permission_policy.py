@@ -1,9 +1,14 @@
-"""ACP 工具审批决策纯逻辑（方案 F「默认放手 + 双护栏」第一护栏：黑名单兜底）。
+"""ACP 工具审批决策纯逻辑（权限四态；危险命令黑名单为智能放行档兜底）。
 
-决策链：`decide_permission()` 判定 allow/ask → allow 时 `select_option_id()`
-按 kind 优先序挑 optionId 原样回传（不臆造，optionId 纪律同 1555 计划 C1）。
-模块零 Qt、零 IO、零阻塞——agent reader 线程直接调用安全
-（纯逻辑分层同 SelectionController 先例，可脱离 GUI 单测）。
+决策链：`decide_permission(params, mode)` 判定 allow/ask → allow 时
+`select_option_id()` 按 kind 优先序挑 optionId 原样回传（不臆造，optionId
+纪律同 1555 计划 C1）。模块零 Qt、零 IO、零阻塞——agent reader 线程直接
+调用安全（纯逻辑分层同 SelectionController 先例，可脱离 GUI 单测）。
+
+权限四态（2026-07-22，work plans/2026-0722-1240 计划，二态开关升级）：
+confirm_all 逐次确认 / confirm_execute 仅命令确认 / auto_guarded 智能放行
+（默认，黑名单兜底）/ auto_all 全部放行（护栏关闭，高危）。四态是单选枚举
+而非规则引擎——不做工具级/命令级白名单（选型 §5 裁决不突破）。
 
 黑名单为归一化后的正则粗匹配兜底，失败方向安全：
 漏匹配 → 不弹（放手语义接受的残余风险，已裁决）；误匹配 → 弹一次窗（人看一眼）。
@@ -21,6 +26,27 @@ DECISION_ASK = "ask"
 
 #: 决策返回：(判定, 黑名单命中原因)；allow 时原因恒为 None
 Decision = tuple[Literal["allow", "ask"], str | None]
+
+# ----------------------------------------------------------------------
+# 权限模式常量（settings 默认值、设置中心单选组共用此单一来源）
+# ----------------------------------------------------------------------
+MODE_CONFIRM_ALL = "confirm_all"        #: 逐次确认：全部弹窗（逃生舱）
+MODE_CONFIRM_EXECUTE = "confirm_execute"  #: 仅命令需确认：非 Bash 放行，Bash 全弹
+MODE_AUTO_GUARDED = "auto_guarded"      #: 智能放行：仅黑名单命中弹窗（默认）
+MODE_AUTO_ALL = "auto_all"              #: 全部放行：黑名单护栏关闭（高危）
+
+#: 合法模式值（未知值回退默认）
+PERMISSION_MODES = (MODE_CONFIRM_ALL, MODE_CONFIRM_EXECUTE, MODE_AUTO_GUARDED, MODE_AUTO_ALL)
+
+DEFAULT_PERMISSION_MODE = MODE_AUTO_GUARDED
+
+#: 模式值 → (显示名, 说明)（设置中心 AI 权限页单选组文案单一来源）
+PERMISSION_MODE_LABELS: dict[str, tuple[str, str]] = {
+    MODE_CONFIRM_ALL: ("逐次确认", "所有工具调用都弹窗确认，最保守"),
+    MODE_CONFIRM_EXECUTE: ("仅命令需确认", "读写文件自动放行，运行命令一律弹窗"),
+    MODE_AUTO_GUARDED: ("智能放行（推荐）", "普通调用自动放行，仅危险命令黑名单命中时弹窗"),
+    MODE_AUTO_ALL: ("全部放行", "危险命令（rm -rf /、git push -f 等）也不再弹窗，高危"),
+}
 
 #: 自动放行的 optionId 优先序（同 Multi_Cli_Studio gemini 侧先例：
 #: allow_always 优于 allow_once——等价"始终允许"语义，避免每轮重复决策）
@@ -72,22 +98,39 @@ DANGEROUS_COMMAND_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = tuple(
 )
 
 
-def decide_permission(params: PermissionParams) -> Decision:
+def decide_permission(params: PermissionParams, mode: str = DEFAULT_PERMISSION_MODE) -> Decision:
     """审批决策：(DECISION_ALLOW, None) 自动放行 / (DECISION_ASK, 原因) 走弹窗。
 
-    非 Bash 类（kind≠execute）一律放行；Bash 类提取命令文本，命中黑名单
-    才弹窗；提取不到文本按放手语义放行（风险已记录在案，见计划 §6）。
+    四态语义（未知 mode 回退 auto_guarded）：
+    - confirm_all：全部弹窗（逃生舱；Bash 命中黑名单时附原因）
+    - confirm_execute：非 Bash 放行，Bash 一律弹窗（命中黑名单附原因）
+    - auto_guarded：非 Bash 放行；Bash 仅黑名单命中弹窗（附原因）；
+      提取不到命令文本按放手语义放行（风险已记录在案，见 0757 计划 §6）
+    - auto_all：一律放行（护栏关闭，高危档）
     """
+    if mode not in PERMISSION_MODES:
+        mode = DEFAULT_PERMISSION_MODE
+    if mode == MODE_AUTO_ALL:
+        return DECISION_ALLOW, None
     tool_call = params.get("toolCall") or {}
+    if mode == MODE_CONFIRM_ALL:
+        return DECISION_ASK, _danger_reason(tool_call)
     if (tool_call.get("kind") or "") != "execute":
         return DECISION_ALLOW, None
-    command_text = extract_command_text(tool_call)
-    if command_text is None:
-        return DECISION_ALLOW, None
-    reason = match_dangerous_command(command_text)
+    if mode == MODE_CONFIRM_EXECUTE:
+        return DECISION_ASK, _danger_reason(tool_call)
+    reason = _danger_reason(tool_call)
     if reason is not None:
         return DECISION_ASK, reason
     return DECISION_ALLOW, None
+
+
+def _danger_reason(tool_call: ToolCallInfo) -> str | None:
+    """Bash 类工具的黑名单命中原因；非危险/提取不到文本返回 None。"""
+    command_text = extract_command_text(tool_call)
+    if command_text is None:
+        return None
+    return match_dangerous_command(command_text)
 
 
 def select_option_id(

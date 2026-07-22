@@ -1,7 +1,10 @@
-"""设置菜单：AI 模型 ▸ / 字体大小 ▸ / 打开配置文件 / 恢复默认设置。
+"""设置菜单：设置中心… / AI 模型 ▸ / 字体大小 ▸ / 打开配置文件 / 恢复默认设置。
 
 S3 混合双通道（文档/选型记录/2026-0720-0433 选型 §2.2）：高频项菜单直挂，
 原始 settings.json 经「打开配置文件」入只读查看器（修改由 AI 落盘）。
+设置中心对话框（work plans/2026-0722-1240 计划）为第三通道：全量偏好的
+图形化入口（Ctrl+,），AI 工具权限四态等菜单表达力不足的设置项归其承载
+（权限复选框已随四态升级从本菜单移除，避免双通道状态割裂）。
 
 AI 模型子菜单与 ModelBar 双向同步（计划任务 3.3）：
 - 菜单 → ModelBar：action 触发 → MainWindow.apply_model_selection
@@ -16,9 +19,7 @@ from gui.menus.registry import ActionRegistry
 from gui.settings import (
     KEY_MODEL_BACKEND,
     KEY_MODEL_VERSION,
-    KEY_PERMISSION_AUTO_ALLOW,
     KEY_TERMINAL_SWAP_COPY_PASTE,
-    update_settings,
 )
 from gui.theme import load_settings
 from llm import BACKEND_KIMI_CLI, BACKEND_LABELS, kimi_available, list_kimi_models
@@ -117,6 +118,14 @@ class ModelMenu:
 def build(menubar: QMenuBar, ctx: QMainWindow, actions: ActionRegistry) -> ModelMenu:
     menu = menubar.addMenu("设置(&S)")
 
+    # 设置中心对话框（第三通道：全量偏好图形化入口，Ctrl+,）
+    action = menu.addAction("设置中心(&P)…")
+    action.setShortcut("Ctrl+,")
+    action.triggered.connect(ctx.open_settings_dialog)
+    actions.register("settings.center", action)
+
+    menu.addSeparator()
+
     model_menu = ModelMenu(menu.addMenu("AI 模型(&M)"), ctx)
 
     submenu = menu.addMenu("字体大小(&F)")
@@ -137,15 +146,6 @@ def build(menubar: QMenuBar, ctx: QMainWindow, actions: ActionRegistry) -> Model
     action.setChecked(load_settings()[KEY_TERMINAL_SWAP_COPY_PASTE])
     action.triggered.connect(ctx.set_terminal_swap_copy_paste)
     actions.register("settings.terminal_swap_copy_paste", action)
-
-    # AI 工具自动放行（方案 F 默认放手）：勾选即持久化，审批决策读取时
-    # 即时生效（无需下发）；取消勾选 = 逃生舱，恢复逐次确认弹窗现状
-    action = menu.addAction("AI 工具自动放行（危险命令仍弹窗）(&A)")
-    action.setCheckable(True)
-    action.setChecked(load_settings()[KEY_PERMISSION_AUTO_ALLOW])
-    action.triggered.connect(
-        lambda checked=False: update_settings({KEY_PERMISSION_AUTO_ALLOW: bool(checked)}))
-    actions.register("settings.permission_auto_allow", action)
 
     menu.addSeparator()
 

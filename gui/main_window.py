@@ -68,6 +68,7 @@ from gui.settings import (
     SETTINGS_FILE,
     update_settings,
 )
+from gui.settings_dialog import SettingsDialog
 from gui.theme import (
     apply_theme,
     get_label,
@@ -104,6 +105,9 @@ class MainWindow(QMainWindow):
         else:
             self.setWindowTitle("Zen Studio")
         self.resize(1200, 800)
+
+        #: 设置中心对话框（非模态单例，首次打开时惰性创建）
+        self._settings_dialog: SettingsDialog | None = None
 
         self._build_layout()
         self._init_statusbar()
@@ -302,6 +306,7 @@ class MainWindow(QMainWindow):
         self.chat_tabs.apply_theme(theme)
         if action := self.menus.get(theme_action_key(theme)):
             action.setChecked(True)
+        self._sync_settings_dialog()
         self.statusBar().showMessage(f"已切换为{get_label(theme)}主题", self.STATUS_MSG_TIMEOUT_MS)
 
     # ------------------------------------------------------------------
@@ -365,6 +370,22 @@ class MainWindow(QMainWindow):
             self.viewer_panel.show_find()
 
     # ------------------------------------------------------------------
+    # 设置中心对话框（设置菜单 ▸ 设置中心…，Ctrl+,；非模态单例）
+    # ------------------------------------------------------------------
+    def open_settings_dialog(self) -> None:
+        """打开设置中心：首次惰性创建，重复打开 raise 现有实例。"""
+        if self._settings_dialog is None:
+            self._settings_dialog = SettingsDialog(self)
+        self._settings_dialog.show()
+        self._settings_dialog.raise_()
+        self._settings_dialog.activateWindow()
+
+    def _sync_settings_dialog(self) -> None:
+        """设置项经收敛点变化后同步对话框控件态（打开期间；reload 防回环）。"""
+        if self._settings_dialog is not None and self._settings_dialog.isVisible():
+            self._settings_dialog.reload()
+
+    # ------------------------------------------------------------------
     # 设置菜单槽
     # ------------------------------------------------------------------
     #: 字号调整上下界（pt）
@@ -373,12 +394,15 @@ class MainWindow(QMainWindow):
 
     def adjust_font_size(self, delta: int) -> None:
         """字号增大/减小（步进 1pt，带上下界钳制）。"""
-        size = load_settings()[KEY_FONT_SIZE] + delta
-        size = max(self.FONT_SIZE_MIN, min(self.FONT_SIZE_MAX, size))
-        self._apply_font_size(size)
+        self.set_font_size(load_settings()[KEY_FONT_SIZE] + delta)
 
     def reset_font_size(self) -> None:
         self._apply_font_size(DEFAULT_SETTINGS[KEY_FONT_SIZE])
+
+    def set_font_size(self, size: int) -> None:
+        """字号绝对设定（设置中心对话框入口；钳制后走统一应用链）。"""
+        size = max(self.FONT_SIZE_MIN, min(self.FONT_SIZE_MAX, size))
+        self._apply_font_size(size)
 
     def _apply_font_size(self, size: int) -> None:
         """字号应用链：持久化 → 全局字体 → 查看器/终端等宽字号同步。"""
@@ -389,19 +413,22 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(0, self._fit_menubar_height)  # 菜单栏项高同理（延迟结算）
         self.viewer_panel.refresh_font()
         self.terminal_panel.refresh_font()
+        self._sync_settings_dialog()
         self.statusBar().showMessage(f"字号：{size} pt", self.STATUS_MSG_SHORT_MS)
 
     def apply_model_selection(self, backend: str, version: str | None) -> None:
-        """设置菜单驱动的模型切换：收敛到 ChatPanel 后刷新菜单勾选态。"""
+        """设置菜单/设置中心驱动的模型切换：收敛到 ChatPanel 后刷新各方勾选态。"""
         self.chat_tabs.apply_model_selection(backend, version)
         bar = self.chat_tabs.model_bar
         if self.menus.model_menu is not None:
             self.menus.model_menu.sync(bar.current_backend(), bar.current_version())
+        self._sync_settings_dialog()
 
     def set_terminal_swap_copy_paste(self, checked: bool) -> None:
         """终端复制/粘贴快捷键反转：持久化 + 即时下发终端面板（无需重启）。"""
         update_settings({KEY_TERMINAL_SWAP_COPY_PASTE: checked})
         self.terminal_panel.set_swap_copy_paste(checked)
+        self._sync_settings_dialog()
         hint = "Ctrl+C/V 复制粘贴" if checked else "Ctrl+Shift+C/V 复制粘贴"
         self.statusBar().showMessage(f"终端快捷键：{hint}", self.STATUS_MSG_SHORT_MS)
 
@@ -409,11 +436,14 @@ class MainWindow(QMainWindow):
         """ModelBar 用户切换 → 菜单勾选态（setChecked 不触发 triggered，无回环）。"""
         if self.menus.model_menu is not None:
             self.menus.model_menu.sync(backend, version if isinstance(version, str) else None)
+        self._sync_settings_dialog()
 
     def _on_chat_busy_changed(self, busy: bool) -> None:
-        """发送中禁用 AI 模型菜单组（与 ModelBar 双下拉禁用对齐）。"""
+        """发送中禁用 AI 模型菜单组与设置中心模型页（与 ModelBar 对齐）。"""
         if self.menus.model_menu is not None:
             self.menus.model_menu.set_enabled(not busy)
+        if self._settings_dialog is not None:
+            self._settings_dialog.set_model_enabled(not busy)
 
     def open_settings_file(self) -> None:
         """在只读查看器中打开 settings.json（AI-first：修改经 AI 落盘）。"""
@@ -455,6 +485,7 @@ class MainWindow(QMainWindow):
         self.terminal_panel.set_swap_copy_paste(swap)
         if action := self.menus.get("settings.terminal_swap_copy_paste"):
             action.setChecked(swap)
+        self._sync_settings_dialog()
         self.statusBar().showMessage("已恢复默认设置", self.STATUS_MSG_TIMEOUT_MS)
 
     # ------------------------------------------------------------------

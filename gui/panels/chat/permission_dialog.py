@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
 )
 
 from gui.popups import TranslucentMenuPlainTextEdit
+from gui.theme import WARNING_COLOR
 from llm import PermissionParams
 
 #: 选项 kind → 中文按钮文案（agent 提供英文 name 时兜底）
@@ -55,7 +56,7 @@ class PermissionDialog(QDialog):
         if danger_reason:
             warning = QLabel(f"⚠ 命中危险命令黑名单：{danger_reason}", self)
             warning.setWordWrap(True)
-            warning.setStyleSheet("color: #c0392b; font-weight: bold;")
+            warning.setStyleSheet(f"color: {WARNING_COLOR}; font-weight: bold;")
 
         detail = TranslucentMenuPlainTextEdit(self)
         detail.setReadOnly(True)

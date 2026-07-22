@@ -180,6 +180,10 @@ class ChatTabs(QWidget):
         self.model_bar.set_busy(any_busy)  # 双下拉禁用 + 停止按钮可见
         self.busy_changed.emit(any_busy)
 
+    def is_busy(self) -> bool:
+        """任一标签响应中（设置中心模型页禁用依据）。"""
+        return bool(self._busy_panels)
+
     def _route_stop(self) -> None:
         """停止按钮路由：优先当前活动标签，其空闲时停任一忙标签。"""
         current = self._tabs.currentWidget()
