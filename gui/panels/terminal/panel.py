@@ -47,7 +47,7 @@ class TerminalPanel(QWidget):
     #: 配合主窗口 middle_splitter.setCollapsible(1, False) 生效
     MIN_HEIGHT = 140
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(self, parent: QWidget | None = None, cwd: str | None = None) -> None:
         super().__init__(parent)
         self.setMinimumHeight(self.MIN_HEIGHT)
         # ANSI 配色取自主题调色板（资源包下沉，每主题自带全套）
@@ -55,7 +55,8 @@ class TerminalPanel(QWidget):
         self._sessions: list[_Session] = []
         self._serial = 0  # tab 序号计数（只增不复用：关闭「终端2」后再新建得「终端3」；全关后归零重计）
         self._find_matches: list[tuple[int, int, int]] = []  # 查找命中段缓存
-        self._cwd = str(PROJECT_ROOT)  # 新会话工作目录（工作区切换经 set_cwd 更新；已存在会话不动）
+        #: 新会话工作目录（启动工作区根注入，进程级固定；已存在会话不动）
+        self._cwd = cwd or str(PROJECT_ROOT)
 
         self._build_header()
         self._build_terminal_area()
@@ -297,10 +298,6 @@ class TerminalPanel(QWidget):
         """活动会话存在且进程存活（菜单启用态依据）。"""
         session_entry = self._current()
         return session_entry is not None and session_entry.session.is_alive()
-
-    def set_cwd(self, cwd: str) -> None:
-        """设置新会话工作目录（工作区切换）；已存在会话不受影响。"""
-        self._cwd = cwd
 
     def set_swap_copy_paste(self, enabled: bool) -> None:
         """复制/粘贴快捷键反转（设置菜单勾选项，即时生效、无需重启）。

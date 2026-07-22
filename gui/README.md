@@ -26,7 +26,7 @@
 | [`panels/viewer/`](panels/viewer/) | 文件查看面板子包（中栏上）：`panel.py` 装配（含 Git 差异徽标）/ `code_viewer.py` 只读查看器（行号栏）/ `highlighter.py` Pygments 高亮器 |
 | [`panels/terminal/`](panels/terminal/) | 终端面板子包（中栏下）：`panel.py` 装配 / `widget.py` 自绘终端控件 / `screen.py` pyte 语义层 / `session.py` PTY 会话 / `palette.py` ANSI 双主题色板 |
 
-> LLM 调用层为后端逻辑，位于项目根 [`llm/`](../llm/)（与 `gui/` 平级）：`base.py` Protocol / `registry.py` 注册表 / `providers/kimi_cli.py`（stream-json 子进程）与 `providers/kimi_acp.py`（ACP 长驻）两个 Kimi Code CLI 后端。前端经 `from llm import get_llm` 消费。
+> LLM 调用层为后端逻辑，位于项目根 [`llm/`](../llm/)（与 `gui/` 平级）：`base.py` Protocol / `providers/kimi_cli.py`（stream-json 子进程）与 `providers/kimi_acp.py`（ACP 长驻）两个 Kimi Code CLI 后端。多标签改造后 provider 由每个 `ChatPanel` 自持（`ChatPanel._build_providers` 装配单点）。
 >
 > Git 数据层同理位于项目根 [`core/git/`](../core/git/)：`GitStatusService`（subprocess 调系统 git CLI，零 Qt 依赖纯 Python 包），GUI 侧经 `main_window` 注入各面板消费。
 
@@ -72,19 +72,18 @@
 | 面板显隐 | 单一入口法：`MainWindow.set_xxx_visible` 同步注册表勾选态与可见性，菜单勾选与面板头部「−」按钮汇入 |
 | 启用态刷新 | 编辑（复制/全选）与终端（清屏/终止）菜单在 `aboutToShow` 按焦点控件能力/会话存活态即时刷新 |
 
-菜单内容速览：**文件**（打开文件 / 打开文件夹=工作区根切换 / 打开配置目录 / 退出）；**编辑**（复制 / 全选——转发焦点控件；查找——按焦点分发终端或查看器浮层）；**视图**（四面板显隐 / 噪音过滤 / 恢复默认布局 / Git 刷新 / 外观▸主题互斥组）；**终端**（新建 / 清屏 / 重开 / 终止，与头部按钮、右键菜单同一实现路径）；**设置**（AI 模型▸与 ModelBar 双向同步、字体大小▸、打开配置文件、恢复默认设置）；**帮助**（关于）。
+菜单内容速览：**文件**（打开文件 / 在新窗口打开文件夹=多开进程 / 打开配置目录 / 退出）；**编辑**（复制 / 全选——转发焦点控件；查找——按焦点分发终端或查看器浮层）；**视图**（四面板显隐 / 噪音过滤 / 恢复默认布局 / Git 刷新 / 外观▸主题互斥组）；**终端**（新建 / 清屏 / 重开 / 终止，与头部按钮、右键菜单同一实现路径）；**设置**（AI 模型▸与 ModelBar 双向同步、字体大小▸、打开配置文件、恢复默认设置）；**帮助**（关于）。
 
-**工作区根切换**（文件 ▸ 打开文件夹）：`FileExplorer.set_root` 换根 → 聊天输入框 `@相对路径` 基准 → 终端新会话 cwd（已存在会话不动）→ `GitStatusService` 重建四处联动，`workspace_root` 持久化供启动恢复。
+**多开工作区**（文件 ▸ 在新窗口打开文件夹，2026-07-22 多实例多标签改造）：一进程绑定一工作区根（启动参数 `uv run main.py [folder]` 注入，缺省回退项目根），「打开文件夹」改为 `subprocess.Popen` 起新进程；进程边界天然隔离文件树/终端/Git/agent cwd。非默认工作区窗口标题标注根路径。共享配置并发治理：`settings.json` 经 flock 文件锁串行化"读-合并-写" + 原子写；窗口状态按工作区哈希分文件（`config/window_state_<hash8>.json`），各窗口恢复各自几何。
 
 ## 5. 聊天面板（左栏）
 
-`ChatPanel` 上输出（QTextBrowser）下输入（QTextEdit）垂直分栏，Enter 发送 / Shift+Enter 换行；流式调用放 `ChatWorker(QThread)` 后台线程，逐块信号上屏，UI 不冻结。输入区顶行内嵌 `ModelBar`（模型 + 版本双下拉）。对话统一经本机 agent CLI（Kimi Code CLI），代码库零 API KEY。从文件树或系统文件管理器**拖入文件 → 落点插入 `@工作区相对路径 ` 引用**（纯文本透传，由后端 agent CLI 解析）；模型选择与面板内分栏状态均持久化到 `config/settings.json`。
+`ChatTabs` 标签容器（上限 4）：顶部全局 `ModelBar`（模型 + 版本双下拉，全部标签共享同一选择，切换广播到所有标签），下方每标签一个独立 `ChatPanel`。`ChatPanel` 上输出（QTextBrowser）下输入（QTextEdit）垂直分栏，Enter 发送 / Shift+Enter 换行；流式调用放 `ChatWorker(QThread)` 后台线程，逐块信号上屏，UI 不冻结。每标签**自持 provider 实例**（独立 `kimi acp` 连接，标签间完全隔离可并行）。对话统一经本机 agent CLI（Kimi Code CLI），代码库零 API KEY。从文件树或系统文件管理器**拖入文件 → 落点插入 `@工作区相对路径 ` 引用**（纯文本透传，由后端 agent CLI 解析）；模型选择持久化到 `config/settings.json`。多标签审批经全局 `PermissionQueue` 串行弹窗；任一标签响应中即禁用全局 ModelBar 与设置菜单 AI 模型组。
 
 | 组件 | 说明 |
 |:---|:---|
 | `LanguageModel` Protocol | 统一接口 `chat(messages) -> Iterator[Chunk]`，与 UI 解耦 |
 | `Chunk` | 流式块：`kind="text"` 正文 / `kind="reasoning"` 过程信息（思维链或工具调用摘要灰字展示） |
-| `LLMRegistry` | 名称 → provider 注册表，`get_llm("kimi-cli" \| "kimi-acp")` 取实例 |
 | `KimiCliLLM` | Kimi Code CLI 后端（spawn `-p` + stream-json）：消息粒度上屏、session_id 续接多轮、工具调用灰字摘要；⚠️ auto 权限下 agent 可在项目目录自主读写/执行 |
 | `KimiAcpLLM` | Kimi ACP 后端（长驻 `kimi acp` + JSON-RPC）：**token 级流式**、思维链可见（`agent_thought_chunk`）、`session/new` 原生会话、`session/set_config_option` 会话内切模型 |
 | `PermissionDialog` | ACP 工具审批模态框：工具名/参数摘要 + 选项按钮（允许一次/始终允许/拒绝）；reader 线程请求转 GUI 线程弹出，180s 无响应按拒绝兜底 |

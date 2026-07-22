@@ -59,8 +59,13 @@ def list_kimi_models() -> list[str]:
 class KimiCliLLM(LanguageModel):
     """Kimi Code CLI 后端（子进程 + JSONL 解析，消息粒度上屏）。"""
 
-    def __init__(self, model: str | None = None) -> None:
-        self._model = model  # None = CLI 默认模型（default_model）
+    def __init__(self, model: str | None = None, workspace_root: str | None = None) -> None:
+        """
+        :param model: 模型别名（None = CLI 默认模型 default_model）
+        :param workspace_root: agent 工作目录（None = 项目根；多开模式由启动参数注入）
+        """
+        self._model = model
+        self._cwd = workspace_root or str(PROJECT_ROOT)
         self._session_id: str | None = None
         #: 当前请求的活动子进程（cancel 目标；chat 开始登记、结束置 None）
         self._active_proc: subprocess.Popen | None = None
@@ -68,6 +73,14 @@ class KimiCliLLM(LanguageModel):
     def set_model(self, alias: str) -> None:
         """切换模型别名（下次请求生效）。"""
         self._model = alias
+
+    def set_workspace_root(self, root: str) -> None:
+        """切换 agent 工作目录；换目录即弃旧 sessionId，防跨目录续接旧会话。
+
+        当前无调用方（多开模型下工作区根进程级固定），按计划 2026-0722-0756 预留。
+        """
+        self._cwd = root
+        self.reset_session()
 
     def reset_session(self) -> None:
         """清空会话续接凭证，下次请求开新会话。"""
@@ -122,7 +135,7 @@ class KimiCliLLM(LanguageModel):
         """spawn 子进程并登记为 cancel 目标。"""
         proc = subprocess.Popen(
             cmd,
-            cwd=PROJECT_ROOT,
+            cwd=self._cwd,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,

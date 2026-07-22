@@ -63,11 +63,15 @@ class _AcpConnection:
     同一时刻仅一个活跃轮次（`KimiAcpLLM._turn_lock` 保证）。
     """
 
-    def __init__(self, bin_path: str) -> None:
+    def __init__(self, bin_path: str, cwd: str) -> None:
+        """
+        :param bin_path: kimi 二进制路径
+        :param cwd: agent 子进程工作目录（多开模式由启动参数注入）
+        """
         try:
             self._proc = subprocess.Popen(
                 [bin_path, "acp"],
-                cwd=PROJECT_ROOT,
+                cwd=cwd,
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.DEVNULL,  # ACP 日志走 stderr/~/.kimi-code/logs，不属协议
@@ -252,8 +256,13 @@ class _AcpConnection:
 class KimiAcpLLM(LanguageModel):
     """Kimi ACP 后端（长驻子进程 + ndjson JSON-RPC，token 级流式 + 思维链）。"""
 
-    def __init__(self, model: str | None = None) -> None:
-        self._model = model  # None = agent 默认模型（configOptions currentValue）
+    def __init__(self, model: str | None = None, workspace_root: str | None = None) -> None:
+        """
+        :param model: 模型别名（None = agent 默认模型 configOptions currentValue）
+        :param workspace_root: agent 工作目录（None = 项目根；多开模式由启动参数注入）
+        """
+        self._model = model
+        self._cwd = workspace_root or str(PROJECT_ROOT)
         self._conn: _AcpConnection | None = None
         self._session_id: str | None = None
         self._turn_lock = threading.Lock()
@@ -278,6 +287,14 @@ class KimiAcpLLM(LanguageModel):
         """清空会话，下次请求 `session/new` 开新会话（进程保留）。"""
         self._session_id = None
 
+    def set_workspace_root(self, root: str) -> None:
+        """切换 agent 工作目录：丢弃旧 session（长驻进程保留，下次 session/new 用新 cwd）。
+
+        当前无调用方（多开模型下工作区根进程级固定），按计划 2026-0722-0756 预留。
+        """
+        self._cwd = root
+        self.reset_session()
+
     def set_permission_handler(self, handler: PermissionHandler | None) -> None:
         """注入审批处理器：params → optionId（None 视为拒绝）；None 恢复自动允许。"""
         self._permission_handler = handler
@@ -285,7 +302,9 @@ class KimiAcpLLM(LanguageModel):
             self._conn.set_permission_handler(handler)
 
     def close(self) -> None:
-        """终止 agent 子进程（atexit 挂钩；Zen Studio 退出时防残留）。"""
+        """终止 agent 子进程并注销 atexit 钩（多标签：实例随标签关闭销毁，
+        不注销则绑定方法把已死实例钉在 atexit 注册表至进程退出）。"""
+        atexit.unregister(self.close)
         if self._conn:
             self._conn.terminate()
             self._conn = None
@@ -308,7 +327,7 @@ class KimiAcpLLM(LanguageModel):
         if self._conn is None or not self._conn.is_alive:
             if self._conn is not None:
                 self._conn.terminate()
-            self._conn = _AcpConnection(bin_path)
+            self._conn = _AcpConnection(bin_path, self._cwd)
             self._conn.set_permission_handler(self._permission_handler)
             self._session_id = None
             self._conn.request("initialize", {
@@ -322,7 +341,7 @@ class KimiAcpLLM(LanguageModel):
         if self._session_id is None:
             try:
                 result = self._conn.request(
-                    "session/new", {"cwd": str(PROJECT_ROOT), "mcpServers": []}, timeout=60)
+                    "session/new", {"cwd": self._cwd, "mcpServers": []}, timeout=60)
             except RuntimeError as e:
                 if "-32000" in str(e):  # authRequired：凭证失效，需用户重新登录
                     raise RuntimeError("kimi 未登录或凭证已过期，请在终端执行 `kimi login` 后重试") from None

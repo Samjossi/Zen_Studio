@@ -8,19 +8,18 @@
 
 ## 1. 概述
 
-`llm/` 是 Zen Studio 的 LLM 调用层，与 [`gui/`](../gui/) 平级。职责单一：把"多轮消息 → 流式文本"抽象为统一接口 `LanguageModel`，经注册表按名称取用 provider。前端仅通过 `from llm import get_llm` 消费，依赖方向为"前端 → 后端"，包内不 import 任何 GUI 代码。
+`llm/` 是 Zen Studio 的 LLM 调用层，与 [`gui/`](../gui/) 平级。职责单一：把"多轮消息 → 流式文本"抽象为统一接口 `LanguageModel`。多标签改造（2026-07-22，work plans/2026-0722-0756）后注册表模式移除：provider 由每个 `ChatPanel` 自持实例（`ChatPanel._build_providers` 为装配单点，标签间完全隔离可并行），依赖方向为"前端 → 后端"，包内不 import 任何 GUI 代码。
 
 **统一后端策略**：对话统一经本机 agent CLI（当前为 Kimi Code CLI）完成，代码库**不存放、不读取、不输入任何 API KEY**——凭证由各 CLI 自行管理（如 kimi 的 OAuth）。DeepSeek API KEY 直连已于 2026-07-18 移除（见 [`文档/修改记录/2026-0718-1455_移除APIKEY直连统一CLI后端实施计划.md`](../文档/修改记录/2026-0718-1455_移除APIKEY直连统一CLI后端实施计划.md)）。
 
-设计蓝本：theia-zen `LanguageModel` Protocol + 注册表模式，选型依据见 [`文档/选型记录/2026-0718-1215_对话栏AI聊天面板选型报告.md`](../文档/选型记录/2026-0718-1215_对话栏AI聊天面板选型报告.md)。
+设计蓝本：theia-zen `LanguageModel` Protocol（原注册表模式已随多标签改造移除），选型依据见 [`文档/选型记录/2026-0718-1215_对话栏AI聊天面板选型报告.md`](../文档/选型记录/2026-0718-1215_对话栏AI聊天面板选型报告.md)。
 
 ## 2. 文件结构
 
 | 文件 | 说明 |
 |:---|:---|
-| [`__init__.py`](__init__.py) | 包初始化：检测可用后端并注册到全局 `registry`，对外导出 `get_llm` |
+| [`__init__.py`](__init__.py) | 包初始化：导出统一接口、后端常量（`BACKEND_KIMI_CLI`/`BACKEND_KIMI_ACP`/`BACKEND_LABELS`）与 provider 类 |
 | [`base.py`](base.py) | `LanguageModel` Protocol + `Message` 类型别名 + `Chunk` 流式块 |
-| [`registry.py`](registry.py) | `LLMRegistry`：名称 → provider 实例的注册表 |
 | [`providers/__init__.py`](providers/__init__.py) | provider 子包标记（每家厂商一个文件） |
 | [`providers/kimi_cli.py`](providers/kimi_cli.py) | `KimiCliLLM`：本机 Kimi Code CLI 后端（spawn `kimi -p --output-format stream-json` 子进程 + session_id 续接；二进制检测链 PATH → `$KIMI_CODE_HOME/bin` → `~/.kimi-code/bin`） |
 | [`providers/kimi_acp.py`](providers/kimi_acp.py) | `KimiAcpLLM`：Kimi ACP 后端（长驻 `kimi acp` 子进程 + ndjson JSON-RPC；token 级流式、思维链可见、审批反向请求路由） |
@@ -46,18 +45,16 @@ class LanguageModel(Protocol):
 |:---|:---|
 | `LanguageModel` | 统一接口，返回 `Iterator[Chunk]` 逐块产出，与 UI 解耦 |
 | `Chunk` | 流式块：`kind="text"` 为正文增量；`kind="reasoning"` 为过程信息（思维链或工具调用摘要），仅当次显示、不回传 |
-| `LLMRegistry` | `register(name, llm)` / `get(name)` / `names()`；取未注册名称时抛 `KeyError` 并列出可用项 |
 | `KimiCliLLM` | provider 之一（`"kimi-cli"`，默认）：本机 Kimi Code CLI（OAuth 自管凭证）；spawn 子进程逐行解析 JSONL，assistant 正文为**消息粒度**（非 token 流式），`tool_calls` 复用 reasoning 通道灰字展示；历史由 CLI 会话管理（meta 行 `session_id` 续接），`set_model(alias)` 切换模型、`reset_session()` 开新会话；⚠️ `-p` 固定 auto 权限，agent 可在项目目录读写文件与执行命令 |
 | `KimiAcpLLM` | provider 之二（`"kimi-acp"`）：长驻 `kimi acp` 子进程经 ndjson JSON-RPC 对接（[ACP 协议](https://agentclientprotocol.com)，Zed/JetBrains 同款集成方式）；**token 级流式**（`agent_message_chunk`）、思维链可见（`agent_thought_chunk` → reasoning 通道）、`session/new` 原生会话、`session/set_config_option` 会话内切模型；工具审批经 `set_permission_handler()` 注入的回调路由（GUI 模态框），无回调时自动允许（等价 `-p` auto），回调返回 None/异常按拒绝兜底；进程崩溃下轮自动重启并开新会话 |
 
 ## 4. 使用方式
 
 ```python
-from llm import KimiCliLLM, get_llm
+from llm import KimiAcpLLM, KimiCliLLM
 
-llm = get_llm()  # 默认 kimi-cli；get_llm("kimi-acp") 取 ACP 后端（token 流式 + 思维链）
-if isinstance(llm, KimiCliLLM):
-    llm.set_model("kimi-code/kimi-for-coding-highspeed")  # 可选，默认 CLI default_model
+llm = KimiCliLLM()  # 或 KimiAcpLLM()（token 流式 + 思维链）；GUI 侧由 ChatPanel 自持装配
+llm.set_model("kimi-code/kimi-for-coding-highspeed")  # 可选，默认 CLI default_model
 for chunk in llm.chat([{"role": "user", "content": "你好"}]):
     if chunk.kind == "reasoning":
         print(chunk.text, end="", flush=True)  # 过程信息（思维链/工具摘要）：仅显示
@@ -85,5 +82,5 @@ for chunk in llm.chat([{"role": "user", "content": "你好"}]):
 ## 6. 新增 provider
 
 1. 在 [`providers/`](providers/) 下新建 `<名称>.py`，实现 `LanguageModel` 协议（`chat()` 为流式 generator；历史策略由各实现自决，CLI 类推荐"末条 user 消息 + CLI 侧会话"）
-2. 在 [`llm/__init__.py`](__init__.py) 中导入并 `registry.register("<名称>", XxxLLM())`（外部 CLI 类 provider 先 `shutil.which` 检测可用性再注册）
+2. 在 [`llm/__init__.py`](__init__.py) 中导入并加入 `__all__` 导出；GUI 消费侧在 `ChatPanel._build_providers` 装配（外部 CLI 类 provider 先 `shutil.which` 检测可用性再实例化）
 3. 凭证管理：CLI 类凭证由 CLI 自管，代码库不出现密钥；API key 类凭证放项目根 `api_key/<名称>`（已 gitignore）

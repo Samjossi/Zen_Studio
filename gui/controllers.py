@@ -3,7 +3,7 @@
 主窗口只留菜单 ctx 协调本职（面板显隐槽、主题/字号应用、焦点分发）；
 以下两类独立职责迁出为组合成员，依赖在构造函数显式化：
 
-- `GitStatusController`：Git 服务编排（创建/去抖/四面板扇出刷新/工作区重建）
+- `GitStatusController`：Git 服务编排（创建/去抖/四面板扇出刷新）
 - `WindowStateStore`：窗口几何与 splitter 状态持久化（读恢复/写保存）
 """
 from collections.abc import Callable
@@ -14,7 +14,7 @@ from PySide6.QtWidgets import QLabel, QMainWindow, QSplitter, QStatusBar
 from core.git import GitStatusService
 from gui.panels import FileExplorer, ViewerPanel
 from gui.panels.changes import ChangesPanel
-from gui.panels.chat import ChatPanel
+from gui.panels.chat import ChatTabs
 from gui.theme import load_settings
 from gui.settings import KEY_THEME
 from gui.window_state import (
@@ -23,7 +23,10 @@ from gui.window_state import (
     decode_state,
     encode_state,
     load_window_state,
+    migrate_legacy_window_state,
+    reset_window_state,
     update_window_state,
+    window_state_file_for,
 )
 
 
@@ -105,12 +108,6 @@ class GitStatusController(QObject):
         """去抖触发（窗口激活兜底终端 checkout 等外部 git 操作）。"""
         self._debounce.start()
 
-    def rebuild(self, root_dir: str) -> None:
-        """工作区切换：服务重建 + 查看器重新注入 + 立即刷新。"""
-        self._service = GitStatusService(root_dir)
-        self._viewer.set_git_service(self._service)
-        self.refresh()
-
     def _update_stats_label(self) -> None:
         """状态栏常驻区显示当前查看文件的 `+a -b` 统计。"""
         line_stats = self._service.numstat_of(self._viewer.current_path or "")
@@ -118,21 +115,28 @@ class GitStatusController(QObject):
 
 
 class WindowStateStore:
-    """窗口几何与四处 splitter 状态的读写持久化（window_state.json）。"""
+    """窗口几何与四处 splitter 状态的读写持久化（window_state_<hash8>.json）。
+
+    状态文件按工作区根哈希分文件（多开互不覆盖），构造时由 workspace_root 推导。
+    """
 
     def __init__(
         self,
         window: QMainWindow,
         splitters: dict[str, QSplitter],
-        chat_panel: ChatPanel,
+        chat_panel: ChatTabs,
+        workspace_root: str,
     ) -> None:
         """
         :param splitters: 配置键 → splitter（KEY_SPLITTER_MAIN/EDITOR/SIDEBAR）
-        :param chat_panel: 聊天面板（其内 splitter 状态经 restore_state/save_state 自管）
+        :param chat_panel: 会话标签容器（其内 splitter 状态经 restore_state/save_state 自管）
+        :param workspace_root: 工作区根（决定状态文件路径）
         """
         self._window = window
         self._splitters = splitters
         self._chat_panel = chat_panel
+        self._state_file = window_state_file_for(workspace_root)
+        migrate_legacy_window_state(self._state_file)  # 旧版单文件一次性迁移
         self._is_save_enabled = True
 
     def disable_save(self) -> None:
@@ -143,9 +147,13 @@ class WindowStateStore:
         """
         self._is_save_enabled = False
 
+    def reset(self) -> None:
+        """删除本工作区的状态文件（仅影响当前工作区，不动其他窗口的文件）。"""
+        reset_window_state(self._state_file)
+
     def restore(self) -> None:
         """启动时恢复窗口几何与各分隔栏；无记录或数据损坏时保留默认布局。"""
-        state = load_window_state()
+        state = load_window_state(self._state_file)
         if geometry := state.get(KEY_WINDOW_GEOMETRY):
             self._window.restoreGeometry(decode_state(geometry))
         for key, splitter in self._splitters.items():
@@ -157,7 +165,7 @@ class WindowStateStore:
         """关闭时一次性保存窗口几何与四处分隔栏状态。"""
         if not self._is_save_enabled:
             return
-        update_window_state({
+        update_window_state(self._state_file, {
             KEY_WINDOW_GEOMETRY: encode_state(self._window.saveGeometry()),
             **{key: encode_state(splitter.saveState())
                for key, splitter in self._splitters.items()},

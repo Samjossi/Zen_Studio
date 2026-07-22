@@ -151,15 +151,6 @@ class FileExplorer(QWidget):
     # ------------------------------------------------------------------
     # 公开接口
     # ------------------------------------------------------------------
-    def set_root(self, root_dir: str) -> None:
-        """切换文件树根目录（打开文件夹/工作区切换）：树内容、标题、
-        右键新建落点（_anchor_dir 读 root_dir）随根更新。"""
-        self.root_dir = str(Path(root_dir).resolve())
-        self.model.setRootPath(self.root_dir)
-        self.tree.setRootIndex(self.proxy.mapFromSource(self.model.index(self.root_dir)))
-        self.path_label.setText(Path(self.root_dir).name)
-        self.path_label.setToolTip(self.root_dir)
-
     def set_noise_filter(self, is_enabled: bool) -> None:
         """切换噪音过滤（隐藏 __pycache__、.git、.venv、node_modules）。"""
         self.proxy.is_filter_enabled = is_enabled

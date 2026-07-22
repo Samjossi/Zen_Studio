@@ -3,10 +3,14 @@
 支持命令行自动截图（供界面走查）：
     uv run main.py --auto-screenshot --screenshot-interval 1
     uv run main.py --auto-screenshot --screenshot-on-start --screenshot-interval 5
+
+多开工作区（一进程绑定一工作区根，见 work plans/2026-0722-0756 计划）：
+    uv run main.py [folder]
 """
 import argparse
 import sys
 from datetime import datetime
+from pathlib import Path
 
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication
@@ -14,17 +18,28 @@ from PySide6.QtWidgets import QApplication
 from core.paths import PROJECT_ROOT
 from gui import MainWindow
 from gui.theme import apply_theme
-from llm import build_default_registry
 
 SCREENSHOT_DIR = PROJECT_ROOT / ".tmp"
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Zen Studio")
+    parser.add_argument("folder", nargs="?", default=None,
+                        help="工作区根目录（缺省回退项目根）")
     parser.add_argument("--auto-screenshot", action="store_true", help="启用自动截图")
     parser.add_argument("--screenshot-interval", type=int, default=1, help="截图间隔（秒），默认 1")
     parser.add_argument("--screenshot-on-start", action="store_true", help="启动时立即截一张图")
     return parser.parse_args(argv)
+
+
+def resolve_workspace_root(folder: str | None) -> str:
+    """启动参数 → 工作区根：缺省/无效静默回退项目根（文件菜单多开路径已校验）。"""
+    if folder:
+        root = Path(folder).expanduser().resolve()
+        if root.is_dir():
+            return str(root)
+        print(f"[main] 工作区目录无效，回退项目根：{folder}", file=sys.stderr)
+    return str(PROJECT_ROOT)
 
 
 def setup_screenshot(window: MainWindow, interval: int, on_start: bool) -> QTimer:
@@ -52,10 +67,10 @@ def setup_screenshot(window: MainWindow, interval: int, on_start: bool) -> QTime
 
 def main() -> None:
     args = parse_args(sys.argv[1:])
+    workspace_root = resolve_workspace_root(args.folder)
     app = QApplication(sys.argv)
     apply_theme(app)
-    # LLM 注册表显式装配（探测 + 实例化副作用集中于此），注入主窗口
-    window = MainWindow(llm_registry=build_default_registry())
+    window = MainWindow(workspace_root=workspace_root)
     window.show()
 
     if args.auto_screenshot:

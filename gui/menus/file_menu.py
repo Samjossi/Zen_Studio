@@ -1,4 +1,4 @@
-"""文件菜单：打开文件 / 打开文件夹（工作区根切换）/ 打开配置目录 / 退出。
+"""文件菜单：打开文件 / 在新窗口打开文件夹（多开进程）/ 打开配置目录 / 退出。
 
 全部菜单项不绑定快捷键（选型 §4.4：保持简单）。
 「退出」setMenuRole(NoRole) 防 macOS 系统菜单抢走（PyGPT 经验）。
@@ -16,8 +16,8 @@ def build(menubar: QMenuBar, ctx: QMainWindow, actions: ActionRegistry) -> None:
     action.triggered.connect(ctx.open_file_dialog)
     actions.register("file.open", action)
 
-    action = menu.addAction("打开文件夹(&W)…")
-    action.triggered.connect(ctx.open_folder_dialog)
+    action = menu.addAction("在新窗口打开文件夹(&W)…")
+    action.triggered.connect(ctx.open_folder_in_new_window)
     actions.register("file.open_folder", action)
 
     action = menu.addAction("打开配置目录(&C)")

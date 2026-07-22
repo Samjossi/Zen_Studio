@@ -1,19 +1,46 @@
-"""窗口状态持久化：读写 config/window_state.json。
+"""窗口状态持久化：读写 config/window_state_<hash8>.json（按工作区分文件）。
 
 自 settings.py 分离（AFCP 整改 P3 任务 4.4）：用户偏好（settings.json）
 与窗口状态（本文件）分文件存放——reset_settings 重置偏好即重写
 settings.json，保留布局即不动本文件，消除"手动挑键保留"的脆弱点。
-键空间由 WindowState 定型（5 个固定键），消费侧一律经 KEY_* 常量
-引用键名，禁止裸字符串键（AFCP 3.1：数据结构显式）。
+多开改造（2026-07-22，work plans/2026-0722-0756 D4）：状态文件按工作区根
+哈希分文件，多开窗口各自恢复各自几何/分隔栏，互不覆盖；文件路径由
+window_state_file_for(workspace_root) 推导，调用方显式传入（AFCP 2.3
+依赖显式）。键空间由 WindowState 定型（5 个固定键），消费侧一律经 KEY_*
+常量引用键名，禁止裸字符串键（AFCP 3.1：数据结构显式）。
 """
+import hashlib
 import json
+import os
+from pathlib import Path
 from typing import TypedDict
 
 from PySide6.QtCore import QByteArray
 
-from core.paths import PROJECT_ROOT
+from gui.settings import CONFIG_DIR, write_json_atomic
 
-WINDOW_STATE_FILE = PROJECT_ROOT / "config" / "window_state.json"
+#: 旧版单文件路径（2026-07-22 多开改造前）；仅存留作一次性迁移识别
+LEGACY_WINDOW_STATE_FILE = CONFIG_DIR / "window_state.json"
+
+
+def window_state_file_for(workspace_root: str) -> Path:
+    """工作区根 → 状态文件路径（sha256 前 8 位分文件，多开互不覆盖）。"""
+    digest = hashlib.sha256(workspace_root.encode("utf-8")).hexdigest()[:8]
+    return CONFIG_DIR / f"window_state_{digest}.json"
+
+
+def migrate_legacy_window_state(state_file: Path) -> None:
+    """旧版单文件一次性迁移：本工作区哈希文件不存在则改名接管
+    （默认根用户布局无损升级），否则删孤儿文件。失败静默（不阻断启动）。"""
+    try:
+        if not LEGACY_WINDOW_STATE_FILE.exists():
+            return
+        if state_file.exists():
+            LEGACY_WINDOW_STATE_FILE.unlink()
+        else:
+            os.replace(LEGACY_WINDOW_STATE_FILE, state_file)
+    except OSError:
+        pass
 
 # ----------------------------------------------------------------------
 # 键名常量（消费侧唯一合法引用方式）
@@ -58,7 +85,7 @@ DEFAULT_WINDOW_STATE: WindowState = {
 }
 
 
-def load_window_state() -> WindowState:
+def load_window_state(state_file: Path) -> WindowState:
     """读取窗口状态，缺失字段回退默认值；JSON 损坏静默回退全默认。
 
     未登记键读取即丢弃（不写回）：键改名后存量旧键自然失效，无需迁移代码。
@@ -68,7 +95,7 @@ def load_window_state() -> WindowState:
     """
     state = WindowState(DEFAULT_WINDOW_STATE)
     try:
-        with open(WINDOW_STATE_FILE, encoding="utf-8") as f:
+        with open(state_file, encoding="utf-8") as f:
             data = json.load(f)
         if isinstance(data, dict):
             state.update({k: v for k, v in data.items()
@@ -79,19 +106,17 @@ def load_window_state() -> WindowState:
     return state
 
 
-def update_window_state(patch: WindowStatePatch) -> None:
-    """读全量 → 合并 patch → 写回，实现单键/多键持久化。"""
-    state = load_window_state()
+def update_window_state(state_file: Path, patch: WindowStatePatch) -> None:
+    """读全量 → 合并 patch → 写回；原子写（同工作区重复多开并发回写防截断）。"""
+    state = load_window_state(state_file)
     state.update(patch)
-    WINDOW_STATE_FILE.parent.mkdir(exist_ok=True)
-    with open(WINDOW_STATE_FILE, "w", encoding="utf-8") as f:
-        json.dump(state, f, ensure_ascii=False, indent=2)
+    write_json_atomic(state_file, state)
 
 
-def reset_window_state() -> None:
+def reset_window_state(state_file: Path) -> None:
     """重置窗口状态（恢复默认设置且不保留布局时）：删文件回默认布局。"""
     try:
-        WINDOW_STATE_FILE.unlink()
+        state_file.unlink()
     except FileNotFoundError:
         pass
 

@@ -3,7 +3,9 @@
 
 # 用户配置（界面状态/主题/模型选择持久化，不入库）
 config/settings.json
-config/window_state.json
+config/window_state*.json
+config/settings.lock
+config/.*.tmp
 
 # 密钥（严禁提交）
 api_key/
