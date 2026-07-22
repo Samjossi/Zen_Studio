@@ -201,10 +201,14 @@ class ChatTabs(QWidget):
         for panel in self._panels():
             panel.apply_theme(theme)
 
-    def save_state(self) -> str:
-        """当前活动标签的分隔栏状态（多标签共用同一持久化键）。"""
+    def save_state(self) -> str | None:
+        """当前活动标签的分隔栏状态（多标签共用同一持久化键）。
+
+        零标签（全关后）返回 None：WindowStateStore.save 跳过该键、保留
+        文件中的旧值——回写 "" 会把用户调好的分隔比例静默洗成默认。
+        """
         current = self._tabs.currentWidget()
-        return current.save_state() if isinstance(current, ChatPanel) else ""
+        return current.save_state() if isinstance(current, ChatPanel) else None
 
     def restore_state(self, state: str | None) -> None:
         """恢复分隔栏到全部标签（启动时通常仅首标签）。"""

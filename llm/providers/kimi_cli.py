@@ -69,6 +69,9 @@ class KimiCliLLM(LanguageModel):
         self._session_id: str | None = None
         #: 当前请求的活动子进程（cancel 目标；chat 开始登记、结束置 None）
         self._active_proc: subprocess.Popen | None = None
+        #: 关闭标志（标签销毁）：close() 置位后 chat 拒绝 spawn，
+        #: spawn 前后双检——与清理线程的竞态窗口内迟到的进程即建即杀
+        self._closed = False
 
     def set_model(self, alias: str) -> None:
         """切换模型别名（下次请求生效）。"""
@@ -95,11 +98,26 @@ class KimiCliLLM(LanguageModel):
         if proc is not None and proc.poll() is None:
             proc.terminate()
 
+    def close(self) -> None:
+        """标签销毁：置关闭标志并终止活动子进程（评审 CRITICAL#1）。
+
+        `_closed` 先置位：chat 在 spawn 前后双检该标志，"close 之后
+        新建的子进程"语义上不可能存活（此前 cancel 对未 spawn 的进程
+        no-op，清理竞态下迟到进程无人收割）。
+        """
+        self._closed = True
+        self.cancel()
+
     def chat(self, messages: list[Message]) -> Iterator[Chunk]:
         prompt = self._extract_prompt(messages)
         if not prompt:
             return
+        if self._closed:  # 标签已销毁：拒绝 spawn（评审 CRITICAL#1）
+            raise RuntimeError("kimi CLI 后端已关闭（标签已销毁）")
         proc = self._spawn(self._build_command(prompt))
+        if self._closed:  # spawn 与 close 竞态：迟到的进程即建即杀
+            proc.terminate()
+            raise RuntimeError("kimi CLI 后端已关闭（标签已销毁）")
         # stderr 持续排空（thinking/工具进度/错误诊断均走 stderr）：
         # 防管道缓冲写满阻塞子进程；仅保留尾部数块，失败时附进异常
         stderr_tail: list[str] = []

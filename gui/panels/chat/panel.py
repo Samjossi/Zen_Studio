@@ -14,8 +14,9 @@
 """
 import threading
 
-from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtCore import Qt, QThread, QTimer, Signal
 from PySide6.QtWidgets import QFrame, QSplitter, QVBoxLayout, QWidget
+from shiboken6 import isValid
 
 from gui.panels.chat.input import ChatInput
 from gui.panels.chat.output import ChatOutput
@@ -121,41 +122,34 @@ class ChatPanel(QWidget):
             self.input.setPlaceholderText("正在停止…")
 
     def close(self) -> None:
-        """标签关闭清理（两段式，2026-0722-1117 计划 T6）。
+        """标签关闭清理（两段式，2026-0722-1117 计划 T6；评审修复轮加固）。
 
         GUI 段（毫秒级，本方法体）：停轮次 + 断开 worker/busy 信号
         （迟到的收尾信号不再触碰已摘标签的 UI 与 ChatTabs 汇总）+
-        启动 daemon 清理线程。不 wait 则 deleteLater 会销毁仍在运行的
-        ChatWorker(QThread)（"QThread: Destroyed while thread is still
-        running"，未定义行为）——wait 保留，但移入线程段。
+        worker 摘出父子关系（窗口在清理周期内销毁不再连带 QThread）+
+        捕获 providers/worker 后启动 daemon 清理线程。不 wait 则
+        deleteLater 会销毁仍在运行的 ChatWorker(QThread)（"QThread:
+        Destroyed while thread is still running"，未定义行为）——
+        wait 保留，但移入线程段。
         """
         self.request_stop()
-        if self._worker is not None:
+        worker = self._worker
+        providers = list(self._providers.values())
+        if worker is not None:
             try:
-                self._worker.disconnect(self)  # 收尾信号不再投递本面板
+                worker.disconnect(self)  # 收尾信号不再投递本面板
             except (TypeError, RuntimeError):
                 pass  # 无连接/测试替身：忽略
+            try:
+                worker.setParent(None)  # 摘除父子关系：销毁责任移交清理线程
+            except (TypeError, RuntimeError, AttributeError):
+                pass  # 测试替身：忽略
         try:
             self.busy_changed.disconnect()  # 迟到的 busy 不再进 ChatTabs 汇总
         except (TypeError, RuntimeError):
             pass
-        threading.Thread(target=self._cleanup_blocking, daemon=True).start()
-
-    def _cleanup_blocking(self) -> None:
-        """daemon 线程段：先 terminate 解封 worker，wait 后回 GUI 销毁。
-
-        先 KimiAcpLLM.close()（terminate 杀 acp 进程并注入死讯，worker
-        的 next_update()/request() 阻塞点立即醒来）再 worker.wait()——
-        顺序倒置（先 wait 后 terminate）会白等 3s。线程内不触碰 Qt 对象
-        （terminate/wait 均为非 GUI 调用）；deleteLater 经 singleShot
-        投递回 GUI 线程（与 permission_queue.ask 既有用法同构）。
-        """
-        for provider in self._providers.values():
-            if isinstance(provider, KimiAcpLLM):
-                provider.close()
-        if self._worker is not None:
-            self._worker.wait(3000)  # 解封后正常毫秒级返回；3s 兜底防永久悬挂
-        QTimer.singleShot(0, self, self.deleteLater)
+        threading.Thread(
+            target=_cleanup_blocking, args=(providers, worker, self), daemon=True).start()
 
     # ------------------------------------------------------------------
     # UI 构建与接线
@@ -316,3 +310,38 @@ class ChatPanel(QWidget):
         else:
             busy_text = "输入消息，Enter 发送 / Shift+Enter 换行"
         self.input.setPlaceholderText(busy_text)
+
+
+def _close_providers(providers: list[LanguageModel]) -> None:
+    """关闭双 kimi 后端（terminate + `_closed` 置位，幂等可重复调用）。"""
+    for provider in providers:
+        if isinstance(provider, (KimiCliLLM, KimiAcpLLM)):
+            provider.close()
+
+
+def _cleanup_blocking(
+    providers: list[LanguageModel],
+    worker: ChatWorker | None,
+    panel: "ChatPanel",
+) -> None:
+    """daemon 线程段（ChatPanel.close 评审修复轮重构为模块级函数）。
+
+    先 provider.close()（terminate 杀 acp 进程并注入死讯 + `_closed` 置位
+    拒绝迟到连接，worker 的 next_update()/request()/spawn 阻塞点立即醒来
+    或被拒）再 worker.wait()——顺序倒置（先 wait 后 terminate）会白等 3s。
+    wait 超时（worker 卡在无法解封的角落）二次 close 兜底收割迟到连接。
+    参数在 GUI 段提前捕获（providers/worker），线程内不触碰 panel 的
+    Python 属性（其 C++ 对象可能在清理周期内随窗口销毁，访问即
+    RuntimeError）；deleteLater 均经 singleShot 投递回 GUI 线程
+    （与 permission_queue.ask 既有用法同构），panel 销毁则 isValid
+    守卫跳过；worker 已摘父子关系，销毁责任由本函数收口。
+    """
+    _close_providers(providers)
+    if worker is not None:
+        if not worker.wait(3000):  # 解封后正常毫秒级返回；3s 兜底防永久悬挂
+            _close_providers(providers)  # 二次兜底：收割 wait 期间迟到的连接
+            worker.wait(1000)
+        if isinstance(worker, QThread):  # 测试替身无 C++ 对象，跳过销毁
+            QTimer.singleShot(0, worker, worker.deleteLater)
+    if isValid(panel):  # 清理周期内窗口已销毁 panel：跳过（其子对象随之回收）
+        QTimer.singleShot(0, panel, panel.deleteLater)

@@ -162,12 +162,18 @@ class WindowStateStore:
         self._chat_panel.restore_state(state.get(KEY_SPLITTER_CHAT))
 
     def save(self) -> None:
-        """关闭时一次性保存窗口几何与四处分隔栏状态。"""
+        """关闭时一次性保存窗口几何与四处分隔栏状态。
+
+        splitter_chat 为 None（聊天标签全关）时跳过该键：保留文件中的
+        旧值，防零标签期退出把用户分隔比例静默洗成默认。
+        """
         if not self._is_save_enabled:
             return
-        update_window_state(self._state_file, {
+        patch = {
             KEY_WINDOW_GEOMETRY: encode_state(self._window.saveGeometry()),
             **{key: encode_state(splitter.saveState())
                for key, splitter in self._splitters.items()},
-            KEY_SPLITTER_CHAT: self._chat_panel.save_state(),
-        })
+        }
+        if (chat_state := self._chat_panel.save_state()) is not None:
+            patch[KEY_SPLITTER_CHAT] = chat_state
+        update_window_state(self._state_file, patch)

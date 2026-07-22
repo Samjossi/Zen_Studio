@@ -286,6 +286,9 @@ class KimiAcpLLM(LanguageModel):
         self._conn: _AcpConnection | None = None
         self._session_id: str | None = None
         self._turn_lock = threading.Lock()
+        #: 关闭标志（标签销毁）：close() 置位后 _ensure_session 拒绝新建连接，
+        #: spawn 前后双检——与清理线程 close() 的竞态窗口内迟到的连接即建即杀
+        self._closed = False
         #: 审批处理器（由 GUI 注入）：session/request_permission params → optionId | None
         self._permission_handler: PermissionHandler | None = None
         atexit.register(self.close)
@@ -323,7 +326,13 @@ class KimiAcpLLM(LanguageModel):
 
     def close(self) -> None:
         """终止 agent 子进程并注销 atexit 钩（多标签：实例随标签关闭销毁，
-        不注销则绑定方法把已死实例钉在 atexit 注册表至进程退出）。"""
+        不注销则绑定方法把已死实例钉在 atexit 注册表至进程退出）。
+
+        `_closed` 先置位：`_ensure_session` 在 spawn 前后双检该标志，
+        "close 之后新建的连接"语义上不可能存活（评审 CRITICAL#1：
+        清理线程 terminate 与 worker spawn 竞态曾致 acp 进程孤儿）。
+        """
+        self._closed = True
         atexit.unregister(self.close)
         if self._conn:
             self._conn.terminate()
@@ -341,6 +350,8 @@ class KimiAcpLLM(LanguageModel):
             conn.cancel_turn(self._session_id)
 
     def _ensure_session(self) -> _AcpConnection:
+        if self._closed:  # 标签已销毁：拒绝新建连接（评审 CRITICAL#1）
+            raise RuntimeError("kimi acp 后端已关闭（标签已销毁）")
         bin_path = _find_bin()
         if not bin_path:
             raise RuntimeError("kimi CLI 不可用：PATH 与 ~/.kimi-code/bin 均未找到 kimi")
@@ -348,6 +359,10 @@ class KimiAcpLLM(LanguageModel):
             if self._conn is not None:
                 self._conn.terminate()
             self._conn = _AcpConnection(bin_path, self._cwd)
+            if self._closed:  # spawn 与 close 竞态：迟到的连接即建即杀
+                self._conn.terminate()
+                self._conn = None
+                raise RuntimeError("kimi acp 后端已关闭（标签已销毁）")
             self._conn.set_permission_handler(self._permission_handler)
             self._session_id = None
             self._conn.request("initialize", {
