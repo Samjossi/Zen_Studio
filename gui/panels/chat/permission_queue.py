@@ -91,8 +91,8 @@ class PermissionQueue:
             dialog = PermissionDialog(entry[0], entry[1], danger_reason=entry[6])
             dialog.exec()
             entry[2] = dialog.selected_option_id()
-        except RuntimeError:
-            pass  # isValid 后仍销毁的竞态残留/构造失败：按拒绝兜底（choice 留 None）
+        except Exception:  # noqa: BLE001 — isValid 后销毁竞态/构造失败：按拒绝兜底
+            pass  # （choice 留 None）；异常不外溢，防队列后续条目饿死
         finally:
             entry[3].set()
 

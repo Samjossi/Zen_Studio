@@ -8,9 +8,25 @@
 - busy 汇总：任一标签响应中即禁用全局 ModelBar 并发射 busy_changed
   （主窗口联动禁用设置菜单 AI 模型组），防切换中途打断正在响应的标签
 - 停止按钮路由：优先停当前活动标签，活动标签空闲时停任一忙标签
+
+全关与关闭卡顿治理（2026-07-22，work plans/2026-0722-1117 计划）：
+- 标签可全部关闭（不再保底一个）；零标签时 QStackedWidget 切到占位页
+  （提示文案 + 居中「新建会话」按钮），ModelBar 全局常驻不受影响
+- 序号语义：非全关不复用已关闭序号（防「会话 2」指代漂移）；
+  全部关闭即 _tab_seq 重置，再新建从「会话 1」开始（用户决策）
+- 关闭异步化：_close_tab 立即摘标签返回；terminate/wait 等重等待
+  全部移入 ChatPanel 的 daemon 清理线程，GUI 线程零阻塞
 """
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import QTabWidget, QToolButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QLabel,
+    QPushButton,
+    QStackedWidget,
+    QTabWidget,
+    QToolButton,
+    QVBoxLayout,
+    QWidget,
+)
 
 from gui.panels.chat.model_bar import ModelBar
 from gui.panels.chat.panel import ChatPanel
@@ -36,7 +52,7 @@ class ChatTabs(QWidget):
         # 自定义 QWidget 子类的 qss 背景需 WA_StyledBackground 才会绘制
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self._workspace_root = workspace_root
-        self._tab_seq = 0  # 标题序号单调递增（关闭不复用，防「会话 2」指代漂移）
+        self._tab_seq = 0  # 序号：非全关不复用（防指代漂移）；全关即重置
         self._busy_panels: set[ChatPanel] = set()
 
         self.model_bar = ModelBar(self)
@@ -49,9 +65,16 @@ class ChatTabs(QWidget):
         self._add_button.setToolTip("新建 AI 会话标签")
         self._tabs.setCornerWidget(self._add_button, Qt.Corner.TopRightCorner)
 
+        # 页 0 = 零标签占位页，页 1 = 标签区（全关后引导用户新建）
+        self._stack = QStackedWidget(self)
+        self._placeholder = self._build_placeholder()
+        self._stack.addWidget(self._placeholder)
+        self._stack.addWidget(self._tabs)
+        self._stack.setCurrentWidget(self._tabs)
+
         layout = QVBoxLayout(self)
         layout.addWidget(self.model_bar)
-        layout.addWidget(self._tabs, 1)
+        layout.addWidget(self._stack, 1)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
@@ -61,6 +84,20 @@ class ChatTabs(QWidget):
         self.model_bar.stop_requested.connect(self._route_stop)
 
         self.add_tab()  # 首标签：等价改造前的单聊天面板
+
+    def _build_placeholder(self) -> QWidget:
+        """零标签占位页：提示文案 + 居中「新建会话」按钮（沿用全局主题，不引新色值）。"""
+        page = QWidget(self)
+        hint = QLabel("暂无 AI 会话", page)
+        hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        new_button = QPushButton("新建会话", page)
+        new_button.clicked.connect(self.add_tab)
+        page_layout = QVBoxLayout(page)
+        page_layout.addStretch(1)
+        page_layout.addWidget(hint)
+        page_layout.addWidget(new_button, 0, Qt.AlignmentFlag.AlignCenter)
+        page_layout.addStretch(1)
+        return page
 
     # ------------------------------------------------------------------
     # 标签生命周期
@@ -79,24 +116,25 @@ class ChatTabs(QWidget):
         self._tab_seq += 1
         self._tabs.addTab(panel, f"会话 {self._tab_seq}")
         self._tabs.setCurrentWidget(panel)
+        self._stack.setCurrentWidget(self._tabs)  # 从占位页回升标签区
         self._refresh_add_button()
 
     def _close_tab(self, index: int) -> None:
-        """关闭标签：保底一个不关；清理其 provider（终止 kimi acp 进程）。
+        """关闭标签：允许关到 0（全关重置序号、切占位页）；清理异步化。
 
-        busy 清算在 panel.close() 之后：close 等 worker 退出，其收尾信号
-        经 _on_tab_busy 自然驱动重算——提前清除会把"响应中禁切模型"
-        不变量在 worker 实际停止前打破。
+        标签摘除与 busy 清算在 GUI 线程同步完成（毫秒级）；
+        terminate/wait/deleteLater 移交 panel.close() 的 daemon 清理线程，
+        worker 收尾信号在 close() GUI 段已断开，不会再触碰本容器。
         """
-        if self._tabs.count() <= 1:
-            return
         panel = self._tabs.widget(index)
         self._tabs.removeTab(index)
         if isinstance(panel, ChatPanel):
             panel.close()
             self._busy_panels.discard(panel)
             self._recompute_busy()
-            panel.deleteLater()
+        if self._tabs.count() == 0:
+            self._tab_seq = 0  # 全关即重置：下次新建从「会话 1」开始
+            self._stack.setCurrentWidget(self._placeholder)
         self._refresh_add_button()
 
     def _refresh_add_button(self) -> None:

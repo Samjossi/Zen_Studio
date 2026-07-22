@@ -5,8 +5,16 @@
   自建 KimiCliLLM/KimiAcpLLM(workspace_root)，标签间完全隔离（D6 方案 A）
 - ModelBar 上移到 ChatTabs 容器顶部为全局控件（D5），本面板只留输入框
 - 审批请求统一提交全局审批队列（PERMISSION_QUEUE），多标签串行弹窗
+
+关闭异步化（2026-07-22，work plans/2026-0722-1117 计划 P2）：
+- close() 两段式：GUI 段毫秒级（request_stop + 断信号 + 起 daemon
+  清理线程），terminate/wait/deleteLater 全在线程段——GUI 零冻结
+- 线程段顺序先 terminate 后 wait：杀 acp 进程注入死讯解封 worker
+  全部阻塞点（治"先干等 3s 才 terminate"的顺序倒置）
 """
-from PySide6.QtCore import Qt, Signal
+import threading
+
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import QFrame, QSplitter, QVBoxLayout, QWidget
 
 from gui.panels.chat.input import ChatInput
@@ -113,17 +121,41 @@ class ChatPanel(QWidget):
             self.input.setPlaceholderText("正在停止…")
 
     def close(self) -> None:
-        """标签关闭清理：停轮次并等 worker 退出 + 终止 ACP 长驻子进程。
+        """标签关闭清理（两段式，2026-0722-1117 计划 T6）。
 
-        不 wait 则 deleteLater 会销毁仍在运行的 ChatWorker(QThread)
-        （"QThread: Destroyed while thread is still running"，未定义行为）。
+        GUI 段（毫秒级，本方法体）：停轮次 + 断开 worker/busy 信号
+        （迟到的收尾信号不再触碰已摘标签的 UI 与 ChatTabs 汇总）+
+        启动 daemon 清理线程。不 wait 则 deleteLater 会销毁仍在运行的
+        ChatWorker(QThread)（"QThread: Destroyed while thread is still
+        running"，未定义行为）——wait 保留，但移入线程段。
         """
         self.request_stop()
         if self._worker is not None:
-            self._worker.wait(3000)  # 协议取消正常毫秒级返回；3s 兜底防永久阻塞
+            try:
+                self._worker.disconnect(self)  # 收尾信号不再投递本面板
+            except (TypeError, RuntimeError):
+                pass  # 无连接/测试替身：忽略
+        try:
+            self.busy_changed.disconnect()  # 迟到的 busy 不再进 ChatTabs 汇总
+        except (TypeError, RuntimeError):
+            pass
+        threading.Thread(target=self._cleanup_blocking, daemon=True).start()
+
+    def _cleanup_blocking(self) -> None:
+        """daemon 线程段：先 terminate 解封 worker，wait 后回 GUI 销毁。
+
+        先 KimiAcpLLM.close()（terminate 杀 acp 进程并注入死讯，worker
+        的 next_update()/request() 阻塞点立即醒来）再 worker.wait()——
+        顺序倒置（先 wait 后 terminate）会白等 3s。线程内不触碰 Qt 对象
+        （terminate/wait 均为非 GUI 调用）；deleteLater 经 singleShot
+        投递回 GUI 线程（与 permission_queue.ask 既有用法同构）。
+        """
         for provider in self._providers.values():
             if isinstance(provider, KimiAcpLLM):
                 provider.close()
+        if self._worker is not None:
+            self._worker.wait(3000)  # 解封后正常毫秒级返回；3s 兜底防永久悬挂
+        QTimer.singleShot(0, self, self.deleteLater)
 
     # ------------------------------------------------------------------
     # UI 构建与接线

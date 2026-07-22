@@ -88,6 +88,7 @@ class _AcpConnection:
         self._updates: queue.Queue[_TurnMessage] = queue.Queue()
         self._turn_id: int | None = None  # 活跃轮次的 prompt 请求 id（其响应改走 _updates）
         self.is_alive = True
+        self._terminated = False  # 死讯注入幂等标志（reader EOF 与 terminate 谁先谁注入）
         #: 审批处理器（GUI 经 set_permission_handler 注入）；None=自动允许（C2 语义）
         self._permission_handler: PermissionHandler | None = None
         threading.Thread(target=self._reader, daemon=True).start()
@@ -111,9 +112,21 @@ class _AcpConnection:
                 self._dispatch_line(line)
         finally:
             self.is_alive = False
-            self._updates.put(("dead", self._proc.poll()))
-            for pending_queue in self._pending.values():
-                pending_queue.put({"error": {"code": -32099, "message": "kimi acp 进程意外退出"}})
+            self._inject_dead()
+
+    def _inject_dead(self) -> None:
+        """向 `_updates` 注入死讯、向残余 `_pending` 注入错误（幂等）。
+
+        reader 线程 EOF 与 terminate() 两路径共用，先到者注入；
+        check-then-set 竞态下的重复注入无害（多余死讯由 purge_updates
+        清理，已 pop 的 pending 不在表中）。
+        """
+        if self._terminated:
+            return
+        self._terminated = True
+        self._updates.put(("dead", self._proc.poll()))
+        for pending_queue in list(self._pending.values()):
+            pending_queue.put({"error": {"code": -32099, "message": "kimi acp 进程意外退出"}})
 
     def _dispatch_line(self, line: str) -> None:
         """单帧分发：反向请求 / 轮次内通知与响应（→_updates）/ 控制响应（→_pending）。"""
@@ -244,6 +257,12 @@ class _AcpConnection:
         return self._updates.get()
 
     def terminate(self) -> None:
+        """终止子进程并主动注入死讯：consumer 立即醒来，不必等 reader EOF。
+
+        标签关闭路径（2026-0722-1117 计划 T5）：阻塞在 next_update()/
+        request() 的 worker 依赖死讯/错误帧收尾；主动注入把解封延迟
+        从"reader 反应过来"压到毫秒级（check-then-set 幂等，见 _inject_dead）。
+        """
         if self._proc.poll() is None:
             self._proc.terminate()
             try:
@@ -251,6 +270,7 @@ class _AcpConnection:
             except subprocess.TimeoutExpired:
                 self._proc.kill()
         self.is_alive = False
+        self._inject_dead()
 
 
 class KimiAcpLLM(LanguageModel):

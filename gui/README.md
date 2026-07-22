@@ -80,6 +80,8 @@
 
 `ChatTabs` 标签容器（上限 4）：顶部全局 `ModelBar`（模型 + 版本双下拉，全部标签共享同一选择，切换广播到所有标签），下方每标签一个独立 `ChatPanel`。`ChatPanel` 上输出（QTextBrowser）下输入（QTextEdit）垂直分栏，Enter 发送 / Shift+Enter 换行；流式调用放 `ChatWorker(QThread)` 后台线程，逐块信号上屏，UI 不冻结。每标签**自持 provider 实例**（独立 `kimi acp` 连接，标签间完全隔离可并行）。对话统一经本机 agent CLI（Kimi Code CLI），代码库零 API KEY。从文件树或系统文件管理器**拖入文件 → 落点插入 `@工作区相对路径 ` 引用**（纯文本透传，由后端 agent CLI 解析）；模型选择持久化到 `config/settings.json`。多标签审批经全局 `PermissionQueue` 串行弹窗；任一标签响应中即禁用全局 ModelBar 与设置菜单 AI 模型组。
 
+**标签全关与关闭异步化**（2026-07-22，work plans/2026-0722-1117）：标签可全部关闭——零标签时 `QStackedWidget` 切到占位页（提示 + 「新建会话」按钮），ModelBar 常驻；序号非全关不复用（防指代漂移），全关即重置回「会话 1」。关闭路径两段式：GUI 段毫秒级（`request_stop` + 断信号 + 起 daemon 清理线程），线程段先 `terminate`（杀 acp 进程并幂等注入死讯/错误帧，主动解封 worker 的 `next_update()`/`request()` 阻塞点）后 `worker.wait(3000)`，结束经 `QTimer.singleShot` 回 GUI 线程 `deleteLater`——关闭标签 GUI 零冻结，且不销毁运行中的 QThread。
+
 | 组件 | 说明 |
 |:---|:---|
 | `LanguageModel` Protocol | 统一接口 `chat(messages) -> Iterator[Chunk]`，与 UI 解耦 |
