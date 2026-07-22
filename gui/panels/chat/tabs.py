@@ -57,6 +57,9 @@ class ChatTabs(QWidget):
 
         self.model_bar = ModelBar(self)
         self._tabs = QTabWidget(self)
+        # 主题接线：base.qss #ChatTabs 段（透明 tab + 激活 accent 下划线，
+        # 对齐 #TerminalTabs 范式；2026-0722-1725 走查 F1）
+        self._tabs.setObjectName("ChatTabs")
         self._tabs.setTabsClosable(True)
         self._tabs.setDocumentMode(True)
         # 「+」新建按钮：固定右上角（达上限禁用并提示）
@@ -75,8 +78,11 @@ class ChatTabs(QWidget):
         layout = QVBoxLayout(self)
         layout.addWidget(self.model_bar)
         layout.addWidget(self._stack, 1)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
+        # 面板级 6px 外边距体系（对齐 viewer/terminal 面板；下边距 6px 同
+        # 终端面板）+ 行间距 6px：模型行与标签条之间留出呼吸感
+        # （2026-0722-1725 走查 F2：此前 0 边距 0 间距，全库唯一）
+        layout.setContentsMargins(6, 2, 6, 6)
+        layout.setSpacing(6)
 
         self._add_button.clicked.connect(self.add_tab)
         self._tabs.tabCloseRequested.connect(self._close_tab)

@@ -74,6 +74,48 @@ QDialog {
     color: $text;
 }
 
+/* 聊天会话标签页（QTabWidget）：与 #TerminalTabs 同一范式——tab 透明底
+ * 融入侧栏，激活态 2px accent 下划线；pane 去框（documentMode 之外双保险），
+ * 关闭钮透明 + hover 微染（2026-0722-1725 走查 F1/F3/F5：此前零规则，
+ * 平台原生渲染与终端标签同屏风格断裂） */
+#ChatTabs {
+    background: transparent;
+}
+
+#ChatTabs::pane {
+    border: none;
+    background: transparent;
+}
+
+#ChatTabs QTabBar {
+    background: transparent;
+}
+
+#ChatTabs QTabBar::tab {
+    background: transparent;
+    color: $muted_text;
+    padding: 3px 10px;
+    border: none;
+    border-bottom: 2px solid transparent;
+}
+
+#ChatTabs QTabBar::tab:selected {
+    color: $text;
+    border-bottom: 2px solid $accent;
+}
+
+#ChatTabs QTabBar::tab:hover:!selected {
+    color: $text;
+}
+
+/* 关闭钮：仅定义 hover 微染——常态规则（哪怕只设 background）会让 Qt 样式表
+ * 引擎接管该子控件绘制、默认 ✕ 图标消失（.temp/probe_close_button.py 对照
+ * 实验实证）；不定义常态即沿用平台标准图标，与 #TerminalTabs 观感一致 */
+#ChatTabs QTabBar::close-button:hover {
+    background-color: $button_hover_bg;
+    border-radius: 3px;
+}
+
 /* ---- 输入与文本区：实底 + 1px 描边，焦点实色强调 ----
  * （有 1px 边框后 padding 较无边框版减 1px，保持控件视觉高度一致） */
 
@@ -233,6 +275,31 @@ QPushButton:pressed {
 }
 
 QPushButton:disabled {
+    color: $button_disabled_text;
+    background-color: $button_disabled_bg;
+    border-color: $button_disabled_border;
+}
+
+/* 工具按钮：与 QPushButton 同一实体化范式（实底 + 描边 + 6px 圆角 + hover
+ * 微染），惠及聊天/终端「+」新建钮与设置中心折叠钮（2026-0722-1725 走查
+ * F4：此前全局无规则，三处均平台原生渲染） */
+QToolButton {
+    background-color: $input_bg;
+    border: 1px solid $border;
+    border-radius: 6px;
+    padding: 2px 8px;
+}
+
+QToolButton:hover {
+    background-color: $button_hover_bg;
+    border-color: $border_hover;
+}
+
+QToolButton:pressed {
+    background-color: $button_pressed_bg;
+}
+
+QToolButton:disabled {
     color: $button_disabled_text;
     background-color: $button_disabled_bg;
     border-color: $button_disabled_border;

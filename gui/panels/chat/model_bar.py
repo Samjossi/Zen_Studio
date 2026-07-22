@@ -64,7 +64,9 @@ class ModelBar(QWidget):
         layout.addWidget(QLabel("版本", self))
         layout.addWidget(self._version_combo, 1)
         layout.addWidget(self.stop_button)
-        layout.setContentsMargins(4, 2, 4, 2)
+        # 边距归零：外边距/行距由 ChatTabs 容器统一分配（面板级 6px 体系，
+        # 2026-0722-1725 走查 F2/F6）；下拉框自身 qss padding 已够内留白
+        layout.setContentsMargins(0, 0, 0, 0)
 
         self._model_combo.currentIndexChanged.connect(self._on_model_changed)
         self._version_combo.currentIndexChanged.connect(self._on_version_changed)
