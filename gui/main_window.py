@@ -310,6 +310,9 @@ class MainWindow(QMainWindow):
         self.file_explorer.apply_theme(theme)
         self.changes_panel.apply_theme(theme)
         self.chat_tabs.apply_theme(theme)
+        if self._settings_dialog is not None:
+            # 设置中心内联 style（hint/分隔线）不受 app 级 qss 管辖，随链重刷
+            self._settings_dialog.apply_theme(theme)
         if action := self.menus.get(theme_action_key(theme)):
             action.setChecked(True)
         self._sync_settings_dialog()
