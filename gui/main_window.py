@@ -17,8 +17,9 @@ ActionRegistry 全局注册表）；本类保留面板、槽函数与面板显�
 多开工作区（2026-07-22，见 work plans/2026-0722-0756 计划）：一进程绑定
 一工作区根（启动参数注入，不再窗口内切换）；「打开文件夹」改为起新进程。
 文件菜单扩展（2026-07-22，work plans/2026-0722-1901）：「新建窗口」同根
-多开入口；「最近打开的文件」子菜单——ViewerPanel.file_opened 信号收口
-全部打开入口 → RecentFilesStore 按工作区隔离存 window_state_<hash8>.json。
+多开入口。「最近打开的项目」（2026-07-24，work plans/2026-0724-1003）：
+窗口启动即记录自身工作区根 → RecentProjectsStore 全局共享列表
+（config/recent_projects.json），子菜单回放在新窗口绑定该根。
 
 窗口四边距体系（2026-07-20，见 文档/修改记录/2026-0720-1218 与 2026-0720-1815
 两份计划）：面板内 6px 外边距承担卡片↔把手间距；中央容器补窗口级边距
@@ -60,7 +61,7 @@ from gui.panels import FileExplorer, ViewerPanel
 from gui.panels.changes import ChangesPanel
 from gui.panels.chat import ChatTabs
 from gui.panels.terminal import TerminalPanel
-from gui.recent_files import RecentFilesStore
+from gui.recent_projects import RecentProjectsStore
 from gui.settings import (
     CONFIG_DIR,
     DEFAULT_SETTINGS,
@@ -84,7 +85,6 @@ from gui.window_state import (
     KEY_SPLITTER_EDITOR,
     KEY_SPLITTER_MAIN,
     KEY_SPLITTER_SIDEBAR,
-    window_state_file_for,
 )
 
 
@@ -120,6 +120,7 @@ class MainWindow(QMainWindow):
         self._dialog_sync_suspend = 0
 
         self._build_layout()
+        self._init_recent_projects()
         self._init_statusbar()
         self._init_git_status()  # 先于菜单装配：视图菜单「刷新 Git 状态」直挂控制器
         self._init_menus()
@@ -128,6 +129,18 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
     # 初始化分段（__init__ 拆分；各段职责单一，顺序即装配依赖序）
     # ------------------------------------------------------------------
+    def _init_recent_projects(self) -> None:
+        """最近打开的项目记录（work plans/2026-0724-1003）：窗口启动即记录
+        自身工作区根——一进程绑定一根，菜单选文件夹 / 命令行 main.py
+        <folder> / 新建窗口三路径汇聚于此；全局共享列表（config/
+        recent_projects.json），去重置顶语义下同根重复启动无噪音。
+        无 UI 依赖（纯数据写盘），置于布局装配后、菜单装配前（子菜单
+        aboutToShow 读 store 时已就绪）。
+        """
+        self.recent_projects = RecentProjectsStore(
+            CONFIG_DIR / "recent_projects.json")
+        self.recent_projects.add(self._workspace_root)
+
     def _build_layout(self) -> None:
         """布局装配：三栏 splitter（聊天 / 中栏查看器+终端 / 右栏文件树+变更）。"""
         # 中栏垂直拆分：上为文件查看器（只读+高亮），下为内嵌终端（真 PTY）
@@ -151,10 +164,6 @@ class MainWindow(QMainWindow):
         # 双击文件 → 中栏查看器打开
         self.file_explorer = FileExplorer(workspace_root)
         self.file_explorer.file_opened.connect(self.viewer_panel.open_file)
-        # 最近打开文件记录（work plans/2026-0722-1901）：查看器成功打开
-        # （4 处入口收口于 file_opened 信号）→ 存取层去重置顶，按工作区隔离
-        self.recent_files = RecentFilesStore(window_state_file_for(workspace_root))
-        self.viewer_panel.file_opened.connect(self.recent_files.add)
         self.changes_panel = ChangesPanel()
         self._splitter_sidebar = QSplitter(Qt.Orientation.Vertical)
         self._splitter_sidebar.addWidget(self.file_explorer)
@@ -358,18 +367,20 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(
             f"已在新窗口打开：{folder}", self.STATUS_MSG_TIMEOUT_MS)
 
-    def open_recent_file(self, path: str) -> None:
-        """最近文件回放：探活 → 查看器打开（成功经 file_opened 信号自动置顶）。
+    def open_recent_project(self, path: str) -> None:
+        """最近项目回放：探活 → 起新进程绑定该工作区根（新窗口启动时经
+        自身记录链自动置顶，无需手工再记）。
 
-        文件已消失则从列表剔除并状态栏提示（与变更面板「文件已删除」
-        提示风格一致）。
+        目录已消失则从列表剔除并状态栏提示（与变更面板「文件已删除」
+        提示风格一致）。点击项恰为当前工作区根时等价于「新建窗口」，
+        接受、不开特例。
         """
-        if Path(path).is_file():
-            self.viewer_panel.open_file(path)
+        if Path(path).is_dir():
+            self._spawn_window(path)
         else:
-            self.recent_files.remove(path)
+            self.recent_projects.remove(path)
             self.statusBar().showMessage(
-                "文件已不存在，已从列表移除", self.STATUS_MSG_TIMEOUT_MS)
+                "文件夹已不存在，已从列表移除", self.STATUS_MSG_TIMEOUT_MS)
 
     def open_config_dir(self) -> None:
         """在系统文件管理器中打开 config/ 目录。"""
