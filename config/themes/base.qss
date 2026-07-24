@@ -312,6 +312,18 @@ QToolButton:disabled {
     padding: 2px 8px;
 }
 
+/* 聊天输入区模型选择按钮（2026-0724-2354 迭代 2）：恒显「模型」「版本」
+ * 标签 + InstantPopup 菜单；加宽 padding 并让菜单箭头固定于内容区右侧
+ * 留白处——默认尺寸下箭头会被挤到文字下方（2026-07-25 观感修复） */
+#chatModelButton {
+    padding: 3px 12px;
+}
+
+#chatModelButton::menu-arrow {
+    subcontrol-position: right center;
+    width: 12px;
+}
+
 /* 聊天输入区发送/停止双态按钮（2026-0724-2305 计划 T6）：常态沿用全局
  * 实体化范式；停止态以 accent 描边 + accent 文字表达「可中断」激活态
  * （色板无警示红键，不引新色值）；代码侧 setFixedWidth 恒宽，两态切换

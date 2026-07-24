@@ -67,11 +67,19 @@ class ModelBar(QWidget):
     # 控件构造（按钮 + 透明化菜单 + 互斥勾选项）
     # ------------------------------------------------------------------
     def _make_button(self, title: str) -> QToolButton:
-        """恒显标签的下拉按钮：文本不随选择变化（当前值归 tooltip/菜单勾选）。"""
+        """恒显标签的下拉按钮：文本不随选择变化（当前值归 tooltip/菜单勾选）。
+
+        最小宽度按「文字 + 菜单箭头区 + qss padding」显式给定——默认
+        sizeHint 过窄会把 InstantPopup 箭头挤到文字下方（观感修复，
+        2026-07-25 迭代 2 补丁）。
+        """
         button = QToolButton(self)
+        button.setObjectName("chatModelButton")
         button.setText(title)
         button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         button.setMenu(make_translucent_popup(QMenu(button)))
+        text_width = button.fontMetrics().horizontalAdvance(title)
+        button.setMinimumWidth(text_width + 16 + 24)  # 箭头区 16 + padding 12*2
         return button
 
     def _add_action(self, group: QActionGroup, text: str, data, slot) -> QAction:
