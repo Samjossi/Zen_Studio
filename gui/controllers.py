@@ -22,9 +22,11 @@ from gui.window_state import (
     KEY_WINDOW_GEOMETRY,
     decode_state,
     encode_state,
-    load_window_state,
+    load_layout_state,
     migrate_legacy_window_state,
+    migrate_state_dir,
     reset_window_state,
+    update_default_layout,
     update_window_state,
     window_state_file_for,
 )
@@ -115,9 +117,11 @@ class GitStatusController(QObject):
 
 
 class WindowStateStore:
-    """窗口几何与四处 splitter 状态的读写持久化（window_state_<hash8>.json）。
+    """窗口几何与四处 splitter 状态的读写持久化（window_state/<hash8>.json）。
 
     状态文件按工作区根哈希分文件（多开互不覆盖），构造时由 workspace_root 推导。
+    读取走文件级回退链（哈希文件 → default.json → 全默认）：新工作区首开
+    继承最近关闭窗口布局；关闭时双写 default（后写胜，VS Code 语义）。
     """
 
     def __init__(
@@ -136,6 +140,7 @@ class WindowStateStore:
         self._splitters = splitters
         self._chat_panel = chat_panel
         self._state_file = window_state_file_for(workspace_root)
+        migrate_state_dir()  # 根目录存量一次性迁入子目录（幂等）
         migrate_legacy_window_state(self._state_file)  # 旧版单文件一次性迁移
         self._is_save_enabled = True
 
@@ -152,8 +157,8 @@ class WindowStateStore:
         reset_window_state(self._state_file)
 
     def restore(self) -> None:
-        """启动时恢复窗口几何与各分隔栏；无记录或数据损坏时保留默认布局。"""
-        state = load_window_state(self._state_file)
+        """启动时恢复窗口几何与各分隔栏；回退链末端（无记录/损坏）保留默认布局。"""
+        state = load_layout_state(self._state_file)
         if geometry := state.get(KEY_WINDOW_GEOMETRY):
             self._window.restoreGeometry(decode_state(geometry))
         for key, splitter in self._splitters.items():
@@ -162,10 +167,12 @@ class WindowStateStore:
         self._chat_panel.restore_state(state.get(KEY_SPLITTER_CHAT))
 
     def save(self) -> None:
-        """关闭时一次性保存窗口几何与四处分隔栏状态。
+        """关闭时一次性保存窗口几何与四处分隔栏状态（双写 default）。
 
         splitter_chat 为 None（聊天标签全关）时跳过该键：保留文件中的
-        旧值，防零标签期退出把用户分隔比例静默洗成默认。
+        旧值，防零标签期退出把用户分隔比例静默洗成默认。default 双写
+        经 update_default_layout 过滤至布局键，后写胜 = 最后关闭窗口
+        成为下一个新工作区的继承源。
         """
         if not self._is_save_enabled:
             return
@@ -177,3 +184,4 @@ class WindowStateStore:
         if (chat_state := self._chat_panel.save_state()) is not None:
             patch[KEY_SPLITTER_CHAT] = chat_state
         update_window_state(self._state_file, patch)
+        update_default_layout(patch)

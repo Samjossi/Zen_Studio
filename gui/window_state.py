@@ -1,4 +1,4 @@
-"""窗口状态持久化：读写 config/window_state_<hash8>.json（按工作区分文件）。
+"""窗口状态持久化：读写 config/window_state/<hash8>.json（按工作区分文件）。
 
 自 settings.py 分离（AFCP 整改 P3 任务 4.4）：用户偏好（settings.json）
 与窗口状态（本文件）分文件存放——reset_settings 重置偏好即重写
@@ -12,6 +12,14 @@ window_state_file_for(workspace_root) 推导，调用方显式传入（AFCP 2.3
 2026-0724-1003：功能改造为「最近打开的项目」，改存全局
 config/recent_projects.json）；存量状态文件中的旧键经「未登记键读取
 即丢弃」自然失效，零迁移代码。
+VS Code 式改造（2026-07-24，work plans/2026-0724-1015）：
+①目录收纳——状态文件统一收进 config/window_state/ 子目录（对齐 VS Code
+workspaceStorage/，不散落 config 根目录），存量根目录文件经
+migrate_state_dir() 一次性幂等迁入；
+②布局继承——新增全局 config/window_state/default.json（仅布局键），
+新工作区首开继承最近关闭窗口布局（load_layout_state 回退链：
+工作区哈希文件 → default → 全默认），已知工作区仍恢复自身文件；
+关闭时双写（哈希文件 + default），后写胜 = 最后关闭窗口生效。
 """
 import hashlib
 import json
@@ -26,11 +34,37 @@ from gui.settings import CONFIG_DIR, write_json_atomic
 #: 旧版单文件路径（2026-07-22 多开改造前）；仅存留作一次性迁移识别
 LEGACY_WINDOW_STATE_FILE = CONFIG_DIR / "window_state.json"
 
+#: 窗口状态子目录（2026-07-24 收编，对齐 VS Code workspaceStorage/）：
+#: 哈希文件与 default.json 的唯一存放点，不散落 config 根目录
+WINDOW_STATE_DIR = CONFIG_DIR / "window_state"
+
+#: 全局布局继承源（仅布局键）：新工作区首开继承最近关闭窗口布局
+DEFAULT_LAYOUT_FILE = WINDOW_STATE_DIR / "default.json"
+
 
 def window_state_file_for(workspace_root: str) -> Path:
     """工作区根 → 状态文件路径（sha256 前 8 位分文件，多开互不覆盖）。"""
     digest = hashlib.sha256(workspace_root.encode("utf-8")).hexdigest()[:8]
-    return CONFIG_DIR / f"window_state_{digest}.json"
+    return WINDOW_STATE_DIR / f"{digest}.json"
+
+
+def migrate_state_dir() -> None:
+    """根目录存量状态文件一次性迁入子目录（幂等，失败静默不阻断启动）。
+
+    2026-07-24 目录收编前，状态文件散落 config 根目录
+    （window_state_<hash8>.json）；逐个搬入子目录并去前缀改名。
+    目标已存在时删根目录侧（新版本已接管该工作区，防双写期分叉）。
+    """
+    try:
+        WINDOW_STATE_DIR.mkdir(exist_ok=True)
+        for legacy_file in CONFIG_DIR.glob("window_state_*.json"):
+            target = WINDOW_STATE_DIR / legacy_file.name.removeprefix("window_state_")
+            if target.exists():
+                legacy_file.unlink()
+            else:
+                os.replace(legacy_file, target)
+    except OSError:
+        pass
 
 
 def migrate_legacy_window_state(state_file: Path) -> None:
@@ -88,6 +122,10 @@ DEFAULT_WINDOW_STATE: WindowState = {
     KEY_SPLITTER_CHAT: None,
 }
 
+#: 布局键集合：default.json 的合法键空间（防非布局键写入全局继承源，
+#: 跨工作区泄漏私有数据——如未来再扩工作区私键）
+_LAYOUT_KEYS = frozenset(DEFAULT_WINDOW_STATE)
+
 
 def _is_valid_value(value: object) -> bool:
     """值级防御：布局键恒为 base64——仅放行 None / ASCII str。
@@ -117,8 +155,32 @@ def load_window_state(state_file: Path) -> WindowState:
     return state
 
 
+def load_layout_state(state_file: Path) -> WindowState:
+    """读取布局状态（文件级回退链：工作区哈希文件 → default → 全默认）。
+
+    哈希文件存在即全量采用（不做键级合并）；不存在时回退全局
+    default.json——新工作区首开继承最近关闭窗口布局（VS Code 语义）。
+    每级复用 load_window_state 的损坏防御，末端恒为全默认。
+    """
+    if state_file.exists():
+        return load_window_state(state_file)
+    return load_window_state(DEFAULT_LAYOUT_FILE)
+
+
+def update_default_layout(patch: WindowStatePatch) -> None:
+    """双写全局布局继承源：过滤至布局键后走原子链（后写胜 =
+    最后关闭窗口成为下一个新工作区的继承源）。"""
+    layout_patch = WindowStatePatch(
+        {k: v for k, v in patch.items() if k in _LAYOUT_KEYS})
+    update_window_state(DEFAULT_LAYOUT_FILE, layout_patch)
+
+
 def update_window_state(state_file: Path, patch: WindowStatePatch) -> None:
-    """读全量 → 合并 patch → 写回；原子写（同工作区重复多开并发回写防截断）。"""
+    """读全量 → 合并 patch → 写回；原子写（同工作区重复多开并发回写防截断）。
+
+    写入前兜底建子目录（迁移未跑过的极简启动路径亦不裸写失败）。
+    """
+    state_file.parent.mkdir(parents=True, exist_ok=True)
     state = load_window_state(state_file)
     state.update(patch)
     write_json_atomic(state_file, state)
