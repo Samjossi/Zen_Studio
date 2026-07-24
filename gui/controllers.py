@@ -7,6 +7,7 @@
 - `WindowStateStore`：窗口几何与 splitter 状态持久化（读恢复/写保存）
 """
 from collections.abc import Callable
+from pathlib import Path
 
 from PySide6.QtCore import QObject, QTimer
 from PySide6.QtWidgets import QLabel, QMainWindow, QSplitter, QStatusBar
@@ -20,6 +21,7 @@ from gui.settings import KEY_THEME
 from gui.window_state import (
     KEY_SPLITTER_CHAT,
     KEY_WINDOW_GEOMETRY,
+    WindowStatePatch,
     decode_state,
     encode_state,
     load_layout_state,
@@ -166,22 +168,41 @@ class WindowStateStore:
                 splitter.restoreState(decode_state(splitter_state))
         self._chat_panel.restore_state(state.get(KEY_SPLITTER_CHAT))
 
-    def save(self) -> None:
-        """关闭时一次性保存窗口几何与四处分隔栏状态（双写 default）。
+    def collect_layout_patch(self) -> WindowStatePatch:
+        """实时采集当前窗口布局 patch（geometry + 四处 splitter，未落盘）。
 
         splitter_chat 为 None（聊天标签全关）时跳过该键：保留文件中的
-        旧值，防零标签期退出把用户分隔比例静默洗成默认。default 双写
-        经 update_default_layout 过滤至布局键，后写胜 = 最后关闭窗口
-        成为下一个新工作区的继承源。
+        旧值，防零标签期退出把用户分隔比例静默洗成默认。save 与
+        「打开文件夹」换根预写（直写目标根哈希文件）共用此采集，
+        防两份逻辑漂移（work plans/2026-0724-1806 P1）。
         """
-        if not self._is_save_enabled:
-            return
-        patch = {
+        patch: WindowStatePatch = {
             KEY_WINDOW_GEOMETRY: encode_state(self._window.saveGeometry()),
             **{key: encode_state(splitter.saveState())
                for key, splitter in self._splitters.items()},
         }
         if (chat_state := self._chat_panel.save_state()) is not None:
             patch[KEY_SPLITTER_CHAT] = chat_state
-        update_window_state(self._state_file, patch)
+        return patch
+
+    def save(self) -> None:
+        """关闭时一次性保存窗口几何与四处分隔栏状态（双写 default）。
+
+        default 双写经 update_default_layout 过滤至布局键，后写胜 =
+        最后关闭窗口成为下一个新工作区的继承源。
+        """
+        self.save_to(self._state_file)
+
+    def save_to(self, state_file: Path) -> None:
+        """当前布局写入指定状态文件 + default 双写（守卫跟随）。
+
+        `save()` 为本工作区文件特化；「打开文件夹」换根预写（work
+        plans/2026-0724-1806，复制语义）传目标根文件——新窗口启动
+        即读得当前布局。`_is_save_enabled` 关闭（重置布局后）时静默
+        跳过，两文件均不回写。
+        """
+        if not self._is_save_enabled:
+            return
+        patch = self.collect_layout_patch()
+        update_window_state(state_file, patch)
         update_default_layout(patch)

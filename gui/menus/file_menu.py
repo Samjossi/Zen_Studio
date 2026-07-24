@@ -1,10 +1,12 @@
 """文件菜单：打开文件 / 新建窗口 / 在新窗口打开文件夹（多开进程）/
-打开配置目录 / 最近打开的项目（动态子菜单）/ 退出。
+打开文件夹（换根关旧窗）/ 打开配置目录 / 最近打开的项目（动态子菜单）/ 退出。
 
 全部菜单项不绑定快捷键（选型 §4.4：保持简单）。
 「退出」setMenuRole(NoRole) 防 macOS 系统菜单抢走（PyGPT 经验）。
 「新建窗口」（work plans/2026-0722-1901）：同工作区根起新进程，与
 「在新窗口打开文件夹」（换根多开）互补。
+「打开文件夹」（work plans/2026-0724-1806）：换根起新进程 + 探活后关旧窗，
+进程级「替换当前工作区」——与「在新窗口打开文件夹」（留旧）语义互斥对照。
 「最近打开的项目」（work plans/2026-0724-1003）：aboutToShow 动态重建，
 记录源为 MainWindow 启动（一进程绑定一工作区根）→ RecentProjectsStore
 （全局共享，存 config/recent_projects.json），回放在新窗口绑定该根。
@@ -31,6 +33,10 @@ def build(menubar: QMenuBar, ctx: QMainWindow, actions: ActionRegistry) -> None:
     action = menu.addAction("在新窗口打开文件夹(&W)…")
     action.triggered.connect(ctx.open_folder_in_new_window)
     actions.register("file.open_folder", action)
+
+    action = menu.addAction("打开文件夹(&D)…")
+    action.triggered.connect(ctx.open_folder_here)
+    actions.register("file.open_folder_here", action)
 
     action = menu.addAction("打开配置目录(&C)")
     action.triggered.connect(ctx.open_config_dir)

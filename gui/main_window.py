@@ -20,6 +20,9 @@ ActionRegistry 全局注册表）；本类保留面板、槽函数与面板显�
 多开入口。「最近打开的项目」（2026-07-24，work plans/2026-0724-1003）：
 窗口启动即记录自身工作区根 → RecentProjectsStore 全局共享列表
 （config/recent_projects.json），子菜单回放在新窗口绑定该根。
+「打开文件夹」（2026-07-24，work plans/2026-0724-1806）：换根关旧窗——
+预写布局（活窗口采集 patch 直写目标根哈希文件 + default 双写，复制语义）
+后起新进程，2s 探活（Popen.poll）存活才关旧窗，启动即败保留旧窗。
 
 窗口四边距体系（2026-07-20，见 文档/修改记录/2026-0720-1218 与 2026-0720-1815
 两份计划）：面板内 6px 外边距承担卡片↔把手间距；中央容器补窗口级边距
@@ -85,6 +88,7 @@ from gui.window_state import (
     KEY_SPLITTER_EDITOR,
     KEY_SPLITTER_MAIN,
     KEY_SPLITTER_SIDEBAR,
+    window_state_file_for,
 )
 
 
@@ -98,6 +102,10 @@ class MainWindow(QMainWindow):
     STATUS_MSG_TIMEOUT_MS = 3000
     STATUS_MSG_SHORT_MS = 2000
     STATUS_MSG_LONG_MS = 5000
+
+    #: 换根新进程启动探活延迟（ms）：PySide6 冷启动 import 约 1–2 s，
+    #: 启动失败（解释器错误/import 崩溃）绝大多数在此窗口内退出
+    SPAWN_PROBE_MS = 2000
 
     def __init__(self, workspace_root: str | None = None) -> None:
         """
@@ -271,9 +279,8 @@ class MainWindow(QMainWindow):
         )
         self._state_store.restore()
 
-    def closeEvent(self, event: QCloseEvent) -> None:
-        """关闭时一次性保存窗口几何与四处分隔栏状态。"""
-        # 面板隐藏时先恢复可见再保存：避免把 0 尺寸写入持久化（启动始终显示）
+    def _restore_panels_visible(self) -> None:
+        """隐藏面板先恢复可见：布局采集/保存前置（防 0 尺寸写入持久化）。"""
         for panel in (
             self.chat_tabs,
             self.file_explorer,
@@ -282,7 +289,16 @@ class MainWindow(QMainWindow):
         ):
             if not panel.isVisible():
                 panel.setVisible(True)
+
+    def _save_layout_state(self) -> None:
+        """关闭时布局保存（closeEvent 单一入口）：恢复可见 + 写自身根 + default。"""
+        self._restore_panels_visible()
         self._state_store.save()
+
+    def closeEvent(self, event: QCloseEvent) -> None:
+        """关闭时一次性保存窗口几何与四处分隔栏状态。"""
+        # 面板隐藏时先恢复可见再保存：避免把 0 尺寸写入持久化（启动始终显示）
+        self._save_layout_state()
         super().closeEvent(event)
 
     # ------------------------------------------------------------------
@@ -349,6 +365,47 @@ class MainWindow(QMainWindow):
         """新建窗口：以当前工作区根起新进程（同根多开，不弹对话框）。"""
         self._spawn_window(self._workspace_root)
 
+    def open_folder_here(self) -> None:
+        """打开文件夹（换根关旧窗）：选目录 → 预写布局 → 起新进程 → 探活关旧窗。
+
+        进程级「替换当前工作区」（work plans/2026-0724-1806）：不做窗口内
+        就地换根（2026-0722-1901 否决），等价手动「在新窗口打开文件夹」
+        再关旧窗的合成一步。同根选择接受（语义 = 重启当前窗口），不开特例
+        （对齐 open_recent_project 既有风格）。
+        """
+        path = QFileDialog.getExistingDirectory(
+            self, "打开文件夹", self.file_explorer.root_dir)
+        if not path:
+            return
+        target = Path(path).resolve()
+        if not target.is_dir():
+            # 防 main.py resolve_workspace_root 静默回退项目根：新窗开错根 +
+            # 旧窗被关的双重灾难（对话框仅保证选中时刻存在，TOCTOU 兜底）
+            self.statusBar().showMessage(
+                "文件夹不存在，未做任何更改", self.STATUS_MSG_TIMEOUT_MS)
+            return
+        folder = str(target)
+        # 预写布局（复制语义）：活窗口实时采集 → 目标根哈希文件 + default
+        # 双写，新窗口无论目标根开过与否启动即读得当前布局
+        self._restore_panels_visible()
+        self._state_store.save_to(window_state_file_for(folder))
+        proc = self._spawn_window(folder)
+        self.statusBar().showMessage(
+            f"正在打开：{folder}（新窗口就绪后本窗口将关闭）",
+            self.STATUS_MSG_LONG_MS)
+        QTimer.singleShot(self.SPAWN_PROBE_MS, self,
+                          lambda: self._close_after_spawn(proc))
+
+    def _close_after_spawn(self, proc: subprocess.Popen) -> None:
+        """换根探活（singleShot 带 receiver：探活窗口期手动关窗自动取消）：
+        新进程存活才关旧窗；启动即败保留旧窗报退出码。"""
+        if proc.poll() is None:
+            self.close()
+        else:
+            self.statusBar().showMessage(
+                f"新窗口启动失败（退出码 {proc.returncode}），本窗口已保留",
+                self.STATUS_MSG_LONG_MS)
+
     def open_folder_in_new_window(self) -> None:
         """在新窗口打开文件夹：QFileDialog 选目录 → 起新进程（取消无副作用）。
 
@@ -361,11 +418,13 @@ class MainWindow(QMainWindow):
             return
         self._spawn_window(str(Path(path).resolve()))
 
-    def _spawn_window(self, folder: str) -> None:
-        """起新进程开指定工作区根（新建窗口 / 在新窗口打开文件夹共用）。"""
-        subprocess.Popen([sys.executable, str(PROJECT_ROOT / "main.py"), folder])
+    def _spawn_window(self, folder: str) -> subprocess.Popen:
+        """起新进程开指定工作区根（新建窗口 / 在新窗口打开文件夹 / 打开
+        文件夹换根共用）；返回进程句柄供换根场景启动探活。"""
+        proc = subprocess.Popen([sys.executable, str(PROJECT_ROOT / "main.py"), folder])
         self.statusBar().showMessage(
             f"已在新窗口打开：{folder}", self.STATUS_MSG_TIMEOUT_MS)
+        return proc
 
     def open_recent_project(self, path: str) -> None:
         """最近项目回放：探活 → 起新进程绑定该工作区根（新窗口启动时经
