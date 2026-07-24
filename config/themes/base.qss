@@ -312,16 +312,20 @@ QToolButton:disabled {
     padding: 2px 8px;
 }
 
-/* 聊天输入区模型选择按钮（2026-0724-2354 迭代 2）：恒显「模型」「版本」
- * 标签 + InstantPopup 菜单；加宽 padding 并让菜单箭头固定于内容区右侧
- * 留白处——默认尺寸下箭头会被挤到文字下方（2026-07-25 观感修复） */
+/* 聊天输入区模型选择按钮（2026-0724-2354 迭代 2）：恒显「模型 ▾」
+ * 「版本 ▾」标签 + InstantPopup 菜单；箭头为文本内嵌字形（与文字同
+ * 字体同色同基线），Qt 原生 menu-arrow 隐藏（过小且风格不搭字体，
+ * 2026-07-25 观感修复第二轮）；padding 加大左右留白 */
 #chatModelButton {
     padding: 3px 12px;
 }
 
-#chatModelButton::menu-arrow {
-    subcontrol-position: right center;
-    width: 12px;
+/* InstantPopup 模式绘制的是 ::menu-indicator（非 ::menu-arrow）——
+ * 两个 subcontrol 都隐藏，只留文本内嵌「▾」字形 */
+#chatModelButton::menu-arrow,
+#chatModelButton::menu-indicator {
+    image: none;
+    width: 0px;
 }
 
 /* 聊天输入区发送/停止双态按钮（2026-0724-2305 计划 T6）：常态沿用全局
