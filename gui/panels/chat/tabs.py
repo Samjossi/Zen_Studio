@@ -7,7 +7,8 @@
   全部标签的 provider 实例；持久化仍由 ModelBar 自管
 - busy 汇总：任一标签响应中即禁用全局 ModelBar 并发射 busy_changed
   （主窗口联动禁用设置菜单 AI 模型组），防切换中途打断正在响应的标签
-- 停止按钮路由：优先停当前活动标签，活动标签空闲时停任一忙标签
+- 停止归各标签本地：输入区底行发送/停止双态按钮直停本标签
+  （2026-0724-2305 计划 T5，替代原全局停止按钮 + _route_stop 路由）
 
 全关与关闭卡顿治理（2026-07-22，work plans/2026-0722-1117 计划）：
 - 标签可全部关闭（不再保底一个）；零标签时 QStackedWidget 切到占位页
@@ -87,7 +88,6 @@ class ChatTabs(QWidget):
         self._add_button.clicked.connect(self.add_tab)
         self._tabs.tabCloseRequested.connect(self._close_tab)
         self.model_bar.selection_changed.connect(self._on_selection_changed)
-        self.model_bar.stop_requested.connect(self._route_stop)
 
         self.add_tab()  # 首标签：等价改造前的单聊天面板
 
@@ -171,7 +171,7 @@ class ChatTabs(QWidget):
         self._on_selection_changed(backend, version)
 
     # ------------------------------------------------------------------
-    # busy 汇总与停止路由（任务 15/16）
+    # busy 汇总（任务 15/16；停止已下放各标签输入区双态按钮，T5）
     # ------------------------------------------------------------------
     def _on_tab_busy(self, panel: ChatPanel, is_busy: bool) -> None:
         """单标签忙碌态变化 → 汇总重算（任一忙即整体忙）。"""
@@ -183,21 +183,12 @@ class ChatTabs(QWidget):
 
     def _recompute_busy(self) -> None:
         any_busy = bool(self._busy_panels)
-        self.model_bar.set_busy(any_busy)  # 双下拉禁用 + 停止按钮可见
+        self.model_bar.set_busy(any_busy)  # 双下拉禁用（防响应中切换）
         self.busy_changed.emit(any_busy)
 
     def is_busy(self) -> bool:
         """任一标签响应中（设置中心模型页禁用依据）。"""
         return bool(self._busy_panels)
-
-    def _route_stop(self) -> None:
-        """停止按钮路由：优先当前活动标签，其空闲时停任一忙标签。"""
-        current = self._tabs.currentWidget()
-        if isinstance(current, ChatPanel) and current in self._busy_panels:
-            current.request_stop()
-            return
-        if self._busy_panels:
-            next(iter(self._busy_panels)).request_stop()
 
     # ------------------------------------------------------------------
     # 对外兼容接口（主窗口/WindowStateStore 消费；转发到标签）

@@ -11,11 +11,27 @@
   清理线程），terminate/wait/deleteLater 全在线程段——GUI 零冻结
 - 线程段顺序先 terminate 后 wait：杀 acp 进程注入死讯解封 worker
   全部阻塞点（治"先干等 3s 才 terminate"的顺序倒置）
+
+左栏宽度根治（2026-07-24，work plans/2026-0724-2305 计划 T3/T7）：
+- 输入区底行新增发送/停止双态按钮：空闲=「发送」（等价 Enter，
+  空文本禁用），busy=「■ 停止」（直停本标签）；按钮常驻恒宽，
+  任何状态下 sizeHint 不变——替代原 ModelBar 停止按钮的显隐模式
+  （busy 显隐改变 sizeHint 触发 QSplitter 撑宽左栏的病根）
+- busy 期间 Esc 快捷键中断本标签生成（参考实现同效：theia「取消
+  (Esc)」、Multi_Cli_Studio Escape 中断）
 """
 import threading
 
 from PySide6.QtCore import Qt, QThread, QTimer, Signal
-from PySide6.QtWidgets import QFrame, QSplitter, QVBoxLayout, QWidget
+from PySide6.QtGui import QKeySequence, QShortcut
+from PySide6.QtWidgets import (
+    QFrame,
+    QHBoxLayout,
+    QPushButton,
+    QSplitter,
+    QVBoxLayout,
+    QWidget,
+)
 from shiboken6 import isValid
 
 from gui.panels.chat.input import ChatInput
@@ -49,8 +65,10 @@ class ChatPanel(QWidget):
     #: 发送/停止状态变化（ChatTabs 汇总后联动禁用全局 ModelBar 与菜单组）
     busy_changed = Signal(bool)
 
-    #: 默认布局尺寸（px）：输出区 / 输入区（初排与 reset_layout 单点来源）
-    DEFAULT_SPLITTER_SIZES = [550, 180]
+    #: 默认布局尺寸（px）：输出区 / 输入区（初排与 reset_layout 单点来源）。
+    #: 输入区 212 = 输入框原可视高度 180 + 底行按钮区约 32（T8 实测补偿，
+    #: 2026-0724-2305 计划：发送/停止按钮入底行后保持输入框可视行数不缩水）
+    DEFAULT_SPLITTER_SIZES = [550, 212]
 
     def __init__(
         self,
@@ -116,7 +134,7 @@ class ChatPanel(QWidget):
             provider.set_model(version)
 
     def request_stop(self) -> None:
-        """停止当前轮次（全局停止按钮经 ChatTabs 路由至此），幂等。"""
+        """停止当前轮次（输入区停止按钮 / Esc 触发），幂等。"""
         if self._worker is not None:
             self._worker.request_stop()
             self.input.setPlaceholderText("正在停止…")
@@ -155,14 +173,38 @@ class ChatPanel(QWidget):
     # UI 构建与接线
     # ------------------------------------------------------------------
     def _build_layout(self) -> None:
-        """布局装配：PanelCard 单卡片整合（输出区 + 输入框）。
+        """布局装配：PanelCard 单卡片整合（输出区 + 输入区）。
 
         卡片内保留垂直 splitter（输出/输入比例可调、状态持久化不变）；
         ChatOutput 透明融入卡片白底，输入框保留自身 6px 圆角嵌于卡内。
+        输入区 = 输入框 + 底行（右对齐发送/停止双态按钮，T3）。
         """
         self._splitter = QSplitter(Qt.Orientation.Vertical)
         self._splitter.addWidget(self.output)
-        self._splitter.addWidget(self.input)
+
+        # 发送/停止双态按钮（T3）：常驻恒宽，sizeHint 任何状态下不变；
+        # 宽度按两态文本的较大者一次写死（D5 恒宽保障）
+        self._send_button = QPushButton("发送", self)
+        self._send_button.setObjectName("chatSendButton")
+        self._send_button.setToolTip("发送消息（Enter）")
+        text_width = max(
+            self._send_button.fontMetrics().horizontalAdvance("发送"),
+            self._send_button.fontMetrics().horizontalAdvance("■ 停止"),
+        )
+        self._send_button.setFixedWidth(text_width + 26)  # qss padding 11px*2 + border
+
+        button_row = QHBoxLayout()
+        button_row.addStretch(1)
+        button_row.addWidget(self._send_button)
+        button_row.setContentsMargins(0, 0, 0, 0)
+
+        input_box = QWidget(self)
+        input_layout = QVBoxLayout(input_box)
+        input_layout.addWidget(self.input, 1)
+        input_layout.addLayout(button_row)
+        input_layout.setContentsMargins(0, 0, 0, 0)
+        input_layout.setSpacing(6)
+        self._splitter.addWidget(input_box)
         self._splitter.setSizes(self.DEFAULT_SPLITTER_SIZES)
 
         card = QFrame(self)
@@ -184,6 +226,35 @@ class ChatPanel(QWidget):
     def _connect_signals(self) -> None:
         """跨组件信号统一接线（本面板的接线图）。"""
         self.input.send_requested.connect(self._on_send)
+        self._send_button.clicked.connect(self._on_send_button)
+        # 空闲态按钮 enabled 跟随输入文本非空（T3/D6）；busy 态恒可用
+        self.input.textChanged.connect(self._refresh_send_button)
+        self._refresh_send_button()  # 初始：空文本禁用发送
+        # T7：busy 期间 Esc 中断本标签（输入框内 Esc 无默认行为，安全占用）
+        esc = QShortcut(QKeySequence(Qt.Key.Key_Escape), self)
+        esc.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        esc.activated.connect(self._on_esc_stop)
+
+    # ------------------------------------------------------------------
+    # 发送/停止双态按钮（T3）与 Esc 中断（T7）
+    # ------------------------------------------------------------------
+    def _on_send_button(self) -> None:
+        """双态路由：busy → 停止本标签；空闲 → 与 Enter 同一发送入口。"""
+        if self._worker is not None and self._worker.isRunning():
+            self.request_stop()
+            return
+        self.input.trigger_send()
+
+    def _on_esc_stop(self) -> None:
+        """busy 期间 Esc = 点击停止（空闲时静默忽略）。"""
+        if self._worker is not None and self._worker.isRunning():
+            self.request_stop()
+
+    def _refresh_send_button(self) -> None:
+        """空闲态刷新按钮可用性（文本非空才可发送）；busy 态不触碰。"""
+        if self._worker is not None and self._worker.isRunning():
+            return
+        self._send_button.setEnabled(bool(self.input.toPlainText().strip()))
 
     # ------------------------------------------------------------------
     # 主题（思维链前景色随主题资源包切换；由 ChatTabs 统一转发）
@@ -300,12 +371,23 @@ class ChatPanel(QWidget):
 
     def _set_busy(self, is_busy: bool) -> None:
         # 输入框保持可编辑（Enter 发送有 isRunning 守卫拦截，文本不丢）；
-        # 全局 ModelBar 禁用与停止按钮归 ChatTabs 汇总处理
+        # 全局 ModelBar 双下拉禁用归 ChatTabs 汇总处理
         self.busy_changed.emit(is_busy)
         if is_busy:
-            busy_text = f"{BACKEND_LABELS.get(self._llm_name, 'AI')} 响应中…点击 ■ 停止可中断"
+            busy_text = f"{BACKEND_LABELS.get(self._llm_name, 'AI')} 响应中…点击下方 ■ 停止或按 Esc 可中断"
+            self._send_button.setText("■ 停止")
+            self._send_button.setToolTip("停止当前生成（Esc）")
+            self._send_button.setProperty("stop", True)
+            self._send_button.setEnabled(True)  # 停止态恒可用
         else:
             busy_text = "输入消息，Enter 发送 / Shift+Enter 换行"
+            self._send_button.setText("发送")
+            self._send_button.setToolTip("发送消息（Enter）")
+            self._send_button.setProperty("stop", False)
+            self._refresh_send_button()  # 回空闲态：enabled 按文本重算
+        # qss 动态属性（[stop="true"] 双态配色）切换后强制刷新
+        self._send_button.style().unpolish(self._send_button)
+        self._send_button.style().polish(self._send_button)
         self.input.setPlaceholderText(busy_text)
 
 

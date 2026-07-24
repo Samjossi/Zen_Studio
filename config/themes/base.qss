@@ -312,6 +312,20 @@ QToolButton:disabled {
     padding: 2px 8px;
 }
 
+/* 聊天输入区发送/停止双态按钮（2026-0724-2305 计划 T6）：常态沿用全局
+ * 实体化范式；停止态以 accent 描边 + accent 文字表达「可中断」激活态
+ * （色板无警示红键，不引新色值）；代码侧 setFixedWidth 恒宽，两态切换
+ * 不改变 sizeHint（QSplitter 撑宽左栏病根切除的一部分） */
+#chatSendButton[stop="true"] {
+    color: $accent;
+    border-color: $accent;
+    font-weight: 600;
+}
+
+#chatSendButton[stop="true"]:hover {
+    background-color: $button_hover_bg;
+}
+
 /* ---- 分隔：1px 低存在感；splitter 把手常态透明、hover 显现 ---- */
 
 QMainWindow::separator {

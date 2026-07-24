@@ -93,8 +93,11 @@ from gui.window_state import (
 
 
 class MainWindow(QMainWindow):
-    #: 默认布局尺寸（px）：__init__ 初排与 reset_layout 共用单点来源
-    DEFAULT_SIZES_MAIN = [320, 630, 250]    # 外层水平：聊天 / 中栏 / 右栏
+    #: 默认布局尺寸（px）：__init__ 初排与 reset_layout 共用单点来源。
+    #: 左栏 420 ≥ ChatTabs 实测静态下限 414（2026-0724-2305 计划 T8）——
+    #: 旧值 320 低于下限永远不可达（QSplitter 强制顶高，差额抢中栏），
+    #: 校正后默认布局三栏与实际渲染一致，总和仍 1200 对齐默认窗口宽
+    DEFAULT_SIZES_MAIN = [420, 530, 250]    # 外层水平：聊天 / 中栏 / 右栏
     DEFAULT_SIZES_EDITOR = [550, 250]       # 中栏垂直：查看器 / 终端
     DEFAULT_SIZES_SIDEBAR = [340, 170]        # 右栏垂直：文件树 / 变更面板
 

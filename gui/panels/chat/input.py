@@ -1,4 +1,9 @@
-"""输入区：Enter 发送 / Shift+Enter 换行；支持文件拖入插入 @路径 引用。"""
+"""输入区：Enter 发送 / Shift+Enter 换行；支持文件拖入插入 @路径 引用。
+
+左栏宽度根治（2026-07-24，work plans/2026-0724-2305 计划 T2）：
+发送校验收敛为公共入口 trigger_send()——Enter 键与输入区底行
+发送按钮共用同一路径，两种触发方式行为严格等价。
+"""
 from pathlib import Path
 
 from PySide6.QtCore import Qt, Signal
@@ -39,6 +44,15 @@ class ChatInput(QTextEdit):
         exec_standard_context_menu(self, event)
 
     # ------------------------------------------------------------------
+    # 发送公共入口（Enter 键与底行发送按钮共用，T2）
+    # ------------------------------------------------------------------
+    def trigger_send(self) -> None:
+        """文本非空且自身可用时发射 send_requested；否则静默忽略。"""
+        text = self.toPlainText().strip()
+        if text and self.isEnabled():
+            self.send_requested.emit(text)
+
+    # ------------------------------------------------------------------
     # 键盘
     # ------------------------------------------------------------------
     def keyPressEvent(self, event) -> None:
@@ -46,9 +60,7 @@ class ChatInput(QTextEdit):
             if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
                 super().keyPressEvent(event)
                 return
-            text = self.toPlainText().strip()
-            if text and self.isEnabled():
-                self.send_requested.emit(text)
+            self.trigger_send()
             return
         super().keyPressEvent(event)
 
