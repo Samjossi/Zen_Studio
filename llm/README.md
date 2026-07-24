@@ -8,21 +8,21 @@
 
 ## 1. 概述
 
-`llm/` 是 Zen Studio 的 LLM 调用层，与 [`gui/`](../gui/) 平级。职责单一：把"多轮消息 → 流式文本"抽象为统一接口 `LanguageModel`。多标签改造（2026-07-22，work plans/2026-0722-0756）后注册表模式移除：provider 由每个 `ChatPanel` 自持实例（`ChatPanel._build_providers` 为装配单点，标签间完全隔离可并行），依赖方向为"前端 → 后端"，包内不 import 任何 GUI 代码。
+`llm/` 是 Zen Studio 的 LLM 调用层，与 `gui/` 平级。职责单一：把"多轮消息 → 流式文本"抽象为统一接口 `LanguageModel`。多标签改造（2026-07-22，work plans/2026-0722-0756）后注册表模式移除：provider 由每个 `ChatPanel` 自持实例（`ChatPanel._build_providers` 为装配单点，标签间完全隔离可并行），依赖方向为"前端 → 后端"，包内不 import 任何 GUI 代码。
 
-**统一后端策略**：对话统一经本机 agent CLI（当前为 Kimi Code CLI）完成，代码库**不存放、不读取、不输入任何 API KEY**——凭证由各 CLI 自行管理（如 kimi 的 OAuth）。DeepSeek API KEY 直连已于 2026-07-18 移除（见 [`文档/修改记录/2026-0718-1455_移除APIKEY直连统一CLI后端实施计划.md`](../文档/修改记录/2026-0718-1455_移除APIKEY直连统一CLI后端实施计划.md)）。
+**统一后端策略**：对话统一经本机 agent CLI（当前为 Kimi Code CLI）完成，代码库**不存放、不读取、不输入任何 API KEY**——凭证由各 CLI 自行管理（如 kimi 的 OAuth）。DeepSeek API KEY 直连已于 2026-07-18 移除（见 `2026-0718-1455_移除APIKEY直连统一CLI后端实施计划.md`）。
 
-设计蓝本：theia-zen `LanguageModel` Protocol（原注册表模式已随多标签改造移除），选型依据见 [`文档/选型记录/2026-0718-1215_对话栏AI聊天面板选型报告.md`](../文档/选型记录/2026-0718-1215_对话栏AI聊天面板选型报告.md)。
+设计蓝本：theia-zen `LanguageModel` Protocol（原注册表模式已随多标签改造移除），选型依据见 `2026-0718-1215_对话栏AI聊天面板选型报告.md`。
 
 ## 2. 文件结构
 
 | 文件 | 说明 |
 |:---|:---|
-| [`__init__.py`](__init__.py) | 包初始化：导出统一接口、后端常量（`BACKEND_KIMI_CLI`/`BACKEND_KIMI_ACP`/`BACKEND_LABELS`）与 provider 类 |
-| [`base.py`](base.py) | `LanguageModel` Protocol + `Message` 类型别名 + `Chunk` 流式块 |
-| [`providers/__init__.py`](providers/__init__.py) | provider 子包标记（每家厂商一个文件） |
-| [`providers/kimi_cli.py`](providers/kimi_cli.py) | `KimiCliLLM`：本机 Kimi Code CLI 后端（spawn `kimi -p --output-format stream-json` 子进程 + session_id 续接；二进制检测链 PATH → `$KIMI_CODE_HOME/bin` → `~/.kimi-code/bin`） |
-| [`providers/kimi_acp.py`](providers/kimi_acp.py) | `KimiAcpLLM`：Kimi ACP 后端（长驻 `kimi acp` 子进程 + ndjson JSON-RPC；token 级流式、思维链可见、审批反向请求路由） |
+| `llm/__init__.py` | 包初始化：导出统一接口、后端常量（`BACKEND_KIMI_CLI`/`BACKEND_KIMI_ACP`/`BACKEND_LABELS`）与 provider 类 |
+| `llm/base.py` | `LanguageModel` Protocol + `Message` 类型别名 + `Chunk` 流式块 |
+| `llm/providers/__init__.py` | provider 子包标记（每家厂商一个文件） |
+| `llm/providers/kimi_cli.py` | `KimiCliLLM`：本机 Kimi Code CLI 后端（spawn `kimi -p --output-format stream-json` 子进程 + session_id 续接；二进制检测链 PATH → `$KIMI_CODE_HOME/bin` → `~/.kimi-code/bin`） |
+| `llm/providers/kimi_acp.py` | `KimiAcpLLM`：Kimi ACP 后端（长驻 `kimi acp` 子进程 + ndjson JSON-RPC；token 级流式、思维链可见、审批反向请求路由） |
 
 ## 3. 接口设计
 
@@ -62,11 +62,11 @@ for chunk in llm.chat([{"role": "user", "content": "你好"}]):
         print(chunk.text, end="", flush=True)  # 正文
 ```
 
-> ⚠️ `chat()` 是阻塞式 generator（CLI 后端为子进程 stdout 读取）。GUI 中必须放后台线程消费，经信号逐块上屏，避免冻结主线程（参考实现：[`gui/panels/chat/worker.py`](../gui/panels/chat/worker.py)）。
+> ⚠️ `chat()` 是阻塞式 generator（CLI 后端为子进程 stdout 读取）。GUI 中必须放后台线程消费，经信号逐块上屏，避免冻结主线程（参考实现：`gui/panels/chat/worker.py`）。
 
 多轮对话由 CLI 侧会话管理（首轮后 meta 行回传 `session_id`，后续请求经 `-S` 续接）；调用方无需回传历史（panel 传入的消息列表中仅末条 user 消息被用作 prompt）。子进程非零退出抛 `RuntimeError`（消息附 stderr 尾部诊断），由调用方捕获后上屏，不崩溃。
 
-**Kimi Code CLI 版本要求与行为说明**（依据 0.27.0 实测，详见 [`文档/修改记录/2026-0718-1545_KimiCLI新版兼容验证与最小修补实施计划.md`](../文档/修改记录/2026-0718-1545_KimiCLI新版兼容验证与最小修补实施计划.md)）：
+**Kimi Code CLI 版本要求与行为说明**（依据 0.27.0 实测，详见 `2026-0718-1545_KimiCLI新版兼容验证与最小修补实施计划.md`）：
 
 - 版本要求 **≥ 0.2.0**（该版起 stream-json 输出 `session.resume_hint` meta 行，为多轮续接前提；TypeScript 重写版均满足）
 - 二进制检测链：`PATH` → `$KIMI_CODE_HOME/bin/kimi` → `~/.kimi-code/bin/kimi`（桌面启动 PATH 不含安装目录时仍可发现）
@@ -81,6 +81,6 @@ for chunk in llm.chat([{"role": "user", "content": "你好"}]):
 
 ## 6. 新增 provider
 
-1. 在 [`providers/`](providers/) 下新建 `<名称>.py`，实现 `LanguageModel` 协议（`chat()` 为流式 generator；历史策略由各实现自决，CLI 类推荐"末条 user 消息 + CLI 侧会话"）
-2. 在 [`llm/__init__.py`](__init__.py) 中导入并加入 `__all__` 导出；GUI 消费侧在 `ChatPanel._build_providers` 装配（外部 CLI 类 provider 先 `shutil.which` 检测可用性再实例化）
+1. 在 `llm/providers/` 下新建 `<名称>.py`，实现 `LanguageModel` 协议（`chat()` 为流式 generator；历史策略由各实现自决，CLI 类推荐"末条 user 消息 + CLI 侧会话"）
+2. 在 `llm/__init__.py` 中导入并加入 `__all__` 导出；GUI 消费侧在 `ChatPanel._build_providers` 装配（外部 CLI 类 provider 先 `shutil.which` 检测可用性再实例化）
 3. 凭证管理：CLI 类凭证由 CLI 自管，代码库不出现密钥；API key 类凭证放项目根 `api_key/<名称>`（已 gitignore）

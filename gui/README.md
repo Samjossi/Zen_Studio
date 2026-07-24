@@ -8,27 +8,27 @@
 
 ## 1. 概述
 
-`gui/` 存放 Zen Studio 全部图形界面代码，基于 **PySide6**。入口文件 [`main.py`](../main.py) 仅负责创建应用并显示主窗口，不包含任何界面实现。
+`gui/` 存放 Zen Studio 全部图形界面代码，基于 **PySide6**。入口文件 `main.py` 仅负责创建应用并显示主窗口，不包含任何界面实现。
 
 ## 2. 文件结构
 
 | 文件 | 说明 |
 |:---|:---|
-| [`__init__.py`](__init__.py) | 包初始化，对外导出 `MainWindow` |
-| [`main_window.py`](main_window.py) | 主窗口：三栏布局（右栏再上下拆分）+ 状态栏 + 窗口几何/分隔栏状态持久化 + Git 状态事件驱动刷新 + 菜单槽函数（打开文件夹/字号/恢复布局等） |
-| [`settings.py`](settings.py) | 通用配置持久化：读写 `config/settings.json`，"读全量 → 合并 → 写回"统一入口（主题/窗口几何/分隔栏/模型选择/工作区根共用） |
-| [`theme.py`](theme.py) | 主题体系：`THEME_META` 多主题注册表（云白/暖米/晴空/薄荷/暗色，按 light/dark 两族）+ qss 应用 + 自带双字体注册（思源黑体 / 更纱黑体）+ `GIT_STATUS_COLORS` Git 状态色表 |
-| [`menus/`](menus/) | 菜单栏子包：`registry.py` Action 注册表（`菜单.动作` 键名全局可寻址）/ `assembler.py` 装配器 / 每菜单一文件（file/edit/view/terminal/settings/help） |
-| [`panels/__init__.py`](panels/__init__.py) | 面板包初始化，对外导出 `FileExplorer`、`ViewerPanel` |
-| [`panels/file_explorer/`](panels/file_explorer/) | 文件树子包（右栏上）：`explorer.py` 主控件 / `model.py` 模型层（噪音过滤 + Git 状态着色）/ `actions.py` 右键菜单动作 |
-| [`panels/changes/`](panels/changes/) | Git 变更面板子包（右栏下）：`panel.py` 已变更文件列表（状态着色 + 增减行数，VS Code SCM 简化版） |
-| [`panels/chat/`](panels/chat/) | 聊天面板子包（左栏）：`panel.py` 装配 / `output.py` 输出区 / `input.py` 输入框（文件拖入 → `@路径` 引用）/ `model_bar.py` 模型版本行 / `worker.py` 流式线程 / `permission_dialog.py` ACP 工具审批对话框 |
-| [`panels/viewer/`](panels/viewer/) | 文件查看面板子包（中栏上）：`panel.py` 装配（含 Git 差异徽标）/ `code_viewer.py` 只读查看器（行号栏）/ `highlighter.py` Pygments 高亮器 |
-| [`panels/terminal/`](panels/terminal/) | 终端面板子包（中栏下）：`panel.py` 装配 / `widget.py` 自绘终端控件 / `screen.py` pyte 语义层 / `session.py` PTY 会话 / `palette.py` ANSI 双主题色板 |
+| `gui/__init__.py` | 包初始化，对外导出 `MainWindow` |
+| `gui/main_window.py` | 主窗口：三栏布局（右栏再上下拆分）+ 状态栏 + 窗口几何/分隔栏状态持久化 + Git 状态事件驱动刷新 + 菜单槽函数（打开文件夹/字号/恢复布局等） |
+| `gui/settings.py` | 通用配置持久化：读写 `config/settings.json`，"读全量 → 合并 → 写回"统一入口（主题/窗口几何/分隔栏/模型选择/工作区根共用） |
+| `gui/theme.py` | 主题体系：`THEME_META` 多主题注册表（云白/暖米/晴空/薄荷/暗色，按 light/dark 两族）+ qss 应用 + 自带双字体注册（思源黑体 / 更纱黑体）+ `GIT_STATUS_COLORS` Git 状态色表 |
+| `gui/menus/` | 菜单栏子包：`registry.py` Action 注册表（`菜单.动作` 键名全局可寻址）/ `assembler.py` 装配器 / 每菜单一文件（file/edit/view/terminal/settings/help） |
+| `gui/panels/__init__.py` | 面板包初始化，对外导出 `FileExplorer`、`ViewerPanel` |
+| `gui/panels/file_explorer/` | 文件树子包（右栏上）：`explorer.py` 主控件 / `model.py` 模型层（噪音过滤 + Git 状态着色）/ `actions.py` 右键菜单动作 |
+| `gui/panels/changes/` | Git 变更面板子包（右栏下）：`panel.py` 已变更文件列表（状态着色 + 增减行数，VS Code SCM 简化版） |
+| `gui/panels/chat/` | 聊天面板子包（左栏）：`panel.py` 装配 / `output.py` 输出区 / `input.py` 输入框（文件拖入 → `@路径` 引用）/ `model_bar.py` 模型版本行 / `worker.py` 流式线程 / `permission_dialog.py` ACP 工具审批对话框 |
+| `gui/panels/viewer/` | 文件查看面板子包（中栏上）：`panel.py` 装配（含 Git 差异徽标）/ `code_viewer.py` 只读查看器（行号栏）/ `highlighter.py` Pygments 高亮器 |
+| `gui/panels/terminal/` | 终端面板子包（中栏下）：`panel.py` 装配 / `widget.py` 自绘终端控件 / `screen.py` pyte 语义层 / `session.py` PTY 会话 / `palette.py` ANSI 双主题色板 |
 
-> LLM 调用层为后端逻辑，位于项目根 [`llm/`](../llm/)（与 `gui/` 平级）：`base.py` Protocol / `providers/kimi_cli.py`（stream-json 子进程）与 `providers/kimi_acp.py`（ACP 长驻）两个 Kimi Code CLI 后端。多标签改造后 provider 由每个 `ChatPanel` 自持（`ChatPanel._build_providers` 装配单点）。
+> LLM 调用层为后端逻辑，位于项目根 `llm/`（与 `gui/` 平级）：`base.py` Protocol / `providers/kimi_cli.py`（stream-json 子进程）与 `providers/kimi_acp.py`（ACP 长驻）两个 Kimi Code CLI 后端。多标签改造后 provider 由每个 `ChatPanel` 自持（`ChatPanel._build_providers` 装配单点）。
 >
-> Git 数据层同理位于项目根 [`core/git/`](../core/git/)：`GitStatusService`（subprocess 调系统 git CLI，零 Qt 依赖纯 Python 包），GUI 侧经 `main_window` 注入各面板消费。
+> Git 数据层同理位于项目根 `core/git/`：`GitStatusService`（subprocess 调系统 git CLI，零 Qt 依赖纯 Python 包），GUI 侧经 `main_window` 注入各面板消费。
 
 ## 3. 布局图
 
@@ -60,9 +60,9 @@
 | 右栏（上） | 340 px（高） | **文件树 `FileExplorer`**（根目录为项目根，双击文件经 `file_opened` 信号打开到查看器） |
 | 右栏（下） | 170 px（高） | **Git 变更面板 `ChangesPanel`**（已变更文件列表：状态着色 + `+N` `-N` 行数） |
 
-## 4. 菜单栏（[`menus/`](menus/) 子包）
+## 4. 菜单栏（`gui/menus/` 子包）
 
-模块化菜单 + 全局 Action 注册表（方案选型见 [`文档/选型记录/2026-0720-0433_菜单栏与设置体系方案选型.md`](../文档/选型记录/2026-0720-0433_菜单栏与设置体系方案选型.md)，实施计划见 [`文档/修改记录/2026-0720-0510_菜单栏与设置体系实施计划.md`](../文档/修改记录/2026-0720-0510_菜单栏与设置体系实施计划.md)）。`MainWindow` 以 `MenuBar(self).setup()` 一行完成构建；**全部菜单项不绑定快捷键**（保持简单；文本控件 Qt 内建 Ctrl+C/V/A 属控件级行为，不在此列）。
+模块化菜单 + 全局 Action 注册表（方案选型见 `2026-0720-0433_菜单栏与设置体系方案选型.md`，实施计划见 `2026-0720-0510_菜单栏与设置体系实施计划.md`）。`MainWindow` 以 `MenuBar(self).setup()` 一行完成构建；**全部菜单项不绑定快捷键**（保持简单；文本控件 Qt 内建 Ctrl+C/V/A 属控件级行为，不在此列）。
 
 | 机制 | 说明 |
 |:---|:---|
@@ -94,7 +94,7 @@
 
 ## 6. 文件查看面板（中栏上）
 
-`ViewerPanel`：标题行（路径 + **Git 差异徽标** + 状态提示）+ `CodeViewer(QPlainTextEdit)`。**AI-first 定位：永久只读**（代码修改一律经 AI agent 落盘；`setReadOnly` 技术上可逆，不锁死）。选型依据：[`文档/选型记录/2026-0719-0205_中栏代码显示与语法高亮选型报告.md`](../文档/选型记录/2026-0719-0205_中栏代码显示与语法高亮选型报告.md)。
+`ViewerPanel`：标题行（路径 + **Git 差异徽标** + 状态提示）+ `CodeViewer(QPlainTextEdit)`。**AI-first 定位：永久只读**（代码修改一律经 AI agent 落盘；`setReadOnly` 技术上可逆，不锁死）。选型依据：`2026-0719-0205_中栏代码显示与语法高亮选型报告.md`。
 
 | 组件 | 说明 |
 |:---|:---|
@@ -108,7 +108,7 @@
 
 ## 7. 终端面板（中栏下）
 
-`TerminalPanel`：单行头部栏（**tab 区**＋固定操作组）+ `TerminalWidget` 自绘终端。**真 PTY 多会话终端**（ANSI 颜色/交互程序/`kimi login` 全可用）。AI-first 语境下为**用户终端**（agent 命令镜像待 ACP terminal RPC，备案）。OOP 五层单向依赖（详见 [`文档/修改记录/2026-0719-0412_中栏下终端面板实施计划.md`](../文档/修改记录/2026-0719-0412_中栏下终端面板实施计划.md) §2）：
+`TerminalPanel`：单行头部栏（**tab 区**＋固定操作组）+ `TerminalWidget` 自绘终端。**真 PTY 多会话终端**（ANSI 颜色/交互程序/`kimi login` 全可用）。AI-first 语境下为**用户终端**（agent 命令镜像待 ACP terminal RPC，备案）。OOP 五层单向依赖（详见 `2026-0719-0412_中栏下终端面板实施计划.md` §2）：
 
 头部栏（阶段一/二重构，见 `文档/修改记录/2026-0719-0955_*.md`）：左起 tab 区（每会话一 tab：shell 名/OSC 动态标题＋行内 ×；`＋`新建；激活态下划线随主题）＋状态＋「清屏」（写 Ctrl+L，shell 自清）＋「−」隐藏（视图菜单可恢复）；固定高度随字号重算。终端区右键菜单承接重开/终止/关闭（Theia 功能分层）；`Ctrl+F` 查找为右上角浮层（不占布局）。
 
@@ -136,9 +136,9 @@
 
 ## 9. Git 集成（core/git + 变更面板）
 
-Git 数据层 [`core/git/`](../core/git/) 为零 Qt 依赖的纯 Python 包（subprocess 调系统 git CLI；选型见 [`文档/选型记录/2026-0720-0135_Git文件装饰与简易差异指示方案选型.md`](../文档/选型记录/2026-0720-0135_Git文件装饰与简易差异指示方案选型.md)）。`MainWindow` 持有唯一 `GitStatusService` 实例并注入各面板，**事件驱动刷新**：窗口激活 / 查看器外部重载 / 视图菜单手动刷新三个事件源，经 300ms 去抖汇流后一次刷新 → 文件树着色、查看器徽标、变更面板、状态栏统计四处同步；非 git 环境下所有入口静默跳过。
+Git 数据层 `core/git/` 为零 Qt 依赖的纯 Python 包（subprocess 调系统 git CLI；选型见 `2026-0720-0135_Git文件装饰与简易差异指示方案选型.md`）。`MainWindow` 持有唯一 `GitStatusService` 实例并注入各面板，**事件驱动刷新**：窗口激活 / 查看器外部重载 / 视图菜单手动刷新三个事件源，经 300ms 去抖汇流后一次刷新 → 文件树着色、查看器徽标、变更面板、状态栏统计四处同步；非 git 环境下所有入口静默跳过。
 
-`ChangesPanel`（右栏下）：已变更文件列表，VS Code SCM 面板简化版（实施计划见 [`文档/修改记录/2026-0720-0215_Git变更面板实施计划.md`](../文档/修改记录/2026-0720-0215_Git变更面板实施计划.md)）：
+`ChangesPanel`（右栏下）：已变更文件列表，VS Code SCM 面板简化版（实施计划见 `2026-0720-0215_Git变更面板实施计划.md`）：
 
 | 要点 | 说明 |
 |:---|:---|
