@@ -22,7 +22,7 @@
 | `gui/panels/__init__.py` | 面板包初始化，对外导出 `FileExplorer`、`ViewerPanel` |
 | `gui/panels/file_explorer/` | 文件树子包（右栏上）：`explorer.py` 主控件 / `model.py` 模型层（噪音过滤 + Git 状态着色）/ `actions.py` 右键菜单动作 |
 | `gui/panels/changes/` | Git 变更面板子包（右栏下）：`panel.py` 已变更文件列表（状态着色 + 增减行数，VS Code SCM 简化版） |
-| `gui/panels/chat/` | 聊天面板子包（左栏）：`panel.py` 装配 / `output.py` 输出区 / `input.py` 输入框（文件拖入 → `@路径` 引用）/ `model_bar.py` 模型版本行 / `worker.py` 流式线程 / `permission_dialog.py` ACP 工具审批对话框 |
+| `gui/panels/chat/` | 聊天面板子包（左栏）：`panel.py` 装配（含底行：模型选择 + 发送/停止双态按钮）/ `output.py` 输出区 / `input.py` 输入框（文件拖入 → `@路径` 引用）/ `model_bar.py` 模型版本双下拉（纯视图）/ `worker.py` 流式线程 / `permission_dialog.py` ACP 工具审批对话框 |
 | `gui/panels/viewer/` | 文件查看面板子包（中栏上）：`panel.py` 装配（含 Git 差异徽标）/ `code_viewer.py` 只读查看器（行号栏）/ `highlighter.py` Pygments 高亮器 |
 | `gui/panels/terminal/` | 终端面板子包（中栏下）：`panel.py` 装配 / `widget.py` 自绘终端控件 / `screen.py` pyte 语义层 / `session.py` PTY 会话 / `palette.py` ANSI 双主题色板 |
 
@@ -78,9 +78,9 @@
 
 ## 5. 聊天面板（左栏）
 
-`ChatTabs` 标签容器（上限 4）：顶部全局 `ModelBar`（模型 + 版本双下拉，全部标签共享同一选择，切换广播到所有标签），下方每标签一个独立 `ChatPanel`。`ChatPanel` 上输出（QTextBrowser）下输入（QTextEdit）垂直分栏，Enter 发送 / Shift+Enter 换行；流式调用放 `ChatWorker(QThread)` 后台线程，逐块信号上屏，UI 不冻结。每标签**自持 provider 实例**（独立 `kimi acp` 连接，标签间完全隔离可并行）。对话统一经本机 agent CLI（Kimi Code CLI），代码库零 API KEY。从文件树或系统文件管理器**拖入文件 → 落点插入 `@工作区相对路径 ` 引用**（纯文本透传，由后端 agent CLI 解析）；模型选择持久化到 `config/settings.json`。多标签审批经全局 `PermissionQueue` 串行弹窗；任一标签响应中即禁用全局 ModelBar 与设置中心模型页。
+`ChatTabs` 标签容器（上限 4）：持有模型选择状态层（当前 backend/version 单一来源、统一写盘、阻断广播同步），下方每标签一个独立 `ChatPanel`。`ChatPanel` 上输出（QTextBrowser）下输入（QTextEdit）垂直分栏，输入区底行左端为模型/版本双下拉（`ModelBar` 纯视图实例，全部标签共享同一选择，任一标签切换经 ChatTabs 广播到其余标签 UI 与全部 provider），右端为**发送/停止双态按钮**（空闲=发送且空文本禁用，busy=■ 停止直停本标签，Esc 同效）；Enter 发送 / Shift+Enter 换行；流式调用放 `ChatWorker(QThread)` 后台线程，逐块信号上屏，UI 不冻结。每标签**自持 provider 实例**（独立 `kimi acp` 连接，标签间完全隔离可并行）。对话统一经本机 agent CLI（Kimi Code CLI），代码库零 API KEY。从文件树或系统文件管理器**拖入文件 → 落点插入 `@工作区相对路径 ` 引用**（纯文本透传，由后端 agent CLI 解析）；模型选择持久化到 `config/settings.json`。多标签审批经全局 `PermissionQueue` 串行弹窗；任一标签响应中即禁用全部标签双下拉与设置中心模型页。
 
-**标签全关与关闭异步化**（2026-07-22，work plans/2026-0722-1117）：标签可全部关闭——零标签时 `QStackedWidget` 切到占位页（提示 + 「新建会话」按钮），ModelBar 常驻；序号非全关不复用（防指代漂移），全关即重置回「会话 1」。关闭路径两段式：GUI 段毫秒级（`request_stop` + 断信号 + 起 daemon 清理线程），线程段先 `terminate`（杀 acp 进程并幂等注入死讯/错误帧，主动解封 worker 的 `next_update()`/`request()` 阻塞点）后 `worker.wait(3000)`，结束经 `QTimer.singleShot` 回 GUI 线程 `deleteLater`——关闭标签 GUI 零冻结，且不销毁运行中的 QThread。
+**标签全关与关闭异步化**（2026-07-22，work plans/2026-0722-1117）：标签可全部关闭——零标签时 `QStackedWidget` 切到占位页（提示 + 「新建会话」按钮），选择状态在 ChatTabs 状态层不随标签消失（新建标签注入恢复）；序号非全关不复用（防指代漂移），全关即重置回「会话 1」。关闭路径两段式：GUI 段毫秒级（`request_stop` + 断信号 + 起 daemon 清理线程），线程段先 `terminate`（杀 acp 进程并幂等注入死讯/错误帧，主动解封 worker 的 `next_update()`/`request()` 阻塞点）后 `worker.wait(3000)`，结束经 `QTimer.singleShot` 回 GUI 线程 `deleteLater`——关闭标签 GUI 零冻结，且不销毁运行中的 QThread。
 
 | 组件 | 说明 |
 |:---|:---|
@@ -89,7 +89,7 @@
 | `KimiCliLLM` | Kimi Code CLI 后端（spawn `-p` + stream-json）：消息粒度上屏、session_id 续接多轮、工具调用灰字摘要；⚠️ auto 权限下 agent 可在项目目录自主读写/执行 |
 | `KimiAcpLLM` | Kimi ACP 后端（长驻 `kimi acp` + JSON-RPC）：**token 级流式**、思维链可见（`agent_thought_chunk`）、`session/new` 原生会话、`session/set_config_option` 会话内切模型 |
 | `PermissionDialog` | ACP 工具审批模态框：工具名/参数摘要 + 选项按钮（允许一次/始终允许/拒绝）；reader 线程请求转 GUI 线程弹出，180s 无响应按拒绝兜底 |
-| `ModelBar` | 输入区顶行双下拉：模型（Kimi CLI / Kimi ACP，不可用时禁用）+ 版本（模型别名联动刷新），切换下次请求生效，发送中锁定；选择持久化（`model_backend` / `model_version`），启动时恢复 |
+| `ModelBar` | 输入区底行左端双下拉（纯视图，每标签实例）：模型（Kimi CLI / Kimi ACP，不可用时禁用）+ 版本（模型别名联动刷新），框体按固定字符数截断显示（tooltip 全名兜底）、弹窗按最长条目自适应加宽显示全文；切换下次请求生效，任一标签发送中全标签锁定；选择与写盘归 ChatTabs 状态层（`model_backend` / `model_version`），启动时恢复 |
 | 多轮 | 历史由各后端会话管理；请求失败的用户消息不入历史，错误上屏不崩溃 |
 
 ## 6. 文件查看面板（中栏上）

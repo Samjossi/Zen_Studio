@@ -3,7 +3,9 @@
 多标签改造（2026-07-22，work plans/2026-0722-0756 计划 P3 任务 13）：
 - 自持 provider 实例（不再从共享 registry 取单例）：构造时按当前后端
   自建 KimiCliLLM/KimiAcpLLM(workspace_root)，标签间完全隔离（D6 方案 A）
-- ModelBar 上移到 ChatTabs 容器顶部为全局控件（D5），本面板只留输入框
+- ModelBar 各标签自持：2026-0724-2354 计划由 ChatTabs 顶部全局单例
+  改为本面板输入区底行实例（纯视图）；选择状态/写盘归 ChatTabs 状态层，
+  广播经 set_model_selection 同步本面板 UI（阻断）与 provider
 - 审批请求统一提交全局审批队列（PERMISSION_QUEUE），多标签串行弹窗
 
 关闭异步化（2026-07-22，work plans/2026-0722-1117 计划 P2）：
@@ -35,6 +37,7 @@ from PySide6.QtWidgets import (
 from shiboken6 import isValid
 
 from gui.panels.chat.input import ChatInput
+from gui.panels.chat.model_bar import ModelBar
 from gui.panels.chat.output import ChatOutput
 from gui.panels.chat.permission_queue import PERMISSION_QUEUE
 from gui.panels.chat.worker import ChatWorker
@@ -62,7 +65,7 @@ SYSTEM_PROMPT = "你是 Zen Studio IDE 的内置助手，回答简洁，使用�
 class ChatPanel(QWidget):
     """单个 AI 会话标签页（独立 provider 实例，由 ChatTabs 托管）。"""
 
-    #: 发送/停止状态变化（ChatTabs 汇总后联动禁用全局 ModelBar 与菜单组）
+    #: 发送/停止状态变化（ChatTabs 汇总后联动禁用全部标签双下拉与菜单组）
     busy_changed = Signal(bool)
 
     #: 默认布局尺寸（px）：输出区 / 输入区（初排与 reset_layout 单点来源）。
@@ -72,13 +75,14 @@ class ChatPanel(QWidget):
 
     def __init__(
         self,
-        backend: str,
+        backend: str | None,
         version: str | None,
         workspace_root: str,
         parent: QWidget | None = None,
     ) -> None:
         """
-        :param backend: 初始后端（registry 名；全局模型选择由 ChatTabs 广播更新）
+        :param backend: 初始后端（registry 名；None/失效项经 ModelBar 静默
+            回退默认；全局选择状态归 ChatTabs，广播更新见 set_model_selection）
         :param version: 初始模型别名（None = provider 默认模型）
         :param workspace_root: 工作区根（provider cwd 与拖入文件 @相对路径 基准）
         :param parent: 父控件
@@ -95,8 +99,11 @@ class ChatPanel(QWidget):
         self.output = ChatOutput(self._reasoning_color_of(load_settings()[KEY_THEME]), self)
         self.input = ChatInput(self)
         self.input.set_workspace_root(workspace_root)
-        self._llm_name = backend
-        self._providers = self._build_providers(workspace_root, version)
+        # 底行模型选择（纯视图）：注入初始选择后以回退后的有效值为准
+        self.model_bar = ModelBar(self)
+        self.model_bar.set_selection(backend, version)
+        self._llm_name = self.model_bar.current_backend()
+        self._providers = self._build_providers(workspace_root, self.model_bar.current_version())
 
         self._build_layout()
         self._connect_signals()
@@ -120,11 +127,15 @@ class ChatPanel(QWidget):
         return providers
 
     def set_model_selection(self, backend: str, version: str | None) -> None:
-        """全局模型选择广播（D5）：记录后端 + 写自身 provider 实例。
+        """全局模型选择广播（D5）：同步自身 ModelBar UI + 写自身 provider 实例。
 
+        UI 同步走 ModelBar.set_selection（全程阻断信号，不回环）；
+        持久化与状态层归 ChatTabs，本方法不管。
         上下文不迁移（各后端会话各自独立），切后端时输出提示行。
-        持久化与 ModelBar UI 归 ChatTabs/ModelBar，本方法不管。
         """
+        self.model_bar.set_selection(backend, version)
+        backend = self.model_bar.current_backend()  # 回退后的有效值（与 UI 一致）
+        version = self.model_bar.current_version()
         if backend != self._llm_name:
             self.output.append_message(
                 "系统", f"已切换到 {BACKEND_LABELS.get(backend, backend)} 后端，开始新会话")
@@ -177,34 +188,11 @@ class ChatPanel(QWidget):
 
         卡片内保留垂直 splitter（输出/输入比例可调、状态持久化不变）；
         ChatOutput 透明融入卡片白底，输入框保留自身 6px 圆角嵌于卡内。
-        输入区 = 输入框 + 底行（右对齐发送/停止双态按钮，T3）。
+        输入区 = 输入框 + 底行（左：模型/版本双下拉；右：发送/停止双态按钮）。
         """
         self._splitter = QSplitter(Qt.Orientation.Vertical)
         self._splitter.addWidget(self.output)
-
-        # 发送/停止双态按钮（T3）：常驻恒宽，sizeHint 任何状态下不变；
-        # 宽度按两态文本的较大者一次写死（D5 恒宽保障）
-        self._send_button = QPushButton("发送", self)
-        self._send_button.setObjectName("chatSendButton")
-        self._send_button.setToolTip("发送消息（Enter）")
-        text_width = max(
-            self._send_button.fontMetrics().horizontalAdvance("发送"),
-            self._send_button.fontMetrics().horizontalAdvance("■ 停止"),
-        )
-        self._send_button.setFixedWidth(text_width + 26)  # qss padding 11px*2 + border
-
-        button_row = QHBoxLayout()
-        button_row.addStretch(1)
-        button_row.addWidget(self._send_button)
-        button_row.setContentsMargins(0, 0, 0, 0)
-
-        input_box = QWidget(self)
-        input_layout = QVBoxLayout(input_box)
-        input_layout.addWidget(self.input, 1)
-        input_layout.addLayout(button_row)
-        input_layout.setContentsMargins(0, 0, 0, 0)
-        input_layout.setSpacing(6)
-        self._splitter.addWidget(input_box)
+        self._splitter.addWidget(self._build_input_box())
         self._splitter.setSizes(self.DEFAULT_SPLITTER_SIZES)
 
         card = QFrame(self)
@@ -222,6 +210,36 @@ class ChatPanel(QWidget):
         # 下边距 6px + 状态栏定高 26px = 底部总间距 32px（一体化设计）
         layout.setContentsMargins(6, 6, 6, 6)
         layout.setSpacing(0)
+
+    def _build_input_box(self) -> QWidget:
+        """输入区容器：输入框 + 底行（左：模型/版本双下拉；右：发送/停止双态按钮）。
+
+        底行双下拉为 2026-0724-2354 计划 T3（原顶部全局模型行下移）；
+        双态按钮常驻恒宽（宽度按两态文本较大者一次写死），任何状态下
+        sizeHint 不变——QSplitter 撑宽左栏病根切除的一部分。
+        """
+        self._send_button = QPushButton("发送", self)
+        self._send_button.setObjectName("chatSendButton")
+        self._send_button.setToolTip("发送消息（Enter）")
+        text_width = max(
+            self._send_button.fontMetrics().horizontalAdvance("发送"),
+            self._send_button.fontMetrics().horizontalAdvance("■ 停止"),
+        )
+        self._send_button.setFixedWidth(text_width + 26)  # qss padding 11px*2 + border
+
+        button_row = QHBoxLayout()
+        button_row.addWidget(self.model_bar)
+        button_row.addStretch(1)
+        button_row.addWidget(self._send_button)
+        button_row.setContentsMargins(0, 0, 0, 0)
+
+        box = QWidget(self)
+        box_layout = QVBoxLayout(box)
+        box_layout.addWidget(self.input, 1)
+        box_layout.addLayout(button_row)
+        box_layout.setContentsMargins(0, 0, 0, 0)
+        box_layout.setSpacing(6)
+        return box
 
     def _connect_signals(self) -> None:
         """跨组件信号统一接线（本面板的接线图）。"""

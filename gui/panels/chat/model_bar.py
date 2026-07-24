@@ -1,4 +1,4 @@
-"""模型行：模型下拉（后端）+ 版本下拉（输入区顶行）。
+"""模型选择：模型下拉（后端）+ 版本下拉（各标签输入区底行左端）。
 
 选择持久化（2026-07-19，见 文档/修改记录/2026-0719-0712_GUI窗口状态
 与模型选择持久化计划.md）：启动时 set_selection 恢复上次选择（无效项
@@ -6,27 +6,26 @@
 
 左栏宽度根治（2026-07-24，work plans/2026-0724-2305 计划 T1/T4）：
 - 双下拉 setMinimumContentsLength + AdjustToMinimumContentsLengthWithIcon：
-  minimumSizeHint 按固定字符数计算，与「最长条目文本宽度」脱钩——
-  消除模型别名长度决定左栏静态下限（诊断报告 §6，528px 地板）
-- 停止按钮移除：busy 显隐曾使本行最小宽度 528↔613 跳变，经 ChatTabs
-  上传触发 QSplitter 撑宽左栏（诊断报告 §3）；停止改归各标签输入区
-  底行的发送/停止双态按钮（panel.py），本行 sizeHint 全程恒定
+  minimumSizeHint 按固定字符数计算，与「最长条目文本宽度」脱钩
+- 停止按钮移除：busy 显隐曾使本行最小宽度跳变触发 QSplitter 撑宽
+  左栏；停止改归输入区底行右端的发送/停止双态按钮（panel.py）
+
+下移底行与瘦身（2026-07-25，work plans/2026-0724-2354 计划 T1）：
+- 从 ChatTabs 顶部全局单例改为每 ChatPanel 底行实例（纯视图组件）：
+  去「模型」「版本」文本标签（tooltip 注明语义），N=6 框体截断显示，
+  弹窗按最长条目自适应加宽显示全文
+- 写盘与选择状态上移 ChatTabs（单一来源，多实例广播同步防分裂）：
+  本组件只管 UI 与发射 selection_changed，不再 load/update settings
 """
 from PySide6.QtCore import QSignalBlocker, Signal
-from PySide6.QtWidgets import QComboBox, QHBoxLayout, QLabel, QWidget
+from PySide6.QtWidgets import QComboBox, QHBoxLayout, QWidget
 
 from gui.popups import make_translucent_combo_popup
-from gui.settings import (
-    KEY_MODEL_BACKEND,
-    KEY_MODEL_VERSION,
-    load_settings,
-    update_settings,
-)
 from llm import BACKEND_KIMI_CLI, BACKEND_LABELS, kimi_available, list_kimi_models
 
 
 class ModelBar(QWidget):
-    """输入区顶行：模型（后端）+ 版本双下拉，版本列表按后端联动刷新。
+    """输入区底行左端：模型（后端）+ 版本双下拉，版本列表按后端联动刷新。
 
     本期统一为本机 agent CLI 后端（Kimi CLI，不可用时项禁用）；
     OpenCode/Kilo Code 等后端接入后恢复多项（见 1455 计划第 8 节备案）。
@@ -35,10 +34,12 @@ class ModelBar(QWidget):
     #: 后端/版本切换（携带 registry 后端名 + 版本载荷：模型别名 str）
     selection_changed = Signal(str, object)
 
-    #: 下拉框最小内容宽度（字符数）：sizeHint 与最长条目脱钩（T1）。
-    #: 取值权衡：过小则版本别名（如 kimi-k2-0905-preview）裁剪过度不可读，
-    #: 过大则左栏静态下限压不下去——10 为验收实测调优值（探针 §7.2 ≤420px）
-    _MIN_CONTENTS_LENGTH = 10
+    #: 下拉框最小内容宽度（字符数）：sizeHint 与最长条目脱钩。
+    #: 实测调优（2026-0724-2354 验收）：N=6/5/4 左栏下限 375/355/335 均
+    #: 超 320 目标，N=3 → 315 达标；且 N≤5 时各选项前 N 字符相同（Kimi
+    #: 系同源命名），区分度无档间差异——区分语义由 tooltip 全名与弹窗
+    #: 全文承担，取最小档 3
+    _MIN_CONTENTS_LENGTH = 3
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -58,31 +59,28 @@ class ModelBar(QWidget):
         # 下拉弹出层修复：容器矩形面板（StyledPanel）+ 不透明窗口底都会
         # 在 qss 圆角（QListView 全局规则）外露出直角，需透明 + 去框
         # （见 gui/popups.py 模块 docstring）
-        for combo in (self._model_combo, self._version_combo):
+        for combo, semantic in (
+            (self._model_combo, "模型后端"),
+            (self._version_combo, "模型版本"),
+        ):
             make_translucent_combo_popup(combo)
-            # T1：minimumSizeHint 按固定字符数计算，不再随最长条目撑大
-            # 左栏静态下限；tooltip 兜底显示被裁剪的选中项全名
+            # minimumSizeHint 按固定字符数计算，不再随最长条目撑大左栏
+            # 静态下限；tooltip 兜底语义与被裁剪的选中项全名
             combo.setMinimumContentsLength(self._MIN_CONTENTS_LENGTH)
             combo.setSizeAdjustPolicy(
                 QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+            combo.setProperty("semantic", semantic)
             combo.currentIndexChanged.connect(
-                lambda _i, c=combo: c.setToolTip(c.currentText()))
+                lambda _i, c=combo: c.setToolTip(f"{c.property('semantic')}：{c.currentText()}"))
 
         layout = QHBoxLayout(self)
-        layout.addWidget(QLabel("模型", self))
         layout.addWidget(self._model_combo)
-        layout.addWidget(QLabel("版本", self))
-        layout.addWidget(self._version_combo, 1)
-        # 边距归零：外边距/行距由 ChatTabs 容器统一分配（面板级 6px 体系，
-        # 2026-0722-1725 走查 F2/F6）；下拉框自身 qss padding 已够内留白
+        layout.addWidget(self._version_combo)
+        # 边距归零：底行装配（按钮/stretch/间距）归 ChatPanel 统一分配
         layout.setContentsMargins(0, 0, 0, 0)
 
         self._model_combo.currentIndexChanged.connect(self._on_model_changed)
         self._version_combo.currentIndexChanged.connect(self._on_version_changed)
-
-        # 启动时恢复持久化选择（无记录/无效项回退默认）
-        settings = load_settings()
-        self.set_selection(settings.get(KEY_MODEL_BACKEND), settings.get(KEY_MODEL_VERSION))
 
     def _refresh_tooltips(self) -> None:
         """选中项全名写入 tooltip（信号阻断路径的兜底刷新）。
@@ -91,22 +89,21 @@ class ModelBar(QWidget):
         QSignalBlocker 阻断，需调用方显式刷新。
         """
         for combo in (self._model_combo, self._version_combo):
-            combo.setToolTip(combo.currentText())
+            combo.setToolTip(f"{combo.property('semantic')}：{combo.currentText()}")
 
     # ------------------------------------------------------------------
     # 忙碌态（流式响应中）
     # ------------------------------------------------------------------
     def set_busy(self, is_busy: bool) -> None:
-        """busy：禁用双下拉（防响应中切后端/版本）。
+        """busy：禁用双下拉（任一标签响应中即全标签禁用，ChatTabs 遍历调用）。
 
-        停止按钮已移至各标签输入区底行（panel.py 双态按钮），
-        本行 sizeHint 不再随 busy 变化（诊断报告 §3 病根切除）。
+        本行 sizeHint 不随 busy 变化（诊断报告 §3 病根已切除）。
         """
         self._model_combo.setEnabled(not is_busy)
         self._version_combo.setEnabled(not is_busy)
 
     # ------------------------------------------------------------------
-    # 持久化
+    # 选择查询与恢复（持久化写盘上移 ChatTabs，本组件不管）
     # ------------------------------------------------------------------
     def current_backend(self) -> str:
         """当前后端（registry 名）。"""
@@ -117,9 +114,9 @@ class ModelBar(QWidget):
         return self._version_combo.currentData()
 
     def set_selection(self, backend: str | None, version: str | None) -> None:
-        """恢复持久化选择：定位后端 → 刷新版本列表 → 定位版本。
+        """注入选择：定位后端 → 刷新版本列表 → 定位版本。
 
-        全程阻断信号（不触发 selection_changed / 不写盘）；
+        全程阻断信号（不触发 selection_changed）；
         后端或版本已失效时静默回退到可用默认项。
         """
         with QSignalBlocker(self._model_combo), QSignalBlocker(self._version_combo):
@@ -155,6 +152,5 @@ class ModelBar(QWidget):
     def _emit(self, index: int) -> None:
         backend = self._model_combo.currentData()
         version = self._version_combo.itemData(index)
-        # 用户主动切换（非启动恢复）即时持久化
-        update_settings({KEY_MODEL_BACKEND: backend, KEY_MODEL_VERSION: version})
+        # 写盘与广播归 ChatTabs（选择状态单一来源），本组件只发信号
         self.selection_changed.emit(backend, version)

@@ -94,10 +94,10 @@ from gui.window_state import (
 
 class MainWindow(QMainWindow):
     #: 默认布局尺寸（px）：__init__ 初排与 reset_layout 共用单点来源。
-    #: 左栏 420 ≥ ChatTabs 实测静态下限 414（2026-0724-2305 计划 T8）——
-    #: 旧值 320 低于下限永远不可达（QSplitter 强制顶高，差额抢中栏），
-    #: 校正后默认布局三栏与实际渲染一致，总和仍 1200 对齐默认窗口宽
-    DEFAULT_SIZES_MAIN = [420, 530, 250]    # 外层水平：聊天 / 中栏 / 右栏
+    #: 左栏 320 ≥ ChatTabs 实测静态下限 315（2026-0724-2354 计划 T6 回摆：
+    #: 模型选择下移底行 + 下拉瘦身 N=3 后，320 从「永远不可达」恢复为
+    #: 「可达且正确」，总和 1200 对齐默认窗口宽）
+    DEFAULT_SIZES_MAIN = [320, 630, 250]    # 外层水平：聊天 / 中栏 / 右栏
     DEFAULT_SIZES_EDITOR = [550, 250]       # 中栏垂直：查看器 / 终端
     DEFAULT_SIZES_SIDEBAR = [340, 170]        # 右栏垂直：文件树 / 变更面板
 
@@ -166,7 +166,7 @@ class MainWindow(QMainWindow):
 
         self._splitter_main = QSplitter(Qt.Orientation.Horizontal)
         workspace_root = self._workspace_root
-        # 左栏：AI 会话标签容器（全局 ModelBar + 多标签 ChatPanel，上限 4）
+        # 左栏：AI 会话标签容器（选择状态层 + 多标签 ChatPanel，上限 4）
         self.chat_tabs = ChatTabs(workspace_root=workspace_root)
         self._splitter_main.addWidget(self.chat_tabs)
         self._splitter_main.addWidget(self._splitter_editor)
@@ -206,8 +206,9 @@ class MainWindow(QMainWindow):
         # 菜单栏定高截断镜像余量（qss padding-top 会被镜像到底部，定值见 base.qss
         # QMenuBar 段教训注释）；延迟一拍确保样式与布局已结算再测量项高
         QTimer.singleShot(0, self._fit_menubar_height)
-        # 模型选择：ModelBar 用户切换 → 设置中心同步；发送中模型页禁用
-        self.chat_tabs.model_bar.selection_changed.connect(self._on_modelbar_changed)
+        # 模型选择：任一标签底行下拉切换 → ChatTabs 状态层收敛转发 →
+        # 设置中心同步；发送中模型页禁用
+        self.chat_tabs.selection_changed.connect(self._on_modelbar_changed)
         self.chat_tabs.busy_changed.connect(self._on_chat_busy_changed)
         # 噪音过滤持久化（P2）：启动按持久化恢复文件树过滤态
         self.file_explorer.set_noise_filter(load_settings()[KEY_NOISE_FILTER])
@@ -553,11 +554,11 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(f"噪音过滤：{state}", self.STATUS_MSG_SHORT_MS)
 
     def _on_modelbar_changed(self, _backend: str, _version: object) -> None:
-        """ModelBar 用户切换 → 设置中心模型页同步（reload 防回环）。"""
+        """模型选择变化（任一标签底行下拉经 ChatTabs 转发）→ 设置中心同步（reload 防回环）。"""
         self._sync_settings_dialog()
 
     def _on_chat_busy_changed(self, busy: bool) -> None:
-        """发送中禁用设置中心模型页（与 ModelBar 双下拉禁用对齐）。"""
+        """发送中禁用设置中心模型页（与全部标签底行双下拉禁用对齐）。"""
         if self._settings_dialog is not None:
             self._settings_dialog.set_model_enabled(not busy)
 

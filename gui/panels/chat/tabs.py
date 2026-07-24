@@ -1,18 +1,20 @@
-"""AI 会话标签容器：全局 ModelBar + 多标签 ChatPanel（上限 4）。
+"""AI 会话标签容器：选择状态层 + 多标签 ChatPanel（上限 4）。
 
 多标签改造（2026-07-22，work plans/2026-0722-0756 计划 P3）：
 - 每标签一个独立 ChatPanel + 独立 provider 实例（D6 方案 A：每标签
   独立 kimi acp 连接，完全隔离、并行无锁竞争）
-- ModelBar 为全局控件（D5）：所有标签共用一个模型选择，切换广播到
-  全部标签的 provider 实例；持久化仍由 ModelBar 自管
-- busy 汇总：任一标签响应中即禁用全局 ModelBar 并发射 busy_changed
+- ModelBar 原为全局控件（D5）；2026-0724-2354 计划改为每标签底行
+  实例（纯视图），选择状态单一来源上移本容器：当前 backend/version
+  由本容器持有并写盘，用户切换后阻断广播同步其余实例 UI + provider
+- busy 汇总：任一标签响应中即禁用全部标签的双下拉并发射 busy_changed
   （主窗口联动禁用设置菜单 AI 模型组），防切换中途打断正在响应的标签
 - 停止归各标签本地：输入区底行发送/停止双态按钮直停本标签
   （2026-0724-2305 计划 T5，替代原全局停止按钮 + _route_stop 路由）
 
 全关与关闭卡顿治理（2026-07-22，work plans/2026-0722-1117 计划）：
 - 标签可全部关闭（不再保底一个）；零标签时 QStackedWidget 切到占位页
-  （提示文案 + 居中「新建会话」按钮），ModelBar 全局常驻不受影响
+  （提示文案 + 居中「新建会话」按钮）；选择状态在本容器不随标签消失，
+  新建标签时注入恢复（替代原「ModelBar 全局常驻」语义）
 - 序号语义：非全关不复用已关闭序号（防「会话 2」指代漂移）；
   全部关闭即 _tab_seq 重置，再新建从「会话 1」开始（用户决策）
 - 关闭异步化：_close_tab 立即摘标签返回；terminate/wait 等重等待
@@ -29,16 +31,23 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from gui.panels.chat.model_bar import ModelBar
 from gui.panels.chat.panel import ChatPanel
-from gui.settings import KEY_MODEL_BACKEND, KEY_MODEL_VERSION, update_settings
+from gui.settings import (
+    KEY_MODEL_BACKEND,
+    KEY_MODEL_VERSION,
+    load_settings,
+    update_settings,
+)
 
 
 class ChatTabs(QWidget):
-    """左栏 AI 聊天区：顶部全局模型行 + 标签化会话（新建/关闭，上限 4）。"""
+    """左栏 AI 聊天区：标签化会话（新建/关闭，上限 4）+ 模型选择状态层。"""
 
     #: 汇总忙碌态：任一标签响应中即 True（主窗口联动禁用菜单 AI 模型组）
     busy_changed = Signal(bool)
+
+    #: 模型选择变化（携带 registry 后端名 + 版本载荷；主窗口联动设置中心）
+    selection_changed = Signal(str, object)
 
     #: 标签数上限（用户决策 D1：约束长驻 kimi acp 进程数与 token 消耗）
     MAX_TABS = 4
@@ -56,7 +65,12 @@ class ChatTabs(QWidget):
         self._tab_seq = 0  # 序号：非全关不复用（防指代漂移）；全关即重置
         self._busy_panels: set[ChatPanel] = set()
 
-        self.model_bar = ModelBar(self)
+        # 选择状态单一来源（D4）：启动时从 settings 读取一次；此后用户
+        # 切换（任一标签底行下拉）与菜单/设置中心驱动都收敛到本容器
+        settings = load_settings()
+        self._backend: str | None = settings.get(KEY_MODEL_BACKEND)
+        self._version: str | None = settings.get(KEY_MODEL_VERSION)
+
         self._tabs = QTabWidget(self)
         # 主题接线：base.qss #ChatTabs 段（透明 tab + 激活 accent 下划线，
         # 对齐 #TerminalTabs 范式；2026-0722-1725 走查 F1）
@@ -77,17 +91,15 @@ class ChatTabs(QWidget):
         self._stack.setCurrentWidget(self._tabs)
 
         layout = QVBoxLayout(self)
-        layout.addWidget(self.model_bar)
         layout.addWidget(self._stack, 1)
         # 面板级 6px 外边距体系（对齐 viewer/terminal 面板；下边距 6px 同
-        # 终端面板）+ 行间距 6px：模型行与标签条之间留出呼吸感
-        # （2026-0722-1725 走查 F2：此前 0 边距 0 间距，全库唯一）
-        layout.setContentsMargins(6, 2, 6, 6)
-        layout.setSpacing(6)
+        # 终端面板）；顶部模型行已于 2026-0724-2354 计划移除（选择下移
+        # 各标签输入区底行），上边距与左右对齐面板级 6px
+        layout.setContentsMargins(6, 6, 6, 6)
+        layout.setSpacing(0)
 
         self._add_button.clicked.connect(self.add_tab)
         self._tabs.tabCloseRequested.connect(self._close_tab)
-        self.model_bar.selection_changed.connect(self._on_selection_changed)
 
         self.add_tab()  # 首标签：等价改造前的单聊天面板
 
@@ -106,19 +118,36 @@ class ChatTabs(QWidget):
         return page
 
     # ------------------------------------------------------------------
+    # 选择状态查询（替代原 model_bar.current_* 消费方）
+    # ------------------------------------------------------------------
+    def current_backend(self) -> str | None:
+        """当前后端（registry 名；启动未持久化时为 None，由标签实例回退默认）。"""
+        return self._backend
+
+    def current_version(self) -> str | None:
+        """当前版本（模型别名）。"""
+        return self._version
+
+    # ------------------------------------------------------------------
     # 标签生命周期
     # ------------------------------------------------------------------
     def add_tab(self) -> None:
-        """新建会话标签（当前全局后端/版本）；达上限忽略（按钮已禁用兜底）。"""
+        """新建会话标签（注入当前选择）；达上限忽略（按钮已禁用兜底）。"""
         if self._tabs.count() >= self.MAX_TABS:
             return
         panel = ChatPanel(
-            self.model_bar.current_backend(),
-            self.model_bar.current_version(),
+            self._backend,
+            self._version,
             self._workspace_root,
             self,
         )
         panel.busy_changed.connect(lambda busy, p=panel: self._on_tab_busy(p, busy))
+        panel.model_bar.selection_changed.connect(self._on_selection_changed)
+        if self._backend is None:
+            # 启动无持久化记录：回读标签经 ModelBar 回退后的有效值
+            # （不写盘——与原启动恢复「阻断信号不落盘」语义一致）
+            self._backend = panel.model_bar.current_backend()
+            self._version = panel.model_bar.current_version()
         self._tab_seq += 1
         self._tabs.addTab(panel, f"会话 {self._tab_seq}")
         self._tabs.setCurrentWidget(panel)
@@ -151,27 +180,38 @@ class ChatTabs(QWidget):
             f"已达标签上限 {self.MAX_TABS}" if at_max else "新建 AI 会话标签")
 
     # ------------------------------------------------------------------
-    # 全局模型选择（D5：ModelBar 切换 → 广播全部标签）
+    # 全局模型选择（D5 语义保留：全部标签共享同一选择；状态层在本容器）
     # ------------------------------------------------------------------
     def _on_selection_changed(self, backend: str, version: object) -> None:
-        """ModelBar 用户切换 → 广播到全部标签的 provider 实例。"""
-        for panel in self._panels():
-            panel.set_model_selection(backend, version if isinstance(version, str) else None)
+        """某标签底行下拉用户切换 → 状态更新 + 写盘 + 阻断广播其余实例与 provider。"""
+        self._backend = backend
+        self._version = version if isinstance(version, str) else None
+        update_settings({KEY_MODEL_BACKEND: backend, KEY_MODEL_VERSION: version})
+        self._broadcast_selection()
 
     def apply_model_selection(self, backend: str, version: str | None) -> None:
-        """菜单驱动切换（设置菜单 ▸ AI 模型）：恢复 ModelBar + 广播全部标签。
+        """菜单/设置中心驱动切换：状态更新 + 写盘 + 广播全部标签。
 
-        ModelBar.set_selection 全程阻断信号（不写盘、不发 selection_changed），
-        故写盘与广播在此显式补齐；发送中（busy）由菜单侧禁用入口。
+        零标签时只更新状态与写盘，新建标签时注入生效（等价原「广播空
+        列表 no-op」语义）；发送中（busy）由菜单侧禁用入口。
         """
-        self.model_bar.set_selection(backend, version)
-        backend = self.model_bar.current_backend()
-        version = self.model_bar.current_version()
+        self._backend = backend
+        self._version = version
         update_settings({KEY_MODEL_BACKEND: backend, KEY_MODEL_VERSION: version})
-        self._on_selection_changed(backend, version)
+        self._broadcast_selection()
+
+    def _broadcast_selection(self) -> None:
+        """当前选择 → 全部标签（UI 阻断同步 + provider 写入）+ 联动设置中心。
+
+        panel.set_model_selection 内部同步自身 ModelBar UI（set_selection
+        全程阻断信号），不回环、不重复写盘。
+        """
+        for panel in self._panels():
+            panel.set_model_selection(self._backend, self._version)
+        self.selection_changed.emit(self._backend, self._version)
 
     # ------------------------------------------------------------------
-    # busy 汇总（任务 15/16；停止已下放各标签输入区双态按钮，T5）
+    # busy 汇总（任务 15/16；停止已下放各标签输入区双态按钮）
     # ------------------------------------------------------------------
     def _on_tab_busy(self, panel: ChatPanel, is_busy: bool) -> None:
         """单标签忙碌态变化 → 汇总重算（任一忙即整体忙）。"""
@@ -183,7 +223,8 @@ class ChatTabs(QWidget):
 
     def _recompute_busy(self) -> None:
         any_busy = bool(self._busy_panels)
-        self.model_bar.set_busy(any_busy)  # 双下拉禁用（防响应中切换）
+        for panel in self._panels():  # 任一忙 → 全部标签双下拉禁用（D5）
+            panel.model_bar.set_busy(any_busy)
         self.busy_changed.emit(any_busy)
 
     def is_busy(self) -> bool:
