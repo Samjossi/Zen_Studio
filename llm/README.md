@@ -72,6 +72,7 @@ for chunk in llm.chat([{"role": "user", "content": "你好"}]):
 - 二进制检测链：`PATH` → `$KIMI_CODE_HOME/bin/kimi` → `~/.kimi-code/bin/kimi`（桌面启动 PATH 不含安装目录时仍可发现）
 - `-p` 模式默认等后台任务/subagent 完成才退出（0.24.x 起），长耗时单轮属 CLI 预期行为而非卡死
 - stream-json 中可能出现重试等新事件类型（0.23.5 起），解析器按字段名容错跳过，向前兼容
+- 可用模型别名由 `list_kimi_models()`（`kimi provider list --json`）**动态解析**，随 CLI 重登录刷新的服务端目录自动增减，IDE 侧零硬编码（2026-07-25 起目录含 `kimi-code/k3-256k`：K3 的 256K 版，同模式消耗约为 `k3`（1M）一半，**仅图片输入不支持视频**，effort `low`/`high`/`max`；IDE 持久化默认版本与 CLI `default_model` 均已切换至它，见 work plans/2026-0725-0205）
 
 ## 5. 安全模型（零密钥）
 
