@@ -18,8 +18,12 @@ import sys
 from pathlib import Path
 
 #: PyInstaller 解包根（非 frozen 为 None）；frozen 判据全库唯一定义点，
-#: 消费方一律经 PROJECT_ROOT / USER_CONFIG_DIR 间接使用，禁止散落重写
+#: 消费方一律经 IS_FROZEN / PROJECT_ROOT / USER_CONFIG_DIR 间接使用，禁止散落重写
 _MEIPASS = getattr(sys, "_MEIPASS", None)
+
+#: 打包态判据（PyInstaller frozen）公共导出口：全库唯一判定来源，
+#: 消费方一律 import 本常量，禁止各自探测 sys.frozen / sys._MEIPASS
+IS_FROZEN = _MEIPASS is not None
 
 #: 项目根（开发态：本文件位于 core/，上一级即项目根）
 #: 打包态（PyInstaller frozen）：解包根 sys._MEIPASS

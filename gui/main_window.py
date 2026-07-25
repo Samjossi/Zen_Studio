@@ -49,7 +49,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from core.paths import LOGO_DIR, PROJECT_ROOT
+from core.paths import IS_FROZEN, LOGO_DIR, PROJECT_ROOT
 from gui.controllers import GitStatusController, WindowStateStore
 from gui.menus import MenuBar
 from gui.menus.registry import (
@@ -424,8 +424,17 @@ class MainWindow(QMainWindow):
 
     def _spawn_window(self, folder: str) -> subprocess.Popen:
         """起新进程开指定工作区根（新建窗口 / 在新窗口打开文件夹 / 打开
-        文件夹换根共用）；返回进程句柄供换根场景启动探活。"""
-        proc = subprocess.Popen([sys.executable, str(PROJECT_ROOT / "main.py"), folder])
+        文件夹换根共用）；返回进程句柄供换根场景启动探活。
+
+        双态命令（work plans/2026-0725-1234 计划 T2）：打包态二进制自身
+        即入口，拼 PROJECT_ROOT/main.py 指向的 _internal/main.py 在解包
+        目录不存在（源码收在 PYZ 归档内），argv 多出的位置参数必致
+        argparse exit 2、新窗秒死。"""
+        if IS_FROZEN:
+            cmd = [sys.executable, folder]
+        else:
+            cmd = [sys.executable, str(PROJECT_ROOT / "main.py"), folder]
+        proc = subprocess.Popen(cmd)
         self.statusBar().showMessage(
             f"已在新窗口打开：{folder}", self.STATUS_MSG_TIMEOUT_MS)
         return proc

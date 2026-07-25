@@ -16,11 +16,14 @@ from PySide6.QtCore import QTimer
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
 
-from core.paths import LOGO_DIR, PROJECT_ROOT
+from core.paths import IS_FROZEN, LOGO_DIR, PROJECT_ROOT, USER_CONFIG_DIR
 from gui import MainWindow
+from gui.recent_projects import RecentProjectsStore
 from gui.theme import apply_theme
 
-SCREENSHOT_DIR = PROJECT_ROOT / ".tmp"
+#: 截图输出目录：开发态项目内 .tmp/；打包态落用户数据根（AppImage 只读
+#: 挂载下写解包目录必抛 OSError，见 work plans/2026-0725-1234 计划 T3）
+SCREENSHOT_DIR = (USER_CONFIG_DIR / "screenshots") if IS_FROZEN else (PROJECT_ROOT / ".tmp")
 
 #: 窗口图标注册尺寸（assets/logo/ 成套件取 16–256；512 留给 .desktop 与高分屏）
 LOGO_ICON_SIZES = (16, 24, 32, 48, 64, 128, 256)
@@ -50,19 +53,33 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+def _frozen_default_workspace() -> str:
+    """打包态默认工作区（work plans/2026-0725-1234 计划 T1）：最近项目
+    首项（目录仍存在者）→ 用户主目录 二级回退。解包目录（frozen 的
+    PROJECT_ROOT）不是任何人的工作区，绝不能作为回退落点。"""
+    store = RecentProjectsStore(USER_CONFIG_DIR / "recent_projects.json")
+    for path in store.list():
+        if Path(path).is_dir():
+            return path
+    return str(Path.home())
+
+
 def resolve_workspace_root(folder: str | None) -> str:
-    """启动参数 → 工作区根：缺省/无效静默回退项目根（文件菜单多开路径已校验）。"""
+    """启动参数 → 工作区根（文件菜单多开路径已校验）。
+    缺省/无效回退：开发态项目根；打包态走 _frozen_default_workspace。"""
     if folder:
         root = Path(folder).expanduser().resolve()
         if root.is_dir():
             return str(root)
-        print(f"[main] 工作区目录无效，回退项目根：{folder}", file=sys.stderr)
+        print(f"[main] 工作区目录无效，回退默认工作区：{folder}", file=sys.stderr)
+    if IS_FROZEN:
+        return _frozen_default_workspace()
     return str(PROJECT_ROOT)
 
 
 def setup_screenshot(window: MainWindow, interval: int, on_start: bool) -> QTimer:
     """配置自动截图计时器，返回计时器（调用方需保持引用）。"""
-    SCREENSHOT_DIR.mkdir(exist_ok=True)
+    SCREENSHOT_DIR.mkdir(exist_ok=True, parents=True)
     screenshot_count = [0]  # 闭包共享计数（nonlocal 需嵌套作用域，列表容器更直白）
 
     def grab_screenshot() -> None:
