@@ -31,6 +31,7 @@ ActionRegistry 全局注册表）；本类保留面板、槽函数与面板显�
 →卡片顶 = 容器 6px + 面板 6px = 12px；底部 32px 一体化 = 面板下边距 6px +
 状态栏定高 26px（_fit_statusbar_height，字号调大按字体度量兜底）。
 """
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -430,9 +431,22 @@ class MainWindow(QMainWindow):
         双态命令（work plans/2026-0725-1234 计划 T2）：打包态二进制自身
         即入口，拼 PROJECT_ROOT/main.py 指向的 _internal/main.py 在解包
         目录不存在（源码收在 PYZ 归档内），argv 多出的位置参数必致
-        argparse exit 2、新窗秒死。"""
+        argparse exit 2、新窗秒死。
+
+        AppImage 挂载生命周期修复（2026-07-25）：frozen 下 sys.executable
+        指向 FUSE 临时挂载点内的二进制（/tmp/.mount_XXX/usr/bin/zen-studio），
+        该挂载随父进程退出即卸载——换根探活 2s 后旧窗（AppImage 主进程）
+        关闭 → 挂载消失 → 新窗 mmap 文件失效 SIGBUS 崩死（懒加载的 Qt
+        插件/文件树图标使崩点延迟到操作文件树时，呈间歇性闪退）。
+        改用 runtime 注入的 APPIMAGE 环境变量（.AppImage 实体文件路径）
+        作入口，新进程自行挂载独立挂载点，与父进程生命周期解耦；
+        路径不存在（变量被篡改/非 AppImage 的 frozen 形态）回退
+        sys.executable（onedir 落盘目录稳定，无此问题）。
+        """
         if IS_FROZEN:
-            cmd = [sys.executable, folder]
+            appimage = os.environ.get("APPIMAGE", "")
+            entry = appimage if appimage and Path(appimage).is_file() else sys.executable
+            cmd = [entry, folder]
         else:
             cmd = [sys.executable, str(PROJECT_ROOT / "main.py"), folder]
         proc = subprocess.Popen(cmd)
