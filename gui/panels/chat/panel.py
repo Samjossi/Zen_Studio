@@ -58,9 +58,6 @@ from llm import (
 )
 from llm.permission_policy import DECISION_ALLOW, decide_permission, select_option_id
 
-#: 系统提示词（第一阶段固定）
-SYSTEM_PROMPT = "你是 Zen Studio IDE 的内置助手，回答简洁，使用中文。"
-
 
 class ChatPanel(QWidget):
     """单个 AI 会话标签页（独立 provider 实例，由 ChatTabs 托管）。"""
@@ -341,8 +338,7 @@ class ChatPanel(QWidget):
         self._stream_buffer = ""
         self._has_seen_reasoning = False
 
-        messages: list[Message] = [{"role": "system", "content": SYSTEM_PROMPT}]
-        messages.extend(self._history)
+        messages: list[Message] = list(self._history)
 
         self._worker = ChatWorker(provider, messages, self)
         self._worker.chunk_received.connect(self._on_chunk)
