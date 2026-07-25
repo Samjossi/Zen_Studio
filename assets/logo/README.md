@@ -1,14 +1,13 @@
 # assets/logo/ — 正式 Logo 全套资产
 
-Zen Studio 官方 Logo 的**正式目录**（已定版：禅圈+打坐人形，配色 Bright_Cyan `#00B4D8`，
-母版源自 `assets/logo候选池/配色候选/logo_Bright_Cyan.svg`）。
+Zen Studio 官方 Logo 的**正式目录**（已定版：禅圈+打坐人形，配色 VSCode_Blue `#007ACC`，
+母版源自 `assets/logo候选池/配色候选/logo_VSCode_Blue.svg`）。
 
 ## 内容
 
 | 文件 | 用途 |
 |:---|:---|
 | `logo.svg` | **母版**——换标时唯一手改的文件 |
-| `logo_Bright_Cyan.svg` | 定版配色件（与母版同源的留档，候选池原件在 `配色候选/`） |
 | `logo_16.png` … `logo_512.png` | 母版栅格化的八尺寸成套件（16/24/32/48/64/128/256/512） |
 
 ## 各尺寸消费方
