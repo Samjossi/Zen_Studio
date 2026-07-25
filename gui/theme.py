@@ -1,4 +1,4 @@
-"""主题体系：唯一模板 config/themes/base.qss + 每主题一包色值令牌（THEME_PALETTES）。
+"""主题体系：唯一模板 assets/themes/base.qss + 每主题一包色值令牌（THEME_PALETTES）。
 
 模板化（2026-07-20，见 文档/修改记录/2026-0720-1046_主题模板化与去明暗族分类
 实施计划.md，C2 全量模板化）：五套 qss 副本合并为唯一模板 base.qss，
@@ -30,9 +30,8 @@ from pygments.token import Token
 from PySide6.QtGui import QFont, QFontDatabase
 from PySide6.QtWidgets import QApplication
 
-from core.paths import PROJECT_ROOT
+from core.paths import PROJECT_ROOT, THEMES_ASSETS_DIR
 from gui.settings import (
-    CONFIG_DIR,
     DEFAULT_SETTINGS,
     DEFAULT_THEME,
     KEY_FONT_SIZE,
@@ -42,8 +41,9 @@ from gui.settings import (
     update_settings,
 )
 
-THEMES_DIR = CONFIG_DIR / "themes"
-THEME_TEMPLATE_FILE = THEMES_DIR / "base.qss"
+#: QSS 模板为只读资源（非用户数据），随 assets/ 收编进包——曾误置 config/themes/
+#: 致打包态静默丢失全部 QSS 样式（work plans/2026-0725-1053 计划 T8 修复）
+THEME_TEMPLATE_FILE = THEMES_ASSETS_DIR / "base.qss"
 
 # ----------------------------------------------------------------------
 # 资源包（全部主题数据单点汇聚于本模块；五套资源各只此一套，四主题共享引用）

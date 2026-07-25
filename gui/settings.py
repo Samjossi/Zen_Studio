@@ -1,4 +1,4 @@
-"""用户偏好持久化：读写 config/settings.json。
+"""用户偏好持久化：读写 config/settings.json（打包态：~/.config/zen-studio/）。
 
 自 theme.py 抽出（2026-07-19，见 文档/修改记录/2026-0719-0712_
 GUI窗口状态与模型选择持久化计划.md）：主题、字号、模型选择等
@@ -27,11 +27,13 @@ import tempfile
 from pathlib import Path
 from typing import TypedDict
 
-from core.paths import PROJECT_ROOT
+from core.paths import USER_CONFIG_DIR
 from llm import BACKEND_KIMI_CLI
 from llm.permission_policy import DEFAULT_PERMISSION_MODE, MODE_CONFIRM_ALL
 
-CONFIG_DIR = PROJECT_ROOT / "config"
+#: 配置目录：开发态项目内 config/；打包态 XDG（core/paths.py USER_CONFIG_DIR，
+#: 见 work plans/2026-0725-1053 计划 T7/T8——AppImage 只读挂载的硬性前置）
+CONFIG_DIR = USER_CONFIG_DIR
 SETTINGS_FILE = CONFIG_DIR / "settings.json"
 #: flock 锁文件（仅 Linux；进程死亡锁自动释放，无残留死锁）
 SETTINGS_LOCK_FILE = CONFIG_DIR / "settings.lock"
@@ -132,7 +134,7 @@ def write_json_atomic(file_path: Path, data: dict) -> None:
 
     临时文件落在目标同目录（os.replace 才原子）；window_state.py 复用。
     """
-    file_path.parent.mkdir(exist_ok=True)
+    file_path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp_path = tempfile.mkstemp(
         dir=file_path.parent, prefix=f".{file_path.stem}_", suffix=".tmp")
     try:
@@ -153,7 +155,7 @@ def update_settings(patch: AppSettingsPatch) -> None:
     多开并发治理（D7）：flock 文件锁串行化"读-合并-写"三步，根治多进程
     并发丢更新；写回走 write_json_atomic 原子覆盖。
     """
-    CONFIG_DIR.mkdir(exist_ok=True)
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     with open(SETTINGS_LOCK_FILE, "w", encoding="utf-8") as lock:
         fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
         settings = load_settings()

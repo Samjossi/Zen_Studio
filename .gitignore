@@ -29,9 +29,10 @@ __pycache__/
 tmp/
 cache/
 
-# PyInstaller 构建产物
-build/
-dist/
+# PyInstaller 构建产物与打包工具链（building/ 打包专区，见 work plans/2026-0725-1053 计划）
+building/build/
+building/dist/
+building/tools/
 
 # IDE
 .idea/
