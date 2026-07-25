@@ -3,8 +3,12 @@
 Git 状态装饰（2026-07-20，见 文档/修改记录/2026-0720-0131_Git文件装饰与
 差异统计实施计划.md 阶段二）：代理模型注入 GitStatusService，
 ForegroundRole 按文件状态返回主题色（色值按主题名查 gui/theme.py
-THEME_PALETTES 的 git_status 资源包）。默认仅文件着色，目录保持原色
-（目录聚合着色为计划预留开关，本期不启用）。
+THEME_PALETTES 的 git_status 资源包）。
+
+目录聚合着色（2026-07-25，见 work plans/2026-0725-0933_文件树Git状态颜色
+目录冒泡计划.md）：目录按子树内可冒泡状态的最高优先级着色
+（conflict > modified > untracked > ignored；deleted 不冒泡），
+聚合缓存在服务层 refresh() 时预构建，此处查询 O(1)。
 """
 from PySide6.QtCore import QSortFilterProxyModel, Qt
 from PySide6.QtGui import QColor
@@ -58,15 +62,20 @@ class NoiseFilterProxyModel(QSortFilterProxyModel):
         return super().data(proxy_index, role)
 
     def _git_status_color_of(self, proxy_index) -> QColor | None:
-        """代理索引 → Git 状态色（服务未启用/目录/无状态/无配色均为 None）。"""
+        """代理索引 → Git 状态色（服务未启用/无状态/无配色均为 None）。
+
+        目录查聚合状态（status_of_dir：子树内最高优先级，deleted 不冒泡），
+        文件查自身状态（status_of）；仓库根目录恒不着色（服务层不缓存根）。
+        """
         if self._git_service is None or not self._git_service.is_enabled:
             return None
         source_index = self.mapToSource(proxy_index)
         model = self.sourceModel()
-        # 目录不着色（目录聚合为预留开关，默认关闭）
+        abs_path = model.filePath(source_index)
         if model.isDir(source_index):
-            return None
-        file_status = self._git_service.status_of(model.filePath(source_index))
+            file_status = self._git_service.status_of_dir(abs_path)
+        else:
+            file_status = self._git_service.status_of(abs_path)
         if file_status is None:
             return None
         color = git_status_color(self._theme, file_status)

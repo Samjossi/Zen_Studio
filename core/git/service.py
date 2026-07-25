@@ -13,9 +13,19 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from core.git import numstat, runner, status
+
+#: 目录聚合状态优先级（大者胜出，见 _build_dir_status）。
+#: deleted 不在表内：删除不冒泡（对齐 VS Code propagate 语义——已删文件
+#: 树上可能不可见，冒泡到目录会误导"里面有东西要处理"）。
+_DIR_STATUS_PRIORITY: dict[str, int] = {
+    status.IGNORED: 0,
+    status.UNTRACKED: 1,
+    status.MODIFIED: 2,
+    status.CONFLICT: 3,
+}
 
 
 @dataclass(frozen=True)
@@ -45,6 +55,9 @@ class GitStatusService:
         self._repo_root: str | None = None
         self._status: dict[str, str] = {}
         self._numstat: dict[str, tuple[int, int]] = {}
+        #: 目录聚合状态缓存 {目录相对路径（无尾斜杠）: 归并后状态}，
+        #: 随 refresh() 重建（见 _build_dir_status）
+        self._dir_status: dict[str, str] = {}
 
     # ------------------------------------------------------------------
     # 环境
@@ -65,10 +78,12 @@ class GitStatusService:
         """重新拉取状态与统计；是否可用由调用方自查 is_enabled。"""
         if not runner.git_available():
             self._repo_root = None
+            self._dir_status = {}
             return
         if self._repo_root is None:
             self._repo_root = runner.find_repo_root(self._root_dir)
             if self._repo_root is None:
+                self._dir_status = {}
                 return
         status_result = status.fetch_status_map(self._repo_root)
         numstat_result = numstat.fetch_numstat_map(self._repo_root)
@@ -77,6 +92,43 @@ class GitStatusService:
             return
         self._status = status_result
         self._numstat = numstat_result or {}
+        self._dir_status = self._build_dir_status()
+
+    # ------------------------------------------------------------------
+    # 目录聚合（计划 2026-0725-0933：状态色沿目录向上冒泡）
+    # ------------------------------------------------------------------
+    def _build_dir_status(self) -> dict[str, str]:
+        """由 _status 预聚合 {目录相对路径: 归并后状态}，查询 O(1)。
+
+        对每个可冒泡状态键沿父链逐级向上写入，优先级取高者
+        （conflict > modified > untracked > ignored，显式归并不依赖
+        遍历顺序）；目录已有同级/更高优先级状态即 break 剪枝（对齐
+        theia propagateDecorationsByUri——继续向上只会更弱，祖先必已
+        被同级/更高状态占据）。deleted 不冒泡；ignored 折叠键 `dir/`
+        去尾斜杠后先入缓存自身再照常上溯；仓库根不入缓存（不着色）。
+        """
+        result: dict[str, str] = {}
+        for rel, file_status in self._status.items():
+            if file_status not in _DIR_STATUS_PRIORITY:  # deleted 等不冒泡
+                continue
+            key = rel.rstrip("/")
+            if not key:
+                continue
+            new_rank = _DIR_STATUS_PRIORITY[file_status]
+            if rel.endswith("/"):
+                # ignored 折叠目录键：目录自身直接入缓存（不虚构子文件）
+                existing = result.get(key)
+                if existing is None or _DIR_STATUS_PRIORITY[existing] < new_rank:
+                    result[key] = file_status
+            for parent in PurePosixPath(key).parents:
+                parent_key = str(parent)
+                if parent_key == ".":  # 仓库根不着色
+                    break
+                existing = result.get(parent_key)
+                if existing is not None and _DIR_STATUS_PRIORITY[existing] >= new_rank:
+                    break  # 剪枝：祖先已被同级/更高状态占据
+                result[parent_key] = file_status
+        return result
 
     # ------------------------------------------------------------------
     # 查询
@@ -98,6 +150,17 @@ class GitStatusService:
             if key.endswith("/") and rel.startswith(key):
                 return value
         return None
+
+    def status_of_dir(self, abs_path: str) -> str | None:
+        """目录的聚合 Git 状态：子树内可冒泡状态的最高优先级；无变更返回 None。
+
+        语义为「子树内有该级别变更」，不代表目录本身被 git 跟踪变更；
+        deleted 不冒泡（见 _build_dir_status）；仓库根目录恒为 None。
+        """
+        rel = self._rel(abs_path)
+        if rel is None:
+            return None
+        return self._dir_status.get(rel)
 
     def numstat_of(self, abs_path: str) -> tuple[int, int] | None:
         """单文件 (新增, 删除) 统计；无改动/未知返回 None。"""
