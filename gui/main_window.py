@@ -515,7 +515,7 @@ class MainWindow(QMainWindow):
         self._apply_font_size(size)
 
     def _apply_font_size(self, size: int) -> None:
-        """字号应用链：持久化 → 全局字体 → 查看器/终端等宽字号同步。"""
+        """字号应用链：持久化 → 全局字体 → 查看器/终端等宽字号同步 → 设置中心重刷。"""
         update_settings({KEY_FONT_SIZE: size})
         if (app := QApplication.instance()) is not None:
             apply_theme(app)
@@ -523,6 +523,10 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(0, self._fit_menubar_height)  # 菜单栏项高同理（延迟结算）
         self.viewer_panel.refresh_font()
         self.terminal_panel.refresh_font()
+        if self._settings_dialog is not None:
+            # 设置中心页标题/黑名单等宽区字号相对派生自全局字号，随链重刷
+            # （须在 apply_theme(app) 重设全局字体之后调用）
+            self._settings_dialog.apply_font_size()
         self._sync_settings_dialog()
         self.statusBar().showMessage(f"字号：{size} pt", self.STATUS_MSG_SHORT_MS)
 

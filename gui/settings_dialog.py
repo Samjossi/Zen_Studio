@@ -14,6 +14,10 @@
   （挂 MainWindow.switch_theme 链，同五面板先例；1510 计划 D6——
   QPalette 角色色方案被否决：apply_theme 只设样式表不设 palette，角色色
   不会随主题变化）
+- 字号化：页标题/黑名单等宽区字号**相对派生**自 app 全局字号（禁止绝对值
+  写死——不随用户字号缩放，全局调大后标题反而比正文小），由
+  apply_font_size() 收敛点重刷（挂 MainWindow._apply_font_size 链，同
+  apply_theme 先例）
 - 纯 GUI 装配层：应用逻辑全部委托 MainWindow 现有应用槽（零业务逻辑，
   同菜单文件先例）；状态同步由 MainWindow._sync_settings_dialog 回调 reload
 - 防回环：reload 全程 _reloading 标志抑制槽响应（同 ModelBar._is_updating 先例）
@@ -28,6 +32,7 @@
 （页数 >8 再引入导航分组：注册表扩 category 字段即可，不提前实现）
 """
 from PySide6.QtWidgets import (
+    QApplication,
     QCheckBox,
     QComboBox,
     QDialog,
@@ -94,8 +99,10 @@ _NAV_MIN_WIDTH = 160
 _NAV_MAX_WIDTH = 200
 _NAV_ITEM_HEIGHT = 32
 _NAV_ITEM_QSS = "QListWidget::item { padding: 4px 12px; }"
-#: 页标题字号（pt，加粗；副标题取 muted_text 令牌）
-_TITLE_FONT_SIZE_PT = 14
+#: 页标题相对 app 全局字号的放大步长（pt，加粗；副标题取 muted_text 令牌）。
+#: 相对派生而非绝对值：绝对字号不随用户全局字号缩放（全局 16pt 时 14pt
+#: 标题反而比正文小），apply_font_size 收敛点按「app 字号 + 本步长」重刷
+_TITLE_FONT_DELTA_PT = 4
 #: 黑名单只读区固定高度（防展开撑变形；1510 计划 D13）
 _BLACKLIST_HEIGHT = 160
 
@@ -159,14 +166,15 @@ class SettingsDialog(QDialog):
         self._build_chrome()
         self._nav.setCurrentRow(0)
         self.apply_theme(load_settings()[KEY_THEME])
+        self.apply_font_size()
 
     def _build_chrome(self) -> None:
-        """骨架装配：页标题区 + 导航分隔线 + 中文关闭按钮（1510 计划 P0）。"""
+        """骨架装配：页标题区 + 导航分隔线 + 中文关闭按钮（1510 计划 P0）。
+
+        页标题字号不在此设定——由 apply_font_size() 按 app 字号相对派生
+        （构造末尾统一调用，随 MainWindow._apply_font_size 链重刷）。
+        """
         self._title_label = QLabel(self)
-        title_font = self._title_label.font()
-        title_font.setPointSize(_TITLE_FONT_SIZE_PT)
-        title_font.setBold(True)
-        self._title_label.setFont(title_font)
         self._subtitle_label = self._make_hint("", self)
         self._nav_sep = self._make_separator(QFrame.Shape.VLine)
         close_button = QPushButton("关闭", self)
@@ -211,6 +219,27 @@ class SettingsDialog(QDialog):
         sep_qss = f"color: {tokens['border']};"
         for frame in self._sep_frames:
             frame.setStyleSheet(sep_qss)
+
+    def apply_font_size(self) -> None:
+        """字号收敛点（MainWindow._apply_font_size 链，同 apply_theme 先例）。
+
+        两处相对派生自 app 全局字号（禁止绝对值写死，否则不随用户字号
+        缩放，全局调大后标题反而比正文小）：
+        - 页标题 = app 字号 + _TITLE_FONT_DELTA_PT（加粗）；
+        - 权限页黑名单等宽区 = app 字号（构造时 QFont(family) 只设族，
+          字号是创建时刻的快照，不随后续全局字号调整跟随）。
+        """
+        app = QApplication.instance()
+        if app is None:
+            return
+        base = app.font().pointSizeF()
+        title_font = self._title_label.font()
+        title_font.setPointSizeF(base + _TITLE_FONT_DELTA_PT)
+        title_font.setBold(True)
+        self._title_label.setFont(title_font)
+        mono_font = QFont(get_mono_family())
+        mono_font.setPointSizeF(base)
+        self._blacklist_text.setFont(mono_font)
 
     # ------------------------------------------------------------------
     # AI 工具权限页（四态单选 + 黑名单只读折叠区）
