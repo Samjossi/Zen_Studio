@@ -1,0 +1,22 @@
+# Zen Studio 桌面入口模板（Linux，freedesktop 规范）
+#
+# 安装（当前使用方式：手动拷贝，占位符替换为绝对路径）：
+#   1. 将 <INSTALL_DIR> 替换为打包产物所在目录（dist/zen-studio 的绝对路径）
+#   2. 拷贝到 ~/.local/share/applications/zen-studio.desktop
+#   3. update-desktop-database ~/.local/share/applications/（可选，刷新菜单缓存）
+#
+# 关联约束：StartupWMClass 必须与 main.py 中 app.setDesktopFileName("zen-studio")
+# 同名——Wayland 下任务栏/Dock 图标凭此关联，缺一环则显示默认齿轮图标。
+# Logo 多尺寸源见 assets/logo/（logo_16.png … logo_512.png），
+# 如需注册 hicolor 图标主题体系可自取（当前非目标）。
+
+[Desktop Entry]
+Type=Application
+Name=Zen Studio
+Comment=AI-first 桌面 IDE（本机 agent CLI 统一后端）
+Exec=<INSTALL_DIR>/zen-studio
+Icon=<INSTALL_DIR>/_internal/assets/logo/logo_256.png
+Terminal=false
+Categories=Development;IDE;
+StartupWMClass=zen-studio
+StartupNotify=true

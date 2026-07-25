@@ -36,7 +36,7 @@ import subprocess
 import sys
 
 from PySide6.QtCore import Qt, QTimer, QUrl
-from PySide6.QtGui import QCloseEvent, QDesktopServices
+from PySide6.QtGui import QCloseEvent, QDesktopServices, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -49,7 +49,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from core.paths import PROJECT_ROOT
+from core.paths import LOGO_DIR, PROJECT_ROOT
 from gui.controllers import GitStatusController, WindowStateStore
 from gui.menus import MenuBar
 from gui.menus.registry import (
@@ -614,11 +614,15 @@ class MainWindow(QMainWindow):
     # 帮助菜单槽
     # ------------------------------------------------------------------
     def show_about(self) -> None:
-        """关于对话框：版本 / 技术栈 / 项目路径。"""
-        QMessageBox.about(
-            self,
-            "关于 Zen Studio",
+        """关于对话框：Logo（64px 原生件）+ 版本 / 技术栈 / 项目路径。"""
+        box = QMessageBox(self)
+        box.setWindowTitle("关于 Zen Studio")
+        box.setText(
             "<b>Zen Studio</b> 0.1.0"
             "<p>AI-first 桌面 IDE：代码修改一律经 AI agent 落盘。</p>"
-            f"<p>技术栈：Python + PySide6<br>项目路径：{PROJECT_ROOT}</p>",
+            f"<p>技术栈：Python + PySide6<br>项目路径：{PROJECT_ROOT}</p>"
         )
+        logo = LOGO_DIR / "logo_64.png"
+        if logo.is_file():
+            box.setIconPixmap(QPixmap(str(logo)))
+        box.exec()

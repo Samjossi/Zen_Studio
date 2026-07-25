@@ -9,3 +9,8 @@ dependencies = [
     "pyside6>=6.11.1",
     "pyte>=0.8.2",
 ]
+
+[dependency-groups]
+dev = [
+    "pyinstaller>=6.21.0",
+]

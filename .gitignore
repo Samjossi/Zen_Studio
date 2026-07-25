@@ -29,6 +29,10 @@ __pycache__/
 tmp/
 cache/
 
+# PyInstaller 构建产物
+build/
+dist/
+
 # IDE
 .idea/
 .vscode/
