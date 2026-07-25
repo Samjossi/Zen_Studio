@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
-  <!-- 无描边纯填充版本 - Bright_Cyan -->
-  <g fill="#00B4D8">
+  <!-- 无描边纯填充版本 - Electric_Blue -->
+  <g fill="#3B82F6">
     <!-- 圆弧 -->
-    <path d="M128 26 A102 102 0 1 1 60 54" fill="none" stroke="#00B4D8" stroke-width="14" stroke-linecap="round"/>
+    <path d="M128 26 A102 102 0 1 1 60 54" fill="none" stroke="#3B82F6" stroke-width="14" stroke-linecap="round"/>
     <!-- 人形 (缩放62%并下移) -->
     <g transform="translate(128 130) scale(0.62) translate(-128 -128)">
       <circle cx="128" cy="62" r="20"/>
