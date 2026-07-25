@@ -52,7 +52,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from PySide6.QtCore import QSize, Qt
+from PySide6.QtCore import QSize, Qt, QTimer
 from PySide6.QtGui import QFont
 
 from gui.popups import make_translucent_combo_popup
@@ -479,21 +479,40 @@ class SettingsDialog(QDialog):
     def _reload_model(self, settings) -> None:
         """模型页：定位后端 → 版本列表（缓存优先） → 定位版本（静默回退默认项）。
 
-        版本列表按 backend 缓存：list_kimi_models 为子进程调用，仅缓存 miss
-        （后端切换 / showEvent 清缓存后的首次 reload）才拉起，避免字号/主题
-        等无关收敛点触发的 reload 在 GUI 线程反复 spawn 子进程。
+        版本列表按 backend 缓存：list_kimi_models 为子进程调用，缓存命中
+        时同步填充；缓存 miss（showEvent 清缓存后 / 后端切换）改投
+        事件循环空闲异步拉取——showEvent 在 GUI 线程同步执行子进程会
+        卡住窗口首帧绘制，呈现「先闪一个小窗口再出完整窗口」的中间态；
+        窗口显示定型后填充，视觉闪动消除。
         """
         backend = settings[KEY_MODEL_BACKEND]
         index = self._backend_combo.findData(backend)
         self._backend_combo.setCurrentIndex(max(index, 0))
         current_backend = self._backend_combo.currentData()
-        if current_backend not in self._versions_cache:
-            self._versions_cache[current_backend] = (
-                list_kimi_models() if current_backend in BACKEND_LABELS else [])
+        if current_backend in self._versions_cache:
+            self._fill_versions(current_backend, settings[KEY_MODEL_VERSION])
+        else:
+            QTimer.singleShot(0, lambda: self._load_and_fill_versions(
+                current_backend, settings[KEY_MODEL_VERSION]))
+
+    def _load_and_fill_versions(self, backend: str, version: str) -> None:
+        """异步拉取并填充版本列表（缓存 miss 路径）：子进程调用挪出 show
+        同步路径后的实际执行点；全程置 _reloading 与同步路径语义对齐。"""
+        self._reloading = True
+        try:
+            if backend not in self._versions_cache:
+                self._versions_cache[backend] = (
+                    list_kimi_models() if backend in BACKEND_LABELS else [])
+            self._fill_versions(backend, version)
+        finally:
+            self._reloading = False
+
+    def _fill_versions(self, backend: str, version: str) -> None:
+        """版本下拉框填充（缓存已就绪）：清空 → 逐别名灌入 → 定位持久化版本。"""
         self._version_combo.clear()
-        for alias in self._versions_cache[current_backend]:
+        for alias in self._versions_cache[backend]:
             self._version_combo.addItem(alias, alias)
-        version_index = self._version_combo.findData(settings[KEY_MODEL_VERSION])
+        version_index = self._version_combo.findData(version)
         if self._version_combo.count():
             self._version_combo.setCurrentIndex(max(version_index, 0))
 
