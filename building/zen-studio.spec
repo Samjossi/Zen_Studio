@@ -8,11 +8,12 @@
 
 要点：
 - 路径经 SPECPATH 推导项目根，从任意目录调用行为一致（不依赖 CWD）
-- datas 按子目录收编三条（字体两族 + Logo 全套 + 主题模板）；
+- datas 按子目录收编四条（字体两族 + Logo 全套 + 主题模板）；
   思源宋体（87M 未注册备用族）与 logo候选池（设计草稿）明确不打包——
   见 work plans/2026-0725-1053 计划 §4 打包内容清单
-- excludes 排除未用 Qt 模块——⚠️ 实证无效已回退：PySide6 6.x 的 PyInstaller
-  钩子无视模块级 excludes，全量收编 Qt .so；改为对 a.binaries 显式过滤（见下）
+- 未用 Qt 库经 a.binaries 显式过滤兜底——⚠️ 模块级 excludes 实证无效
+  已回退：PySide6 6.x 钩子无视模块排除；过滤当前为防御性兜底
+  （钩子按 import 依赖收编，误加模块进 import 链时过滤生效）
 - Linux 下 icon= 参数不生效（ELF 无可执行文件图标概念），
   产物图标由 building/zen-studio.desktop 承担
 """
@@ -43,8 +44,8 @@ a = Analysis(
 )
 
 # 未用 Qt 库二进制过滤（项目仅用 Core/Gui/Widgets/Svg/Network/DBus/Wayland/Xcb）。
-# 模块级 excludes 对 PySide6 6.x 钩子无效（.so 仍被全量收编），故在 COLLECT 前
-# 对 a.binaries 显式过滤；命中即整条剔除，回归验证失败则移除对应条目。
+# 模块级 excludes 对 PySide6 6.x 钩子无效，故在 COLLECT 前对 a.binaries 显式
+# 过滤兜底；命中即整条剔除，回归验证失败则移除对应条目。
 _QT_UNUSED_LIBS = (
     "Qt6Qml",            # libQt6Qml / QmlMeta / QmlModels / QmlWorkerScript
     "Qt6Quick",

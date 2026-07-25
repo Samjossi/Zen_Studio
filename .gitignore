@@ -33,6 +33,11 @@ cache/
 building/build/
 building/dist/
 building/tools/
+# 防裸跑 pyinstaller（不带 --distpath/--workpath）在根级产物外溢入库（审计 W8）
+build/
+dist/
+# AppImage --appimage-extract 手动解包产物
+squashfs-root/
 
 # IDE
 .idea/

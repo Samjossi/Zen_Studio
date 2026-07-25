@@ -17,10 +17,14 @@ import os
 import sys
 from pathlib import Path
 
+#: PyInstaller 解包根（非 frozen 为 None）；frozen 判据全库唯一定义点，
+#: 消费方一律经 PROJECT_ROOT / USER_CONFIG_DIR 间接使用，禁止散落重写
+_MEIPASS = getattr(sys, "_MEIPASS", None)
+
 #: 项目根（开发态：本文件位于 core/，上一级即项目根）
 #: 打包态（PyInstaller frozen）：解包根 sys._MEIPASS
 PROJECT_ROOT = Path(
-    getattr(sys, "_MEIPASS", Path(__file__).resolve().parents[1])
+    _MEIPASS if _MEIPASS else Path(__file__).resolve().parents[1]
 )
 
 #: 资产根（assets/：字体 + Logo + 主题模板等只读资源，spec datas 按子目录收编）
@@ -34,9 +38,14 @@ THEMES_ASSETS_DIR = ASSETS_DIR / "themes"
 
 #: 用户数据根（可写：settings/recent_projects/window_state 等）
 #: 开发态：项目内 config/；打包态：${XDG_CONFIG_HOME:-~/.config}/zen-studio/
-USER_CONFIG_DIR = (
-    Path(os.environ.get("XDG_CONFIG_HOME") or (Path.home() / ".config"))
-    / "zen-studio"
-    if getattr(sys, "_MEIPASS", None)
-    else PROJECT_ROOT / "config"
-)
+#: XDG 规范：XDG_CONFIG_HOME 为相对路径时视为无效须忽略（审计 W5），
+#: 否则写盘落点随进程 CWD 漂移，AppImage 只读 CWD 下 mkdir 必崩
+def _user_config_dir() -> Path:
+    if not _MEIPASS:
+        return PROJECT_ROOT / "config"
+    xdg = Path(os.environ.get("XDG_CONFIG_HOME") or "")
+    base = xdg if xdg.is_absolute() else Path.home() / ".config"
+    return base / "zen-studio"
+
+
+USER_CONFIG_DIR = _user_config_dir()

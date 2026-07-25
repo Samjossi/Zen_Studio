@@ -56,7 +56,7 @@ def migrate_state_dir() -> None:
     目标已存在时删根目录侧（新版本已接管该工作区，防双写期分叉）。
     """
     try:
-        WINDOW_STATE_DIR.mkdir(exist_ok=True)
+        WINDOW_STATE_DIR.mkdir(parents=True, exist_ok=True)
         for legacy_file in CONFIG_DIR.glob("window_state_*.json"):
             target = WINDOW_STATE_DIR / legacy_file.name.removeprefix("window_state_")
             if target.exists():
