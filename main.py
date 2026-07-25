@@ -53,13 +53,22 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+def _is_unpack_dir(path: str) -> bool:
+    """判定是否 PyInstaller 解包根（onedir `_internal` / AppImage 挂载内同构）：
+    目录名 `_internal` 且内含 `base_library.zip`（PyInstaller 运行时标志文件）。
+    旧版 S1 bug 曾把解包目录当工作区写进最近项目列表，此类路径绝不可作
+    回退落点——`is_dir()` 过滤不掉至今仍存于磁盘的 onedir `_internal`。"""
+    p = Path(path)
+    return p.name == "_internal" and (p / "base_library.zip").is_file()
+
+
 def _frozen_default_workspace() -> str:
     """打包态默认工作区（work plans/2026-0725-1234 计划 T1）：最近项目
-    首项（目录仍存在者）→ 用户主目录 二级回退。解包目录（frozen 的
-    PROJECT_ROOT）不是任何人的工作区，绝不能作为回退落点。"""
+    首项（目录仍存在且非解包目录者）→ 用户主目录 二级回退。解包目录
+    （frozen 的 PROJECT_ROOT）不是任何人的工作区，绝不能作为回退落点。"""
     store = RecentProjectsStore(USER_CONFIG_DIR / "recent_projects.json")
     for path in store.list():
-        if Path(path).is_dir():
+        if Path(path).is_dir() and not _is_unpack_dir(path):
             return path
     return str(Path.home())
 
