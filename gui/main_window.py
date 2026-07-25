@@ -50,6 +50,7 @@ from PySide6.QtWidgets import (
 )
 
 from core.paths import IS_FROZEN, LOGO_DIR, PROJECT_ROOT
+from core.version import APP_VERSION
 from gui.controllers import GitStatusController, WindowStateStore
 from gui.menus import MenuBar
 from gui.menus.registry import (
@@ -627,13 +628,13 @@ class MainWindow(QMainWindow):
     # 帮助菜单槽
     # ------------------------------------------------------------------
     def show_about(self) -> None:
-        """关于对话框：Logo（64px 原生件）+ 版本 / 技术栈 / 项目路径。"""
+        """关于对话框：Logo（64px 原生件）+ 版本（core/version 单一来源）/ 技术栈。"""
         box = QMessageBox(self)
         box.setWindowTitle("关于 Zen Studio")
         box.setText(
-            "<b>Zen Studio</b> 0.1.0"
+            f"<b>Zen Studio</b> {APP_VERSION}"
             "<p>AI-first 桌面 IDE：代码修改一律经 AI agent 落盘。</p>"
-            f"<p>技术栈：Python + PySide6<br>项目路径：{PROJECT_ROOT}</p>"
+            "<p>技术栈：Python + PySide6</p>"
         )
         logo = LOGO_DIR / "logo_64.png"
         if logo.is_file():

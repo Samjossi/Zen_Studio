@@ -16,6 +16,7 @@ from collections.abc import Callable
 from typing import Iterator, Literal, TypedDict
 
 from core.paths import PROJECT_ROOT  # agent 工作目录限定于项目根
+from core.version import APP_VERSION
 from llm.base import Chunk, LanguageModel, Message
 from llm.providers.kimi_cli import _find_bin
 
@@ -371,7 +372,7 @@ class KimiAcpLLM(LanguageModel):
                     "fs": {"readTextFile": False, "writeTextFile": False},
                     "terminal": False,
                 },
-                "clientInfo": {"name": "zen-studio", "title": "Zen Studio", "version": "0.1.0"},
+                "clientInfo": {"name": "zen-studio", "title": "Zen Studio", "version": APP_VERSION},
             })
         if self._session_id is None:
             try:
