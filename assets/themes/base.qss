@@ -212,13 +212,15 @@ QComboBox QAbstractItemView {
 
 QMenuBar {
     background-color: transparent;
-    /* 菜单行下移：菜单文字距窗口上边缘 24px（本 21px + ::item 上 padding 4px）。
+    /* 菜单行下移：菜单文字距标题栏底 10px（本 6px + ::item 上 padding 4px）。
+     * 原值 21px 为原生标题栏时代的顶部留白设计；自定义标题栏（work plans/
+     * 2026-0730-0007 计划）已占顶部 32px，留白职责上移至 TitleBar，故降为 6px。
      * 教训（2026-07-20 实测入档，见 文档/修改记录/2026-0720-1815 计划 §1）：
      * QMenuBar 的 qss padding-top 会被 Qt 镜像到底部（栏总高 = 内容高 + 2N），
      * 且 QMainWindow 布局不采纳 menubar 的 qss margin——故镜像余量由代码侧
      * setFixedHeight 截断（gui/main_window.py _fit_menubar_height），
      * 菜单栏底→卡片顶 12px = 容器 6px + 面板外边距 6px。 */
-    padding-top: 21px;
+    padding-top: 6px;
 }
 
 QMenuBar::item {

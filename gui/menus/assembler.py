@@ -4,7 +4,7 @@
 ctx 为 MainWindow 本身）+ 在 MODULES 元组中登记位置；
 不触碰任何现有菜单代码（文档/选型记录/2026-0720-0433 选型方案 A2）。
 """
-from PySide6.QtWidgets import QMainWindow, QMenu
+from PySide6.QtWidgets import QMainWindow, QMenu, QMenuBar
 
 from gui.menus import (
     edit_menu,
@@ -22,15 +22,21 @@ MODULES = (file_menu, edit_menu, view_menu, terminal_menu, settings_menu, help_m
 
 
 class MenuBar:
-    """装配 MainWindow 菜单栏；持有全局 action 注册表。"""
+    """装配 MainWindow 菜单栏；持有全局 action 注册表。
 
-    def __init__(self, window: QMainWindow) -> None:
+    自定义标题栏（2026-07-30，work plans/2026-0730-0007 计划 T8）：菜单栏改由
+    MainWindow 显式创建并经构造参数传入（reparent 进中央容器，居于 TitleBar 之下），
+    不再占用 QMainWindow 菜单槽——`window.menuBar()` 惰性建栏会顶掉槽位冲突方。
+    """
+
+    def __init__(self, window: QMainWindow, menu_bar: QMenuBar) -> None:
         self._window = window
+        self._menu_bar = menu_bar
         self.actions = ActionRegistry()
 
     def setup(self) -> None:
         """按 MODULES 顺序构建全部顶层菜单；浮层统一透明化。"""
-        menubar = self._window.menuBar()
+        menubar = self._menu_bar
         for module in MODULES:
             module.build(menubar, self._window, self.actions)
         # 全部菜单（含子菜单）浮层透明化：qss 圆角外的矩形窗口底不再外露

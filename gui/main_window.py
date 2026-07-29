@@ -44,6 +44,7 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QLabel,
     QMainWindow,
+    QMenuBar,
     QMessageBox,
     QSplitter,
     QVBoxLayout,
@@ -86,6 +87,7 @@ from gui.theme import (
     load_settings,
     save_theme,
 )
+from gui.title_bar import TitleBar
 from gui.window_state import (
     KEY_SPLITTER_EDITOR,
     KEY_SPLITTER_MAIN,
@@ -117,6 +119,10 @@ class MainWindow(QMainWindow):
         :param workspace_root: 工作区根（启动参数注入；None = 项目根）
         """
         super().__init__()
+        # 新增（work plans/2026-0730-0007 计划 T6）：隐藏系统原生标题栏，
+        # 改由 TitleBar 自绘（见 _build_layout 首行）；保留 Window 类型标志，
+        # 任务栏/Alt-Tab/最小化行为不变
+        self.setWindowFlags(self.windowFlags() | Qt.WindowType.FramelessWindowHint)
         self._workspace_root = workspace_root or str(PROJECT_ROOT)
         # 非默认工作区时标题栏标注根路径，多开窗口一眼可辨
         if self._workspace_root != str(PROJECT_ROOT):
@@ -190,20 +196,36 @@ class MainWindow(QMainWindow):
         # 防折叠：右栏文件树最小宽度由 FileExplorer.MIN_WIDTH 约束
         self._splitter_main.setCollapsible(2, False)
 
-        # 中央容器：窗口级外边距（左/右各 12px——叠面板 6px 得 18px；上 6px——
-        # 菜单栏定高截断镜像余量后，菜单栏底→卡片顶 = 6 + 面板 6 = 12px；
-        # 底部 0——底部间距由状态栏定高体系承接）。窗口级边距与面板 6px
+        # 中央容器：外层 vbox 零边距零间距，自上而下 [TitleBar][QMenuBar][内容包装器]。
+        # 窗口级外边距（左/右各 12px——叠面板 6px 得 18px；上 6px——菜单栏定高截断
+        # 镜像余量后，菜单栏底→卡片顶 = 6 + 面板 6 = 12px；底部 0——底部间距由状态栏
+        # 定高体系承接）由内容包装器原样承接，数值未改。窗口级边距与面板 6px
         # 职责分离，可独立调参
         central = QWidget(self)
         outer = QVBoxLayout(central)
-        outer.setContentsMargins(12, 6, 12, 0)
+        # 改动（work plans/2026-0730-0007 计划 T7）：原 (12, 6, 12, 0) 下沉至内容包装器
+        outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
-        outer.addWidget(self._splitter_main)
+        # ---- 新增：标题栏 + 菜单栏行（QMainWindow 无 API 在菜单槽之上插部件，
+        # 菜单栏改显式创建 reparent 进中央容器，不再占用菜单槽；T8/T9 联动）----
+        self.title_bar = TitleBar(self)
+        outer.addWidget(self.title_bar)
+        self._menu_bar = QMenuBar(self)
+        outer.addWidget(self._menu_bar)
+        # ---- 新增结束 ----
+        content = QWidget(self)                 # 新增：原窗口级 margins 原样承接
+        inner = QVBoxLayout(content)
+        inner.setContentsMargins(12, 6, 12, 0)  # 原有数值，未改
+        inner.setSpacing(0)
+        inner.addWidget(self._splitter_main)
+        outer.addWidget(content)
         self.setCentralWidget(central)
 
     def _init_menus(self) -> None:
         """菜单栏装配 + 模型选择/忙闲信号接线。"""
-        self.menus = MenuBar(self)
+        # 改动（work plans/2026-0730-0007 计划 T8）：菜单栏显式传入（_build_layout
+        # 已创建并 reparent），不再走 window.menuBar() 惰性建栏
+        self.menus = MenuBar(self, self._menu_bar)
         self.menus.setup()
         # 菜单栏定高截断镜像余量（qss padding-top 会被镜像到底部，定值见 base.qss
         # QMenuBar 段教训注释）；延迟一拍确保样式与布局已结算再测量项高
@@ -217,7 +239,7 @@ class MainWindow(QMainWindow):
 
     def _init_statusbar(self) -> None:
         """状态栏：去尺寸把手 + 定高 + Git 统计常驻区 + 就绪消息。"""
-        self.statusBar().setSizeGripEnabled(False)  # 去掉右下角尺寸把手（原生边框已可缩放）
+        self.statusBar().setSizeGripEnabled(False)  # 去掉右下角尺寸把手（无边框无缩放，把手冗余）
         self._fit_statusbar_height()  # 定高紧凑化：底部总间距 18px 一体化（含状态栏）
         # 状态栏右侧常驻：当前文件 Git 差异统计（无改动/非仓库时为空）
         self._git_stats_label = QLabel("", self)
@@ -265,7 +287,9 @@ class MainWindow(QMainWindow):
         margin 路径已被实验否决（QMainWindow 布局不采纳 menubar qss margin），
         故按 actionGeometry 实测项高定高。字号/主题变化后需重入本方法。
         """
-        menu_bar = self.menuBar()
+        # 改动（work plans/2026-0730-0007 计划 T9）：读显式持有的菜单栏引用，
+        # 不再走 window.menuBar()（菜单栏已迁出 QMainWindow 菜单槽）
+        menu_bar = self._menu_bar
         if not menu_bar.actions():
             return
         first_item_rect = menu_bar.actionGeometry(menu_bar.actions()[0])
