@@ -88,6 +88,7 @@ from gui.theme import (
     save_theme,
 )
 from gui.title_bar import TitleBar
+from gui.window_resize import EdgeResizeController
 from gui.window_state import (
     KEY_SPLITTER_EDITOR,
     KEY_SPLITTER_MAIN,
@@ -139,6 +140,12 @@ class MainWindow(QMainWindow):
         self._dialog_sync_suspend = 0
 
         self._build_layout()
+        # 无边框边缘缩放热区（work plans/2026-0730-0043 计划阶段二 T5/T6）：
+        # 八向判定 + startSystemResize 优先/手动 setGeometry 兜底；
+        # minimumSize 防缩坏三栏布局（决策点 D3 初估 900×500——左栏 ChatTabs
+        # 静态下限 315 + 中栏 + 右栏 FileExplorer 240 + 边距/手柄的经验值）
+        self.setMinimumSize(900, 500)
+        self._resize_controller = EdgeResizeController(self)
         self._init_recent_projects()
         self._init_statusbar()
         self._init_git_status()  # 先于菜单装配：视图菜单「刷新 Git 状态」直挂控制器
@@ -374,6 +381,8 @@ class MainWindow(QMainWindow):
         self.file_explorer.apply_theme(theme)
         self.changes_panel.apply_theme(theme)
         self.chat_tabs.apply_theme(theme)
+        # 标题栏内联 QSS 不受 app 级 qss 管辖，随链重刷（启动主题构造期已自检初始化）
+        self.title_bar.apply_theme(theme)
         if self._settings_dialog is not None:
             # 设置中心内联 style（hint/分隔线）不受 app 级 qss 管辖，随链重刷
             self._settings_dialog.apply_theme(theme)

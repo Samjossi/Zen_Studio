@@ -8,44 +8,47 @@
   Wayland/X11 流畅无闪烁；不支持时降级手动 move 兜底）、双击切换最大化、
   最大化态拖拽自动还原并按光标横向比例跟随。
 
-样式按需求固定深色（底 #252526 / 文 #cccccc / 关闭 hover #c75450），
-内联 QSS 自包含于本组件，不进主题令牌体系（决策点 D1：后续若需随主题
-变化再收编 base.qss 令牌）。
+配色（2026-07-30，work plans/2026-0730-0043 计划阶段一）：原固定深色四硬编码
+收编主题令牌体系——决策点 D1 落 B 方案，每主题 `title_bar` 令牌包
+（bg/text/hover/close_hover 四键，见 gui/theme.py THEME_PALETTES）；
+A 方案（复用 sidebar_bg 等现有令牌）经核算 sidebar_bg 与 window_bg 色差 <2%，
+四亮色主题下标题栏与菜单栏/内容区无区分度，否决。关闭 hover 红 #c75450
+跨主题通用，入令牌包便于后续微调（D4）。`apply_theme` 挂
+MainWindow.switch_theme 转发链即时联动（同 viewer_panel/settings_dialog 先例），
+启动主题于构造时经 load_settings 自检初始化。
 """
 from PySide6.QtCore import QEvent, QPoint, Qt
 from PySide6.QtGui import QMouseEvent, QPixmap
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QToolButton, QWidget
 
 from core.paths import LOGO_DIR
+from gui.theme import KEY_THEME, TitleBarPack, get_theme_palette, load_settings
 
 #: 标题栏定高（px）；三按钮宽 46（VS Code 系惯例尺寸）
 TITLE_BAR_HEIGHT = 32
 BUTTON_WIDTH = 46
 
-#: 需求固定深色配色（决策点 D1：四亮色主题下标题栏恒定深色）
-_BAR_BG = "#252526"
-_BAR_TEXT = "#cccccc"
-_BTN_HOVER_BG = "rgba(255, 255, 255, 0.10)"
-_CLOSE_HOVER_BG = "#c75450"
 
-TITLE_BAR_QSS = f"""
+def build_qss(pack: TitleBarPack) -> str:
+    """按主题 title_bar 令牌包生成内联 QSS（收编后为唯一样式来源）。"""
+    return f"""
 #TitleBar {{
-    background: {_BAR_BG};
+    background: {pack["bg"]};
 }}
 #TitleBar QLabel {{
-    color: {_BAR_TEXT};
+    color: {pack["text"]};
     background: transparent;
 }}
 #TitleBar QToolButton {{
     background: transparent;
     border: none;
-    color: {_BAR_TEXT};
+    color: {pack["text"]};
 }}
 #TitleBar QToolButton:hover {{
-    background: {_BTN_HOVER_BG};
+    background: {pack["hover"]};
 }}
 #TitleBar QToolButton#titleBarClose:hover {{
-    background: {_CLOSE_HOVER_BG};
+    background: {pack["close_hover"]};
     color: #ffffff;
 }}
 """
@@ -76,7 +79,8 @@ class TitleBar(QWidget):
         self.setFixedHeight(TITLE_BAR_HEIGHT)
         # qss background 对 QWidget 需显式开启样式绘制
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        self.setStyleSheet(TITLE_BAR_QSS)
+        # 启动主题初始化（构造期自检持久化配置；后续切换走 apply_theme 转发链）
+        self.apply_theme(load_settings()[KEY_THEME])
 
         #: 手动拖拽兜底偏移（startSystemMove 可用时恒为 None）
         self._drag_offset: QPoint | None = None
@@ -110,6 +114,13 @@ class TitleBar(QWidget):
         window.windowTitleChanged.connect(self._title_label.setText)
         window.installEventFilter(self)
         self._sync_max_button()
+
+    # ------------------------------------------------------------------
+    # 主题联动（MainWindow.switch_theme 转发链，同五面板/settings_dialog 先例）
+    # ------------------------------------------------------------------
+    def apply_theme(self, theme: str) -> None:
+        """按主题 title_bar 令牌包重刷内联 QSS（未注册主题名由调色板查询兜底）。"""
+        self.setStyleSheet(build_qss(get_theme_palette(theme)["title_bar"]))
 
     # ------------------------------------------------------------------
     # 右侧三按钮

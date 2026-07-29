@@ -96,6 +96,17 @@ class ChatPack(TypedDict):
     reasoning_fg: str
 
 
+#: 标题栏配色包键（无边框自绘标题栏 TitleBar 专用，见 gui/title_bar.py；
+#: 2026-0730-0043 计划决策点 D1 落 B 方案：A 方案复用 sidebar_bg 与 window_bg
+#: 色差 <2% 无区分度，故每主题一包四键。close_hover 为跨主题通用警示红
+#: #c75450，入令牌便于后续微调——决策点 D4）
+class TitleBarPack(TypedDict):
+    bg: str
+    text: str
+    hover: str
+    close_hover: str
+
+
 #: 语法高亮配色包（token 类别 → 样式）
 SYNTAX_PACK: dict = {
     Token.Keyword: {"color": "#0000AF", "bold": True},
@@ -173,7 +184,8 @@ QSS_TOKEN_KEYS = (
 )
 
 #: 资源包键集合（非 qss 令牌，渲染时不参与替换）
-PACK_KEYS = ("label", "syntax", "terminal", "chrome", "git_status", "chat")
+PACK_KEYS = ("label", "syntax", "terminal", "chrome", "git_status", "chat",
+             "title_bar")
 
 #: 主题注册表：键 = 主题名；label = 菜单显示名；其余为 qss 令牌 + 五资源包。
 #: 四主题引用同一组资源包常量（共享即引用，不复制——全库各只此一套）；
@@ -211,6 +223,10 @@ THEME_PALETTES: dict[str, dict] = {
         "scrollbar_handle_hover": "rgba(0, 0, 0, 0.38)",
         "tooltip_bg": "#323236",
         "tooltip_text": "#f5f5f7",
+        "title_bar": {
+            "bg": "#e8e8ec", "text": "#1d1d1f",
+            "hover": "rgba(0, 0, 0, 0.07)", "close_hover": "#c75450",
+        },
         "syntax": SYNTAX_PACK, "terminal": TERMINAL_PACK,
         "chrome": CHROME_PACK, "git_status": GIT_STATUS_PACK, "chat": CHAT_PACK,
     },
@@ -242,6 +258,10 @@ THEME_PALETTES: dict[str, dict] = {
         "scrollbar_handle_hover": "rgba(0, 0, 0, 0.38)",
         "tooltip_bg": "#323236",
         "tooltip_text": "#f5f5f7",
+        "title_bar": {
+            "bg": "#f0e9dc", "text": "#463f33",
+            "hover": "rgba(120, 90, 40, 0.10)", "close_hover": "#c75450",
+        },
         "syntax": SYNTAX_PACK, "terminal": TERMINAL_PACK,
         "chrome": CHROME_PACK, "git_status": GIT_STATUS_PACK, "chat": CHAT_PACK,
     },
@@ -273,6 +293,10 @@ THEME_PALETTES: dict[str, dict] = {
         "scrollbar_handle_hover": "rgba(0, 0, 0, 0.38)",
         "tooltip_bg": "#323236",
         "tooltip_text": "#f5f5f7",
+        "title_bar": {
+            "bg": "#dfeaf3", "text": "#1e293b",
+            "hover": "rgba(2, 132, 199, 0.10)", "close_hover": "#c75450",
+        },
         "syntax": SYNTAX_PACK, "terminal": TERMINAL_PACK,
         "chrome": CHROME_PACK, "git_status": GIT_STATUS_PACK, "chat": CHAT_PACK,
     },
@@ -304,6 +328,10 @@ THEME_PALETTES: dict[str, dict] = {
         "scrollbar_handle_hover": "rgba(0, 0, 0, 0.38)",
         "tooltip_bg": "#323236",
         "tooltip_text": "#f5f5f7",
+        "title_bar": {
+            "bg": "#dfeddf", "text": "#20301f",
+            "hover": "rgba(21, 128, 61, 0.10)", "close_hover": "#c75450",
+        },
         "syntax": SYNTAX_PACK, "terminal": TERMINAL_PACK,
         "chrome": CHROME_PACK, "git_status": GIT_STATUS_PACK, "chat": CHAT_PACK,
     },
