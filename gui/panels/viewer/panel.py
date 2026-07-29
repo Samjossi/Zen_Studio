@@ -1,4 +1,4 @@
-"""文件查看面板：标题行（路径 + Git 差异徽标 + 状态提示）+ CodeViewer + 外部修改自动重载。
+"""文件查看面板：标题行（路径 + Git 差异徽标 + 状态提示）+ 查看器 + 外部修改自动重载。
 
 AI-first 主频场景：agent 直接写盘为主修改路径，`QFileSystemWatcher` 监视当前文件，
 外部修改（AI 写盘）→ 防抖自动重载并保留滚动位置，标题行提示"已重新加载"。
@@ -12,6 +12,11 @@ externally_reloaded 供主窗口联动刷新 Git 状态。
 右上角悬浮（不占布局，对齐终端查找浮层形态），当前文档搜索 + 命中高亮
 （经 CodeViewer.set_search_highlights，与当前行高亮合并上屏）+ 上一个/下一个；
 编辑菜单「查找」按焦点分发进入，Esc 关闭。
+
+图片预览（2026-07-29，见 work plans/2026-0729-1102_图片文件预览功能实施计划）：
+QStackedLayout 双页——文本页 CodeViewer（兼占位提示）/ 图片页 ImageViewer，
+open_file 按扩展名分流；图片页标题行显示 ◀ ▶ 适应 100% 按钮，
+查找浮层在图片页降级为弱提示。
 """
 from pathlib import Path
 
@@ -21,6 +26,8 @@ from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
+    QStackedLayout,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -29,6 +36,7 @@ from core.git.service import GitStatusService
 from gui.panels.find_bar import FindBar
 from gui.panels.viewer.code_viewer import CodeViewer
 from gui.panels.viewer.highlighter import PygmentsHighlighter
+from gui.panels.viewer.image_viewer import IMAGE_EXTS, ImageViewer
 from gui.settings import KEY_THEME
 from gui.theme import load_settings, get_theme_palette
 
@@ -58,6 +66,12 @@ class ViewerPanel(QWidget):
         palette = get_theme_palette(load_settings()[KEY_THEME])
         self.viewer = CodeViewer(palette["chrome"], self)
         self._highlighter = PygmentsHighlighter(self.viewer.document(), palette["syntax"])
+        # 图片页：位图/SVG/GIF 预览（与文本页 QStackedLayout 切换）
+        self.image_viewer = ImageViewer(palette, self)
+        self.image_viewer.info_changed.connect(self._show_hint)
+        self._stack = QStackedLayout()
+        self._stack.addWidget(self.viewer)
+        self._stack.addWidget(self.image_viewer)
 
         # PanelCard 圆角卡片包裹：标题行 + 查看器整体入卡，卡片统一描边
         # （CodeViewer 自身描边已由 qss 去除，防双重边框）
@@ -67,7 +81,7 @@ class ViewerPanel(QWidget):
         card.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         card_layout = QVBoxLayout(card)
         card_layout.addWidget(title_row)
-        card_layout.addWidget(self.viewer, 1)
+        card_layout.addLayout(self._stack, 1)
         card_layout.setContentsMargins(6, 2, 6, 6)
         card_layout.setSpacing(0)
 
@@ -81,7 +95,7 @@ class ViewerPanel(QWidget):
         self._build_find_bar()
 
     def _build_title_row(self) -> QWidget:
-        """标题行：路径标签 + Git 差异徽标 + 提示标签。"""
+        """标题行：路径标签 + Git 差异徽标 + 图片按钮组 + 提示标签。"""
         self._path_label = QLabel("（未打开文件）", self)
         self._path_label.setObjectName("PanelTitle")  # 样式由主题 qss 统一
         self._git_badge = QLabel("", self)
@@ -94,9 +108,30 @@ class ViewerPanel(QWidget):
         title_layout = QHBoxLayout(title_row)
         title_layout.addWidget(self._path_label, 1)
         title_layout.addWidget(self._git_badge)
+        title_layout.addWidget(self._build_image_buttons(title_row))
         title_layout.addWidget(self._hint_label)
         title_layout.setContentsMargins(4, 2, 4, 2)
         return title_row
+
+    def _build_image_buttons(self, parent: QWidget) -> QWidget:
+        """图片页按钮组：◀ ▶ 翻页 + 适应/100%（仅图片页可见，文本页隐藏）。"""
+        self._image_buttons = QWidget(parent)
+        row = QHBoxLayout(self._image_buttons)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(2)
+        for text, tip, slot in (
+            ("◀", "上一张（同目录）", lambda: self.image_viewer.step(-1)),
+            ("▶", "下一张（同目录）", lambda: self.image_viewer.step(1)),
+            ("适应", "适应窗口", lambda: self.image_viewer.fit()),
+            ("100%", "实际像素", lambda: self.image_viewer.actual()),
+        ):
+            button = QToolButton(self._image_buttons)
+            button.setText(text)
+            button.setToolTip(tip)
+            button.clicked.connect(slot)
+            row.addWidget(button)
+        self._image_buttons.setVisible(False)
+        return self._image_buttons
 
     def _init_file_watch(self) -> None:
         """外部变更监视：fileChanged → 去抖重载（编辑器等连续写合并为一次）。"""
@@ -116,10 +151,12 @@ class ViewerPanel(QWidget):
         return self._current_path
 
     def open_file(self, path: str) -> None:
-        """打开文件：读取 → 守卫判定 → 上屏高亮 → 更新 watcher。"""
+        """打开文件：图片分流图片页；文本读取 → 守卫判定 → 上屏高亮 → 更新 watcher。"""
         p = Path(path)
         if not p.is_file():
             return self._show_placeholder(f"（文件不存在：{path}）")
+        if p.suffix.lower().lstrip(".") in IMAGE_EXTS:
+            return self._open_image(p)
         try:
             raw = p.read_bytes()
         except OSError as e:
@@ -135,6 +172,8 @@ class ViewerPanel(QWidget):
 
         # 渲染 + 监视（重命名替换保存的场景需重建监视路径）
         self._watch(str(p))
+        self._stack.setCurrentWidget(self.viewer)
+        self._image_buttons.setVisible(False)
         scroll = self.viewer.verticalScrollBar().value() if self._current_path == str(p) else 0
         self.viewer.setPlainText(text)
         self._highlighter.set_source(p.name, text)
@@ -149,6 +188,23 @@ class ViewerPanel(QWidget):
             self._update_search()
         else:
             self._clear_search()
+
+    def _open_image(self, p: Path) -> None:
+        """图片页上屏：ImageViewer 加载 + watcher 挂载 + Git 徽标刷新。
+
+        加载失败（损坏/解码失败/超防护阈值）回落文本页占位提示。
+        """
+        if error := self.image_viewer.open_image(p):
+            return self._show_placeholder(f"（图片无法预览：{error}）", path=str(p))
+        self._watch(str(p))
+        self._stack.setCurrentWidget(self.image_viewer)
+        self._image_buttons.setVisible(True)
+        self._path_label.setText(str(p))
+        self._current_path = str(p)
+        self.refresh_git_badge()
+        # 查找浮层绑定文本文档，切图片页即关闭并清残留高亮
+        if self._find_bar.isVisible():
+            self._hide_find()
 
     def set_git_service(self, service: GitStatusService | None) -> None:
         """注入 Git 状态服务（None 表示禁用差异徽标）。"""
@@ -173,10 +229,11 @@ class ViewerPanel(QWidget):
         self._git_badge.setVisible(True)
 
     def apply_theme(self, theme: str) -> None:
-        """切换主题：同步高亮器与查看器控件配色包（入参为主题名）。"""
+        """切换主题：同步高亮器与双页查看器配色包（入参为主题名）。"""
         palette = get_theme_palette(theme)
         self._highlighter.set_theme(palette["syntax"])
         self.viewer.apply_theme(palette["chrome"])
+        self.image_viewer.apply_theme(palette)
 
     def refresh_font(self) -> None:
         """全局字号调整：查看器等宽字体重建（行号栏宽随新字宽重算）。"""
@@ -195,7 +252,9 @@ class ViewerPanel(QWidget):
         self._find_bar.close_requested.connect(self._hide_find)
 
     def show_find(self) -> None:
-        """打开查找浮层（编辑菜单「查找」焦点分发入口）。"""
+        """打开查找浮层（编辑菜单「查找」焦点分发入口）；图片页降级弱提示。"""
+        if self._stack.currentWidget() is self.image_viewer:
+            return self._show_hint("图片不支持查找")
         self._find_bar.show_and_focus()
         self._update_search()
 
@@ -263,6 +322,8 @@ class ViewerPanel(QWidget):
     def _show_placeholder(self, text: str, path: str | None = None) -> None:
         if self._watcher.files():
             self._watcher.removePaths(self._watcher.files())
+        self._stack.setCurrentWidget(self.viewer)  # 占位提示统一回落文本页
+        self._image_buttons.setVisible(False)
         self.viewer.setPlainText("")
         self._highlighter.set_source("", "")
         self._path_label.setText(path or "（未打开文件）")
