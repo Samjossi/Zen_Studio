@@ -43,13 +43,12 @@ a = Analysis(
     noarchive=False,
 )
 
-# 未用 Qt 库二进制过滤（项目仅用 Core/Gui/Widgets/Svg/Network/DBus/Wayland/Xcb）。
+# 未用 Qt 库二进制过滤（项目仅用 Core/Gui/Widgets/Svg/Pdf/Network/DBus/Wayland/Xcb）。
 # 模块级 excludes 对 PySide6 6.x 钩子无效，故在 COLLECT 前对 a.binaries 显式
 # 过滤兜底；命中即整条剔除，回归验证失败则移除对应条目。
 _QT_UNUSED_LIBS = (
     "Qt6Qml",            # libQt6Qml / QmlMeta / QmlModels / QmlWorkerScript
     "Qt6Quick",
-    "Qt6Pdf",
     "Qt6VirtualKeyboard",
     "Qt6EglFS",          # EglFSDeviceIntegration（嵌入式设备集成，桌面不需要）
     "Qt6EglFsKms",       # EglFsKmsSupport（同上）

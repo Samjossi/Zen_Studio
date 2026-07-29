@@ -27,6 +27,12 @@ Markdown 渲染预览（2026-07-29，见 work plans/2026-0729-1155_Markdown渲�
 Typora打开功能实施计划）：QStackedLayout 第四页 MarkdownView（QTextBrowser
 + setMarkdown GFM 渲染），.md/.markdown 直进渲染页（决策：不做源码↔渲染
 双模式）；查找浮层降级弱提示；页内「使用 Typora 打开」右键入口。
+
+PDF 预览（2026-07-29，见 work plans/2026-0729-1212_PDF文件预览功能实施计划）：
+QStackedLayout 第五页 PdfViewer（QPdfView 连续滚动渲染），.pdf 直进 PDF 页；
+标题行 ◀ ▶ 翻页 + 缩放/适配 + 「外部打开」按钮组；加密/损坏/加载失败
+回落文本页占位提示；外部修改重载恢复页码/缩放；查找浮层降级弱提示；
+离开 PDF 页一律 close_document() 释放文档。
 """
 from pathlib import Path
 
@@ -49,6 +55,7 @@ from gui.panels.viewer.highlighter import PygmentsHighlighter
 from gui.panels.viewer.image_viewer import IMAGE_EXTS, ImageViewer
 from gui.panels.viewer.markdown_view import MARKDOWN_EXTS, MarkdownView
 from gui.panels.viewer.media_viewer import AUDIO_EXTS, VIDEO_EXTS, MediaViewer
+from gui.panels.viewer.pdf_viewer import PDF_EXTS, PdfViewer
 from gui.settings import KEY_THEME
 from gui.theme import load_settings, get_theme_palette
 
@@ -76,24 +83,7 @@ class ViewerPanel(QWidget):
 
         # 高亮/行号配色取自主题调色板（资源包下沉，每主题自带全套）
         palette = get_theme_palette(load_settings()[KEY_THEME])
-        self.viewer = CodeViewer(palette["chrome"], self)
-        self._highlighter = PygmentsHighlighter(self.viewer.document(), palette["syntax"])
-        # 图片页：位图/SVG/GIF 预览（与文本页 QStackedLayout 切换）
-        self.image_viewer = ImageViewer(palette, self)
-        self.image_viewer.info_changed.connect(self._show_hint)
-        # 媒体页：视频/音频就地播放（解码失败经 failed 信号回落占位）
-        self.media_viewer = MediaViewer(palette, self)
-        self.media_viewer.failed.connect(self._on_media_failed)
-        # Markdown 页：.md/.markdown GFM 渲染预览（工作区内链接点击转 open_file，
-        # Typora 调起失败转弱提示）
-        self.markdown_view = MarkdownView(palette, self)
-        self.markdown_view.file_link_clicked.connect(self.open_file)
-        self.markdown_view.typora_failed.connect(self._show_hint)
-        self._stack = QStackedLayout()
-        self._stack.addWidget(self.viewer)
-        self._stack.addWidget(self.image_viewer)
-        self._stack.addWidget(self.media_viewer)
-        self._stack.addWidget(self.markdown_view)
+        self._stack = self._build_pages(palette)
 
         # PanelCard 圆角卡片包裹：标题行 + 查看器整体入卡，卡片统一描边
         # （CodeViewer 自身描边已由 qss 去除，防双重边框）
@@ -116,6 +106,31 @@ class ViewerPanel(QWidget):
         self._init_file_watch()
         self._build_find_bar()
 
+    def _build_pages(self, palette: dict) -> QStackedLayout:
+        """五页查看器装配（文本/图片/媒体/Markdown/PDF）：信号接线 + 入栈。"""
+        self.viewer = CodeViewer(palette["chrome"], self)
+        self._highlighter = PygmentsHighlighter(self.viewer.document(), palette["syntax"])
+        # 图片页：位图/SVG/GIF 预览（与文本页 QStackedLayout 切换）
+        self.image_viewer = ImageViewer(palette, self)
+        self.image_viewer.info_changed.connect(self._show_hint)
+        # 媒体页：视频/音频就地播放（解码失败经 failed 信号回落占位）
+        self.media_viewer = MediaViewer(palette, self)
+        self.media_viewer.failed.connect(self._on_media_failed)
+        # Markdown 页：.md/.markdown GFM 渲染预览（工作区内链接点击转 open_file，
+        # Typora 调起失败转弱提示）
+        self.markdown_view = MarkdownView(palette, self)
+        self.markdown_view.file_link_clicked.connect(self.open_file)
+        self.markdown_view.typora_failed.connect(self._show_hint)
+        # PDF 页：.pdf 就地预览（QPdfView 连续滚动；外部打开失败转弱提示）
+        self.pdf_viewer = PdfViewer(palette, self)
+        self.pdf_viewer.page_info_changed.connect(self._show_hint)
+        self.pdf_viewer.external_failed.connect(self._show_hint)
+        stack = QStackedLayout()
+        for page in (self.viewer, self.image_viewer, self.media_viewer,
+                     self.markdown_view, self.pdf_viewer):
+            stack.addWidget(page)
+        return stack
+
     def _build_title_row(self) -> QWidget:
         """标题行：路径标签 + Git 差异徽标 + 图片按钮组 + 提示标签。"""
         self._path_label = QLabel("（未打开文件）", self)
@@ -131,6 +146,7 @@ class ViewerPanel(QWidget):
         title_layout.addWidget(self._path_label, 1)
         title_layout.addWidget(self._git_badge)
         title_layout.addWidget(self._build_image_buttons(title_row))
+        title_layout.addWidget(self._build_pdf_buttons(title_row))
         title_layout.addWidget(self._hint_label)
         title_layout.setContentsMargins(4, 2, 4, 2)
         return title_row
@@ -155,6 +171,32 @@ class ViewerPanel(QWidget):
         self._image_buttons.setVisible(False)
         return self._image_buttons
 
+    def _build_pdf_buttons(self, parent: QWidget) -> QWidget:
+        """PDF 页按钮组：◀ ▶ 翻页 + 缩放/适配 + 外部打开（仅 PDF 页可见）。
+
+        槽经 lambda 惰性化：标题行构建早于 pdf_viewer 创建（同图片按钮先例）。
+        """
+        self._pdf_buttons = QWidget(parent)
+        row = QHBoxLayout(self._pdf_buttons)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(2)
+        for text, tip, slot in (
+            ("◀", "上一页", lambda: self.pdf_viewer.step_page(-1)),
+            ("▶", "下一页", lambda: self.pdf_viewer.step_page(1)),
+            ("缩小", "缩小（×0.8）", lambda: self.pdf_viewer.zoom_out()),
+            ("放大", "放大（×1.25）", lambda: self.pdf_viewer.zoom_in()),
+            ("适宽", "适应宽度", lambda: self.pdf_viewer.fit_width()),
+            ("适页", "适应页面", lambda: self.pdf_viewer.fit_page()),
+            ("外部打开", "在系统 PDF 阅读器中打开", lambda: self.pdf_viewer.open_external()),
+        ):
+            button = QToolButton(self._pdf_buttons)
+            button.setText(text)
+            button.setToolTip(tip)
+            button.clicked.connect(slot)
+            row.addWidget(button)
+        self._pdf_buttons.setVisible(False)
+        return self._pdf_buttons
+
     def _init_file_watch(self) -> None:
         """外部变更监视：fileChanged → 去抖重载（编辑器等连续写合并为一次）。"""
         self._watcher = QFileSystemWatcher(self)
@@ -178,6 +220,10 @@ class ViewerPanel(QWidget):
         if not p.is_file():
             return self._show_placeholder(f"（文件不存在：{path}）")
         suffix = p.suffix.lower().lstrip(".")
+        # PDF 分流须先于图片：QImageReader 自带 pdf 图像插件（IMAGE_EXTS 含 pdf），
+        # 顺序靠后会被图片页截胡（扩展名并非互斥，实施实测发现）
+        if suffix in PDF_EXTS:
+            return self._open_pdf(p)
         if suffix in VIDEO_EXTS or suffix in AUDIO_EXTS:
             return self._open_media(p)
         if suffix in IMAGE_EXTS:
@@ -185,6 +231,7 @@ class ViewerPanel(QWidget):
         if suffix in MARKDOWN_EXTS:
             return self._open_markdown(p)
         self.media_viewer.stop()  # 离开媒体页：停播释放（生命周期红线）
+        self.pdf_viewer.close_document()  # 离开 PDF 页：释放文档
         try:
             raw = p.read_bytes()
         except OSError as e:
@@ -202,6 +249,7 @@ class ViewerPanel(QWidget):
         self._watch(str(p))
         self._stack.setCurrentWidget(self.viewer)
         self._image_buttons.setVisible(False)
+        self._pdf_buttons.setVisible(False)
         scroll = self.viewer.verticalScrollBar().value() if self._current_path == str(p) else 0
         self.viewer.setPlainText(text)
         self._highlighter.set_source(p.name, text)
@@ -223,11 +271,13 @@ class ViewerPanel(QWidget):
         加载失败（损坏/解码失败/超防护阈值）回落文本页占位提示。
         """
         self.media_viewer.stop()  # 离开媒体页：停播释放（生命周期红线）
+        self.pdf_viewer.close_document()  # 离开 PDF 页：释放文档
         if error := self.image_viewer.open_image(p):
             return self._show_placeholder(f"（图片无法预览：{error}）", path=str(p))
         self._watch(str(p))
         self._stack.setCurrentWidget(self.image_viewer)
         self._image_buttons.setVisible(True)
+        self._pdf_buttons.setVisible(False)
         self._path_label.setText(str(p))
         self._current_path = str(p)
         self.refresh_git_badge()
@@ -241,9 +291,11 @@ class ViewerPanel(QWidget):
         解码失败异步经 MediaViewer.failed → _on_media_failed 回落占位提示。
         """
         self.media_viewer.open_media(p)  # 内部先 stop 旧源（生命周期红线）
+        self.pdf_viewer.close_document()  # 离开 PDF 页：释放文档
         self._watch(str(p))
         self._stack.setCurrentWidget(self.media_viewer)
         self._image_buttons.setVisible(False)
+        self._pdf_buttons.setVisible(False)
         self._path_label.setText(str(p))
         self._current_path = str(p)
         self.refresh_git_badge()
@@ -257,16 +309,38 @@ class ViewerPanel(QWidget):
         读取/解码失败回落文本页占位提示（与图片页同模式）。
         """
         self.media_viewer.stop()  # 离开媒体页：停播释放（生命周期红线）
+        self.pdf_viewer.close_document()  # 离开 PDF 页：释放文档
         if error := self.markdown_view.open_markdown(p):
             return self._show_placeholder(f"（Markdown 无法预览：{error}）", path=str(p))
         self._watch(str(p))
         self._stack.setCurrentWidget(self.markdown_view)
         self._image_buttons.setVisible(False)
+        self._pdf_buttons.setVisible(False)
         truncated = self.markdown_view.truncated
         self._path_label.setText(str(p) + ("（已截断：超过 1 MB）" if truncated else ""))
         self._current_path = str(p)
         self.refresh_git_badge()
         # 查找浮层绑定文本文档，切 Markdown 页即关闭并清残留高亮
+        if self._find_bar.isVisible():
+            self._hide_find()
+
+    def _open_pdf(self, p: Path) -> None:
+        """PDF 页上屏：PdfViewer 加载 + watcher 挂载 + Git 徽标刷新。
+
+        加载失败（加密/损坏/格式非法）回落文本页占位提示（与图片页同模式）。
+        """
+        self.media_viewer.stop()  # 离开媒体页：停播释放（生命周期红线）
+        if error := self.pdf_viewer.open_pdf(p):
+            return self._show_placeholder(
+                f"（PDF 无法预览：{error}，可在外部程序打开）", path=str(p))
+        self._watch(str(p))
+        self._stack.setCurrentWidget(self.pdf_viewer)
+        self._image_buttons.setVisible(False)
+        self._pdf_buttons.setVisible(True)
+        self._path_label.setText(str(p))
+        self._current_path = str(p)
+        self.refresh_git_badge()
+        # 查找浮层绑定文本文档，切 PDF 页即关闭并清残留高亮
         if self._find_bar.isVisible():
             self._hide_find()
 
@@ -305,6 +379,7 @@ class ViewerPanel(QWidget):
         self.image_viewer.apply_theme(palette)
         self.media_viewer.apply_theme(palette)
         self.markdown_view.apply_theme(palette)
+        self.pdf_viewer.apply_theme(palette)
 
     def refresh_font(self) -> None:
         """全局字号调整：查看器等宽字体重建（行号栏宽随新字宽重算），渲染页字体跟随。"""
@@ -331,6 +406,8 @@ class ViewerPanel(QWidget):
             return self._show_hint("媒体文件不支持查找")
         if self._stack.currentWidget() is self.markdown_view:
             return self._show_hint("Markdown 渲染页不支持查找")
+        if self._stack.currentWidget() is self.pdf_viewer:
+            return self._show_hint("PDF 页不支持查找")
         self._find_bar.show_and_focus()
         self._update_search()
 
@@ -399,8 +476,10 @@ class ViewerPanel(QWidget):
         if self._watcher.files():
             self._watcher.removePaths(self._watcher.files())
         self.media_viewer.stop()  # 离开媒体页：停播释放（生命周期红线）
+        self.pdf_viewer.close_document()  # 离开 PDF 页：释放文档
         self._stack.setCurrentWidget(self.viewer)  # 占位提示统一回落文本页
         self._image_buttons.setVisible(False)
+        self._pdf_buttons.setVisible(False)
         self.viewer.setPlainText("")
         self._highlighter.set_source("", "")
         self._path_label.setText(path or "（未打开文件）")
