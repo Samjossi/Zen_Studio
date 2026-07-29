@@ -17,6 +17,11 @@ externally_reloaded 供主窗口联动刷新 Git 状态。
 QStackedLayout 双页——文本页 CodeViewer（兼占位提示）/ 图片页 ImageViewer，
 open_file 按扩展名分流；图片页标题行显示 ◀ ▶ 适应 100% 按钮，
 查找浮层在图片页降级为弱提示。
+
+音视频播放（2026-07-29，见 work plans/2026-0729-1120_音视频播放功能实施计划）：
+QStackedLayout 第三页 MediaViewer（QMediaPlayer 就地播放），open_file 按
+扩展名分流；任何离开媒体页的路径（切文本/图片/占位）一律 stop() 释放；
+解码失败经 MediaViewer.failed 信号回落文本页占位提示。
 """
 from pathlib import Path
 
@@ -37,6 +42,7 @@ from gui.panels.find_bar import FindBar
 from gui.panels.viewer.code_viewer import CodeViewer
 from gui.panels.viewer.highlighter import PygmentsHighlighter
 from gui.panels.viewer.image_viewer import IMAGE_EXTS, ImageViewer
+from gui.panels.viewer.media_viewer import AUDIO_EXTS, VIDEO_EXTS, MediaViewer
 from gui.settings import KEY_THEME
 from gui.theme import load_settings, get_theme_palette
 
@@ -69,9 +75,13 @@ class ViewerPanel(QWidget):
         # 图片页：位图/SVG/GIF 预览（与文本页 QStackedLayout 切换）
         self.image_viewer = ImageViewer(palette, self)
         self.image_viewer.info_changed.connect(self._show_hint)
+        # 媒体页：视频/音频就地播放（解码失败经 failed 信号回落占位）
+        self.media_viewer = MediaViewer(palette, self)
+        self.media_viewer.failed.connect(self._on_media_failed)
         self._stack = QStackedLayout()
         self._stack.addWidget(self.viewer)
         self._stack.addWidget(self.image_viewer)
+        self._stack.addWidget(self.media_viewer)
 
         # PanelCard 圆角卡片包裹：标题行 + 查看器整体入卡，卡片统一描边
         # （CodeViewer 自身描边已由 qss 去除，防双重边框）
@@ -151,12 +161,16 @@ class ViewerPanel(QWidget):
         return self._current_path
 
     def open_file(self, path: str) -> None:
-        """打开文件：图片分流图片页；文本读取 → 守卫判定 → 上屏高亮 → 更新 watcher。"""
+        """打开文件：媒体/图片分流对应页；文本读取 → 守卫判定 → 上屏高亮 → 更新 watcher。"""
         p = Path(path)
         if not p.is_file():
             return self._show_placeholder(f"（文件不存在：{path}）")
-        if p.suffix.lower().lstrip(".") in IMAGE_EXTS:
+        suffix = p.suffix.lower().lstrip(".")
+        if suffix in VIDEO_EXTS or suffix in AUDIO_EXTS:
+            return self._open_media(p)
+        if suffix in IMAGE_EXTS:
             return self._open_image(p)
+        self.media_viewer.stop()  # 离开媒体页：停播释放（生命周期红线）
         try:
             raw = p.read_bytes()
         except OSError as e:
@@ -194,6 +208,7 @@ class ViewerPanel(QWidget):
 
         加载失败（损坏/解码失败/超防护阈值）回落文本页占位提示。
         """
+        self.media_viewer.stop()  # 离开媒体页：停播释放（生命周期红线）
         if error := self.image_viewer.open_image(p):
             return self._show_placeholder(f"（图片无法预览：{error}）", path=str(p))
         self._watch(str(p))
@@ -205,6 +220,27 @@ class ViewerPanel(QWidget):
         # 查找浮层绑定文本文档，切图片页即关闭并清残留高亮
         if self._find_bar.isVisible():
             self._hide_find()
+
+    def _open_media(self, p: Path) -> None:
+        """媒体页上屏：MediaViewer 挂源 + watcher 挂载 + Git 徽标刷新。
+
+        解码失败异步经 MediaViewer.failed → _on_media_failed 回落占位提示。
+        """
+        self.media_viewer.open_media(p)  # 内部先 stop 旧源（生命周期红线）
+        self._watch(str(p))
+        self._stack.setCurrentWidget(self.media_viewer)
+        self._image_buttons.setVisible(False)
+        self._path_label.setText(str(p))
+        self._current_path = str(p)
+        self.refresh_git_badge()
+        # 查找浮层绑定文本文档，切媒体页即关闭并清残留高亮
+        if self._find_bar.isVisible():
+            self._hide_find()
+
+    def _on_media_failed(self, reason: str) -> None:
+        """媒体解码失败（后端缺失/编码不支持）：回落文本页占位提示。"""
+        self._show_placeholder(
+            f"（无法播放：{reason}，请用外部程序打开）", path=self._current_path)
 
     def set_git_service(self, service: GitStatusService | None) -> None:
         """注入 Git 状态服务（None 表示禁用差异徽标）。"""
@@ -229,11 +265,12 @@ class ViewerPanel(QWidget):
         self._git_badge.setVisible(True)
 
     def apply_theme(self, theme: str) -> None:
-        """切换主题：同步高亮器与双页查看器配色包（入参为主题名）。"""
+        """切换主题：同步高亮器与各页查看器配色包（入参为主题名）。"""
         palette = get_theme_palette(theme)
         self._highlighter.set_theme(palette["syntax"])
         self.viewer.apply_theme(palette["chrome"])
         self.image_viewer.apply_theme(palette)
+        self.media_viewer.apply_theme(palette)
 
     def refresh_font(self) -> None:
         """全局字号调整：查看器等宽字体重建（行号栏宽随新字宽重算）。"""
@@ -252,9 +289,11 @@ class ViewerPanel(QWidget):
         self._find_bar.close_requested.connect(self._hide_find)
 
     def show_find(self) -> None:
-        """打开查找浮层（编辑菜单「查找」焦点分发入口）；图片页降级弱提示。"""
+        """打开查找浮层（编辑菜单「查找」焦点分发入口）；图片/媒体页降级弱提示。"""
         if self._stack.currentWidget() is self.image_viewer:
             return self._show_hint("图片不支持查找")
+        if self._stack.currentWidget() is self.media_viewer:
+            return self._show_hint("媒体文件不支持查找")
         self._find_bar.show_and_focus()
         self._update_search()
 
@@ -322,6 +361,7 @@ class ViewerPanel(QWidget):
     def _show_placeholder(self, text: str, path: str | None = None) -> None:
         if self._watcher.files():
             self._watcher.removePaths(self._watcher.files())
+        self.media_viewer.stop()  # 离开媒体页：停播释放（生命周期红线）
         self._stack.setCurrentWidget(self.viewer)  # 占位提示统一回落文本页
         self._image_buttons.setVisible(False)
         self.viewer.setPlainText("")
