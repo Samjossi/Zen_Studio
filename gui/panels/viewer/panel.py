@@ -22,6 +22,11 @@ open_file 按扩展名分流；图片页标题行显示 ◀ ▶ 适应 100% 按�
 QStackedLayout 第三页 MediaViewer（QMediaPlayer 就地播放），open_file 按
 扩展名分流；任何离开媒体页的路径（切文本/图片/占位）一律 stop() 释放；
 解码失败经 MediaViewer.failed 信号回落文本页占位提示。
+
+Markdown 渲染预览（2026-07-29，见 work plans/2026-0729-1155_Markdown渲染预览与
+Typora打开功能实施计划）：QStackedLayout 第四页 MarkdownView（QTextBrowser
++ setMarkdown GFM 渲染），.md/.markdown 直进渲染页（决策：不做源码↔渲染
+双模式）；查找浮层降级弱提示；页内「使用 Typora 打开」右键入口。
 """
 from pathlib import Path
 
@@ -42,6 +47,7 @@ from gui.panels.find_bar import FindBar
 from gui.panels.viewer.code_viewer import CodeViewer
 from gui.panels.viewer.highlighter import PygmentsHighlighter
 from gui.panels.viewer.image_viewer import IMAGE_EXTS, ImageViewer
+from gui.panels.viewer.markdown_view import MARKDOWN_EXTS, MarkdownView
 from gui.panels.viewer.media_viewer import AUDIO_EXTS, VIDEO_EXTS, MediaViewer
 from gui.settings import KEY_THEME
 from gui.theme import load_settings, get_theme_palette
@@ -78,10 +84,16 @@ class ViewerPanel(QWidget):
         # 媒体页：视频/音频就地播放（解码失败经 failed 信号回落占位）
         self.media_viewer = MediaViewer(palette, self)
         self.media_viewer.failed.connect(self._on_media_failed)
+        # Markdown 页：.md/.markdown GFM 渲染预览（工作区内链接点击转 open_file，
+        # Typora 调起失败转弱提示）
+        self.markdown_view = MarkdownView(palette, self)
+        self.markdown_view.file_link_clicked.connect(self.open_file)
+        self.markdown_view.typora_failed.connect(self._show_hint)
         self._stack = QStackedLayout()
         self._stack.addWidget(self.viewer)
         self._stack.addWidget(self.image_viewer)
         self._stack.addWidget(self.media_viewer)
+        self._stack.addWidget(self.markdown_view)
 
         # PanelCard 圆角卡片包裹：标题行 + 查看器整体入卡，卡片统一描边
         # （CodeViewer 自身描边已由 qss 去除，防双重边框）
@@ -161,7 +173,7 @@ class ViewerPanel(QWidget):
         return self._current_path
 
     def open_file(self, path: str) -> None:
-        """打开文件：媒体/图片分流对应页；文本读取 → 守卫判定 → 上屏高亮 → 更新 watcher。"""
+        """打开文件：媒体/图片/Markdown 分流对应页；文本读取 → 守卫判定 → 上屏高亮 → 更新 watcher。"""
         p = Path(path)
         if not p.is_file():
             return self._show_placeholder(f"（文件不存在：{path}）")
@@ -170,6 +182,8 @@ class ViewerPanel(QWidget):
             return self._open_media(p)
         if suffix in IMAGE_EXTS:
             return self._open_image(p)
+        if suffix in MARKDOWN_EXTS:
+            return self._open_markdown(p)
         self.media_viewer.stop()  # 离开媒体页：停播释放（生命周期红线）
         try:
             raw = p.read_bytes()
@@ -237,6 +251,25 @@ class ViewerPanel(QWidget):
         if self._find_bar.isVisible():
             self._hide_find()
 
+    def _open_markdown(self, p: Path) -> None:
+        """Markdown 页上屏：MarkdownView 渲染 + watcher 挂载 + Git 徽标刷新。
+
+        读取/解码失败回落文本页占位提示（与图片页同模式）。
+        """
+        self.media_viewer.stop()  # 离开媒体页：停播释放（生命周期红线）
+        if error := self.markdown_view.open_markdown(p):
+            return self._show_placeholder(f"（Markdown 无法预览：{error}）", path=str(p))
+        self._watch(str(p))
+        self._stack.setCurrentWidget(self.markdown_view)
+        self._image_buttons.setVisible(False)
+        truncated = self.markdown_view.truncated
+        self._path_label.setText(str(p) + ("（已截断：超过 1 MB）" if truncated else ""))
+        self._current_path = str(p)
+        self.refresh_git_badge()
+        # 查找浮层绑定文本文档，切 Markdown 页即关闭并清残留高亮
+        if self._find_bar.isVisible():
+            self._hide_find()
+
     def _on_media_failed(self, reason: str) -> None:
         """媒体解码失败（后端缺失/编码不支持）：回落文本页占位提示。"""
         self._show_placeholder(
@@ -271,10 +304,12 @@ class ViewerPanel(QWidget):
         self.viewer.apply_theme(palette["chrome"])
         self.image_viewer.apply_theme(palette)
         self.media_viewer.apply_theme(palette)
+        self.markdown_view.apply_theme(palette)
 
     def refresh_font(self) -> None:
-        """全局字号调整：查看器等宽字体重建（行号栏宽随新字宽重算）。"""
+        """全局字号调整：查看器等宽字体重建（行号栏宽随新字宽重算），渲染页字体跟随。"""
         self.viewer.refresh_font()
+        self.markdown_view.refresh_font()
 
     # ------------------------------------------------------------------
     # 查找浮层（右上角悬浮；当前文档搜索 + 命中高亮 + 上一个/下一个）
@@ -289,11 +324,13 @@ class ViewerPanel(QWidget):
         self._find_bar.close_requested.connect(self._hide_find)
 
     def show_find(self) -> None:
-        """打开查找浮层（编辑菜单「查找」焦点分发入口）；图片/媒体页降级弱提示。"""
+        """打开查找浮层（编辑菜单「查找」焦点分发入口）；图片/媒体/渲染页降级弱提示。"""
         if self._stack.currentWidget() is self.image_viewer:
             return self._show_hint("图片不支持查找")
         if self._stack.currentWidget() is self.media_viewer:
             return self._show_hint("媒体文件不支持查找")
+        if self._stack.currentWidget() is self.markdown_view:
+            return self._show_hint("Markdown 渲染页不支持查找")
         self._find_bar.show_and_focus()
         self._update_search()
 
