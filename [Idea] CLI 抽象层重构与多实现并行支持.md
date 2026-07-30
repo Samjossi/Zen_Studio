@@ -1,7 +1,7 @@
 ---
 id: 20260726-001
 type: idea
-status: open
+status: done
 project: 
 created: 2026-07-26
 ---
@@ -29,3 +29,8 @@ created: 2026-07-26
 
 ## 讨论记录
 - 2026-07-26 user: 初稿
+- 2026-07-30: 已落地（work plans/2026-0730-0150）。与原案差异：不新建 BaseCLI 抽象基类
+  （`llm/base.py` 的 `LanguageModel` Protocol 即抽象接口层，缺的是注册/工厂层）；
+  注册表落定 `llm/registry.py`（BackendSpec + REGISTRY）；首个并行实现为
+  `reasonix-acp`（ACP v1 长驻子进程）；配置不新增 `cli.provider` 字段
+  （复用既有 `model_backend` 键，后台由注册表 vendor 字段推导）。

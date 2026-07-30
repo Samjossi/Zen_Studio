@@ -6,7 +6,8 @@
 - ModelBar 原为全局控件（D5）；2026-0724-2354 计划改为每标签底行
   实例（纯视图），选择状态单一来源上移本容器：当前 backend/version
   由本容器持有并写盘，用户切换后阻断广播同步其余实例 UI + provider
-- busy 汇总：任一标签响应中即禁用全部标签的双下拉并发射 busy_changed
+- busy 汇总：任一标签响应中即禁用全部标签的三按钮（后台/接口/模型，
+  2026-0730-0150 计划阶段二 T5 三级化）并发射 busy_changed
   （主窗口联动禁用设置菜单 AI 模型组），防切换中途打断正在响应的标签
 - 停止归各标签本地：输入区底行发送/停止双态按钮直停本标签
   （2026-0724-2305 计划 T5，替代原全局停止按钮 + _route_stop 路由）
@@ -223,7 +224,7 @@ class ChatTabs(QWidget):
 
     def _recompute_busy(self) -> None:
         any_busy = bool(self._busy_panels)
-        for panel in self._panels():  # 任一忙 → 全部标签双下拉禁用（D5）
+        for panel in self._panels():  # 任一忙 → 全部标签三按钮禁用（D5）
             panel.model_bar.set_busy(any_busy)
         self.busy_changed.emit(any_busy)
 

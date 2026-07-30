@@ -8,7 +8,9 @@
 
 ## 1. 概述
 
-`llm/` 是 Zen Studio 的 LLM 调用层，与 `gui/` 平级。职责单一：把"多轮消息 → 流式文本"抽象为统一接口 `LanguageModel`。多标签改造（2026-07-22，work plans/2026-0722-0756）后注册表模式移除：provider 由每个 `ChatPanel` 自持实例（`ChatPanel._build_providers` 为装配单点，标签间完全隔离可并行），依赖方向为"前端 → 后端"，包内不 import 任何 GUI 代码。
+`llm/` 是 Zen Studio 的 LLM 调用层，与 `gui/` 平级。职责单一：把"多轮消息 → 流式文本"抽象为统一接口 `LanguageModel`。多标签改造（2026-07-22，work plans/2026-0722-0756）后注册表模式移除：provider 由每个 `ChatPanel` 自持实例（标签间完全隔离可并行），依赖方向为"前端 → 后端"，包内不 import 任何 GUI 代码。
+
+**注册表装配**（2026-07-30，work plans/2026-0730-0150）：后端发现/可用性探测/模型枚举/实例工厂收敛为 `llm/registry.py` 单一注册表（`BackendSpec` + `REGISTRY`），`ChatPanel` 经注册表工厂**懒实例化** provider（首轮对话前创建，切换接口时旧实例关闭丢弃，防多标签×多后台长驻进程膨胀）；新增 CLI 后台只动 `llm/providers/` 一处。
 
 **统一后端策略**：对话统一经本机 agent CLI（当前为 Kimi Code CLI）完成，代码库**不存放、不读取、不输入任何 API KEY**——凭证由各 CLI 自行管理（如 kimi 的 OAuth）。DeepSeek API KEY 直连已于 2026-07-18 移除（见 `2026-0718-1455_移除APIKEY直连统一CLI后端实施计划.md`）。
 
@@ -18,11 +20,14 @@
 
 | 文件 | 说明 |
 |:---|:---|
-| `llm/__init__.py` | 包初始化：导出统一接口、后端常量（`BACKEND_KIMI_CLI`/`BACKEND_KIMI_ACP`/`BACKEND_LABELS`）与 provider 类 |
+| `llm/__init__.py` | 包初始化：导出统一接口、后端常量（`BACKEND_KIMI_CLI`/`BACKEND_KIMI_ACP`/`BACKEND_LABELS`，由 REGISTRY 派生 re-export）与 provider 类 |
 | `llm/base.py` | `LanguageModel` Protocol + `Message` 类型别名 + `Chunk` 流式块 |
+| `llm/registry.py` | 后端注册表：`BackendSpec`（name/label/vendor/available/list_models/factory）+ `REGISTRY` 单点 + 查询 API（`spec_of`/`vendor_of`/`vendor_groups`）；import 无副作用，探测均惰性 |
 | `llm/providers/__init__.py` | provider 子包标记（每家厂商一个文件） |
+| `llm/providers/acp.py` | 泛化 ACP 连接层 `AcpConnection`（ndjson JSON-RPC 帧收发/id 配对/反向请求分发/死讯注入；agent 名参数化）+ 审批协议定型类型（`PermissionParams`/`PermissionHandler`） |
 | `llm/providers/kimi_cli.py` | `KimiCliLLM`：本机 Kimi Code CLI 后端（spawn `kimi -p --output-format stream-json` 子进程 + session_id 续接；二进制检测链 PATH → `$KIMI_CODE_HOME/bin` → `~/.kimi-code/bin`） |
-| `llm/providers/kimi_acp.py` | `KimiAcpLLM`：Kimi ACP 后端（长驻 `kimi acp` 子进程 + ndjson JSON-RPC；token 级流式、思维链可见、审批反向请求路由） |
+| `llm/providers/kimi_acp.py` | `KimiAcpLLM`：Kimi ACP 后端（长驻 `kimi acp` 子进程，复用 `AcpConnection`；token 级流式、思维链可见、审批反向请求路由） |
+| `llm/providers/reasonix_acp.py` | `ReasonixAcpLLM`：Reasonix ACP 后端（长驻 `reasonix acp`，与 KimiAcpLLM 同构；模型目录解析 `~/.reasonix/config.toml`；未 setup 经 session/new 错误映射引导「请先运行 reasonix setup」；轮次失败 `stopReason=error` 转可读报错） |
 
 ## 3. 接口设计
 
@@ -47,6 +52,7 @@ class LanguageModel(Protocol):
 | `Chunk` | 流式块：`kind="text"` 为正文增量；`kind="reasoning"` 为过程信息（思维链或工具调用摘要），仅当次显示、不回传 |
 | `KimiCliLLM` | provider 之一（`"kimi-cli"`，默认）：本机 Kimi Code CLI（OAuth 自管凭证）；spawn 子进程逐行解析 JSONL，assistant 正文为**消息粒度**（非 token 流式），`tool_calls` 复用 reasoning 通道灰字展示；历史由 CLI 会话管理（meta 行 `session_id` 续接），`set_model(alias)` 切换模型、`reset_session()` 开新会话；⚠️ `-p` 固定 auto 权限，agent 可在项目目录读写文件与执行命令 |
 | `KimiAcpLLM` | provider 之二（`"kimi-acp"`）：长驻 `kimi acp` 子进程经 ndjson JSON-RPC 对接（[ACP 协议](https://agentclientprotocol.com)，Zed/JetBrains 同款集成方式）；**token 级流式**（`agent_message_chunk`）、思维链可见（`agent_thought_chunk` → reasoning 通道）、`session/new` 原生会话、`session/set_config_option` 会话内切模型；工具审批经 `set_permission_handler()` 注入的回调路由（GUI 模态框），无回调时自动允许（等价 `-p` auto），回调返回 None/异常按拒绝兜底；进程崩溃下轮自动重启并开新会话 |
+| `ReasonixAcpLLM` | provider 之三（`"reasonix-acp"`，后台 Reasonix）：长驻 `reasonix acp` 子进程，协议层与 `KimiAcpLLM` 同构（ACP v1）；模型目录经 `list_reasonix_models()` 解析 `~/.reasonix/config.toml`（`$REASONIX_HOME` 可覆盖）`[[providers]]` 段，别名为 `provider/model` 全名（DeepSeek 系）；未 setup（`session/new` 报 `not configured` 类错误）时映射为「请先运行 reasonix setup」友好提示；轮次失败 `stopReason=error` 转可读报错 |
 
 ## 4. 使用方式
 
@@ -82,6 +88,7 @@ for chunk in llm.chat([{"role": "user", "content": "你好"}]):
 
 ## 6. 新增 provider
 
-1. 在 `llm/providers/` 下新建 `<名称>.py`，实现 `LanguageModel` 协议（`chat()` 为流式 generator；历史策略由各实现自决，CLI 类推荐"末条 user 消息 + CLI 侧会话"）
-2. 在 `llm/__init__.py` 中导入并加入 `__all__` 导出；GUI 消费侧在 `ChatPanel._build_providers` 装配（外部 CLI 类 provider 先 `shutil.which` 检测可用性再实例化）
-3. 凭证管理：CLI 类凭证由 CLI 自管，代码库不出现密钥；API key 类凭证放项目根 `api_key/<名称>`（已 gitignore）
+1. 在 `llm/providers/` 下新建 `<名称>.py`，实现 `LanguageModel` 协议（`chat()` 为流式 generator；历史策略由各实现自决，CLI 类推荐"末条 user 消息 + CLI 侧会话"）；ACP 系后端直接复用 `llm/providers/acp.py` 的 `AcpConnection`（参照 `reasonix_acp.py` 与 `kimi_acp.py` 同构范式）
+2. 在 `llm/registry.py` 的 `REGISTRY` 注册 `BackendSpec`（`available`/`list_models`/`factory` 均惰性可调用，import 无副作用）——注册即全链路生效（ModelBar 三级下拉、设置中心、ChatPanel 懒实例化工厂），**无需改任何 GUI 代码**
+3. 模型范围按接口级隔离（D6 红线）：模型目录挂各 `BackendSpec.list_models()`，别名是各后台私有语义的不透明字符串，禁止跨后台共享模型表、禁止在公共代码解析别名
+4. 凭证管理：CLI 类凭证由 CLI 自管，代码库不出现密钥；API key 类凭证放项目根 `api_key/<名称>`（已 gitignore）

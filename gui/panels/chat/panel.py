@@ -1,8 +1,10 @@
 """聊天面板装配：上输出 + 下输入，连接 LLM 流式线程。
 
 多标签改造（2026-07-22，work plans/2026-0722-0756 计划 P3 任务 13）：
-- 自持 provider 实例（不再从共享 registry 取单例）：构造时按当前后端
-  自建 KimiCliLLM/KimiAcpLLM(workspace_root)，标签间完全隔离（D6 方案 A）
+- 自持 provider 实例（不再从共享 registry 取单例）：注册表工厂懒实例化
+  （2026-0730-0150 计划 D4——实例推迟到首轮对话/切换广播前经
+  _get_provider 即建即用，防"标签数 × 后端数"长驻进程膨胀；
+  实例建成后标签间完全隔离，D6 方案 A）
 - ModelBar 各标签自持：2026-0724-2354 计划由 ChatTabs 顶部全局单例
   改为本面板输入区底行实例（纯视图）；选择状态/写盘归 ChatTabs 状态层，
   广播经 set_model_selection 同步本面板 UI（阻断）与 provider
@@ -45,16 +47,12 @@ from gui.settings import KEY_PERMISSION_MODE, KEY_THEME
 from gui.theme import get_theme_palette, load_settings
 from gui.window_state import decode_state, encode_state
 from llm import (
-    BACKEND_KIMI_ACP,
-    BACKEND_KIMI_CLI,
     BACKEND_LABELS,
     Chunk,
-    KimiAcpLLM,
-    KimiCliLLM,
     LanguageModel,
     Message,
     PermissionParams,
-    kimi_available,
+    spec_of,
 )
 from llm.permission_policy import DECISION_ALLOW, decide_permission, select_option_id
 
@@ -100,28 +98,40 @@ class ChatPanel(QWidget):
         self.model_bar = ModelBar(self)
         self.model_bar.set_selection(backend, version)
         self._llm_name = self.model_bar.current_backend()
-        self._providers = self._build_providers(workspace_root, self.model_bar.current_version())
+        # D4 懒实例化：不预建实例；workspace_root 留存供工厂使用。
+        # 启动一致性（预选模型写入实例）不暂存 pending——建实例时取
+        # model_bar.current_version()（选择状态单一来源，语义不变）
+        self._workspace_root = workspace_root
+        self._providers: dict[str, LanguageModel] = {}
 
         self._build_layout()
         self._connect_signals()
 
     # ------------------------------------------------------------------
-    # provider 实例（自持；D6 方案 A：每标签独立连接）
+    # provider 实例（注册表工厂懒实例化，D4；建成后每标签独立连接）
     # ------------------------------------------------------------------
-    def _build_providers(self, workspace_root: str, version: str | None) -> dict[str, LanguageModel]:
-        """按当前后端/版本自建两个 kimi 后端实例；kimi 不可用时为空 dict。"""
-        providers: dict[str, LanguageModel] = {}
-        if not kimi_available():
-            return providers
-        providers[BACKEND_KIMI_CLI] = KimiCliLLM(workspace_root=workspace_root)
-        acp = KimiAcpLLM(workspace_root=workspace_root)
-        acp.set_permission_handler(self._ask_permission)
-        providers[BACKEND_KIMI_ACP] = acp
-        if version:  # 启动一致性：预选模型写入两个实例，避免 UI 与后端不一致
-            for provider in providers.values():
-                if isinstance(provider, (KimiCliLLM, KimiAcpLLM)):
-                    provider.set_model(version)
-        return providers
+    def _get_provider(self, name: str) -> LanguageModel | None:
+        """按接口实现名取 provider 实例：未建则经注册表工厂即建即用（D4）。
+
+        spec 未注册或 available() 为 False 返回 None（调用方按「后端不可用」
+        处理，语义同原"未检测到本机 agent CLI"）。首次实例化时鸭子类型接线：
+        有 set_permission_handler 即注入审批回环（替代 isinstance 硬编码），
+        有 set_model 且当前有别名即写入（启动/切换一致性）。
+        """
+        provider = self._providers.get(name)
+        if provider is not None:
+            return provider
+        spec = spec_of(name)
+        if spec is None or not spec.available():
+            return None
+        provider = spec.factory(workspace_root=self._workspace_root)
+        if (set_handler := getattr(provider, "set_permission_handler", None)) is not None:
+            set_handler(self._ask_permission)
+        version = self.model_bar.current_version()
+        if version and (set_model := getattr(provider, "set_model", None)) is not None:
+            set_model(version)
+        self._providers[name] = provider
+        return provider
 
     def set_model_selection(self, backend: str, version: str | None) -> None:
         """全局模型选择广播（D5）：同步自身 ModelBar UI + 写自身 provider 实例。
@@ -129,17 +139,22 @@ class ChatPanel(QWidget):
         UI 同步走 ModelBar.set_selection（全程阻断信号，不回环）；
         持久化与状态层归 ChatTabs，本方法不管。
         上下文不迁移（各后端会话各自独立），切后端时输出提示行。
+        D4：切换接口时旧实例 close() 后丢弃，防长驻进程随切换累积。
         """
         self.model_bar.set_selection(backend, version)
         backend = self.model_bar.current_backend()  # 回退后的有效值（与 UI 一致）
         version = self.model_bar.current_version()
         if backend != self._llm_name:
+            old = self._providers.pop(self._llm_name, None)
+            if old is not None and (close := getattr(old, "close", None)) is not None:
+                close()
             self.output.append_message(
                 "系统", f"已切换到 {BACKEND_LABELS.get(backend, backend)} 后端，开始新会话")
         self._llm_name = backend
-        provider = self._providers.get(backend)
-        if isinstance(provider, (KimiCliLLM, KimiAcpLLM)) and isinstance(version, str):
-            provider.set_model(version)
+        provider = self._get_provider(backend)
+        if provider is not None and isinstance(version, str):
+            if (set_model := getattr(provider, "set_model", None)) is not None:
+                set_model(version)
 
     def request_stop(self) -> None:
         """停止当前轮次（输入区停止按钮 / Esc 触发），幂等。"""
@@ -325,7 +340,7 @@ class ChatPanel(QWidget):
     def _on_send(self, text: str) -> None:
         if self._worker is not None and self._worker.isRunning():
             return  # 上一次未结束，忽略（输入框此时已禁用）
-        provider = self._providers.get(self._llm_name)
+        provider = self._get_provider(self._llm_name)
         if provider is None:
             self.output.append_message("系统", f"后端不可用：{self._llm_name}（未检测到本机 agent CLI）")
             return
@@ -406,10 +421,10 @@ class ChatPanel(QWidget):
 
 
 def _close_providers(providers: list[LanguageModel]) -> None:
-    """关闭双 kimi 后端（terminate + `_closed` 置位，幂等可重复调用）。"""
+    """关闭全部已建 provider 实例（鸭子类型 close()，幂等可重复调用）。"""
     for provider in providers:
-        if isinstance(provider, (KimiCliLLM, KimiAcpLLM)):
-            provider.close()
+        if (close := getattr(provider, "close", None)) is not None:
+            close()
 
 
 def _cleanup_blocking(

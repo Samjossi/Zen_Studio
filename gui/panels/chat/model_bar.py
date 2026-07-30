@@ -1,4 +1,4 @@
-"""模型选择：模型按钮（后端）+ 版本按钮（各标签输入区底行左端）。
+"""模型选择：后台 + 接口 + 模型三按钮（各标签输入区底行左端）。
 
 选择持久化（2026-07-19，见 文档/修改记录/2026-0719-0712_GUI窗口状态
 与模型选择持久化计划.md）：启动时 set_selection 恢复上次选择（无效项
@@ -14,52 +14,81 @@
   写盘与选择状态上移 ChatTabs（单一来源，多实例广播同步防分裂），
   本组件只管 UI 与发射 selection_changed
 - 迭代 2：双 QComboBox 换 QToolButton(InstantPopup)+QMenu——框体恒显
-  「模型」「版本」标签（用户拍板选项 1：切模型低频，当前值归 tooltip
-  全名与菜单 ✓ 勾选）；菜单天然按内容加宽显示全文，创建经
-  make_translucent_popup() 规约处理（见 gui/popups.py）
+  标签（用户拍板选项 1：切模型低频，当前值归 tooltip 全名与菜单 ✓
+  勾选）；菜单天然按内容加宽显示全文，创建经 make_translucent_popup()
+  规约处理（见 gui/popups.py）
+
+三级选择语义（2026-07-30，work plans/2026-0730-0150 计划阶段二 T5/T6）：
+- 双按钮「模型（实为接入实现）+ 版本（实为模型别名）」扩为三按钮：
+  「后台」（CLI 产品/厂商，vendor_groups 一级）→「接口」（该后台下的
+  接入实现，BackendSpec.name/label）→「模型」（模型别名，接口级
+  spec.list_models()）；原「模型」按钮改名「接口」、原「版本」改名
+  「模型」，恒显标签范式不变
+- 持久化不新增键（D2）：后台不入 settings，由接口实现名经注册表
+  vendor_of(backend) 推导；selection_changed 信号签名保持 (backend,
+  version) 不破，tabs/panel/主窗口接线零改动
+- D6 红线落实：红线 1 模型目录挂接口级——只调当前接口的
+  spec.list_models()，无跨后台共享模型表；红线 2 别名按不透明字符串
+  透传（不解析/不切分/不校验）；红线 4 切后台/接口时下级菜单先清后建、
+  回退首项，旧后台别名立即失效不残留；红线 5 回退不写盘（本组件本就
+  不管写盘，写盘只发生在用户主动切换经 ChatTabs 收敛时）
 """
 from PySide6.QtCore import Signal
 from PySide6.QtGui import QAction, QActionGroup
 from PySide6.QtWidgets import QHBoxLayout, QMenu, QToolButton, QWidget
 
 from gui.popups import make_translucent_popup
-from llm import BACKEND_KIMI_CLI, BACKEND_LABELS, kimi_available, list_kimi_models
+from llm import spec_of, vendor_groups, vendor_of
 
 
 class ModelBar(QWidget):
-    """输入区底行左端：模型（后端）+ 版本双按钮（InstantPopup 菜单联动刷新）。
+    """输入区底行左端：后台 + 接口 + 模型三按钮（InstantPopup 菜单三级联动）。
 
-    本期统一为本机 agent CLI 后端（Kimi CLI，不可用时项禁用）；
-    OpenCode/Kilo Code 等后端接入后恢复多项（见 1455 计划第 8 节备案）。
+    数据源为注册表（llm.registry）：一级菜单 = vendor_groups() 的后台
+    分组，二级菜单 = 当前后台的 BackendSpec 列表，三级菜单 = 当前接口的
+    spec.list_models()。某后台下全部接口 available() 为 False 时该后台
+    项禁用并标「（未检测到）」（沿用 kimi 未安装态范式）；单个接口不可用
+    同理禁用标注。
     """
 
-    #: 后端/版本切换（携带 registry 后端名 + 版本载荷：模型别名 str）
+    #: 接口/模型切换（携带 registry 接口实现名 + 模型别名载荷：
+    #: 签名保持 (str, object) 不破——后台由 backend 经 vendor_of 推导，
+    #: tabs/panel/主窗口接线不改，见 2026-0730-0150 计划 T6）
     selection_changed = Signal(str, object)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
 
+        self._vendor_button = self._make_button("后台")
+        self._interface_button = self._make_button("接口")
         self._model_button = self._make_button("模型")
-        self._version_button = self._make_button("版本")
-        self._model_group = QActionGroup(self)  # 默认互斥
-        self._version_group = QActionGroup(self)
+        self._vendor_group = QActionGroup(self)  # 默认互斥
+        self._interface_group = QActionGroup(self)
+        self._model_group = QActionGroup(self)
 
-        if kimi_available():
-            for name, label in BACKEND_LABELS.items():
-                self._add_action(self._model_group, label, name, self._on_model_picked)
-        else:
-            self._add_action(
-                self._model_group,
-                f"{BACKEND_LABELS[BACKEND_KIMI_CLI]}（未检测到）",
-                BACKEND_KIMI_CLI, None).setEnabled(False)
-        # 构造默认勾选首项（静默：setChecked 不发 triggered，见类设计注）
-        if self._model_group.actions():
-            self._model_group.actions()[0].setChecked(True)
-        self._refresh_versions(BACKEND_KIMI_CLI)
+        # 一级菜单：后台分组（注册序即菜单序）；整组不可用 → 禁用 + 标注
+        for vendor, specs in vendor_groups().items():
+            label = specs[0].vendor_label
+            if any(spec.available() for spec in specs):
+                self._add_action(
+                    self._vendor_button, self._vendor_group,
+                    label, vendor, self._on_vendor_picked)
+            else:
+                self._add_action(
+                    self._vendor_button, self._vendor_group,
+                    f"{label}（未检测到）", vendor, None).setEnabled(False)
+        # 构造默认勾选链：第一个可用后台 → 其第一个可用接口 → 模型首项
+        # （静默：setChecked 不发 triggered，见 set_selection 设计注）
+        default_vendor = self._first_enabled(self._vendor_group)
+        if default_vendor is not None:
+            default_vendor.setChecked(True)
+        self._refresh_interfaces(self.current_vendor())
+        self._refresh_tooltips()
 
         layout = QHBoxLayout(self)
+        layout.addWidget(self._vendor_button)
+        layout.addWidget(self._interface_button)
         layout.addWidget(self._model_button)
-        layout.addWidget(self._version_button)
         # 边距归零：底行装配（按钮/stretch/间距）归 ChatPanel 统一分配
         layout.setContentsMargins(0, 0, 0, 0)
 
@@ -84,9 +113,16 @@ class ModelBar(QWidget):
         button.setMinimumWidth(text_width + 24)  # qss padding 12*2
         return button
 
-    def _add_action(self, group: QActionGroup, text: str, data, slot) -> QAction:
-        """互斥勾选项：data 携带 registry 名/别名；slot 为 None 时仅挂菜单（禁用项）。"""
-        button = self._model_button if group is self._model_group else self._version_button
+    def _add_action(
+        self,
+        button: QToolButton,
+        group: QActionGroup,
+        text: str,
+        data,
+        slot,
+    ) -> QAction:
+        """互斥勾选项：data 携带后台名/接口实现名/模型别名；
+        slot 为 None 时仅挂菜单（禁用项）。"""
         action = QAction(text, self)
         action.setCheckable(True)
         action.setData(data)
@@ -103,79 +139,144 @@ class ModelBar(QWidget):
                 return action
         return None
 
+    @staticmethod
+    def _first_enabled(group: QActionGroup) -> QAction | None:
+        """组内首个可用项（默认勾选/静默回退目标；禁用项不作回退落点）。"""
+        for action in group.actions():
+            if action.isEnabled():
+                return action
+        return None
+
     def _refresh_tooltips(self) -> None:
-        """当前项全名写入按钮 tooltip（标签恒显下当前值的常驻可见入口）。"""
+        """三级当前值全名写入三个按钮 tooltip（同一三行文本，悬停任一
+        按钮可见完整链：后台 / 接口 / 模型）。"""
+        vendor = self._vendor_group.checkedAction()
+        interface = self._interface_group.checkedAction()
         model = self._model_group.checkedAction()
-        version = self._version_group.checkedAction()
-        self._model_button.setToolTip(f"模型后端：{model.text() if model else '无'}")
-        self._version_button.setToolTip(f"模型版本：{version.text() if version else '无'}")
+        tooltip = "\n".join((
+            f"后台：{vendor.text() if vendor else '无'}",
+            f"接口：{interface.text() if interface else '无'}",
+            f"模型：{model.text() if model else '无'}",
+        ))
+        for button in (self._vendor_button, self._interface_button, self._model_button):
+            button.setToolTip(tooltip)
 
     # ------------------------------------------------------------------
     # 忙碌态（流式响应中）
     # ------------------------------------------------------------------
     def set_busy(self, is_busy: bool) -> None:
-        """busy：禁用双按钮（任一标签响应中即全标签禁用，ChatTabs 遍历调用）。
+        """busy：禁用三按钮（任一标签响应中即全标签禁用，ChatTabs 遍历调用）。
 
         按钮恒显标签、菜单随点随建，sizeHint 不随 busy 变化。
         """
+        self._vendor_button.setEnabled(not is_busy)
+        self._interface_button.setEnabled(not is_busy)
         self._model_button.setEnabled(not is_busy)
-        self._version_button.setEnabled(not is_busy)
 
     # ------------------------------------------------------------------
     # 选择查询与恢复（持久化写盘上移 ChatTabs，本组件不管）
     # ------------------------------------------------------------------
+    def current_vendor(self) -> str | None:
+        """当前后台（注册表 vendor 名；一级勾选直接读，与 backend 推导等价）。"""
+        checked = self._vendor_group.checkedAction()
+        return checked.data() if checked is not None else None
+
     def current_backend(self) -> str | None:
-        """当前后端（registry 名）。"""
-        checked = self._model_group.checkedAction()
+        """当前接口（registry 接口实现名，settings `model_backend` 持久化值）。"""
+        checked = self._interface_group.checkedAction()
         return checked.data() if checked is not None else None
 
     def current_version(self) -> str | None:
-        """当前版本（模型别名）；版本列表为空时为 None。"""
-        checked = self._version_group.checkedAction()
+        """当前模型（模型别名）；模型列表为空时为 None。"""
+        checked = self._model_group.checkedAction()
         return checked.data() if checked is not None else None
 
     def set_selection(self, backend: str | None, version: str | None) -> None:
-        """注入选择：勾选后端 → 刷新版本列表 → 勾选版本。
+        """注入选择：后台（由 backend 推导）→ 接口 → 模型逐级勾选。
 
         阻断语义天然成立：QAction.setChecked 不发射 triggered（仅用户
-        点击发射），广播同步天然无回环；后端或版本已失效时静默回退到
-        可用默认项（首项）。
+        点击发射），广播同步天然无回环；任一级失效时静默回退到该级首个
+        可用项（持久化恢复路径 settings 只存 backend+version 天然工作，
+        D2：后台由 vendor_of(backend) 推导，不读 settings）。
         """
-        target = self._find_action(self._model_group, backend)
-        if target is None and self._model_group.actions():
-            target = self._model_group.actions()[0]
-        if target is not None:
-            target.setChecked(True)
-        self._refresh_versions(self.current_backend())
-        vtarget = self._find_action(self._version_group, version)
-        if vtarget is None and self._version_group.actions():
-            vtarget = self._version_group.actions()[0]
+        # 一级：后台（接口实现名未知时 vendor_of 返回 None → 回退首项）
+        vtarget = self._find_action(self._vendor_group, vendor_of(backend or ""))
+        if vtarget is None or not vtarget.isEnabled():
+            vtarget = self._first_enabled(self._vendor_group)
         if vtarget is not None:
             vtarget.setChecked(True)
+        # 二级：接口（列表先清后建后勾选；失效回退首个可用接口）
+        self._refresh_interfaces(self.current_vendor())
+        itarget = self._find_action(self._interface_group, backend)
+        if itarget is None or not itarget.isEnabled():
+            itarget = self._first_enabled(self._interface_group)
+        if itarget is not None:
+            itarget.setChecked(True)
+        # 三级：模型（列表先清后建后勾选；失效回退首项——旧后台别名
+        # 立即失效不得残留，D6 红线 4；回退不落盘，红线 5）
+        self._refresh_models(self.current_backend())
+        mtarget = self._find_action(self._model_group, version)
+        if mtarget is None and self._model_group.actions():
+            mtarget = self._model_group.actions()[0]
+        if mtarget is not None:
+            mtarget.setChecked(True)
         self._refresh_tooltips()
 
     # ------------------------------------------------------------------
-    # 联动
+    # 三级联动（D6 红线 4：切换先清后建 + 回退首项，无残留）
     # ------------------------------------------------------------------
-    def _refresh_versions(self, backend: str | None) -> None:
-        """版本菜单按后端重建（先清后建）；重建后默认勾选首项（静默）。"""
-        menu = self._version_button.menu()
-        for action in list(self._version_group.actions()):
-            self._version_group.removeAction(action)
+    def _refresh_interfaces(self, vendor: str | None) -> None:
+        """接口菜单按后台重建（先清后建）：仅列该后台的 spec；不可用接口
+        禁用并标「（未检测到）」（不可用即不可勾选，杜绝无效项落点）；
+        重建后默认勾选首个可用接口（静默），并联动模型列表重建。"""
+        menu = self._interface_button.menu()
+        for action in list(self._interface_group.actions()):
+            self._interface_group.removeAction(action)
         menu.clear()
-        if backend in BACKEND_LABELS:  # kimi 系后端共用 kimi 模型别名列表
-            for alias in list_kimi_models():
-                self._add_action(self._version_group, alias, alias, self._on_version_picked)
-        if self._version_group.actions():
-            self._version_group.actions()[0].setChecked(True)
+        for spec in vendor_groups().get(vendor or "", []):
+            if spec.available():
+                self._add_action(
+                    self._interface_button, self._interface_group,
+                    spec.label, spec.name, self._on_interface_picked)
+            else:
+                self._add_action(
+                    self._interface_button, self._interface_group,
+                    f"{spec.label}（未检测到）", spec.name, None).setEnabled(False)
+        default = self._first_enabled(self._interface_group)
+        if default is not None:
+            default.setChecked(True)
+        self._refresh_models(self.current_backend())
 
-    def _on_model_picked(self, backend: str) -> None:
-        """用户勾选后端 → 版本列表联动重建（默认首项）→ 发射切换。"""
-        self._refresh_versions(backend)
+    def _refresh_models(self, backend: str | None) -> None:
+        """模型菜单按接口重建（先清后建）：只调该接口的 spec.list_models()
+        （模型目录挂接口级，D6 红线 1；别名按不透明字符串透传，红线 2）；
+        重建后默认勾选首项（静默）。"""
+        menu = self._model_button.menu()
+        for action in list(self._model_group.actions()):
+            self._model_group.removeAction(action)
+        menu.clear()
+        spec = spec_of(backend or "")
+        if spec is not None and spec.available():
+            for alias in spec.list_models():
+                self._add_action(
+                    self._model_button, self._model_group,
+                    alias, alias, self._on_model_picked)
+        if self._model_group.actions():
+            self._model_group.actions()[0].setChecked(True)
+
+    def _on_vendor_picked(self, vendor: str) -> None:
+        """用户勾选后台 → 接口/模型列表联动重建（各回退首项）→ 发射切换。"""
+        self._refresh_interfaces(vendor)
+        self._refresh_tooltips()
+        self.selection_changed.emit(self.current_backend(), self.current_version())
+
+    def _on_interface_picked(self, backend: str) -> None:
+        """用户勾选接口 → 模型列表联动重建（回退首项）→ 发射切换。"""
+        self._refresh_models(backend)
         self._refresh_tooltips()
         self.selection_changed.emit(backend, self.current_version())
 
-    def _on_version_picked(self, alias: str) -> None:
-        """用户勾选版本 → 发射切换（写盘与广播归 ChatTabs 单一来源）。"""
+    def _on_model_picked(self, alias: str) -> None:
+        """用户勾选模型 → 发射切换（写盘与广播归 ChatTabs 单一来源）。"""
         self._refresh_tooltips()
         self.selection_changed.emit(self.current_backend(), alias)

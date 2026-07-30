@@ -75,7 +75,7 @@ from gui.theme import (
     list_available_themes,
     load_settings,
 )
-from llm import BACKEND_LABELS, kimi_available, list_kimi_models
+from llm import REGISTRY, spec_of, vendor_groups, vendor_of
 from llm.permission_policy import (
     DANGEROUS_COMMAND_PATTERNS,
     DEFAULT_PERMISSION_MODE,
@@ -113,7 +113,7 @@ _BLACKLIST_HEIGHT = 160
 _PAGE_REGISTRY: tuple[tuple[str, str, str, str | None], ...] = (
     ("AI 工具权限", "控制 AI 工具调用的审批粒度，切换即时生效。",
      "_build_permission_page", "_reload_permission"),
-    ("AI 模型", "选择 AI 后端与版本；与聊天面板顶部模型行双向同步。",
+    ("AI 模型", "选择 AI 后台、接口与模型；与聊天面板底行模型按钮双向同步。",
      "_build_model_page", "_reload_model"),
     ("外观", "主题与字号即时应用全窗口（含各面板配色）。",
      "_build_appearance_page", "_reload_appearance"),
@@ -137,11 +137,14 @@ class SettingsDialog(QDialog):
         super().__init__(ctx)
         self._ctx = ctx
         self._reloading = False  # reload 期间抑制控件槽（防回环/防写盘）
-        self._backend_available = kimi_available()
-        #: 模型版本列表缓存（backend → aliases）：list_kimi_models 为子进程
-        #: 调用，reload 期间字号/主题等无关收敛点不得反复拉起；每次
-        #: showEvent 清缓存强制刷新一次（review 修复：GUI 线程卡顿）
-        self._versions_cache: dict[str, list[str]] = {}
+        #: 任一接口可用即整体可用（注册表遍历，惰性探测；全不可用三下拉禁用）
+        self._any_backend_available = any(spec.available() for spec in REGISTRY.values())
+        #: 模型别名列表缓存（接口实现名 → aliases）：spec.list_models 可能是
+        #: 子进程调用（如 kimi → `kimi provider list --json`），reload 期间
+        #: 字号/主题等无关收敛点不得反复拉起；缓存按接口级隔离（D6 红线 1，
+        #: 2026-0730-0150 计划阶段二 T7）；每次 showEvent 清缓存强制刷新一次
+        #: （review 修复：GUI 线程卡顿）
+        self._models_cache: dict[str, list[str]] = {}
         #: hint 控件与分隔线集合：内联 style 不受 app 级 qss 管辖，
         #: apply_theme 统一按令牌重刷（1510 计划 D6/D10）
         self._hint_labels: list[QLabel] = []
@@ -318,44 +321,69 @@ class SettingsDialog(QDialog):
         self._blacklist_text.setVisible(checked)
 
     # ------------------------------------------------------------------
-    # AI 模型页（双下拉；与菜单/ModelBar 三方经 MainWindow 收敛点同步）
+    # AI 模型页（三级下拉：后台/接口/模型；与 ModelBar 经 MainWindow 收敛点同步，
+    # 2026-0730-0150 计划阶段二 T7）
     # ------------------------------------------------------------------
     def _build_model_page(self) -> QWidget:
+        """三级语义（D1）：后台 = CLI 产品（vendor_label）；接口 = 该后台下的
+        接入实现（BackendSpec.name/label，持久化值）；模型 = 模型别名
+        （接口级 spec.list_models()）。不可用项行级禁用并标「（未检测到）」
+        （禁用项不可被用户选中，也不作静默回退落点——杜绝无效项收敛写盘）。"""
         page = QWidget(self)
         layout = QFormLayout(page)
         layout.setAlignment(Qt.AlignmentFlag.AlignTop)
-        self._backend_combo = QComboBox(page)
-        for name, label in BACKEND_LABELS.items():
-            text = label if self._backend_available else f"{label}（未检测到）"
-            self._backend_combo.addItem(text, name)
-        self._version_combo = QComboBox(page)
-        for combo in (self._backend_combo, self._version_combo):
+        self._vendor_combo = QComboBox(page)
+        for vendor, specs in vendor_groups().items():
+            available = any(spec.available() for spec in specs)
+            text = specs[0].vendor_label if available else f"{specs[0].vendor_label}（未检测到）"
+            self._vendor_combo.addItem(text, vendor)
+            if not available:
+                self._vendor_combo.model().item(
+                    self._vendor_combo.count() - 1).setEnabled(False)
+        self._interface_combo = QComboBox(page)  # 初为空，reload 时按后台重建
+        self._model_combo = QComboBox(page)      # 初为空，reload 时按接口重建
+        for combo in (self._vendor_combo, self._interface_combo, self._model_combo):
             make_translucent_combo_popup(combo)
-        layout.addRow("后端", self._backend_combo)
-        layout.addRow("版本", self._version_combo)
+        layout.addRow("后台", self._vendor_combo)
+        layout.addRow("接口", self._interface_combo)
+        layout.addRow("模型", self._model_combo)
         layout.addRow(self._make_hint("AI 响应中暂不可切换。", page))
-        self._backend_combo.activated.connect(self._on_backend_activated)
-        self._version_combo.activated.connect(self._on_version_activated)
+        self._vendor_combo.activated.connect(self._on_vendor_activated)
+        self._interface_combo.activated.connect(self._on_interface_activated)
+        self._model_combo.activated.connect(self._on_model_activated)
         return page
 
-    def _on_backend_activated(self, index: int) -> None:
-        """后端切换：版本取 None 收敛 MainWindow（落到该后端版本列表首项）。"""
-        self._ctx.apply_model_selection(self._backend_combo.itemData(index), None)
+    def _on_vendor_activated(self, index: int) -> None:
+        """后台切换：接口下拉先清后建（回退首个可用接口）→ 以模型 None
+        收敛 MainWindow（落到该接口模型列表首项；reload 回显三级勾选）。"""
+        self._rebuild_interfaces(self._vendor_combo.itemData(index))
+        self._ctx.apply_model_selection(self._interface_combo.currentData(), None)
         self._ctx.statusBar().showMessage(
-            f"AI 模型：后端 → {self._backend_combo.itemText(index)}",
+            f"AI 模型：后台 → {self._vendor_combo.itemText(index)}",
             self._ctx.STATUS_MSG_TIMEOUT_MS)
 
-    def _on_version_activated(self, index: int) -> None:
-        self._ctx.apply_model_selection(
-            self._backend_combo.currentData(), self._version_combo.itemData(index))
+    def _on_interface_activated(self, index: int) -> None:
+        """接口切换：以模型 None 收敛（落到模型列表首项，D6 红线 4：
+        旧接口别名立即失效、不随切换残留/写盘，红线 5）。"""
+        self._ctx.apply_model_selection(self._interface_combo.itemData(index), None)
         self._ctx.statusBar().showMessage(
-            f"AI 模型：版本 → {self._version_combo.itemText(index)}",
+            f"AI 模型：接口 → {self._interface_combo.itemText(index)}",
+            self._ctx.STATUS_MSG_TIMEOUT_MS)
+
+    def _on_model_activated(self, index: int) -> None:
+        """模型切换：以（当前接口, 别名）收敛（别名按不透明字符串透传，红线 2）。"""
+        self._ctx.apply_model_selection(
+            self._interface_combo.currentData(), self._model_combo.itemData(index))
+        self._ctx.statusBar().showMessage(
+            f"AI 模型：模型 → {self._model_combo.itemText(index)}",
             self._ctx.STATUS_MSG_TIMEOUT_MS)
 
     def set_model_enabled(self, enabled: bool) -> None:
-        """busy 联动：AI 响应中禁用双下拉（与 ModelBar/菜单对齐）。"""
-        self._backend_combo.setEnabled(enabled and self._backend_available)
-        self._version_combo.setEnabled(enabled and self._backend_available)
+        """busy 联动：AI 响应中禁用三下拉（与 ModelBar 三按钮对齐）。"""
+        on = enabled and self._any_backend_available
+        self._vendor_combo.setEnabled(on)
+        self._interface_combo.setEnabled(on)
+        self._model_combo.setEnabled(on)
 
     # ------------------------------------------------------------------
     # 外观页（主题下拉 + 字号 SpinBox + 文件树小节）
@@ -477,51 +505,88 @@ class SettingsDialog(QDialog):
         self._swap_check.setChecked(settings[KEY_TERMINAL_SWAP_COPY_PASTE])
 
     def _reload_model(self, settings) -> None:
-        """模型页：定位后端 → 版本列表（缓存优先） → 定位版本（静默回退默认项）。
+        """模型页三级回显：后台（vendor 由 backend 经注册表推导，D2 不读
+        settings）→ 接口列表重建并定位 backend → 模型列表（缓存优先）定位
+        持久化别名；每级失效静默回退该级首个可用项。
 
-        版本列表按 backend 缓存：list_kimi_models 为子进程调用，缓存命中
-        时同步填充；缓存 miss（showEvent 清缓存后 / 后端切换）改投
+        模型列表按接口级缓存：spec.list_models 可能是子进程调用，缓存命中
+        时同步填充；缓存 miss（showEvent 清缓存后 / 接口切换）改投
         事件循环空闲异步拉取——showEvent 在 GUI 线程同步执行子进程会
         卡住窗口首帧绘制，呈现「先闪一个小窗口再出完整窗口」的中间态；
         窗口显示定型后填充，视觉闪动消除。
         """
         backend = settings[KEY_MODEL_BACKEND]
-        index = self._backend_combo.findData(backend)
-        self._backend_combo.setCurrentIndex(max(index, 0))
-        current_backend = self._backend_combo.currentData()
-        if current_backend in self._versions_cache:
-            self._fill_versions(current_backend, settings[KEY_MODEL_VERSION])
+        # 一级：后台（持久化不存后台键，由接口实现名推导）
+        vendor_index = self._vendor_combo.findData(vendor_of(backend))
+        if vendor_index < 0 or not self._vendor_combo.model().item(vendor_index).isEnabled():
+            vendor_index = self._first_enabled_index(self._vendor_combo)
+        self._vendor_combo.setCurrentIndex(max(vendor_index, 0))
+        # 二级：接口（先清后建后定位；失效回退首个可用接口）
+        self._rebuild_interfaces(self._vendor_combo.currentData())
+        backend_index = self._interface_combo.findData(backend)
+        if backend_index < 0 or not self._interface_combo.model().item(backend_index).isEnabled():
+            backend_index = self._first_enabled_index(self._interface_combo)
+        self._interface_combo.setCurrentIndex(max(backend_index, 0))
+        # 三级：模型（缓存命中同步填，miss 异步拉取）
+        current_backend = self._interface_combo.currentData()
+        if current_backend in self._models_cache:
+            self._fill_models(current_backend, settings[KEY_MODEL_VERSION])
         else:
-            QTimer.singleShot(0, lambda: self._load_and_fill_versions(
+            QTimer.singleShot(0, lambda: self._load_and_fill_models(
                 current_backend, settings[KEY_MODEL_VERSION]))
 
-    def _load_and_fill_versions(self, backend: str, version: str) -> None:
-        """异步拉取并填充版本列表（缓存 miss 路径）：子进程调用挪出 show
+    def _rebuild_interfaces(self, vendor: str | None) -> None:
+        """接口下拉按后台重建（先清后建，D6 红线 4）：仅列该后台的 spec；
+        不可用接口行级禁用并标注；默认定位首个可用项。"""
+        self._interface_combo.clear()
+        for spec in vendor_groups().get(vendor or "", []):
+            available = spec.available()
+            text = spec.label if available else f"{spec.label}（未检测到）"
+            self._interface_combo.addItem(text, spec.name)
+            if not available:
+                self._interface_combo.model().item(
+                    self._interface_combo.count() - 1).setEnabled(False)
+        index = self._first_enabled_index(self._interface_combo)
+        self._interface_combo.setCurrentIndex(max(index, 0))
+
+    def _load_and_fill_models(self, backend: str, version: str | None) -> None:
+        """异步拉取并填充模型列表（缓存 miss 路径）：子进程调用挪出 show
         同步路径后的实际执行点；全程置 _reloading 与同步路径语义对齐。"""
         self._reloading = True
         try:
-            if backend not in self._versions_cache:
-                self._versions_cache[backend] = (
-                    list_kimi_models() if backend in BACKEND_LABELS else [])
-            self._fill_versions(backend, version)
+            if backend not in self._models_cache:
+                spec = spec_of(backend or "")
+                self._models_cache[backend] = (
+                    spec.list_models() if spec is not None and spec.available() else [])
+            self._fill_models(backend, version)
         finally:
             self._reloading = False
 
-    def _fill_versions(self, backend: str, version: str) -> None:
-        """版本下拉框填充（缓存已就绪）：清空 → 逐别名灌入 → 定位持久化版本。"""
-        self._version_combo.clear()
-        for alias in self._versions_cache[backend]:
-            self._version_combo.addItem(alias, alias)
-        version_index = self._version_combo.findData(version)
-        if self._version_combo.count():
-            self._version_combo.setCurrentIndex(max(version_index, 0))
+    def _fill_models(self, backend: str, version: str | None) -> None:
+        """模型下拉框填充（缓存已就绪）：清空 → 逐别名灌入 → 定位持久化别名
+        （失效回退首项；只调接口级缓存，无跨后台共享模型表，D6 红线 1）。"""
+        self._model_combo.clear()
+        for alias in self._models_cache.get(backend, []):
+            self._model_combo.addItem(alias, alias)
+        version_index = self._model_combo.findData(version)
+        if self._model_combo.count():
+            self._model_combo.setCurrentIndex(max(version_index, 0))
+
+    @staticmethod
+    def _first_enabled_index(combo: QComboBox) -> int:
+        """首个可用项索引（禁用项不作回退落点）；全部禁用返回 -1。"""
+        model = combo.model()
+        for i in range(combo.count()):
+            if model.item(i).isEnabled():
+                return i
+        return -1
 
     # ------------------------------------------------------------------
     # 显示：重载控件态 + busy 联动初值
     # ------------------------------------------------------------------
     def showEvent(self, event) -> None:
         super().showEvent(event)
-        self._versions_cache.clear()  # 每次打开强制刷新一次模型列表
+        self._models_cache.clear()  # 每次打开强制刷新一次模型列表
         self.reload()
         self.set_model_enabled(not self._ctx.chat_tabs.is_busy())
 
