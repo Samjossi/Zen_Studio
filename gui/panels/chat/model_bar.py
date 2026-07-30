@@ -47,6 +47,14 @@
 - 菜单项保持全文 + ✓ 勾选（D3，防不同 provider 同后段名歧义）；
   tooltip 三行全名链不变（悬停仍可见完整信息）；无勾选项时按钮回退
   层级标签「后台/接口/模型」（空态不显示空串）
+
+模型记忆持久化（2026-07-31，work plans/2026-0731-0052 计划）：
+- 每接口各自记住用户显式选定的模型（settings model_versions 记忆表，
+  接口实现名 → 别名）；切回时恢复记忆值，未定制接口落列表首项
+- 信号载荷语义（D3）：切后台/接口 emit (backend, None)——None =
+  "用户未指定模型"，记忆/首项解析归 ChatTabs；点模型 emit
+  (backend, 别名)——str = 显式选定，状态层写记忆
+- 本组件边界不变：不读 settings、不管写盘（持久化写盘上移 ChatTabs）
 """
 from PySide6.QtCore import Signal
 from PySide6.QtGui import QAction, QActionGroup
@@ -90,7 +98,11 @@ class ModelBar(QWidget):
 
     #: 接口/模型切换（携带 registry 接口实现名 + 模型别名载荷：
     #: 签名保持 (str, object) 不破——后台由 backend 经 vendor_of 推导，
-    #: tabs/panel/主窗口接线不改，见 2026-0730-0150 计划 T6）
+    #: tabs/panel/主窗口接线不改，见 2026-0730-0150 计划 T6）。
+    #: 载荷语义（2026-0731-0052 计划 D3）：切后台/接口路径 emit
+    #: (backend, None)——None = "用户未指定模型"，由状态层查记忆/
+    #: 落首项解析；点模型路径 emit (backend, 别名)——str = 用户显式
+    #: 选定，状态层写入记忆表
     selection_changed = Signal(str, object)
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -350,18 +362,21 @@ class ModelBar(QWidget):
         self._models_backend = backend
 
     def _on_vendor_picked(self, vendor: str) -> None:
-        """用户勾选后台 → 接口/模型列表联动重建（各回退首项）→ 发射切换。"""
+        """用户勾选后台 → 接口/模型列表联动重建（各回退首项作即时显示）
+        → 以 (backend, None) 发射切换（None = 未指定模型，记忆/首项
+        解析归 ChatTabs，D3）。"""
         self._refresh_interfaces(vendor)
         self._refresh_tooltips()
         self._refresh_button_texts()
-        self.selection_changed.emit(self.current_backend(), self.current_version())
+        self.selection_changed.emit(self.current_backend(), None)
 
     def _on_interface_picked(self, backend: str) -> None:
-        """用户勾选接口 → 模型列表联动重建（回退首项）→ 发射切换。"""
+        """用户勾选接口 → 模型列表联动重建（回退首项作即时显示）
+        → 以 (backend, None) 发射切换（解析归 ChatTabs，D3）。"""
         self._refresh_models(backend)
         self._refresh_tooltips()
         self._refresh_button_texts()
-        self.selection_changed.emit(backend, self.current_version())
+        self.selection_changed.emit(backend, None)
 
     def _on_model_picked(self, alias: str) -> None:
         """用户勾选模型 → 发射切换（写盘与广播归 ChatTabs 单一来源）。"""

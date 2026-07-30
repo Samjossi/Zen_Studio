@@ -19,6 +19,13 @@ permission_auto_allow 布尔替换为四态 permission_mode 字符串枚举
 （confirm_all / confirm_execute / auto_guarded / auto_all，模式常量单一
 来源在 llm/permission_policy.py）；旧键读取时一次性迁移（false →
 confirm_all，见 load_settings），迁移后随下次写盘自然消亡。
+
+模型键演进（2026-07-31，work plans/2026-0731-0052 计划）：全局单值
+model_version（切后台即被覆盖丢失）替换为记忆表 model_versions
+（dict[接口实现名, 模型别名]；接口缺失 = 未定制，跟随其模型列表
+首项）；旧键读取时一次性 seed 迁移（见 load_settings），随下次写盘
+自然消亡。记忆单条目写入走 remember_model_version()——flock 锁内
+"读-改-写"防多开实例写不同接口记忆时互相覆盖。
 """
 import fcntl
 import json
@@ -45,13 +52,18 @@ KEY_THEME = "theme"
 KEY_FONT_SIZE = "font_size"
 KEY_FONT_FAMILY = "font_family"
 KEY_MODEL_BACKEND = "model_backend"
-KEY_MODEL_VERSION = "model_version"
+KEY_MODEL_VERSIONS = "model_versions"
 KEY_TERMINAL_SWAP_COPY_PASTE = "terminal_swap_copy_paste"
 KEY_PERMISSION_MODE = "permission_mode"
 
 #: 旧权限键（2026-0722-1240 计划前）：仅用于 load_settings 一次性迁移读取，
 #: 消费侧禁止引用（未登记新键时它已不在 DEFAULT_SETTINGS 内，不写回）
 _LEGACY_KEY_PERMISSION_AUTO_ALLOW = "permission_auto_allow"
+
+#: 旧模型键（2026-0731-0052 计划前：全局单值，切后台即被覆盖丢失）：
+#: 仅用于 load_settings 一次性迁移读取（seed 进 model_versions 记忆表），
+#: 消费侧禁止引用；旧键随下次 update_settings 全量写回自然消亡
+_LEGACY_KEY_MODEL_VERSION = "model_version"
 
 #: 默认主题名（全库唯一来源；theme.py FALLBACK_THEME 与各面板缺省主题均引用此值，
 #: 不可反向引用 theme.py——theme 依赖本模块，反向成环）
@@ -65,9 +77,11 @@ class AppSettings(TypedDict):
     font_size: int               # 全局 UI 字号（pt）
     #: 全局 UI 字体族（apply_theme 应用；目前固定自带思源黑体，登记供持久化一致）
     font_family: str
-    #: 聊天面板模型（registry 后端名）与版本（模型别名；None = 取版本列表第一项）
+    #: 聊天面板当前接口（registry 后端名）
     model_backend: str
-    model_version: str | None
+    #: 模型记忆表（2026-0731-0052 计划 D1）：接口实现名 → 用户显式选定的
+    #: 模型别名；某接口缺失 = 未定制，跟随其模型列表首项（不写条目）
+    model_versions: dict[str, str]
     #: 终端复制/粘贴快捷键反转（True：Ctrl+C/V 复制粘贴，Ctrl+Shift+C/V 发 SIGINT/\x16）
     terminal_swap_copy_paste: bool
     #: AI 工具权限模式（四态枚举，值域见 llm/permission_policy.PERMISSION_MODES：
@@ -83,7 +97,7 @@ class AppSettingsPatch(TypedDict, total=False):
     font_size: int
     font_family: str
     model_backend: str
-    model_version: str | None
+    model_versions: dict[str, str]
     terminal_swap_copy_paste: bool
     permission_mode: str
 
@@ -94,7 +108,7 @@ DEFAULT_SETTINGS: AppSettings = {
     KEY_FONT_SIZE: 10,
     KEY_FONT_FAMILY: "Source Han Sans CN",
     KEY_MODEL_BACKEND: BACKEND_KIMI_ACP,
-    KEY_MODEL_VERSION: None,
+    KEY_MODEL_VERSIONS: {},
     KEY_TERMINAL_SWAP_COPY_PASTE: False,
     KEY_PERMISSION_MODE: DEFAULT_PERMISSION_MODE,
 }
@@ -105,9 +119,11 @@ def load_settings() -> AppSettings:
 
     未登记键读取即丢弃（不写回）：键改名/键迁移（如窗口状态键迁入
     window_state.json）后存量旧键自然失效，无需迁移代码。
-    例外（review 修复）：旧 permission_auto_allow=false 用户显式选择过最
+    例外一（review 修复）：旧 permission_auto_allow=false 用户显式选择过最
     保守的逐次确认，静默落入默认中间档是安全姿态降级——读取时一次性
     映射为 confirm_all（不写回，旧键随下次 update_settings 全量写回消亡）。
+    例外二（2026-0731-0052 计划 D2）：旧全局单值 model_version 为 str 且
+    model_backend 已知 → seed 进 model_versions 记忆表（不写回，同上消亡）。
     """
     settings = AppSettings(DEFAULT_SETTINGS)
     try:
@@ -118,8 +134,22 @@ def load_settings() -> AppSettings:
             if (KEY_PERMISSION_MODE not in data
                     and data.get(_LEGACY_KEY_PERMISSION_AUTO_ALLOW) is False):
                 settings[KEY_PERMISSION_MODE] = MODE_CONFIRM_ALL
+            # 类型防御 + 脱离 DEFAULT_SETTINGS 共享引用（remember_model_version
+            # 锁内原地改 dict 后写回，不拷贝会污染进程内默认值）；先拷贝再迁移
+            versions = settings[KEY_MODEL_VERSIONS]
+            if not isinstance(versions, dict):
+                versions = {}
+            versions = {k: v for k, v in versions.items()
+                        if isinstance(k, str) and isinstance(v, str)}
+            legacy_version = data.get(_LEGACY_KEY_MODEL_VERSION)
+            legacy_backend = data.get(KEY_MODEL_BACKEND)
+            if isinstance(legacy_version, str) and isinstance(legacy_backend, str):
+                versions.setdefault(legacy_backend, legacy_version)
+            settings[KEY_MODEL_VERSIONS] = versions
     except (OSError, json.JSONDecodeError):
         pass
+    # 异常/文件缺失路径同样脱离共享引用
+    settings[KEY_MODEL_VERSIONS] = dict(settings[KEY_MODEL_VERSIONS])
     return settings
 
 
@@ -154,4 +184,21 @@ def update_settings(patch: AppSettingsPatch) -> None:
         fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
         settings = load_settings()
         settings.update(patch)
+        write_json_atomic(SETTINGS_FILE, settings)
+
+
+def remember_model_version(backend: str, alias: str) -> None:
+    """模型记忆表单条目写入（2026-0731-0052 计划 D5）：flock 锁内
+    "读全量 → 改 dict 单条目 → 原子写回"。
+
+    不能用锁外合并 dict 再整体 update_settings——多开实例写不同接口
+    记忆时 patch 值互相覆盖丢更新；锁内合并复用 update_settings 同款
+    flock/原子写设施（fcntl flock 同进程可重入，直接调 load_settings
+    无死锁）。
+    """
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    with open(SETTINGS_LOCK_FILE, "w", encoding="utf-8") as lock:
+        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        settings = load_settings()
+        settings[KEY_MODEL_VERSIONS][backend] = alias
         write_json_atomic(SETTINGS_FILE, settings)

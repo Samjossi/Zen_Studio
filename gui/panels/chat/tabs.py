@@ -35,8 +35,9 @@ from PySide6.QtWidgets import (
 from gui.panels.chat.panel import ChatPanel
 from gui.settings import (
     KEY_MODEL_BACKEND,
-    KEY_MODEL_VERSION,
+    KEY_MODEL_VERSIONS,
     load_settings,
+    remember_model_version,
     update_settings,
 )
 
@@ -67,10 +68,13 @@ class ChatTabs(QWidget):
         self._busy_panels: set[ChatPanel] = set()
 
         # 选择状态单一来源（D4）：启动时从 settings 读取一次；此后用户
-        # 切换（任一标签底行下拉）与菜单/设置中心驱动都收敛到本容器
+        # 切换（任一标签底行下拉）与菜单/设置中心驱动都收敛到本容器。
+        # 模型记忆表（2026-0731-0052 计划 D1/D4）：启动模型取当前接口
+        # 的记忆值，无记忆 = None（未定制，UI 落该接口模型列表首项）
         settings = load_settings()
         self._backend: str | None = settings.get(KEY_MODEL_BACKEND)
-        self._version: str | None = settings.get(KEY_MODEL_VERSION)
+        self._version: str | None = settings[KEY_MODEL_VERSIONS].get(
+            self._backend or "")
 
         self._tabs = QTabWidget(self)
         # 主题接线：base.qss #ChatTabs 段（透明 tab + 激活 accent 下划线，
@@ -184,21 +188,36 @@ class ChatTabs(QWidget):
     # 全局模型选择（D5 语义保留：全部标签共享同一选择；状态层在本容器）
     # ------------------------------------------------------------------
     def _on_selection_changed(self, backend: str, version: object) -> None:
-        """某标签底行下拉用户切换 → 状态更新 + 写盘 + 阻断广播其余实例与 provider。"""
+        """某标签底行下拉用户切换 → 状态更新 + 写盘 + 阻断广播其余实例与 provider。
+
+        载荷语义（2026-0731-0052 计划 D3/D4）：version 为 str = 用户显式
+        选定模型 → 写入记忆表（锁内合并，防多开覆盖）；version 为 None =
+        切后台/接口未指定 → 查该接口记忆（无记忆保持 None，UI 落首项，
+        不写记忆条目，保留跟随首项默认态）。
+        """
         self._backend = backend
-        self._version = version if isinstance(version, str) else None
-        update_settings({KEY_MODEL_BACKEND: backend, KEY_MODEL_VERSION: version})
+        if isinstance(version, str):
+            self._version = version
+            remember_model_version(backend, version)
+        else:
+            self._version = load_settings()[KEY_MODEL_VERSIONS].get(backend)
+        update_settings({KEY_MODEL_BACKEND: backend})
         self._broadcast_selection()
 
     def apply_model_selection(self, backend: str, version: str | None) -> None:
         """菜单/设置中心驱动切换：状态更新 + 写盘 + 广播全部标签。
 
+        载荷语义同 _on_selection_changed（str 写记忆 / None 查记忆）。
         零标签时只更新状态与写盘，新建标签时注入生效（等价原「广播空
         列表 no-op」语义）；发送中（busy）由菜单侧禁用入口。
         """
         self._backend = backend
-        self._version = version
-        update_settings({KEY_MODEL_BACKEND: backend, KEY_MODEL_VERSION: version})
+        if isinstance(version, str):
+            self._version = version
+            remember_model_version(backend, version)
+        else:
+            self._version = load_settings()[KEY_MODEL_VERSIONS].get(backend)
+        update_settings({KEY_MODEL_BACKEND: backend})
         self._broadcast_selection()
 
     def _broadcast_selection(self) -> None:

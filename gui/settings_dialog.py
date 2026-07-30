@@ -60,7 +60,7 @@ from gui.settings import (
     CONFIG_DIR,
     KEY_FONT_SIZE,
     KEY_MODEL_BACKEND,
-    KEY_MODEL_VERSION,
+    KEY_MODEL_VERSIONS,
     KEY_PERMISSION_MODE,
     KEY_TERMINAL_SWAP_COPY_PASTE,
     KEY_THEME,
@@ -512,13 +512,15 @@ class SettingsDialog(QDialog):
         if backend_index < 0 or not self._interface_combo.model().item(backend_index).isEnabled():
             backend_index = self._first_enabled_index(self._interface_combo)
         self._interface_combo.setCurrentIndex(max(backend_index, 0))
-        # 三级：模型（缓存命中同步填，miss 异步拉取）
+        # 三级：模型（缓存命中同步填，miss 异步拉取；回显值取该接口
+        # 记忆表条目，无记忆 = None → 落列表首项，2026-0731-0052 计划 D4）
         current_backend = self._interface_combo.currentData()
+        remembered = settings[KEY_MODEL_VERSIONS].get(current_backend or "")
         if current_backend in self._models_cache:
-            self._fill_models(current_backend, settings[KEY_MODEL_VERSION])
+            self._fill_models(current_backend, remembered)
         else:
             QTimer.singleShot(0, lambda: self._load_and_fill_models(
-                current_backend, settings[KEY_MODEL_VERSION]))
+                current_backend, remembered))
 
     def _rebuild_interfaces(self, vendor: str | None) -> None:
         """接口下拉按后台重建（先清后建，D6 红线 4）：仅列该后台的 spec；

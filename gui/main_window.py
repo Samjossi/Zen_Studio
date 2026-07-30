@@ -72,7 +72,7 @@ from gui.settings import (
     DEFAULT_SETTINGS,
     KEY_FONT_SIZE,
     KEY_MODEL_BACKEND,
-    KEY_MODEL_VERSION,
+    KEY_MODEL_VERSIONS,
     KEY_TERMINAL_SWAP_COPY_PASTE,
     KEY_THEME,
     SETTINGS_FILE,
@@ -641,7 +641,8 @@ class MainWindow(QMainWindow):
             self.switch_theme(settings[KEY_THEME])
             self._apply_font_size(settings[KEY_FONT_SIZE])
             self.apply_model_selection(
-                settings[KEY_MODEL_BACKEND], settings[KEY_MODEL_VERSION])
+                settings[KEY_MODEL_BACKEND],
+                settings[KEY_MODEL_VERSIONS].get(settings[KEY_MODEL_BACKEND]))
             swap = settings[KEY_TERMINAL_SWAP_COPY_PASTE]  # 重置后为默认 False
             self.terminal_panel.set_swap_copy_paste(swap)
         finally:
