@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from llm.base import LanguageModel
 from llm.providers.kimi_acp import KimiAcpLLM
 from llm.providers.kimi_cli import KimiCliLLM, kimi_available, list_kimi_models
+from llm.providers.opencode_acp import OpenCodeAcpLLM, list_opencode_models, opencode_available
 from llm.providers.reasonix_acp import ReasonixAcpLLM, list_reasonix_models, reasonix_available
 
 
@@ -74,6 +75,15 @@ REGISTRY: dict[str, BackendSpec] = {
             available=reasonix_available,
             list_models=list_reasonix_models,
             factory=ReasonixAcpLLM,
+        ),
+        BackendSpec(
+            name="opencode-acp",
+            label="OpenCode ACP",
+            vendor="opencode",
+            vendor_label="OpenCode",
+            available=opencode_available,
+            list_models=list_opencode_models,
+            factory=OpenCodeAcpLLM,
         ),
     )
 }
