@@ -1,4 +1,4 @@
-"""文件树模型层：噪音过滤代理模型 + Git 状态着色。
+"""文件树模型层：Git 状态着色代理模型。
 
 Git 状态装饰（2026-07-20，见 文档/修改记录/2026-0720-0131_Git文件装饰与
 差异统计实施计划.md 阶段二）：代理模型注入 GitStatusService，
@@ -9,38 +9,28 @@ THEME_PALETTES 的 git_status 资源包）。
 目录冒泡计划.md）：目录按子树内可冒泡状态的最高优先级着色
 （conflict > modified > untracked > ignored；deleted 不冒泡），
 聚合缓存在服务层 refresh() 时预构建，此处查询 O(1)。
+
+噪音过滤移除（2026-07-30，见 work plans/2026-0730-1933_移除噪音过滤
+与全量文件可见改造计划.md）：IDE 全量可见（含 dotfile 与
+.git/.venv/__pycache__/node_modules），代理不再承担过滤职责；
+基类 QSortFilterProxyModel → QIdentityProxyModel（索引映射直通，
+着色 data() 唯一保留职责），类随之改名归位。
 """
-from PySide6.QtCore import QSortFilterProxyModel, Qt
+from PySide6.QtCore import QIdentityProxyModel, Qt
 from PySide6.QtGui import QColor
 
 from core.git.service import GitStatusService
 from gui.theme import FALLBACK_THEME, git_status_color
 
 
-class NoiseFilterProxyModel(QSortFilterProxyModel):
-    """按名称排除噪音目录/文件的代理模型。
+class GitStatusProxyModel(QIdentityProxyModel):
+    """Git 状态着色代理：不改结构（索引映射直通），仅覆写 ForegroundRole。"""
 
-    注意：QFileSystemModel.setNameFilters 是"仅显示匹配项"语义，
-    无法实现"排除式"过滤，故改用代理模型。
-    """
-
-    def __init__(self, noise_names: set[str], parent=None) -> None:
+    def __init__(self, parent=None) -> None:
         super().__init__(parent)
-        self.noise_names = noise_names
-        self.is_filter_enabled = True
-        #: Git 状态数据源与配色主题（None = 未启用着色，行为与纯过滤一致）
+        #: Git 状态数据源与配色主题（None = 未启用着色）
         self._git_service: GitStatusService | None = None
         self._theme = FALLBACK_THEME
-
-    # ------------------------------------------------------------------
-    # 噪音过滤
-    # ------------------------------------------------------------------
-    def filterAcceptsRow(self, source_row: int, source_parent) -> bool:
-        if not self.is_filter_enabled:
-            return True
-        model = self.sourceModel()
-        index = model.index(source_row, 0, source_parent)
-        return model.fileName(index) not in self.noise_names
 
     # ------------------------------------------------------------------
     # Git 状态着色

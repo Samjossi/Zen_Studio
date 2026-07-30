@@ -59,7 +59,6 @@ from gui.menus.registry import (
     KEY_VIEW_CHAT,
     KEY_VIEW_CHANGES,
     KEY_VIEW_EXPLORER,
-    KEY_VIEW_NOISE_FILTER,
     KEY_VIEW_TERMINAL,
     theme_action_key,
 )
@@ -74,7 +73,6 @@ from gui.settings import (
     KEY_FONT_SIZE,
     KEY_MODEL_BACKEND,
     KEY_MODEL_VERSION,
-    KEY_NOISE_FILTER,
     KEY_TERMINAL_SWAP_COPY_PASTE,
     KEY_THEME,
     SETTINGS_FILE,
@@ -241,8 +239,6 @@ class MainWindow(QMainWindow):
         # 设置中心同步；发送中模型页禁用
         self.chat_tabs.selection_changed.connect(self._on_modelbar_changed)
         self.chat_tabs.busy_changed.connect(self._on_chat_busy_changed)
-        # 噪音过滤持久化（P2）：启动按持久化恢复文件树过滤态
-        self.file_explorer.set_noise_filter(load_settings()[KEY_NOISE_FILTER])
 
     def _init_statusbar(self) -> None:
         """状态栏：去尺寸把手 + 定高 + Git 统计常驻区 + 就绪消息。"""
@@ -600,20 +596,6 @@ class MainWindow(QMainWindow):
         hint = "Ctrl+C/V 复制粘贴" if checked else "Ctrl+Shift+C/V 复制粘贴"
         self.statusBar().showMessage(f"终端快捷键：{hint}", self.STATUS_MSG_SHORT_MS)
 
-    def set_noise_filter(self, is_enabled: bool) -> None:
-        """噪音过滤（视图菜单/设置中心外观页双入口收敛点）。
-
-        持久化 + 即时下发文件树 + 同步视图菜单勾选态与设置中心控件态
-        （setChecked 不触发 triggered，无回环）。
-        """
-        update_settings({KEY_NOISE_FILTER: is_enabled})
-        self.file_explorer.set_noise_filter(is_enabled)
-        if action := self.menus.get(KEY_VIEW_NOISE_FILTER):
-            action.setChecked(is_enabled)
-        self._sync_settings_dialog()
-        state = "开" if is_enabled else "关"
-        self.statusBar().showMessage(f"噪音过滤：{state}", self.STATUS_MSG_SHORT_MS)
-
     def _on_modelbar_changed(self, _backend: str, _version: object) -> None:
         """模型选择变化（任一标签底行下拉经 ChatTabs 转发）→ 设置中心同步（reload 防回环）。"""
         self._sync_settings_dialog()
@@ -650,7 +632,7 @@ class MainWindow(QMainWindow):
             # 阻断同会话 closeEvent 回写当前布局（否则重置被静默撤销）
             self._state_store.disable_save()
 
-        # 即时应用：主题（含四面板配色）→ 字号 → 模型 → 噪音过滤 → 终端快捷键。
+        # 即时应用：主题（含四面板配色）→ 字号 → 模型 → 终端快捷键。
         # 挂起对话框 sync：各应用槽内置 _sync_settings_dialog 被抑制（否则 N 槽
         # 连发触发 N+1 次全量 reload，前 N 次读中间态即被覆盖），批末单次终态 reload
         settings = load_settings()
@@ -660,10 +642,6 @@ class MainWindow(QMainWindow):
             self._apply_font_size(settings[KEY_FONT_SIZE])
             self.apply_model_selection(
                 settings[KEY_MODEL_BACKEND], settings[KEY_MODEL_VERSION])
-            noise = settings[KEY_NOISE_FILTER]  # 重置后为默认 True
-            if action := self.menus.get(KEY_VIEW_NOISE_FILTER):
-                action.setChecked(noise)
-            self.file_explorer.set_noise_filter(noise)
             swap = settings[KEY_TERMINAL_SWAP_COPY_PASTE]  # 重置后为默认 False
             self.terminal_panel.set_swap_copy_paste(swap)
         finally:

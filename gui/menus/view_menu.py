@@ -1,4 +1,4 @@
-"""视图菜单：面板显隐 / 噪音过滤 / 恢复默认布局 / Git 刷新 / 外观（主题）。
+"""视图菜单：面板显隐 / 恢复默认布局 / Git 刷新 / 外观（主题）。
 
 面板显隐沿用「单一入口」法：勾选动作与面板头部「−」按钮汇入 MainWindow
 的 set_xxx_visible（setChecked 不触发 triggered，勾选态须一并同步）。
@@ -12,12 +12,11 @@ from gui.menus.registry import (
     KEY_VIEW_CHAT,
     KEY_VIEW_CHANGES,
     KEY_VIEW_EXPLORER,
-    KEY_VIEW_NOISE_FILTER,
     KEY_VIEW_TERMINAL,
     ActionRegistry,
     theme_action_key,
 )
-from gui.settings import KEY_NOISE_FILTER, KEY_THEME
+from gui.settings import KEY_THEME
 from gui.theme import list_available_themes, get_label, load_settings
 
 
@@ -38,13 +37,6 @@ def build(menubar: QMenuBar, ctx: QMainWindow, actions: ActionRegistry) -> None:
         actions.register(key, action)
 
     menu.addSeparator()
-
-    # 噪音过滤：初态读持久化（P2 升级为偏好）；触发走 MainWindow 收敛点
-    action = menu.addAction("过滤噪音目录(&N)")
-    action.setCheckable(True)
-    action.setChecked(load_settings()[KEY_NOISE_FILTER])
-    action.triggered.connect(ctx.set_noise_filter)
-    actions.register(KEY_VIEW_NOISE_FILTER, action)
 
     action = menu.addAction("恢复默认布局(&R)")
     action.triggered.connect(ctx.reset_layout)

@@ -61,7 +61,6 @@ from gui.settings import (
     KEY_FONT_SIZE,
     KEY_MODEL_BACKEND,
     KEY_MODEL_VERSION,
-    KEY_NOISE_FILTER,
     KEY_PERMISSION_MODE,
     KEY_TERMINAL_SWAP_COPY_PASTE,
     KEY_THEME,
@@ -128,7 +127,7 @@ class SettingsDialog(QDialog):
     """设置中心：非模态单例（MainWindow 持有），页面注册表驱动导航。
 
     :param ctx: MainWindow（鸭子类型：apply_model_selection / switch_theme /
-        set_font_size / set_terminal_swap_copy_paste / set_noise_filter /
+        set_font_size / set_terminal_swap_copy_paste /
         open_settings_file / reset_settings / chat_tabs / statusBar；
         FONT_SIZE_MIN/MAX/STATUS_MSG_TIMEOUT_MS 类常量）
     """
@@ -401,14 +400,8 @@ class SettingsDialog(QDialog):
         self._font_spin.setSuffix(" pt")
         layout.addRow("主题", self._theme_combo)
         layout.addRow("字号", self._font_spin)
-        # 文件树小节（P2 首个迁移验证项：噪音过滤由视图菜单会话态升级为偏好）
-        self._noise_check = QCheckBox("过滤噪音目录", page)
-        layout.addRow("文件树", self._noise_check)
-        layout.addRow(self._make_hint(
-            "隐藏 __pycache__ / .git / .venv / node_modules；与视图菜单同一开关。", page))
         self._theme_combo.activated.connect(self._on_theme_activated)
         self._font_spin.valueChanged.connect(self._on_font_changed)
-        self._noise_check.toggled.connect(self._on_noise_toggled)
         return page
 
     def _on_theme_activated(self, index: int) -> None:
@@ -420,13 +413,6 @@ class SettingsDialog(QDialog):
             self._ctx.set_font_size(value)
             self._ctx.statusBar().showMessage(
                 f"外观：字号 → {value} pt", self._ctx.STATUS_MSG_TIMEOUT_MS)
-
-    def _on_noise_toggled(self, checked: bool) -> None:
-        if not self._reloading:
-            self._ctx.set_noise_filter(checked)
-            self._ctx.statusBar().showMessage(
-                f"外观：过滤噪音目录 → {'开' if checked else '关'}",
-                self._ctx.STATUS_MSG_TIMEOUT_MS)
 
     # ------------------------------------------------------------------
     # 终端页
@@ -495,11 +481,10 @@ class SettingsDialog(QDialog):
         radio.setChecked(True)
 
     def _reload_appearance(self, settings) -> None:
-        """外观页：主题 / 字号 / 文件树噪音过滤回读。"""
+        """外观页：主题 / 字号回读。"""
         theme_index = self._theme_combo.findData(settings[KEY_THEME])
         self._theme_combo.setCurrentIndex(max(theme_index, 0))
         self._font_spin.setValue(settings[KEY_FONT_SIZE])
-        self._noise_check.setChecked(settings[KEY_NOISE_FILTER])
 
     def _reload_terminal(self, settings) -> None:
         self._swap_check.setChecked(settings[KEY_TERMINAL_SWAP_COPY_PASTE])

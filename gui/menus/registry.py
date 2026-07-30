@@ -16,8 +16,6 @@ KEY_VIEW_CHAT = "view.chat"
 KEY_VIEW_EXPLORER = "view.explorer"
 KEY_VIEW_TERMINAL = "view.terminal"
 KEY_VIEW_CHANGES = "view.changes"
-#: 噪音过滤开关键（view_menu 注册 / MainWindow 工作区切换后同步勾选态）
-KEY_VIEW_NOISE_FILTER = "view.noise_filter"
 
 
 def theme_action_key(theme: str) -> str:

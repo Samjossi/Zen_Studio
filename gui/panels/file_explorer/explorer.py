@@ -7,12 +7,12 @@
     file_opened(str) — 双击文件时发射，参数为文件绝对路径，
                        供后续编辑器模块接入。
 
-子包拆分：模型层见 model.py（噪音过滤，git 装饰预留），右键动作见 actions.py。
+子包拆分：模型层见 model.py（Git 状态着色代理），右键动作见 actions.py。
 """
 from collections.abc import Callable
 from pathlib import Path
 
-from PySide6.QtCore import QMimeData, QUrl, Signal, Qt
+from PySide6.QtCore import QDir, QMimeData, QUrl, Signal, Qt
 from PySide6.QtGui import QDrag
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -26,7 +26,7 @@ from PySide6.QtWidgets import (
 
 from core.git.service import GitStatusService
 from gui.panels.file_explorer.actions import ExplorerActions
-from gui.panels.file_explorer.model import NoiseFilterProxyModel
+from gui.panels.file_explorer.model import GitStatusProxyModel
 from gui.settings import KEY_THEME
 from gui.theme import load_settings
 
@@ -61,9 +61,6 @@ class FileExplorer(QWidget):
     """目录文件浏览器（右栏面板）。"""
 
     file_opened = Signal(str)
-
-    #: 噪音目录/文件过滤清单
-    NOISE_NAMES = {"__pycache__", ".git", ".venv", "node_modules"}
 
     #: 面板最小宽度（px）：根级最长文件名省略号截断/横向滚动条出现前的阈值
     #: （实测内容理想宽度 230px，定 240 含跨机器余量）；
@@ -116,12 +113,21 @@ class FileExplorer(QWidget):
         layout.setContentsMargins(6, 6, 6, 6)
 
     def _build_model(self) -> None:
-        """文件系统模型 + 噪音过滤代理装配。"""
+        """文件系统模型 + Git 状态着色代理装配。"""
         self.model = QFileSystemModel(self)
         self.model.setRootPath(self.root_dir)
         self.model.setReadOnly(False)  # 允许重命名编辑
+        # Qt 默认 filter（Dirs|Files|Drives|AllDirs|NoDot|NoDotDot）不含
+        # Hidden，dotfile 永不入模型；IDE 须全量可见（含 .gitignore 与
+        # .git/.venv/__pycache__/node_modules），见 work plans/2026-0730-1933 计划
+        self.model.setFilter(
+            QDir.Filter.AllEntries
+            | QDir.Filter.AllDirs
+            | QDir.Filter.NoDotAndDotDot
+            | QDir.Filter.Hidden
+        )
 
-        self.proxy = NoiseFilterProxyModel(self.NOISE_NAMES, self)
+        self.proxy = GitStatusProxyModel(self)
         self.proxy.setSourceModel(self.model)
 
     def _build_tree(self) -> None:
@@ -151,11 +157,6 @@ class FileExplorer(QWidget):
     # ------------------------------------------------------------------
     # 公开接口
     # ------------------------------------------------------------------
-    def set_noise_filter(self, is_enabled: bool) -> None:
-        """切换噪音过滤（隐藏 __pycache__、.git、.venv、node_modules）。"""
-        self.proxy.is_filter_enabled = is_enabled
-        self.proxy.invalidateFilter()
-
     def apply_git_status(self, service: GitStatusService, theme: str | None = None) -> None:
         """注入 Git 状态服务并重绘着色（theme 缺省取当前主题）。"""
         if theme is None:
