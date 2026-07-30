@@ -139,21 +139,30 @@ class ChatPanel(QWidget):
         UI 同步走 ModelBar.set_selection（全程阻断信号，不回环）；
         持久化与状态层归 ChatTabs，本方法不管。
         上下文不迁移（各后端会话各自独立），切后端时输出提示行。
-        D4：切换接口时旧实例 close() 后丢弃，防长驻进程随切换累积。
+        D4：切换接口时旧实例 pop 后由 daemon 线程 close() 丢弃（2026-0730-2338
+        计划 D4 异步化，terminate 不再阻塞 GUI），防长驻进程随切换累积。
         """
         self.model_bar.set_selection(backend, version)
         backend = self.model_bar.current_backend()  # 回退后的有效值（与 UI 一致）
         version = self.model_bar.current_version()
         if backend != self._llm_name:
             old = self._providers.pop(self._llm_name, None)
-            if old is not None and (close := getattr(old, "close", None)) is not None:
-                close()
+            if old is not None and getattr(old, "close", None) is not None:
+                # 切换路径与 close() 同策略（计划 2026-0730-2338 D4）：
+                # provider.close() 内 terminate()+wait(timeout=5) 为秒级
+                # 阻塞，挪 daemon 线程，GUI 不干等；旧实例已 pop 出
+                # _providers 不再被引用，无并发访问。快速切回旧后台时
+                # 新实例重新构造（独立子进程），与后台 close 无共享状态
+                threading.Thread(
+                    target=_close_providers, args=([old],), daemon=True).start()
             self.output.append_message(
                 "系统", f"已切换到 {BACKEND_LABELS.get(backend, backend)} 后端，开始新会话")
         self._llm_name = backend
         provider = self._get_provider(backend)
         if provider is not None and isinstance(version, str):
             if (set_model := getattr(provider, "set_model", None)) is not None:
+                # 保持同步（计划 2026-0730-2338 D5 降级项）：provider 层无锁，
+                # 挪线程会与对话线程并发触达同一 ACP stdio 连接；正常亚秒级
                 set_model(version)
 
     def request_stop(self) -> None:

@@ -102,6 +102,12 @@ class ModelBar(QWidget):
         self._vendor_group = QActionGroup(self)  # 默认互斥
         self._interface_group = QActionGroup(self)
         self._model_group = QActionGroup(self)
+        #: 当前接口/模型菜单对应的数据源（后台名/接口名；None = 未建过）。
+        #: 用于 set_selection 跳过「数据未变」的无谓重建（计划
+        #: 2026-0730-2338 D3）：重建由 _refresh_interfaces/_refresh_models
+        #: 同步改写，先清后建语义不变
+        self._interfaces_vendor: str | None = None
+        self._models_backend: str | None = None
 
         # 一级菜单：后台分组（注册序即菜单序）；整组不可用 → 禁用 + 标注
         for vendor, specs in vendor_groups().items():
@@ -273,16 +279,24 @@ class ModelBar(QWidget):
             vtarget = self._first_enabled(self._vendor_group)
         if vtarget is not None:
             vtarget.setChecked(True)
-        # 二级：接口（列表先清后建后勾选；失效回退首个可用接口）
-        self._refresh_interfaces(self.current_vendor())
+        # 二级：接口（列表先清后建后勾选；失效回退首个可用接口）。
+        # 后台未变且菜单已建则跳过重建（数据未变，计划 2026-0730-2338 D3）
+        vendor = self.current_vendor()
+        if (vendor != self._interfaces_vendor
+                or not self._interface_group.actions()):
+            self._refresh_interfaces(vendor)
         itarget = self._find_action(self._interface_group, backend)
         if itarget is None or not itarget.isEnabled():
             itarget = self._first_enabled(self._interface_group)
         if itarget is not None:
             itarget.setChecked(True)
         # 三级：模型（列表先清后建后勾选；失效回退首项——旧后台别名
-        # 立即失效不得残留，D6 红线 4；回退不落盘，红线 5）
-        self._refresh_models(self.current_backend())
+        # 立即失效不得残留，D6 红线 4；回退不落盘，红线 5）。
+        # 接口未变且菜单已建则跳过重建（同上 D3）
+        backend_effective = self.current_backend()
+        if (backend_effective != self._models_backend
+                or not self._model_group.actions()):
+            self._refresh_models(backend_effective)
         mtarget = self._find_action(self._model_group, version)
         if mtarget is None and self._model_group.actions():
             mtarget = self._model_group.actions()[0]
@@ -314,6 +328,7 @@ class ModelBar(QWidget):
         default = self._first_enabled(self._interface_group)
         if default is not None:
             default.setChecked(True)
+        self._interfaces_vendor = vendor
         self._refresh_models(self.current_backend())
 
     def _refresh_models(self, backend: str | None) -> None:
@@ -332,6 +347,7 @@ class ModelBar(QWidget):
                     alias, alias, self._on_model_picked)
         if self._model_group.actions():
             self._model_group.actions()[0].setChecked(True)
+        self._models_backend = backend
 
     def _on_vendor_picked(self, vendor: str) -> None:
         """用户勾选后台 → 接口/模型列表联动重建（各回退首项）→ 发射切换。"""

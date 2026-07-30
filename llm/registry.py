@@ -9,9 +9,15 @@
 - D6 红线 1：模型目录挂接口级——每个 BackendSpec.list_models 各调各的
   （kimi → `kimi provider list --json`），全库禁止跨后台共享模型表；
   红线 2：模型别名对注册表是不透明字符串，不解析、不拼接、不校验格式。
+- 模型列表进程级缓存（计划 2026-0730-2338 D1/D2）：注册段将各接口的
+  list_models 包一层缓存（key 即接口名，不破红线 1）——底层为 CLI 子进程
+  调用（最坏 timeout=15s），GUI 线程上每面板每次切换都现拉会成倍卡顿；
+  模型目录变化以天计，进程生命周期内一次拉取即可。refresh_models() 为
+  唯一失效口（设置中心等显式刷新场景用），无 TTL、无文件监听。
 - 依赖方向：本模块 → providers → llm.base；providers 不得反向 import
   本模块（防循环 import）。providers 两模块 import 无副作用，模块级安全。
 """
+import threading
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -44,8 +50,46 @@ class BackendSpec:
 
 
 # ----------------------------------------------------------------------
+# 模型列表进程级缓存（计划 2026-0730-2338 D1/D2）：底层 list_*_models 均为
+# CLI 子进程调用（timeout=15s 级），GUI 线程「广播 × 标签数」放大后成倍卡顿；
+# 进程生命周期内每接口一次拉取，refresh_models() 为唯一失效口。
+# 锁覆盖「查 + 拉 + 写」全程：防并发 miss 时重复起子进程（设置中心与
+# ModelBar 可能并发拉取）；锁内阻塞仅发生在每接口的首次拉取。
+# ----------------------------------------------------------------------
+_models_cache: dict[str, tuple[str, ...]] = {}
+_models_cache_lock = threading.Lock()
+
+
+def _cached_list_models(
+        name: str, fn: Callable[[], list[str]]) -> Callable[[], list[str]]:
+    """把接口级 list_models 包成缓存版：命中返回副本，miss 拉取并回填。"""
+    def wrapper() -> list[str]:
+        with _models_cache_lock:
+            cached = _models_cache.get(name)
+            if cached is None:
+                cached = tuple(fn())
+                _models_cache[name] = cached
+        return list(cached)
+    return wrapper
+
+
+def refresh_models(name: str | None = None) -> None:
+    """清模型列表缓存（下次 list_models 惰性重新拉取）；name=None 清全部。
+
+    唯一缓存失效口（D2）：模型目录低频变化，进程内不做 TTL/文件监听；
+    设置中心「重新检测」等显式刷新场景调本函数。
+    """
+    with _models_cache_lock:
+        if name is None:
+            _models_cache.clear()
+        else:
+            _models_cache.pop(name, None)
+
+
+# ----------------------------------------------------------------------
 # 注册段：新增后台在 llm/providers/ 实现后于此后台追加一项（dict 保持插入序，
 # 插入序即 UI 菜单序）。kimi 两实现共用同一 CLI 探测与模型枚举（同一二进制）。
+# list_models 统一经 _cached_list_models 包装（缓存 key 即接口名，红线 1 不破）。
 # ----------------------------------------------------------------------
 REGISTRY: dict[str, BackendSpec] = {
     spec.name: spec
@@ -56,7 +100,7 @@ REGISTRY: dict[str, BackendSpec] = {
             vendor="kimi",
             vendor_label="Kimi",
             available=kimi_available,
-            list_models=list_kimi_models,
+            list_models=_cached_list_models("kimi-cli", list_kimi_models),
             factory=KimiCliLLM,
         ),
         BackendSpec(
@@ -65,7 +109,7 @@ REGISTRY: dict[str, BackendSpec] = {
             vendor="kimi",
             vendor_label="Kimi",
             available=kimi_available,
-            list_models=list_kimi_models,
+            list_models=_cached_list_models("kimi-acp", list_kimi_models),
             factory=KimiAcpLLM,
         ),
         BackendSpec(
@@ -74,7 +118,7 @@ REGISTRY: dict[str, BackendSpec] = {
             vendor="reasonix",
             vendor_label="Reasonix",
             available=reasonix_available,
-            list_models=list_reasonix_models,
+            list_models=_cached_list_models("reasonix-acp", list_reasonix_models),
             factory=ReasonixAcpLLM,
         ),
         BackendSpec(
@@ -83,7 +127,7 @@ REGISTRY: dict[str, BackendSpec] = {
             vendor="opencode",
             vendor_label="OpenCode",
             available=opencode_available,
-            list_models=list_opencode_models,
+            list_models=_cached_list_models("opencode-acp", list_opencode_models),
             factory=OpenCodeAcpLLM,
         ),
         BackendSpec(
@@ -92,7 +136,7 @@ REGISTRY: dict[str, BackendSpec] = {
             vendor="kilocode",
             vendor_label="Kilo Code",
             available=kilocode_available,
-            list_models=list_kilocode_models,
+            list_models=_cached_list_models("kilocode-acp", list_kilocode_models),
             factory=KiloCodeAcpLLM,
         ),
     )
@@ -142,6 +186,7 @@ __all__ = [
     "spec_of",
     "vendor_of",
     "vendor_groups",
+    "refresh_models",
     "BACKEND_LABELS",
     "VENDOR_LABELS",
 ]

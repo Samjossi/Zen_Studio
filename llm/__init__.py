@@ -20,6 +20,7 @@ from llm.registry import (
     REGISTRY,
     VENDOR_LABELS,
     BackendSpec,
+    refresh_models,
     spec_of,
     vendor_groups,
     vendor_of,
@@ -44,6 +45,7 @@ __all__ = [
     "spec_of",
     "vendor_of",
     "vendor_groups",
+    "refresh_models",
     "VENDOR_LABELS",
     # Kimi CLI 专有符号（非 Protocol 成员）
     "KimiCliLLM",
