@@ -15,7 +15,7 @@
 | 文件 | 说明 |
 |:---|:---|
 | `core/__init__.py` | 包初始化 |
-| `core/version.py` | **版本单一来源**：`APP_VERSION` 常量（发版人工 +0.1）；`pyproject.toml` 的 version 为其副本，发版同步手改；消费方一律 import，禁止散落写死 |
+| `core/version.py` | **版本加载器**：单一来源本体为 `config/version.json`（发版人工 +0.1，数据文件承载不硬编码），本模块导入时读取并导出 `APP_VERSION`（缺失/损坏回退兜底并告警）；`pyproject.toml` 的 version 为其副本，发版同步手改；消费方一律 import，禁止散落写死、禁止自行读文件 |
 | `core/paths.py` | **项目级路径常量唯一推导点**：全库其余模块一律 import，禁止手写 `parents[N]` 推导；PyInstaller frozen 兼容（`sys._MEIPASS` 检测），打包态用户数据写 XDG 配置目录（`${XDG_CONFIG_HOME:-~/.config}/zen-studio/`），开发态维持项目内 `config/` |
 | `core/external_apps.py` | 外部应用程序调起：「使用 Typora 打开」的探测与启动共享逻辑（OOP 封装 + 依赖注入，探针/进程创建构造注入可假依赖单测；`subprocess.Popen` 非阻塞，禁止 `os.system` 阻塞 UI） |
 | `core/git/` | Git 数据层子包（见 §3） |
@@ -35,4 +35,4 @@ subprocess 调系统 git CLI 的纯 Python 包（选型：`2026-0720-0135_Git文
 
 - ❌ 禁止在 `core/` 引入 PySide6 或任何 GUI 依赖；
 - ❌ 禁止在 `core/` 外手写项目根 / assets / config 路径推导（一律走 `core/paths.py`）；
-- ❌ 禁止在 `core/` 外写死版本号字面量（一律走 `core/version.py`）。
+- ❌ 禁止在 `core/` 外写死版本号字面量或自读版本文件（一律经 `core/version.py` 的 `APP_VERSION`）。

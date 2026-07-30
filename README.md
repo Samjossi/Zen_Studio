@@ -64,7 +64,7 @@ Zen Studio 的设计哲学是 **AI-first**：代码修改一律经 AI agent 落�
 关键架构约束：
 
 - **依赖方向单向**：`gui/`（前端）→ `llm/`（后端），`core/` 为零 Qt 依赖底层；包内不反向 import；
-- **版本单一来源**：`core/version.py` 的 `APP_VERSION`（发版人工 +0.1），`pyproject.toml` 版本为其副本；
+- **版本单一来源**：`config/version.json` 的 `version` 字段（发版人工 +0.1，数据文件承载不硬编码），代码侧一律经 `core/version.py` 的 `APP_VERSION` 读取，`pyproject.toml` 版本为其副本；
 - **AI 友好代码协议**：全库遵循 `AI 友好代码协议-v1.2.0.md`（方法级拆分、docstring 决策留痕、禁止上帝对象）。
 
 ## 5. 目录结构
@@ -77,7 +77,7 @@ Zen Studio 的设计哲学是 **AI-first**：代码修改一律经 AI agent 落�
 | `core/` | 底层设施：版本单一来源 / 路径解析 / Git 数据层 / 外部应用调起 |
 | `assets/` | 主题 qss、自带字体（OFL）、Logo 成套件与候选池 |
 | `building/` | PyInstaller spec、AppImage 构建脚本与产物 |
-| `config/` | 运行时配置（settings / 最近项目 / 窗口状态，gitignored 数据） |
+| `config/` | 版本单一来源（`version.json`）与运行时配置（settings / 最近项目 / 窗口状态，gitignored 数据） |
 | `scripts/` | 工具脚本（Logo 渲染等） |
 | `work charter/` `work plans/` `work options/` | 章程 / 计划 / 选型三级工作文档（当前批次已归档至 `文档/`） |
 | `文档/` | 归档文档库：修改记录 / 选型记录 / 审计报告 / 理论依据 / 提示语句 |

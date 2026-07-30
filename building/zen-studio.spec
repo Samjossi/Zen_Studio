@@ -8,7 +8,7 @@
 
 要点：
 - 路径经 SPECPATH 推导项目根，从任意目录调用行为一致（不依赖 CWD）
-- datas 按子目录收编四条（字体两族 + Logo 全套 + 主题模板）；
+- datas 按子目录收编五条（字体两族 + Logo 全套 + 主题模板 + 版本文件）；
   思源宋体（87M 未注册备用族）与 logo候选池（设计草稿）明确不打包——
   见 work plans/2026-0725-1053 计划 §4 打包内容清单
 - 未用 Qt 库经 a.binaries 显式过滤兜底——⚠️ 模块级 excludes 实证无效
@@ -34,6 +34,9 @@ a = Analysis(
         (os.path.join(PROJECT_ROOT, "assets/logo"), "assets/logo"),
         # QSS 主题模板（gui/theme.py THEME_TEMPLATE_FILE 消费的只读资源）
         (os.path.join(PROJECT_ROOT, "assets/themes"), "assets/themes"),
+        # 版本单一来源（core/version.py 加载器消费；2026-07-31 起版本号
+        # 不再硬编码进 PYZ 源码，必须随 datas 收编否则打包态读不到）
+        (os.path.join(PROJECT_ROOT, "config/version.json"), "config"),
     ],
     hiddenimports=[],
     hookspath=[],
