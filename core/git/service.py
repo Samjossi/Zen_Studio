@@ -20,6 +20,8 @@ from core.git import numstat, runner, status
 #: 目录聚合状态优先级（大者胜出，见 _build_dir_status）。
 #: deleted 不在表内：删除不冒泡（对齐 VS Code propagate 语义——已删文件
 #: 树上可能不可见，冒泡到目录会误导"里面有东西要处理"）。
+#: ignored 在表内但不冒泡：仅用于折叠目录键自身入缓存的 rank 比较
+#: （对齐 VS Code——ignored 资源仅自身暗显，不向父目录传播）。
 _DIR_STATUS_PRIORITY: dict[str, int] = {
     status.IGNORED: 0,
     status.UNTRACKED: 1,
@@ -101,11 +103,12 @@ class GitStatusService:
         """由 _status 预聚合 {目录相对路径: 归并后状态}，查询 O(1)。
 
         对每个可冒泡状态键沿父链逐级向上写入，优先级取高者
-        （conflict > modified > untracked > ignored，显式归并不依赖
-        遍历顺序）；目录已有同级/更高优先级状态即 break 剪枝（对齐
+        （conflict > modified > untracked，显式归并不依赖遍历顺序）；
+        目录已有同级/更高优先级状态即 break 剪枝（对齐
         theia propagateDecorationsByUri——继续向上只会更弱，祖先必已
-        被同级/更高状态占据）。deleted 不冒泡；ignored 折叠键 `dir/`
-        去尾斜杠后先入缓存自身再照常上溯；仓库根不入缓存（不着色）。
+        被同级/更高状态占据）。deleted/ignored 不冒泡（对齐 VS Code：
+        ignored 资源仅自身暗显，不向父目录传播）；ignored 折叠键 `dir/`
+        去尾斜杠后入缓存自身即止；仓库根不入缓存（不着色）。
         """
         result: dict[str, str] = {}
         for rel, file_status in self._status.items():
@@ -120,6 +123,8 @@ class GitStatusService:
                 existing = result.get(key)
                 if existing is None or _DIR_STATUS_PRIORITY[existing] < new_rank:
                     result[key] = file_status
+            if file_status == status.IGNORED:
+                continue  # ignored 不冒泡：自身暗显即止，不透传父目录
             for parent in PurePosixPath(key).parents:
                 parent_key = str(parent)
                 if parent_key == ".":  # 仓库根不着色
@@ -155,7 +160,8 @@ class GitStatusService:
         """目录的聚合 Git 状态：子树内可冒泡状态的最高优先级；无变更返回 None。
 
         语义为「子树内有该级别变更」，不代表目录本身被 git 跟踪变更；
-        deleted 不冒泡（见 _build_dir_status）；仓库根目录恒为 None。
+        deleted/ignored 不冒泡（见 _build_dir_status；ignored 折叠目录
+        自身入缓存，仍可返回 ignored）；仓库根目录恒为 None。
         """
         rel = self._rel(abs_path)
         if rel is None:

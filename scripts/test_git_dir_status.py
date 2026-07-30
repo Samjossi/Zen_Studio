@@ -59,15 +59,23 @@ check("deleted 不冒泡：status_of_dir → None", svc.status_of_dir(f"{REPO}/e
 svc = make_service({"f/gone.py": st.DELETED, "f/new.py": st.UNTRACKED})
 check("deleted+untracked → untracked", svc._dir_status.get("f") == st.UNTRACKED)
 
-# 5. ignored 折叠键 `dir/`：自身入缓存（去尾斜杠），祖先照常归并
+# 5. ignored 折叠键 `dir/`：自身入缓存（去尾斜杠），但不向祖先冒泡
+#    （对齐 VS Code：ignored 仅自身暗显——2026-0730-1940 修复）
 svc = make_service({"g/build/": st.IGNORED})
 check("ignored 折叠键自身 → ignored", svc._dir_status.get("g/build") == st.IGNORED)
-check("ignored 祖先归并 → ignored", svc._dir_status.get("g") == st.IGNORED)
+check("ignored 不冒泡：g 无键", "g" not in svc._dir_status)
 
-# 6. ignored 不盖过 modified（同一祖先下）
+# 6. ignored 不盖过 modified（同一祖先下；ignored 缺席不干扰 modified 冒泡）
 svc = make_service({"h/build/": st.IGNORED, "h/src/m.py": st.MODIFIED})
 check("ignored 不盖过 modified", svc._dir_status.get("h") == st.MODIFIED)
 check("ignored 目录自身仍 ignored", svc._dir_status.get("h/build") == st.IGNORED)
+
+# 6b. 非折叠 ignored 文件：不冒泡，自身状态经 status_of() 直查保留
+svc = make_service({"j/cache/x.pyc": st.IGNORED})
+check("非折叠 ignored 不冒泡：j/cache 无键", "j/cache" not in svc._dir_status)
+check("非折叠 ignored 不冒泡：j 无键", "j" not in svc._dir_status)
+check("非折叠 ignored 文件自身状态保留",
+      svc.status_of(f"{REPO}/j/cache/x.pyc") == st.IGNORED)
 
 # 7. conflict 最高优先级：深嵌套 conflict 盖过浅层 modified
 svc = make_service({"i/j/k/c.py": st.CONFLICT, "i/m.py": st.MODIFIED})

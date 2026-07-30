@@ -6,9 +6,11 @@ ForegroundRole 按文件状态返回主题色（色值按主题名查 gui/theme.
 THEME_PALETTES 的 git_status 资源包）。
 
 目录聚合着色（2026-07-25，见 work plans/2026-0725-0933_文件树Git状态颜色
-目录冒泡计划.md）：目录按子树内可冒泡状态的最高优先级着色
-（conflict > modified > untracked > ignored；deleted 不冒泡），
-聚合缓存在服务层 refresh() 时预构建，此处查询 O(1)。
+目录冒泡计划.md；2026-07-30 修订，见 work plans/2026-0730-1940_忽略灰色
+着色不透传父目录修复计划.md）：目录按子树内可冒泡状态的最高优先级着色
+（conflict > modified > untracked；deleted/ignored 不冒泡——ignored
+仅自身暗显，不透传父目录），聚合缓存在服务层 refresh() 时预构建，
+此处查询 O(1)。
 
 噪音过滤移除（2026-07-30，见 work plans/2026-0730-1933_移除噪音过滤
 与全量文件可见改造计划.md）：IDE 全量可见（含 dotfile 与
@@ -54,8 +56,9 @@ class GitStatusProxyModel(QIdentityProxyModel):
     def _git_status_color_of(self, proxy_index) -> QColor | None:
         """代理索引 → Git 状态色（服务未启用/无状态/无配色均为 None）。
 
-        目录查聚合状态（status_of_dir：子树内最高优先级，deleted 不冒泡），
-        文件查自身状态（status_of）；仓库根目录恒不着色（服务层不缓存根）。
+        目录查聚合状态（status_of_dir：子树内最高优先级，deleted/ignored
+        不冒泡），文件查自身状态（status_of）；仓库根目录恒不着色
+        （服务层不缓存根）。
         """
         if self._git_service is None or not self._git_service.is_enabled:
             return None
