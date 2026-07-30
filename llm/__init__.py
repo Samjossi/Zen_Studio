@@ -10,6 +10,7 @@
 """
 from llm.base import Chunk, LanguageModel, Message
 from llm.providers.acp import PermissionHandler, PermissionParams
+from llm.providers.kilocode_acp import KiloCodeAcpLLM, kilocode_available, list_kilocode_models
 from llm.providers.kimi_acp import KimiAcpLLM
 from llm.providers.kimi_cli import KimiCliLLM, kimi_available, list_kimi_models
 from llm.providers.opencode_acp import OpenCodeAcpLLM, list_opencode_models, opencode_available
@@ -57,6 +58,10 @@ __all__ = [
     "OpenCodeAcpLLM",
     "opencode_available",
     "list_opencode_models",
+    # Kilo Code CLI 专有符号（非 Protocol 成员）
+    "KiloCodeAcpLLM",
+    "kilocode_available",
+    "list_kilocode_models",
     # ACP 协议层定型（审批回环共用；现居 llm.providers.acp，此处 re-export）
     "PermissionHandler",
     "PermissionParams",

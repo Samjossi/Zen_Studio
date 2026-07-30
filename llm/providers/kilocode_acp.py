@@ -1,37 +1,39 @@
-"""OpenCode ACP provider：长驻 `opencode acp` 子进程 + JSON-RPC（ndjson 帧）对接。
+"""Kilo Code ACP provider：长驻 `kilo acp` 子进程 + JSON-RPC（ndjson 帧）对接。
 
-与 ReasonixAcpLLM 高度同构（计划 2026-0730-2128 §3.1）：会话生命周期、
-审批回环、思维链映射全部复用泛化连接层 AcpConnection（llm/providers/acp.py）。
-OpenCode 侧 ACP v1（protocolVersion: 1）与 kimi/reasonix 实现协议同构
-（计划 §2 实测：initialize / session/new / session/set_config_option /
-session/prompt / 流式 update 全链路通过），流式更新走 ACP 标准
-`agent_message_chunk` / `agent_thought_chunk` / `tool_call`；
-`available_commands_update` / `usage_update` 等忽略即可兼容（R1：不臆造协议）。
+与 OpenCodeAcpLLM 高度同构（计划 2026-0730-2240 §3.1；Kilo CLI 官方自述为
+OpenCode fork，协议级兼容）：会话生命周期、审批回环、思维链映射全部复用
+泛化连接层 AcpConnection（llm/providers/acp.py）。Kilo 侧 ACP v1
+（protocolVersion: 1）与 kimi/reasonix/opencode 实现协议同构（计划 §2.3-§2.5
+实测：initialize / session/new / session/set_config_option / session/prompt /
+流式 update 全链路通过），流式更新走 ACP 标准 `agent_message_chunk` /
+`agent_thought_chunk` / `tool_call`；`usage_update` 等忽略即可兼容
+（R1：不臆造协议）。
 
-与 reasonix_acp 的差异（均写在本文件 docstring，逐条可核对）：
-1. 模型目录来源：`list_opencode_models()` spawn `opencode models` 解析纯文本行
-   （无 --json 旗标，计划 §2.2）；reasonix 自行解析 config.toml。原始目录
-   本机实测 15 项，其中 7 项为 `opencode/` 前缀的 OpenCode Zen 官方模型
-   （用户不使用），枚举时按 `GATEWAY_MODEL_PREFIX` 剔除，仅呈现已认证
-   直连 provider（本机 8 项，计划 2026-0730-2318 §2.2）。边界：OpenCode
-   agent 默认模型 `opencode/big-pickle` 即 Zen 模型，过滤后菜单不含它，
-   但用户不选模型时 provider 沿用 agent 默认（configOptions currentValue），
-   对话不受影响；已持久化的 Zen 别名经 set_model 原样透传仍生效——
-   过滤仅作用于枚举呈现层（D6 红线 2 不破）。
-2. bin 探测：两级链 PATH → `~/.opencode/bin/opencode`。OpenCode 无
-   `OPENCODE_HOME` 类安装根环境变量（官方环境变量表只有 OPENCODE_CONFIG 等
-   配置路径），故无 reasonix 的 $REASONIX_HOME/bin 中间级。
+与 opencode_acp 的差异（均写在本文件 docstring，逐条可核对）：
+1. bin 探测：两级链 PATH（`kilocode` → `kilo` 双名顺序探测——双名 symlink
+   同指同一二进制，`kilocode` 更长更不易撞名优先，`kilo` 为官方主推名兜底）
+   → `~/.local/bin/kilocode` 兜底（npm 全局 bin 通常在桌面会话 PATH 中但不
+   保证，计划 §2.1）。Kilo CLI 无安装根环境变量（官方仅 KILO_CONFIG 等配置
+   路径），故探测链为两级。
+2. 模型目录规模与网关过滤：`list_kilocode_models()` spawn `kilo models`
+   解析纯文本行（无 --json 旗标，计划 2026-0730-2240 §2.2）；原始目录本机
+   实测 294 项，其中 280 项为 `kilo/` 前缀的 Kilo Gateway 聚合目录（用户
+   不使用），枚举时按 `GATEWAY_MODEL_PREFIX` 剔除，仅呈现已认证直连
+   provider（本机 14 项，计划 2026-0730-2318 §2.1）。`~` 前缀别名行全部
+   位于 `kilo/` 下，随前缀过滤一并剔除，无需特判。过滤仅作用于枚举呈现
+   层：set_model 不做前缀校验，已持久化的网关别名仍原样透传生效
+   （D6 红线 2 不破）。
 3. 未登录检测：session/new 与 session/prompt 认证类错误（含 auth/login/
-   credential/unauthorized 关键词）宽松映射为「请先运行 opencode auth login」
-   友好文案（D5：各 provider 自行翻译认证错误；reasonix 的 not configured
-   关键词不搬——OpenCode 未配置模型时报错语义不同）。注：initialize 的
-   `authMethods` 是静态能力声明（reasonix 实测结论同样适用于 OpenCode，
-   计划 §2.3），不能作未登录信号。
-4. mode 固定 build：OpenCode session/new 的 configOptions 多出 `mode`
-   选项（build/plan，计划 §2.4），本 provider 不触碰——agent 默认即 build；
-   plan 模式禁用编辑工具，与 IDE 对话场景不匹配，不暴露 UI。
-5. 别名私有语义（D6 红线 2）：`provider/model` 全名（如 `kimi-for-coding/k3`）
-   不透明透传，公共层不解析不拼接。
+   credential/unauthorized 关键词）宽松映射为「请先运行 kilo auth login」
+   友好文案（D5：各 provider 自行翻译认证错误）。注：initialize 的
+   `authMethods` 是静态能力声明（计划 §2.3），不能作未登录信号。
+4. mode/effort 不触碰（D5）：Kilo session/new 的 configOptions 多出 `mode`
+   （ask/code/debug/orchestrator/plan，默认 ask 纯问答、禁用编辑工具——恰好
+   匹配 IDE 对话场景，比 opencode 默认 build 更贴合更安全）与 `effort`
+   （high/max，默认 high 推理力度）；本 provider 均不使用
+   `session/set_config_option` 触碰，不暴露 UI（计划 §2.4）。
+5. 别名私有语义（D6 红线 2）：`provider/model` 全名（含 `~` 别名）不透明
+   透传，公共层不解析不拼接。
 """
 import atexit
 import os
@@ -47,47 +49,49 @@ from core.version import APP_VERSION
 from llm.base import Chunk, LanguageModel, Message
 from llm.providers.acp import AcpConnection, PermissionHandler
 
-OPENCODE_BIN = "opencode"
+#: PATH 探测的候选二进制名（双名 symlink 同指同一二进制，计划 §2.1）
+KILOCODE_BIN_NAMES = ("kilocode", "kilo")
 
-#: OpenCode Zen 官方模型前缀（计划 2026-0730-2318 D3）：用户不使用 Zen
-#: 模型，list_opencode_models 枚举时剔除；仅影响菜单呈现，set_model
+#: Kilo Gateway 聚合目录前缀（计划 2026-0730-2318 D3）：用户不使用网关
+#: 模型，list_kilocode_models 枚举时剔除；仅影响菜单呈现，set_model
 #: 不做前缀校验（别名不透明透传，D6 红线 2）
-GATEWAY_MODEL_PREFIX = "opencode/"
+GATEWAY_MODEL_PREFIX = "kilo/"
 
 
 def _find_bin() -> str | None:
-    """解析 opencode 二进制路径：PATH → ~/.opencode/bin/opencode（两级链）。
+    """解析 kilocode 二进制路径：PATH（kilocode → kilo 顺序）→ ~/.local/bin/kilocode。
 
-    桌面启动 Zen Studio 时 PATH 可能不含 opencode 安装目录（curl 官方脚本
-    装至 ~/.opencode/bin 并写 .bashrc，但非登录 shell/桌面会话不一定含此
-    PATH），fallback 避免误判未安装——对齐 kimi/reasonix 探测范式；
-    OpenCode 无安装根环境变量（官方仅 OPENCODE_CONFIG 等配置路径），
-    故比 reasonix 少一级（计划 §2.1）。
+    npm 全局安装（`npm install -g @kilocode/cli`）落在 npm 全局 bin，通常在
+    桌面会话 PATH 中但不保证（用户自定义 npm prefix 时路径漂移），fallback 到
+    默认 npm 全局 bin `~/.local/bin` 避免误判未安装——对齐 kimi
+    `~/.kimi-code/bin`、opencode `~/.opencode/bin` 的兜底范式；Kilo CLI 无
+    安装根环境变量（官方仅 KILO_CONFIG 等配置路径），故探测链为两级
+    （计划 §2.1）。
     """
-    if path := shutil.which(OPENCODE_BIN):
-        return path
-    candidate = Path.home() / ".opencode" / "bin" / OPENCODE_BIN
+    for name in KILOCODE_BIN_NAMES:
+        if path := shutil.which(name):
+            return path
+    candidate = Path.home() / ".local" / "bin" / KILOCODE_BIN_NAMES[0]
     if candidate.is_file() and os.access(candidate, os.X_OK):
         return str(candidate)
     return None
 
 
-def opencode_available() -> bool:
-    """检测 opencode CLI 是否可用（PATH 或默认安装位置存在）。"""
+def kilocode_available() -> bool:
+    """检测 kilocode CLI 是否可用（PATH 或默认 npm 全局 bin 存在）。"""
     return _find_bin() is not None
 
 
-def list_opencode_models() -> list[str]:
-    """spawn `opencode models` 枚举模型别名（`provider/model` 全名）；失败返回空列表。
+def list_kilocode_models() -> list[str]:
+    """spawn `kilo models` 枚举模型别名（`provider/model` 全名）；失败返回空列表。
 
     输出为纯文本、每行一个 `provider/model` 全名（无 --json 旗标，计划 §2.2
     实测），数据源是已认证 provider（models.dev 缓存），与 ACP session/new
     的 configOptions.model.options 同源。解析策略：逐行 strip、跳过空行，
-    非 `provider/model` 形态行容错跳过，再剔除 `GATEWAY_MODEL_PREFIX`
-    （`opencode/`）Zen 官方模型行——仅呈现已认证直连 provider（前缀
-    黑名单而非白名单：用户日后新认证的直连 provider 自动出现，无需
-    维护名单）；首次运行可能触网刷新 models.dev
-    缓存，15s timeout 覆盖（与 kimi `provider list` 同值）。
+    含 `/` 的行保留，再剔除 `GATEWAY_MODEL_PREFIX`（`kilo/`）网关聚合行
+    ——仅呈现已认证直连 provider（前缀黑名单而非白名单：用户日后新认证
+    的直连 provider 自动出现，无需维护名单）；首次运行可能触网刷新
+    models.dev 缓存，15s timeout 覆盖（与 kimi `provider list` 同值）。
     失败/超时/空输出 → 空列表（R2：输出格式无契约、随版本漂移，全 try
     兜底；空列表时 provider 用 agent 默认模型，对话功能不受影响）。
     """
@@ -108,15 +112,15 @@ def list_opencode_models() -> list[str]:
         return []
 
 
-class OpenCodeAcpLLM(LanguageModel):
-    """OpenCode ACP 后端（长驻子进程 + ndjson JSON-RPC，token 级流式 + 思维链）。"""
+class KiloCodeAcpLLM(LanguageModel):
+    """Kilo Code ACP 后端（长驻子进程 + ndjson JSON-RPC，token 级流式 + 思维链）。"""
 
     def __init__(self, model: str | None = None, workspace_root: str | None = None) -> None:
         """
-        :param model: 模型别名（`provider/model` 全名；None = agent 默认模型
-            configOptions currentValue）
+        :param model: 模型别名（`provider/model` 全名，含 `~` 别名；None = agent
+            默认模型 configOptions currentValue）
         :param workspace_root: agent 工作目录（None = 项目根；多开模式由启动参数注入）。
-            归一化为绝对路径（对齐 reasonix 稳妥做法，abspath 对已绝对输入幂等）
+            归一化为绝对路径（对齐 reasonix/opencode 稳妥做法，abspath 对已绝对输入幂等）
         """
         self._model = model
         self._cwd = os.path.abspath(workspace_root or str(PROJECT_ROOT))
@@ -137,8 +141,8 @@ class OpenCodeAcpLLM(LanguageModel):
         """切换模型别名（会话存在则即时生效，失败则降级为下次新会话生效）。
 
         生效机制自持（D6 红线 3）：`session/set_config_option(configId="model")`，
-        别名原样透传，不解析不拼接（D6 红线 2）。OpenCode 实测同会话切换
-        即时生效（计划 §2.4）。
+        别名原样透传，不解析不拼接（D6 红线 2）。Kilo 实测同会话切换即时生效
+        （计划 §2.4）。
         """
         self._model = alias
         if self._conn and self._conn.is_alive and self._session_id:
@@ -192,19 +196,19 @@ class OpenCodeAcpLLM(LanguageModel):
 
     def _ensure_session(self) -> AcpConnection:
         if self._closed:  # 标签已销毁：拒绝新建连接
-            raise RuntimeError("opencode acp 后端已关闭（标签已销毁）")
+            raise RuntimeError("kilocode acp 后端已关闭（标签已销毁）")
         bin_path = _find_bin()
         if not bin_path:
             raise RuntimeError(
-                "opencode CLI 不可用：PATH 与 ~/.opencode/bin 均未找到 opencode")
+                "kilocode CLI 不可用：PATH 与 ~/.local/bin 均未找到 kilocode/kilo")
         if self._conn is None or not self._conn.is_alive:
             if self._conn is not None:
                 self._conn.terminate()
-            self._conn = AcpConnection(bin_path, self._cwd, "opencode acp")
+            self._conn = AcpConnection(bin_path, self._cwd, "kilocode acp")
             if self._closed:  # spawn 与 close 竞态：迟到的连接即建即杀
                 self._conn.terminate()
                 self._conn = None
-                raise RuntimeError("opencode acp 后端已关闭（标签已销毁）")
+                raise RuntimeError("kilocode acp 后端已关闭（标签已销毁）")
             self._conn.set_permission_handler(self._permission_handler)
             self._session_id = None
             init_result = self._conn.request("initialize", {
@@ -238,28 +242,28 @@ class OpenCodeAcpLLM(LanguageModel):
         """记录 agent 版本信息（诊断用 stderr 日志）。
 
         不拦截 `authMethods`：它是**静态能力声明**（恒为 terminal 型
-        `opencode-login`，计划 §2.3 实测响应；reasonix 侧 2026-07-30 实测
-        结论同样适用），已登录与未登录响应相同；真正的未登录信号在
-        session/new 与 session/prompt 错误，归 `_raise_login_hint_if_auth`。
+        `kilo-login`，计划 §2.3 实测响应；reasonix/opencode 实测结论同样适用），
+        已登录与未登录响应相同；真正的未登录信号在 session/new 与
+        session/prompt 错误，归 `_raise_login_hint_if_auth`。
         """
         agent = init_result.get("agentInfo") or {}
-        print(f"[opencode acp] agent {agent.get('name', '?')} {agent.get('version', '?')}",
+        print(f"[kilocode acp] agent {agent.get('name', '?')} {agent.get('version', '?')}",
               file=sys.stderr)
 
     @staticmethod
     def _raise_login_hint_if_auth(error: RuntimeError) -> None:
-        """认证类错误 → 「请先运行 opencode auth login」友好文案（D5 各自翻译）。
+        """认证类错误 → 「请先运行 kilo auth login」友好文案（D5 各自翻译）。
 
         宽松判定：错误消息含 auth/login/credential/unauthorized 任一关键词
         （不区分大小写）即视为认证/凭证类失败。宽松而非精确匹配的理由：
-        OpenCode 认证失败的错误码语义未定型（R1），宁可多映射少数误伤
+        Kilo 认证失败的错误码语义未定型（R1），宁可多映射少数误伤
         （文案仍指向正确动作），不可漏映射让用户面对裸协议错误。
         """
         message = str(error).lower()
         if any(keyword in message
                for keyword in ("auth", "login", "credential", "unauthorized")):
             raise RuntimeError(
-                "opencode 尚未登录或凭证失效，请先在终端运行 opencode auth login") from None
+                "kilocode 尚未登录或凭证失效，请先在终端运行 kilo auth login") from None
 
     # ------------------------------------------------------------------
     # 对话
@@ -287,7 +291,7 @@ class OpenCodeAcpLLM(LanguageModel):
             kind, obj = conn.next_update()
             if kind == "dead":
                 self._session_id = None
-                raise RuntimeError(f"opencode acp 进程意外退出（退出码 {obj}）")
+                raise RuntimeError(f"kilocode acp 进程意外退出（退出码 {obj}）")
             if kind == "response":
                 self._raise_on_turn_error(obj)
                 return
@@ -303,7 +307,7 @@ class OpenCodeAcpLLM(LanguageModel):
         """
         if "error" in response:
             err = response["error"]
-            error = RuntimeError(f"opencode acp 对话失败 {err.get('code')}：{err.get('message')}")
+            error = RuntimeError(f"kilocode acp 对话失败 {err.get('code')}：{err.get('message')}")
             self._raise_login_hint_if_auth(error)
             raise error
 
@@ -311,9 +315,10 @@ class OpenCodeAcpLLM(LanguageModel):
     def _map_update(obj: dict) -> Chunk | None:
         """session/update 通知 → Chunk；未消费类型返回 None。
 
-        复用 ACP 标准映射（与 KimiAcpLLM/ReasonixAcpLLM 逐行一致，计划 §2.5
-        实测 update 类型全部命中标准映射）；未识别类型返回 None（R1：泛化层
-        不臆造协议——available_commands_update / usage_update 等忽略即可兼容）。
+        复用 ACP 标准映射（与 KimiAcpLLM/ReasonixAcpLLM/OpenCodeAcpLLM 逐行
+        一致，计划 §2.5 实测 update 类型 agent_thought_chunk ×47 /
+        agent_message_chunk / usage_update 全部命中标准映射）；未识别类型
+        返回 None（R1：泛化层不臆造协议——usage_update 等忽略即可兼容）。
         """
         update = (obj.get("params") or {}).get("update") or {}
         kind = update.get("sessionUpdate")
@@ -325,4 +330,4 @@ class OpenCodeAcpLLM(LanguageModel):
             return Chunk("reasoning", text) if text else None
         if kind == "tool_call":
             return Chunk("reasoning", f"\n• 调用工具 {update.get('title') or '?'}\n")
-        return None  # tool_call_update / plan / usage_update / available_commands_update 等
+        return None  # tool_call_update / plan / usage_update 等

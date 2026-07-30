@@ -16,6 +16,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from llm.base import LanguageModel
+from llm.providers.kilocode_acp import KiloCodeAcpLLM, kilocode_available, list_kilocode_models
 from llm.providers.kimi_acp import KimiAcpLLM
 from llm.providers.kimi_cli import KimiCliLLM, kimi_available, list_kimi_models
 from llm.providers.opencode_acp import OpenCodeAcpLLM, list_opencode_models, opencode_available
@@ -84,6 +85,15 @@ REGISTRY: dict[str, BackendSpec] = {
             available=opencode_available,
             list_models=list_opencode_models,
             factory=OpenCodeAcpLLM,
+        ),
+        BackendSpec(
+            name="kilocode-acp",
+            label="Kilo Code ACP",
+            vendor="kilocode",
+            vendor_label="Kilo Code",
+            available=kilocode_available,
+            list_models=list_kilocode_models,
+            factory=KiloCodeAcpLLM,
         ),
     )
 }
