@@ -60,6 +60,11 @@ class GitStatusService:
         #: 目录聚合状态缓存 {目录相对路径（无尾斜杠）: 归并后状态}，
         #: 随 refresh() 重建（见 _build_dir_status）
         self._dir_status: dict[str, str] = {}
+        #: 折叠目录键缓存（`dir/` 结尾）：整体被忽略的目录
+        #: （ls-files --directory 折叠输出）∪ _status 中的折叠条目
+        #: （嵌套 git 仓库），随 refresh() 重建；供 status_of/
+        #: status_of_dir 前缀匹配下透，避免逐行全表扫描 _status
+        self._collapsed_keys: tuple[str, ...] = ()
 
     # ------------------------------------------------------------------
     # 环境
@@ -81,11 +86,13 @@ class GitStatusService:
         if not runner.git_available():
             self._repo_root = None
             self._dir_status = {}
+            self._collapsed_keys = ()
             return
         if self._repo_root is None:
             self._repo_root = runner.find_repo_root(self._root_dir)
             if self._repo_root is None:
                 self._dir_status = {}
+                self._collapsed_keys = ()
                 return
         status_result = status.fetch_status_map(self._repo_root)
         numstat_result = numstat.fetch_numstat_map(self._repo_root)
@@ -95,6 +102,15 @@ class GitStatusService:
         self._status = status_result
         self._numstat = numstat_result or {}
         self._dir_status = self._build_dir_status()
+        # 折叠目录键 = 整体被忽略的目录（ls-files --directory 折叠）
+        # ∪ _status 中的折叠条目（嵌套 git 仓库，`!! dir/`）；
+        # ls-files 失败 → 仅保留 status 折叠键（下透降级，其余正常）
+        ignored_dirs = status.fetch_ignored_dirs(self._repo_root) or ()
+        self._collapsed_keys = tuple(
+            dict.fromkeys(
+                (*ignored_dirs, *(k for k in self._status if k.endswith("/")))
+            )
+        )
 
     # ------------------------------------------------------------------
     # 目录聚合（计划 2026-0725-0933：状态色沿目录向上冒泡）
@@ -141,8 +157,9 @@ class GitStatusService:
     def status_of(self, abs_path: str) -> str | None:
         """单文件 Git 状态（见 status.py 枚举）；干净/未知返回 None。
 
-        未跟踪/忽略目录以 `dir/` 折叠条目返回——调用方对目录内文件
-        需自行做前缀匹配（见 status_of_tree）。
+        直接查表未命中后按折叠键缓存做前缀匹配：覆盖嵌套 git 仓库
+        （`!! dir/` 折叠条目）内的文件——普通 ignored 文件已被
+        `--untracked-files=all` 逐条列出，直查表即中。
         """
         rel = self._rel(abs_path)
         if rel is None:
@@ -150,10 +167,10 @@ class GitStatusService:
         direct = self._status.get(rel)
         if direct is not None:
             return direct
-        # 折叠目录前缀匹配：`?? dir/` 命中 dir/ 下任意文件
-        for key, value in self._status.items():
-            if key.endswith("/") and rel.startswith(key):
-                return value
+        # 折叠目录前缀匹配：`!! dir/` 命中 dir/ 下任意文件
+        for key in self._collapsed_keys:
+            if rel.startswith(key):
+                return self._status.get(key, status.IGNORED)
         return None
 
     def status_of_dir(self, abs_path: str) -> str | None:
@@ -162,11 +179,25 @@ class GitStatusService:
         语义为「子树内有该级别变更」，不代表目录本身被 git 跟踪变更；
         deleted/ignored 不冒泡（见 _build_dir_status；ignored 折叠目录
         自身入缓存，仍可返回 ignored）；仓库根目录恒为 None。
+
+        缓存未命中时按 ignored 目录键下透：被 gitignore 整体命中的
+        目录（ls-files --directory 折叠输出）**自身与全部子孙目录**
+        （任意深度）继承暗显（对齐 VS Code：ignored 目录内容整体
+        暗显；与向上冒泡方向相反，互不冲突——见 work plans/
+        2026-0730-2025 计划及其 ls-files 数据源修订）。
         """
         rel = self._rel(abs_path)
         if rel is None:
             return None
-        return self._dir_status.get(rel)
+        direct = self._dir_status.get(rel)
+        if direct is not None:
+            return direct
+        # 下透：自身为 ignored 目录（`rel + '/'` 即键）或位于其下
+        # （前缀匹配）→ 继承暗显；嵌套仓库折叠键亦然
+        for key in self._collapsed_keys:
+            if rel.startswith(key) or rel == key[:-1]:
+                return self._status.get(key, status.IGNORED)
+        return None
 
     def numstat_of(self, abs_path: str) -> tuple[int, int] | None:
         """单文件 (新增, 删除) 统计；无改动/未知返回 None。"""

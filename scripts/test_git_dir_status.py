@@ -19,11 +19,21 @@ from core.git.service import GitStatusService
 REPO = "/repo"  # 虚构仓库根（不落盘）
 
 
-def make_service(status_map: dict[str, str]) -> GitStatusService:
+def make_service(
+    status_map: dict[str, str],
+    collapsed_keys: tuple[str, ...] = (),
+) -> GitStatusService:
+    """注入 _status 后重建派生缓存；collapsed_keys 模拟 ls-files 来源
+    （整体被忽略的目录键可不存在于 _status 中——ls-files 独立查询）。"""
     svc = GitStatusService(REPO)
     svc._repo_root = REPO
     svc._status = status_map
     svc._dir_status = svc._build_dir_status()
+    svc._collapsed_keys = tuple(
+        dict.fromkeys(
+            (*collapsed_keys, *(k for k in svc._status if k.endswith("/")))
+        )
+    )
     return svc
 
 
@@ -76,6 +86,40 @@ check("非折叠 ignored 不冒泡：j/cache 无键", "j/cache" not in svc._dir_
 check("非折叠 ignored 不冒泡：j 无键", "j" not in svc._dir_status)
 check("非折叠 ignored 文件自身状态保留",
       svc.status_of(f"{REPO}/j/cache/x.pyc") == st.IGNORED)
+
+# 6c. ignored 折叠键下透：子孙目录继承暗显（任意深度），兄弟前缀不误伤
+svc = make_service({"g/build/": st.IGNORED})
+check("下透：g/build/sub → ignored",
+      svc.status_of_dir(f"{REPO}/g/build/sub") == st.IGNORED)
+check("下透：g/build/sub/deep → ignored",
+      svc.status_of_dir(f"{REPO}/g/build/sub/deep") == st.IGNORED)
+check("下透不误伤兄弟前缀：g/build2 → None",
+      svc.status_of_dir(f"{REPO}/g/build2") is None)
+check("下透不反向冒泡：g 仍无键", "g" not in svc._dir_status)
+check("下透不改变文件链路：g/build/sub/x.py → ignored",
+      svc.status_of(f"{REPO}/g/build/sub/x.py") == st.IGNORED)
+
+# 6d. ls-files 来源键（_status 中无条目——`--untracked-files=all` 逐条
+#     展开 ignored 的真实形态）：ignored 目录自身与子孙同灰，散文件
+#     不误伤父目录（对齐 VS Code：单文件被忽略父目录不暗显）
+svc = make_service(
+    {"k/.venv/lib/python3/x.py": st.IGNORED, "k/cache/x.pyc": st.IGNORED},
+    collapsed_keys=("k/.venv/",),
+)
+check("ls-files 键：ignored 目录自身 → ignored",
+      svc.status_of_dir(f"{REPO}/k/.venv") == st.IGNORED)
+check("ls-files 键：子孙目录 → ignored",
+      svc.status_of_dir(f"{REPO}/k/.venv/lib") == st.IGNORED)
+check("ls-files 键：任意深度子孙 → ignored",
+      svc.status_of_dir(f"{REPO}/k/.venv/lib/python3") == st.IGNORED)
+check("ls-files 键不误伤兄弟前缀：k/.venv2 → None",
+      svc.status_of_dir(f"{REPO}/k/.venv2") is None)
+check("散 ignored 文件不暗显父目录：k/cache → None",
+      svc.status_of_dir(f"{REPO}/k/cache") is None)
+check("散 ignored 文件不暗显父目录：k → None",
+      svc.status_of_dir(f"{REPO}/k") is None)
+check("ls-files 键下透不影响文件直查：x.py → ignored",
+      svc.status_of(f"{REPO}/k/.venv/lib/python3/x.py") == st.IGNORED)
 
 # 7. conflict 最高优先级：深嵌套 conflict 盖过浅层 modified
 svc = make_service({"i/j/k/c.py": st.CONFLICT, "i/m.py": st.MODIFIED})

@@ -73,3 +73,23 @@ def fetch_status_map(repo_root: str) -> dict[str, str] | None:
     if out is None:
         return None
     return parse_porcelain_z(out)
+
+
+def fetch_ignored_dirs(repo_root: str) -> tuple[str, ...] | None:
+    """整体被忽略的目录集合（`dir/` 结尾，含尾斜杠）；失败返回 None。
+
+    `git status --ignored --untracked-files=all` 会把 ignored 目录逐条
+    展开（本仓库实证 38898 条，折叠键仅剩嵌套仓库 2 个），无法给出
+    目录级 ignored 归属；`ls-files --directory` 按 gitignore 命中单元
+    折叠：整目录被忽略 → 仅输出 `dir/` 自身（不进入）；目录内仅个别
+    文件被忽略（如 `*.pyc` 命中的散文件）→ 逐条列文件——后者带文件
+    路径输出，此处按尾斜杠过滤掉，只留目录键（对齐 VS Code：单文件
+    被忽略不使父目录暗显，整目录被忽略才整体暗显）。
+    """
+    out = run_git(
+        repo_root, "ls-files", "--others", "--ignored",
+        "--exclude-standard", "--directory", "-z",
+    )
+    if out is None:
+        return None
+    return tuple(p for p in out.split("\0") if p.endswith("/"))
