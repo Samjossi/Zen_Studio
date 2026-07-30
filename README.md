@@ -2,7 +2,7 @@
 
 > **状态**：已发布（v1.0）
 > **范围**：项目总览 — 定位、特性、架构、运行与文档体系
-> **时间**：2026-07-29 22:20（UTC+8）
+> **时间**：2026-07-31 01:20（UTC+8）
 
 **AI 优先的桌面 IDE**：以本机 agent CLI 为统一后端（零密钥），集 AI 聊天、多类型文件预览、文件树与真 PTY 终端于一体。基于 Python 3.12 + PySide6，Linux 桌面优先，可打包为 AppImage 分发。
 
@@ -56,7 +56,7 @@ Zen Studio 的设计哲学是 **AI-first**：代码修改一律经 AI agent 落�
 | GUI | PySide6 ≥ 6.11.1（Qt 6），预览能力全部来自 Qt 自带模块（`QGraphicsView` / `QtPdf` / `QTextBrowser.setMarkdown` / `QtMultimedia`），零新增第三方依赖 |
 | 语法高亮 | Pygments（整文档 lexing + 区间缓存） |
 | 终端 | ptyprocess（PTY）+ pyte（VT 语义层）+ 自绘 QWidget |
-| LLM 调用 | `LanguageModel` Protocol 薄层，子进程对接本机 CLI（stream-json / ndjson JSON-RPC） |
+| LLM 调用 | `LanguageModel` Protocol 薄层，子进程对接本机 agent CLI（ACP 协议，JSON-RPC over stdio 长驻连接） |
 | Git | subprocess 调系统 git CLI（零 Qt 依赖纯 Python 包） |
 | 打包 | PyInstaller onedir → AppImage（唯一构建入口 `building/build_appimage.sh`） |
 | 依赖与运行 | uv（`pyproject.toml` + `uv.lock`），Python ≥ 3.12 |
@@ -73,7 +73,7 @@ Zen Studio 的设计哲学是 **AI-first**：代码修改一律经 AI agent 落�
 |:---|:---|
 | `main.py` | 入口：参数解析（工作区根 / 自动截图）→ 主题 → 主窗口 |
 | `gui/` | 全部图形界面代码（主窗口 / 菜单 / 五面板 / 主题 / 设置中心），详见 `gui/README.md` |
-| `llm/` | LLM 调用薄层（`LanguageModel` Protocol + 两个 Kimi CLI 后端），详见 `llm/README.md` |
+| `llm/` | LLM 调用薄层（`LanguageModel` Protocol + ACP 注册表四后端：kimi / reasonix / OpenCode / Kilo Code），详见 `llm/README.md` |
 | `core/` | 底层设施：版本单一来源 / 路径解析 / Git 数据层 / 外部应用调起 |
 | `assets/` | 主题 qss、自带字体（OFL）、Logo 成套件与候选池 |
 | `building/` | PyInstaller spec、AppImage 构建脚本与产物 |
@@ -92,7 +92,7 @@ Zen Studio 的设计哲学是 **AI-first**：代码修改一律经 AI agent 落�
 uv sync
 ```
 
-前置条件：本机已安装 Kimi Code CLI（≥ 0.2.0）并完成 `kimi login`（OAuth 凭证由 CLI 自管于 `~/.kimi-code/`，IDE 不接触）。
+前置条件：至少安装四后台之一的 agent CLI 并完成其登录（如 Kimi Code CLI ≥ 0.2.0 执行 `kimi login`，OAuth 凭证由 CLI 自管，IDE 不接触）。
 
 ### 6.2 运行
 
@@ -126,10 +126,10 @@ building/dist/zen-studio/zen-studio
 
 | 配置 | 位置 | 说明 |
 |:---|:---|:---|
-| 应用偏好 | `config/settings.json` | 主题 / 字号 / 噪音过滤 / 模型选择；多进程并发经 flock 文件锁 + 原子写治理 |
+| 应用偏好 | `config/settings.json` | 主题 / 字号 / 噪音过滤 / 模型选择（按接口记忆的 `model_versions` 表）；多进程并发经 flock 文件锁 + 原子写治理 |
 | 窗口状态 | `config/window_state/` | 按工作区哈希分文件持久化几何与分隔栏；`default.json` 供新工作区首开继承 |
 | 最近项目 | `config/recent_projects.json` | 最近打开的工作区列表 |
-| 模型目录 | 动态解析 | 可用模型别名经 `kimi provider list --json` 实时拉取，IDE 侧零硬编码 |
+| 模型目录 | 动态解析 | 可用模型别名由各后台 CLI 实时枚举（registry 进程级缓存 + `refresh_models()` 唯一失效口），IDE 侧零硬编码 |
 
 设置入口统一为菜单「设置 ▸ 设置中心…」（唯一偏好配置面）。
 
@@ -159,4 +159,4 @@ building/dist/zen-studio/zen-studio
 
 ---
 
-*Zen Studio v1.0 | 文档撰写：2026-07-29 22:20 (UTC+8)*
+*Zen Studio v1.0 | 文档撰写：2026-07-29 22:20 (UTC+8)，修订：2026-07-31 01:20 (UTC+8)*

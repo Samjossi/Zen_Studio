@@ -1,8 +1,8 @@
 # GUI 包说明
 
-> **状态**：草稿
+> **状态**：已实施
 > **范围**：`gui/` 包 — Zen Studio 图形界面
-> **时间**：2026-07-20 05:49（UTC+8）
+> **时间**：2026-07-20 05:49（UTC+8，创建）/ 2026-07-31 01:30（修订）
 
 ---
 
@@ -16,15 +16,23 @@
 |:---|:---|
 | `gui/__init__.py` | 包初始化，对外导出 `MainWindow` |
 | `gui/main_window.py` | 主窗口：三栏布局（右栏再上下拆分）+ 状态栏 + 窗口几何/分隔栏状态持久化 + Git 状态事件驱动刷新 + 菜单槽函数（打开文件夹/字号/恢复布局等） |
-| `gui/settings.py` | 通用配置持久化：读写 `config/settings.json`，"读全量 → 合并 → 写回"统一入口（主题/窗口几何/分隔栏/模型选择/工作区根共用） |
+| `gui/controllers.py` | MainWindow 职责外移的控制器：`GitStatusController`（Git 服务编排/去抖/四面板扇出刷新）等组合成员，依赖构造注入 |
+| `gui/settings.py` | 通用配置持久化：读写 `config/settings.json`，"读全量 → 合并 → 写回"统一入口（主题/窗口几何/分隔栏/模型选择/工作区根共用；模型版本为按接口记忆的 `model_versions` 表） |
+| `gui/settings_dialog.py` | 设置中心对话框：左导航 + 右分页（页面注册表驱动），唯一偏好配置面；控件 change 即时持久化即时应用 |
+| `gui/window_state.py` | 窗口状态持久化：读写 `config/window_state/<hash8>.json`（按工作区哈希分文件，`default.json` 供新工作区首开继承） |
+| `gui/recent_projects.py` | 最近打开的工作区根存取（`config/recent_projects.json`），文件菜单「最近打开的项目」子菜单消费 |
 | `gui/theme.py` | 主题体系：`THEME_META` 多主题注册表（云白/暖米/晴空/薄荷/暗色，按 light/dark 两族）+ qss 应用 + 自带双字体注册（思源黑体 / 更纱黑体）+ `GIT_STATUS_COLORS` Git 状态色表 |
+| `gui/title_bar.py` | 自定义标题栏（无边框窗口）：Logo + 标题文字 + 最小化/最大化/关闭三按钮 |
+| `gui/window_resize.py` | 无边框窗口八向边缘缩放热区（窗口级事件过滤器） |
+| `gui/popups.py` | 弹出浮层透明化：消除矩形窗口套圆角内容的双框观感 |
 | `gui/menus/` | 菜单栏子包：`registry.py` Action 注册表（`菜单.动作` 键名全局可寻址）/ `assembler.py` 装配器 / 每菜单一文件（file/edit/view/terminal/settings/help） |
 | `gui/panels/__init__.py` | 面板包初始化，对外导出 `FileExplorer`、`ViewerPanel` |
+| `gui/panels/find_bar.py` | 查找浮层组件：viewer 与 terminal 两面板共用的右上角悬浮查找条（搜索语义归宿主面板） |
 | `gui/panels/file_explorer/` | 文件树子包（右栏上）：`explorer.py` 主控件 / `model.py` 模型层（噪音过滤 + Git 状态着色）/ `actions.py` 右键菜单动作 |
 | `gui/panels/changes/` | Git 变更面板子包（右栏下）：`panel.py` 已变更文件列表（状态着色 + 增减行数，VS Code SCM 简化版） |
-| `gui/panels/chat/` | 聊天面板子包（左栏）：`panel.py` 装配（含底行：模型选择按钮 + 发送/停止双态按钮）/ `output.py` 输出区 / `input.py` 输入框（文件拖入 → `@路径` 引用）/ `model_bar.py` 模型选择三按钮（纯视图）/ `worker.py` 流式线程 / `permission_dialog.py` ACP 工具审批对话框 |
-| `gui/panels/viewer/` | 文件查看面板子包（中栏上）：`panel.py` 装配（含 Git 差异徽标）/ `code_viewer.py` 只读查看器（行号栏）/ `highlighter.py` Pygments 高亮器 |
-| `gui/panels/terminal/` | 终端面板子包（中栏下）：`panel.py` 装配 / `widget.py` 自绘终端控件 / `screen.py` pyte 语义层 / `session.py` PTY 会话 / `palette.py` ANSI 双主题色板 |
+| `gui/panels/chat/` | 聊天面板子包（左栏）：`tabs.py` 标签容器（选择状态层 + 上限 4 标签）/ `panel.py` 装配（含底行：模型选择按钮 + 发送/停止双态按钮）/ `output.py` 输出区 / `input.py` 输入框（文件拖入 → `@路径` 引用）/ `model_bar.py` 模型选择三按钮（纯视图）/ `worker.py` 流式线程 / `permission_dialog.py` ACP 工具审批对话框 / `permission_queue.py` 多标签审批串行弹窗队列 |
+| `gui/panels/viewer/` | 文件查看面板子包（中栏上，五页预览分流）：`panel.py` 装配（QStackedLayout 五页 + Git 差异徽标）/ `code_viewer.py` 只读文本查看器（行号栏）/ `highlighter.py` Pygments 高亮器 / `image_viewer.py` 图片页（位图 + SVG + GIF）/ `pdf_viewer.py` PDF 页（QPdfView 连续滚动）/ `markdown_view.py` Markdown 渲染页（GFM + Typora 打开）/ `media_viewer.py` 音视频播放页 |
+| `gui/panels/terminal/` | 终端面板子包（中栏下）：`panel.py` 装配 / `widget.py` 自绘终端控件 / `screen.py` pyte 语义层 / `session.py` PTY 会话 / `palette.py` ANSI 双主题色板 / `selection.py` 选区控制器（纯逻辑零 Qt 依赖） |
 
 > LLM 调用层为后端逻辑，位于项目根 `llm/`（与 `gui/` 平级）：`base.py` Protocol / `providers/` 下 kimi / reasonix / OpenCode / Kilo Code 四家 ACP 长驻后端（传输层统一为 ACP，kimi CLI `-p` 模式已于 2026-07-31 移除）。多标签改造后 provider 由每个 `ChatPanel` 自持（`ChatPanel._build_providers` 装配单点）。
 >
@@ -54,8 +62,8 @@
 
 | 栏位 | 初始尺寸 | 当前内容 |
 |:---|:---:|:---|
-| 左栏 | 320 px | **AI 聊天面板 `ChatPanel`**（上输出下输入，本机 Kimi Code CLI） |
-| 中栏（上） | 550 px（高） | **文件查看面板 `ViewerPanel`**（只读 + Pygments 高亮 + 行号栏 + Git 差异徽标） |
+| 左栏 | 320 px | **AI 聊天面板 `ChatTabs`**（多标签，上输出下输入，本机 agent CLI 四后台 ACP 可选） |
+| 中栏（上） | 550 px（高） | **文件查看面板 `ViewerPanel`**（五页预览分流：文本/图片/PDF/Markdown/音视频，永久只读 + Git 差异徽标） |
 | 中栏下 | 250 px（高） | **终端面板 `TerminalPanel`**（真 PTY：ptyprocess + pyte + 自绘 QWidget） |
 | 右栏（上） | 340 px（高） | **文件树 `FileExplorer`**（根目录为项目根，双击文件经 `file_opened` 信号打开到查看器） |
 | 右栏（下） | 170 px（高） | **Git 变更面板 `ChangesPanel`**（已变更文件列表：状态着色 + `+N` `-N` 行数） |
@@ -78,7 +86,7 @@
 
 ## 5. 聊天面板（左栏）
 
-`ChatTabs` 标签容器（上限 4）：持有模型选择状态层（当前 backend/version 单一来源、统一写盘、阻断广播同步），下方每标签一个独立 `ChatPanel`。`ChatPanel` 上输出（QTextBrowser）下输入（QTextEdit）垂直分栏，输入区底行左端为模型选择三按钮（`ModelBar` 纯视图实例：后台 → 接口 → 模型三级下拉，按钮直显当前值短文本——接口剥后台前缀、模型别名取 `/` 末段，点击弹勾选菜单，全部标签共享同一选择，任一标签切换经 ChatTabs 广播到其余标签 UI 与全部 provider），右端为**发送/停止双态按钮**（空闲=发送且空文本禁用，busy=■ 停止直停本标签，Esc 同效）；Enter 发送 / Shift+Enter 换行；流式调用放 `ChatWorker(QThread)` 后台线程，逐块信号上屏，UI 不冻结。每标签**自持 provider 实例**（独立 `kimi acp` 连接，标签间完全隔离可并行）。对话统一经本机 agent CLI（Kimi Code CLI），代码库零 API KEY。从文件树或系统文件管理器**拖入文件 → 落点插入 `@工作区相对路径 ` 引用**（纯文本透传，由后端 agent CLI 解析）；模型选择持久化到 `config/settings.json`。多标签审批经全局 `PermissionQueue` 串行弹窗；任一标签响应中即禁用全部标签选择按钮与设置中心模型页。
+`ChatTabs` 标签容器（上限 4）：持有模型选择状态层（当前 backend/version 单一来源、统一写盘、阻断广播同步），下方每标签一个独立 `ChatPanel`。`ChatPanel` 上输出（QTextBrowser）下输入（QTextEdit）垂直分栏，输入区底行左端为模型选择三按钮（`ModelBar` 纯视图实例：后台 → 接口 → 模型三级下拉，按钮直显当前值短文本——接口剥后台前缀、模型别名取 `/` 末段，点击弹勾选菜单，全部标签共享同一选择，任一标签切换经 ChatTabs 广播到其余标签 UI 与全部 provider），右端为**发送/停止双态按钮**（空闲=发送且空文本禁用，busy=■ 停止直停本标签，Esc 同效）；Enter 发送 / Shift+Enter 换行；流式调用放 `ChatWorker(QThread)` 后台线程，逐块信号上屏，UI 不冻结。每标签**自持 provider 实例**（独立 `kimi acp` 连接，标签间完全隔离可并行）。对话统一经本机 agent CLI（kimi / reasonix / OpenCode / Kilo Code 四后台 ACP 可选），代码库零 API KEY。从文件树或系统文件管理器**拖入文件 → 落点插入 `@工作区相对路径 ` 引用**（纯文本透传，由后端 agent CLI 解析）；模型选择持久化到 `config/settings.json`。多标签审批经全局 `PermissionQueue` 串行弹窗；任一标签响应中即禁用全部标签选择按钮与设置中心模型页。
 
 **标签全关与关闭异步化**（2026-07-22，work plans/2026-0722-1117）：标签可全部关闭——零标签时 `QStackedWidget` 切到占位页（提示 + 「新建会话」按钮），选择状态在 ChatTabs 状态层不随标签消失（新建标签注入恢复）；序号非全关不复用（防指代漂移），全关即重置回「会话 1」。关闭路径两段式：GUI 段毫秒级（`request_stop` + 断信号 + 起 daemon 清理线程），线程段先 `terminate`（杀 acp 进程并幂等注入死讯/错误帧，主动解封 worker 的 `next_update()`/`request()` 阻塞点）后 `worker.wait(3000)`，结束经 `QTimer.singleShot` 回 GUI 线程 `deleteLater`——关闭标签 GUI 零冻结，且不销毁运行中的 QThread。
 
@@ -88,12 +96,20 @@
 | `Chunk` | 流式块：`kind="text"` 正文 / `kind="reasoning"` 过程信息（思维链或工具调用摘要灰字展示） |
 | `KimiAcpLLM` | Kimi ACP 后端（长驻 `kimi acp` + JSON-RPC，kimi 后台唯一接口）：**token 级流式**、思维链可见（`agent_thought_chunk`）、`session/new` 原生会话、`session/set_config_option` 会话内切模型 |
 | `PermissionDialog` | ACP 工具审批模态框：工具名/参数摘要 + 选项按钮（允许一次/始终允许/拒绝）；reader 线程请求转 GUI 线程弹出，180s 无响应按拒绝兜底 |
-| `ModelBar` | 输入区底行左端三按钮（纯视图，每标签实例）：后台（CLI 产品分组）→ 接口（接入实现，不可用时禁用标「未检测到」）→ 模型（别名联动刷新），按钮**直显当前值短文本**（接口剥后台前缀 `Kimi ACP`→`ACP`、模型别名取 `/` 末段 `kimi-code/k3-256k`→`k3-256k`，宽度贴合文本），点击弹 InstantPopup 菜单——按内容加宽显示全文、当前项 ✓ 勾选；tooltip 三行全名链兜底；切换下次请求生效，任一标签发送中全标签锁定；选择与写盘归 ChatTabs 状态层（`model_backend` / `model_version`），启动时恢复 |
+| `ModelBar` | 输入区底行左端三按钮（纯视图，每标签实例）：后台（CLI 产品分组）→ 接口（接入实现，不可用时禁用标「未检测到」）→ 模型（别名联动刷新），按钮**直显当前值短文本**（接口剥后台前缀 `Kimi ACP`→`ACP`、模型别名取 `/` 末段 `kimi-code/k3-256k`→`k3-256k`，宽度贴合文本），点击弹 InstantPopup 菜单——按内容加宽显示全文、当前项 ✓ 勾选；tooltip 三行全名链兜底；切换下次请求生效，任一标签发送中全标签锁定；选择与写盘归 ChatTabs 状态层（`model_backend` + 按接口记忆的 `model_versions` 表，2026-07-31 起，见 work plans/2026-0731-0052），启动时恢复 |
 | 多轮 | 历史由各后端会话管理；请求失败的用户消息不入历史，错误上屏不崩溃 |
 
 ## 6. 文件查看面板（中栏上）
 
-`ViewerPanel`：标题行（路径 + **Git 差异徽标** + 状态提示）+ `CodeViewer(QPlainTextEdit)`。**AI-first 定位：永久只读**（代码修改一律经 AI agent 落盘；`setReadOnly` 技术上可逆，不锁死）。选型依据：`2026-0719-0205_中栏代码显示与语法高亮选型报告.md`。
+`ViewerPanel`：标题行（路径 + **Git 差异徽标** + 状态提示）+ `QStackedLayout` 五页预览分流（2026-07-29 全部落地，四项选型见 `文档/选型记录/`）。**AI-first 定位：永久只读**（代码修改一律经 AI agent 落盘；`setReadOnly` 技术上可逆，不锁死）。选型依据：`2026-0719-0205_中栏代码显示与语法高亮选型报告.md`。
+
+| 页 | 文件类型 | 实现 |
+|:---|:---|:---|
+| 文本页 | 代码与纯文本 | `CodeViewer(QPlainTextEdit)` + Pygments 高亮 + 行号栏 |
+| 图片页 | 位图 / SVG / GIF | `ImageViewer(QGraphicsView)`：fit/实际像素、滚轮缩放、拖拽平移、同目录循环翻页、GIF 动画、棋盘格透明底 |
+| PDF 页 | `.pdf` | `PdfViewer`（QPdfView，QtPdf 内核）：MultiPage 连续滚动、缩放三件套、翻页 |
+| Markdown 页 | `.md` / `.markdown` | `MarkdownView(QTextBrowser.setMarkdown)` GFM 渲染；右键「使用 Typora 打开」（`core/external_apps.py`） |
+| 音视频页 | 常见音视频格式 | `MediaViewer`（QtMultimedia）：就地播放，双击即播（播放状态机移植自 PyGPT） |
 
 | 组件 | 说明 |
 |:---|:---|
