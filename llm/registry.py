@@ -24,7 +24,7 @@ from dataclasses import dataclass
 from llm.base import LanguageModel
 from llm.providers.kilocode_acp import KiloCodeAcpLLM, kilocode_available, list_kilocode_models
 from llm.providers.kimi_acp import KimiAcpLLM
-from llm.providers.kimi_cli import KimiCliLLM, kimi_available, list_kimi_models
+from llm.providers.kimi_common import kimi_available, list_kimi_models
 from llm.providers.opencode_acp import OpenCodeAcpLLM, list_opencode_models, opencode_available
 from llm.providers.reasonix_acp import ReasonixAcpLLM, list_reasonix_models, reasonix_available
 
@@ -33,9 +33,9 @@ from llm.providers.reasonix_acp import ReasonixAcpLLM, list_reasonix_models, rea
 class BackendSpec:
     """单个接口实现的注册项（三级链「后台 → 接口 → 模型」中的接口层）。"""
 
-    #: 接口实现名（settings `model_backend` 持久化值）："kimi-cli"
+    #: 接口实现名（settings `model_backend` 持久化值）："kimi-acp"
     name: str
-    #: 接口显示名："Kimi CLI"
+    #: 接口显示名："Kimi ACP"
     label: str
     #: 后台名（CLI 产品/厂商；D2：后台不持久化，由本字段推导）："kimi"
     vendor: str
@@ -88,21 +88,13 @@ def refresh_models(name: str | None = None) -> None:
 
 # ----------------------------------------------------------------------
 # 注册段：新增后台在 llm/providers/ 实现后于此后台追加一项（dict 保持插入序，
-# 插入序即 UI 菜单序）。kimi 两实现共用同一 CLI 探测与模型枚举（同一二进制）。
+# 插入序即 UI 菜单序）。全接口均为 ACP 传输层（kimi CLI `-p` 模式已于
+# 2026-07-31 移除，见 work plans/2026-0731-0036）。
 # list_models 统一经 _cached_list_models 包装（缓存 key 即接口名，红线 1 不破）。
 # ----------------------------------------------------------------------
 REGISTRY: dict[str, BackendSpec] = {
     spec.name: spec
     for spec in (
-        BackendSpec(
-            name="kimi-cli",
-            label="Kimi CLI",
-            vendor="kimi",
-            vendor_label="Kimi",
-            available=kimi_available,
-            list_models=_cached_list_models("kimi-cli", list_kimi_models),
-            factory=KimiCliLLM,
-        ),
         BackendSpec(
             name="kimi-acp",
             label="Kimi ACP",

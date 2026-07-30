@@ -1,6 +1,6 @@
 """项目级路径常量：全库唯一推导点，其余模块一律 import。
 
-此前五处独立推导（main / main_window / terminal.session / kimi_cli / kimi_acp），
+此前多处独立推导（main / main_window / terminal.session / llm providers 等），
 `parents[N]` 层数不一，文件移动即静默漂移；收口后移动本文件只需改一行。
 
 PyInstaller frozen 兼容（2026-07-25，见 work plans/2026-0725-0859 计划 T4）：

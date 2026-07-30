@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import TypedDict
 
 from core.paths import USER_CONFIG_DIR
-from llm import BACKEND_KIMI_CLI
+from llm import BACKEND_KIMI_ACP
 from llm.permission_policy import DEFAULT_PERMISSION_MODE, MODE_CONFIRM_ALL
 
 #: 配置目录：开发态项目内 config/；打包态 XDG（core/paths.py USER_CONFIG_DIR，
@@ -93,7 +93,7 @@ DEFAULT_SETTINGS: AppSettings = {
     KEY_THEME: DEFAULT_THEME,
     KEY_FONT_SIZE: 10,
     KEY_FONT_FAMILY: "Source Han Sans CN",
-    KEY_MODEL_BACKEND: BACKEND_KIMI_CLI,
+    KEY_MODEL_BACKEND: BACKEND_KIMI_ACP,
     KEY_MODEL_VERSION: None,
     KEY_TERMINAL_SWAP_COPY_PASTE: False,
     KEY_PERMISSION_MODE: DEFAULT_PERMISSION_MODE,

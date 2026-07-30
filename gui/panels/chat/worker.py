@@ -13,7 +13,7 @@ class ChatWorker(QThread):
     - 检查点层：`_is_stop_requested` 标志，每 chunk 轮询，接住取消后的残余流
     - 竞态层：worker 未 start 先置标志，`run()` 首轮即返（不建生成器）
     归一化：无论 break 还是异常，只要标志置位一律按"用户中断"收尾
-    （kimi-cli 被 terminate 后退出码非 0 会抛 RuntimeError，不能误判为失败）。
+    （取消路径会打断阻塞等待，残余异常不能误判为失败）。
     """
 
     #: 流式块（Chunk，kind 区分正文/思维链）

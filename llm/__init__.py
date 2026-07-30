@@ -12,7 +12,7 @@ from llm.base import Chunk, LanguageModel, Message
 from llm.providers.acp import PermissionHandler, PermissionParams
 from llm.providers.kilocode_acp import KiloCodeAcpLLM, kilocode_available, list_kilocode_models
 from llm.providers.kimi_acp import KimiAcpLLM
-from llm.providers.kimi_cli import KimiCliLLM, kimi_available, list_kimi_models
+from llm.providers.kimi_common import kimi_available, list_kimi_models
 from llm.providers.opencode_acp import OpenCodeAcpLLM, list_opencode_models, opencode_available
 from llm.providers.reasonix_acp import ReasonixAcpLLM, list_reasonix_models, reasonix_available
 from llm.registry import (
@@ -27,8 +27,8 @@ from llm.registry import (
 )
 
 #: 后端注册名（settings 默认值、设置菜单、ModelBar 共用此常量）——
-#: 即 REGISTRY 的键；注册表条目以这两字面量为名，无从再行"派生"
-BACKEND_KIMI_CLI = "kimi-cli"
+#: 即 REGISTRY 的键；注册表条目以此字面量为名，无从再行"派生"
+#: （kimi-cli 已移除，见 work plans/2026-0731-0036）
 BACKEND_KIMI_ACP = "kimi-acp"
 
 
@@ -36,7 +36,6 @@ __all__ = [
     "Chunk",
     "LanguageModel",
     "Message",
-    "BACKEND_KIMI_CLI",
     "BACKEND_KIMI_ACP",
     "BACKEND_LABELS",
     # 注册表（D3；阶段二 UI 三级选择的数据源）
@@ -47,8 +46,7 @@ __all__ = [
     "vendor_groups",
     "refresh_models",
     "VENDOR_LABELS",
-    # Kimi CLI 专有符号（非 Protocol 成员）
-    "KimiCliLLM",
+    # Kimi 专有符号（非 Protocol 成员；探测/枚举居 kimi_common，CLI 传输层已移除）
     "KimiAcpLLM",
     "kimi_available",
     "list_kimi_models",

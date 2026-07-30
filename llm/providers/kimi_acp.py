@@ -1,14 +1,14 @@
 """Kimi ACP provider：长驻 `kimi acp` 子进程 + JSON-RPC（ndjson 帧）对接。
 
-与 kimi_cli（每轮 spawn + stream-json）的差异：长驻单进程、token 级流式
-（`agent_message_chunk`）、思维链可见（`agent_thought_chunk`）、会话原生管理
-（`session/new`）；历史由 agent 侧会话管理，仅取末条 user 消息作 prompt。
-凭证由 CLI 自管（OAuth），代码库零密钥。审批反向请求本期自动允许（allow_once 优先，
-等价于 `-p` 的 auto 语义；UI 审批回环见 ACP 计划 C3）。
+kimi 唯一传输层（CLI `-p` 模式已移除，见 2026-0731-0036 计划）：长驻单进程、
+token 级流式（`agent_message_chunk`）、思维链可见（`agent_thought_chunk`）、
+会话原生管理（`session/new`）；历史由 agent 侧会话管理，仅取末条 user 消息作
+prompt。凭证由 CLI 自管（OAuth），代码库零密钥。
 
 连接层已泛化抽出（计划 2026-0730-0150 §4-D5）：帧收发/反向请求/死讯注入
 见 llm/providers/acp.py 的 AcpConnection（agent_name 参数化）；本文件仅留
-kimi 专有装配（_find_bin、initialize 载荷、-32000 authRequired 文案映射）。
+kimi 专有装配（initialize 载荷、-32000 authRequired 文案映射），二进制路径
+解析复用 llm/providers/kimi_common.py 的 _find_bin。
 行为与抽离前逐行等价。
 """
 import atexit
@@ -26,7 +26,7 @@ from llm.providers.acp import (
     PermissionParams,
     ToolCallInfo,
 )
-from llm.providers.kimi_cli import _find_bin
+from llm.providers.kimi_common import _find_bin
 
 
 class KimiAcpLLM(LanguageModel):

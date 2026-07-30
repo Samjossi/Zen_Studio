@@ -26,7 +26,7 @@
 | `gui/panels/viewer/` | 文件查看面板子包（中栏上）：`panel.py` 装配（含 Git 差异徽标）/ `code_viewer.py` 只读查看器（行号栏）/ `highlighter.py` Pygments 高亮器 |
 | `gui/panels/terminal/` | 终端面板子包（中栏下）：`panel.py` 装配 / `widget.py` 自绘终端控件 / `screen.py` pyte 语义层 / `session.py` PTY 会话 / `palette.py` ANSI 双主题色板 |
 
-> LLM 调用层为后端逻辑，位于项目根 `llm/`（与 `gui/` 平级）：`base.py` Protocol / `providers/kimi_cli.py`（stream-json 子进程）与 `providers/kimi_acp.py`（ACP 长驻）两个 Kimi Code CLI 后端。多标签改造后 provider 由每个 `ChatPanel` 自持（`ChatPanel._build_providers` 装配单点）。
+> LLM 调用层为后端逻辑，位于项目根 `llm/`（与 `gui/` 平级）：`base.py` Protocol / `providers/` 下 kimi / reasonix / OpenCode / Kilo Code 四家 ACP 长驻后端（传输层统一为 ACP，kimi CLI `-p` 模式已于 2026-07-31 移除）。多标签改造后 provider 由每个 `ChatPanel` 自持（`ChatPanel._build_providers` 装配单点）。
 >
 > Git 数据层同理位于项目根 `core/git/`：`GitStatusService`（subprocess 调系统 git CLI，零 Qt 依赖纯 Python 包），GUI 侧经 `main_window` 注入各面板消费。
 
@@ -86,8 +86,7 @@
 |:---|:---|
 | `LanguageModel` Protocol | 统一接口 `chat(messages) -> Iterator[Chunk]`，与 UI 解耦 |
 | `Chunk` | 流式块：`kind="text"` 正文 / `kind="reasoning"` 过程信息（思维链或工具调用摘要灰字展示） |
-| `KimiCliLLM` | Kimi Code CLI 后端（spawn `-p` + stream-json）：消息粒度上屏、session_id 续接多轮、工具调用灰字摘要；⚠️ auto 权限下 agent 可在项目目录自主读写/执行 |
-| `KimiAcpLLM` | Kimi ACP 后端（长驻 `kimi acp` + JSON-RPC）：**token 级流式**、思维链可见（`agent_thought_chunk`）、`session/new` 原生会话、`session/set_config_option` 会话内切模型 |
+| `KimiAcpLLM` | Kimi ACP 后端（长驻 `kimi acp` + JSON-RPC，kimi 后台唯一接口）：**token 级流式**、思维链可见（`agent_thought_chunk`）、`session/new` 原生会话、`session/set_config_option` 会话内切模型 |
 | `PermissionDialog` | ACP 工具审批模态框：工具名/参数摘要 + 选项按钮（允许一次/始终允许/拒绝）；reader 线程请求转 GUI 线程弹出，180s 无响应按拒绝兜底 |
 | `ModelBar` | 输入区底行左端三按钮（纯视图，每标签实例）：后台（CLI 产品分组）→ 接口（接入实现，不可用时禁用标「未检测到」）→ 模型（别名联动刷新），按钮**直显当前值短文本**（接口剥后台前缀 `Kimi ACP`→`ACP`、模型别名取 `/` 末段 `kimi-code/k3-256k`→`k3-256k`，宽度贴合文本），点击弹 InstantPopup 菜单——按内容加宽显示全文、当前项 ✓ 勾选；tooltip 三行全名链兜底；切换下次请求生效，任一标签发送中全标签锁定；选择与写盘归 ChatTabs 状态层（`model_backend` / `model_version`），启动时恢复 |
 | 多轮 | 历史由各后端会话管理；请求失败的用户消息不入历史，错误上屏不崩溃 |

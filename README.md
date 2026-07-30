@@ -23,7 +23,7 @@ Zen Studio 的设计哲学是 **AI-first**：代码修改一律经 AI agent 落�
 | 特性 | 说明 |
 |:---|:---|
 | AI 聊天面板 | 多标签会话（上限 4，标签间 provider 完全隔离可并行）；token 级流式 + 思维链可见（ACP 后端）；发送/停止双态按钮；拖入文件插 `@相对路径` 引用；ACP 工具审批模态框（允许一次/始终允许/拒绝） |
-| 统一 CLI 后端 | 对话统一经本机 Kimi Code CLI（OAuth 自管凭证），代码库**零 API KEY**；双后端可选：`kimi-cli`（stream-json 子进程）/ `kimi-acp`（长驻 ACP 协议，Zed/JetBrains 同款集成方式） |
+| 统一 CLI 后端 | 对话统一经本机 agent CLI（OAuth 自管凭证），代码库**零 API KEY**；传输层统一为 ACP 长驻协议（Zed/JetBrains 同款集成方式），kimi / reasonix / OpenCode / Kilo Code 四后台可选 |
 | 多类型文件预览 | 只读查看器五页分流：文本（Pygments 高亮 + 行号栏）/ 图片（位图 + 矢量 SVG + GIF 动图 + 棋盘格透明底）/ PDF（连续滚动 + 翻页缩放）/ Markdown（GFM 渲染，可「使用 Typora 打开」）/ 音视频（就地播放，双击即播） |
 | 真 PTY 终端 | ptyprocess + pyte + 自绘字符网格；多会话 tab；OSC 动态标题；查找浮层；Ctrl+C/V 与文本选择反转适配 |
 | Git 集成 | 文件树状态着色（M/U/D）、查看器差异徽标（`+a -b`）、右栏下变更面板（VS Code SCM 简化版）、状态栏差异统计；事件驱动刷新（窗口激活 / 外部重载 / 手动） |
@@ -136,7 +136,7 @@ building/dist/zen-studio/zen-studio
 ## 8. 安全模型（零密钥）
 
 - 代码库**零密钥字面量、零密钥读取路径**：凭证由各 agent CLI 自行管理（kimi 为 OAuth）；
-- agent 权限：CLI `-p` 模式固定 auto 权限，agent 可在**项目目录**内读写文件与执行命令（CLI 静态 deny 规则生效）；ACP 后端支持工具审批四态；
+- agent 权限：ACP 后端支持工具审批四态（允许一次/始终允许/拒绝 + 设置中心默认档），agent 可在**项目目录**内读写文件与执行命令（CLI 静态 deny 规则生效）；
 - `.gitignore` 保留 `api_key/` 条目防未来误存密钥；`参考代码/` 已隔离不分发。
 
 ## 9. 文档体系

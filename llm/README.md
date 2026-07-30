@@ -20,14 +20,16 @@
 
 | 文件 | 说明 |
 |:---|:---|
-| `llm/__init__.py` | 包初始化：导出统一接口、后端常量（`BACKEND_KIMI_CLI`/`BACKEND_KIMI_ACP`/`BACKEND_LABELS`，由 REGISTRY 派生 re-export）与 provider 类 |
+| `llm/__init__.py` | 包初始化：导出统一接口、后端常量（`BACKEND_KIMI_ACP`/`BACKEND_LABELS`，由 REGISTRY 派生 re-export）与 provider 类 |
 | `llm/base.py` | `LanguageModel` Protocol + `Message` 类型别名 + `Chunk` 流式块 |
 | `llm/registry.py` | 后端注册表：`BackendSpec`（name/label/vendor/available/list_models/factory）+ `REGISTRY` 单点 + 查询 API（`spec_of`/`vendor_of`/`vendor_groups`）；import 无副作用，探测均惰性 |
 | `llm/providers/__init__.py` | provider 子包标记（每家厂商一个文件） |
 | `llm/providers/acp.py` | 泛化 ACP 连接层 `AcpConnection`（ndjson JSON-RPC 帧收发/id 配对/反向请求分发/死讯注入；agent 名参数化）+ 审批协议定型类型（`PermissionParams`/`PermissionHandler`） |
-| `llm/providers/kimi_cli.py` | `KimiCliLLM`：本机 Kimi Code CLI 后端（spawn `kimi -p --output-format stream-json` 子进程 + session_id 续接；二进制检测链 PATH → `$KIMI_CODE_HOME/bin` → `~/.kimi-code/bin`） |
+| `llm/providers/kimi_common.py` | kimi 二进制公共探测与模型枚举：`_find_bin`（PATH → `$KIMI_CODE_HOME/bin` → `~/.kimi-code/bin`）、`kimi_available`、`list_kimi_models`（CLI 传输层已于 2026-07-31 移除，见 work plans/2026-0731-0036） |
 | `llm/providers/kimi_acp.py` | `KimiAcpLLM`：Kimi ACP 后端（长驻 `kimi acp` 子进程，复用 `AcpConnection`；token 级流式、思维链可见、审批反向请求路由） |
 | `llm/providers/reasonix_acp.py` | `ReasonixAcpLLM`：Reasonix ACP 后端（长驻 `reasonix acp`，与 KimiAcpLLM 同构；模型目录解析 `~/.reasonix/config.toml`；未 setup 经 session/new 错误映射引导「请先运行 reasonix setup」；轮次失败 `stopReason=error` 转可读报错） |
+| `llm/providers/opencode_acp.py` | `OpenCodeAcpLLM`：OpenCode ACP 后端（同构；`opencode models` 纯文本枚举，Zen 官方 `opencode/` 前缀模型菜单层剔除） |
+| `llm/providers/kilocode_acp.py` | `KiloCodeAcpLLM`：Kilo Code ACP 后端（同构；`kilo models` 纯文本枚举，网关聚合 `kilo/` 前缀模型菜单层剔除） |
 
 ## 3. 接口设计
 
@@ -50,17 +52,16 @@ class LanguageModel(Protocol):
 |:---|:---|
 | `LanguageModel` | 统一接口，返回 `Iterator[Chunk]` 逐块产出，与 UI 解耦 |
 | `Chunk` | 流式块：`kind="text"` 为正文增量；`kind="reasoning"` 为过程信息（思维链或工具调用摘要），仅当次显示、不回传 |
-| `KimiCliLLM` | provider 之一（`"kimi-cli"`，默认）：本机 Kimi Code CLI（OAuth 自管凭证）；spawn 子进程逐行解析 JSONL，assistant 正文为**消息粒度**（非 token 流式），`tool_calls` 复用 reasoning 通道灰字展示；历史由 CLI 会话管理（meta 行 `session_id` 续接），`set_model(alias)` 切换模型、`reset_session()` 开新会话；⚠️ `-p` 固定 auto 权限，agent 可在项目目录读写文件与执行命令 |
-| `KimiAcpLLM` | provider 之二（`"kimi-acp"`）：长驻 `kimi acp` 子进程经 ndjson JSON-RPC 对接（[ACP 协议](https://agentclientprotocol.com)，Zed/JetBrains 同款集成方式）；**token 级流式**（`agent_message_chunk`）、思维链可见（`agent_thought_chunk` → reasoning 通道）、`session/new` 原生会话、`session/set_config_option` 会话内切模型；工具审批经 `set_permission_handler()` 注入的回调路由（GUI 模态框），无回调时自动允许（等价 `-p` auto），回调返回 None/异常按拒绝兜底；进程崩溃下轮自动重启并开新会话 |
-| `ReasonixAcpLLM` | provider 之三（`"reasonix-acp"`，后台 Reasonix）：长驻 `reasonix acp` 子进程，协议层与 `KimiAcpLLM` 同构（ACP v1）；模型目录经 `list_reasonix_models()` 解析 `~/.reasonix/config.toml`（`$REASONIX_HOME` 可覆盖）`[[providers]]` 段，别名为 `provider/model` 全名（DeepSeek 系）；未 setup（`session/new` 报 `not configured` 类错误）时映射为「请先运行 reasonix setup」友好提示；轮次失败 `stopReason=error` 转可读报错 |
+| `KimiAcpLLM` | kimi 后台唯一接口（`"kimi-acp"`，出厂默认）：长驻 `kimi acp` 子进程经 ndjson JSON-RPC 对接（[ACP 协议](https://agentclientprotocol.com)，Zed/JetBrains 同款集成方式）；**token 级流式**（`agent_message_chunk`）、思维链可见（`agent_thought_chunk` → reasoning 通道）、`session/new` 原生会话、`session/set_config_option` 会话内切模型；工具审批经 `set_permission_handler()` 注入的回调路由（GUI 模态框），无回调时自动允许，回调返回 None/异常按拒绝兜底；进程崩溃下轮自动重启并开新会话 |
+| `ReasonixAcpLLM` | provider（`"reasonix-acp"`，后台 Reasonix）：长驻 `reasonix acp` 子进程，协议层与 `KimiAcpLLM` 同构（ACP v1）；模型目录经 `list_reasonix_models()` 解析 `~/.reasonix/config.toml`（`$REASONIX_HOME` 可覆盖）`[[providers]]` 段，别名为 `provider/model` 全名（DeepSeek 系）；未 setup（`session/new` 报 `not configured` 类错误）时映射为「请先运行 reasonix setup」友好提示；轮次失败 `stopReason=error` 转可读报错 |
 
 ## 4. 使用方式
 
 ```python
-from llm import KimiAcpLLM, KimiCliLLM
+from llm import KimiAcpLLM
 
-llm = KimiCliLLM()  # 或 KimiAcpLLM()（token 流式 + 思维链）；GUI 侧由 ChatPanel 自持装配
-llm.set_model("kimi-code/kimi-for-coding-highspeed")  # 可选，默认 CLI default_model
+llm = KimiAcpLLM()  # GUI 侧由 ChatPanel 经注册表工厂自持装配
+llm.set_model("kimi-code/k3-256k")  # 可选，默认 CLI default_model
 for chunk in llm.chat([{"role": "user", "content": "你好"}]):
     if chunk.kind == "reasoning":
         print(chunk.text, end="", flush=True)  # 过程信息（思维链/工具摘要）：仅显示
@@ -68,23 +69,20 @@ for chunk in llm.chat([{"role": "user", "content": "你好"}]):
         print(chunk.text, end="", flush=True)  # 正文
 ```
 
-> ⚠️ `chat()` 是阻塞式 generator（CLI 后端为子进程 stdout 读取）。GUI 中必须放后台线程消费，经信号逐块上屏，避免冻结主线程（参考实现：`gui/panels/chat/worker.py`）。
+> ⚠️ `chat()` 是阻塞式 generator（长驻子进程 stdio 读取）。GUI 中必须放后台线程消费，经信号逐块上屏，避免冻结主线程（参考实现：`gui/panels/chat/worker.py`）。
 
-多轮对话由 CLI 侧会话管理（首轮后 meta 行回传 `session_id`，后续请求经 `-S` 续接）；调用方无需回传历史（panel 传入的消息列表中仅末条 user 消息被用作 prompt）。子进程非零退出抛 `RuntimeError`（消息附 stderr 尾部诊断），由调用方捕获后上屏，不崩溃。
+多轮对话由 agent 侧会话管理（`session/new` 原生会话，ACP 长驻连接内续轮）；调用方无需回传历史（panel 传入的消息列表中仅末条 user 消息被用作 prompt）。
 
-**Kimi Code CLI 版本要求与行为说明**（依据 0.27.0 实测，详见 `2026-0718-1545_KimiCLI新版兼容验证与最小修补实施计划.md`）：
+**kimi 二进制探测与模型枚举**（`llm/providers/kimi_common.py`）：
 
-- 版本要求 **≥ 0.2.0**（该版起 stream-json 输出 `session.resume_hint` meta 行，为多轮续接前提；TypeScript 重写版均满足）
 - 二进制检测链：`PATH` → `$KIMI_CODE_HOME/bin/kimi` → `~/.kimi-code/bin/kimi`（桌面启动 PATH 不含安装目录时仍可发现）
-- `-p` 模式默认等后台任务/subagent 完成才退出（0.24.x 起），长耗时单轮属 CLI 预期行为而非卡死
-- stream-json 中可能出现重试等新事件类型（0.23.5 起），解析器按字段名容错跳过，向前兼容
 - 可用模型别名由 `list_kimi_models()`（`kimi provider list --json`）**动态解析**，随 CLI 重登录刷新的服务端目录自动增减，IDE 侧零硬编码（2026-07-25 起目录含 `kimi-code/k3-256k`：K3 的 256K 版，同模式消耗约为 `k3`（1M）一半，**仅图片输入不支持视频**，effort `low`/`high`/`max`；IDE 持久化默认版本与 CLI `default_model` 均已切换至它，见 work plans/2026-0725-0205）
 
 ## 5. 安全模型（零密钥）
 
 - 代码库**零密钥字面量、零密钥读取路径**：凭证由各 CLI 自行管理（kimi：`kimi login` OAuth，存于 `~/.kimi-code/`）
 - `.gitignore` 保留 `api_key/` 条目，防未来误存密钥
-- agent 权限：CLI `-p` 模式固定 auto 权限，agent 可在**项目目录**读写文件与执行命令（CLI 静态 deny 规则生效）；工作目录限定为项目根
+- agent 权限：ACP 工具审批四态（允许一次/始终允许/拒绝 + 设置中心默认档），agent 可在**项目目录**读写文件与执行命令（CLI 静态 deny 规则生效）；工作目录限定为项目根
 
 ## 6. 新增 provider
 
