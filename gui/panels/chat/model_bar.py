@@ -32,6 +32,21 @@
   透传（不解析/不切分/不校验）；红线 4 切后台/接口时下级菜单先清后建、
   回退首项，旧后台别名立即失效不残留；红线 5 回退不写盘（本组件本就
   不管写盘，写盘只发生在用户主动切换经 ChatTabs 收敛时）
+
+当前值直显与文本精简（2026-07-30，work plans/2026-0730-1143 计划）：
+- 三按钮由恒显层级标签改为直显当前值短文本（D4-A 纯值直显）：
+  后台原文；接口剥 vendor 前缀（short_interface_label，"Kimi ACP"→
+  "ACP"，不匹配前缀回退原文）；模型别名取 '/' 末段（short_model_alias，
+  "kimi-code/k3-256k"→"k3-256k"，无 '/' 回退全文）——截取仅发生在
+  UI 呈现层，action data/信号载荷/持久化值全程仍是全名（D6 红线 2 不破）
+- 宽度策略（用户拍板 2026-07-30，覆盖计划 D2-A 恒宽稿）：按钮宽度
+  **贴合当前选中文本**（文本宽 + 样式余量 setFixedWidth），不做菜单最大
+  项恒宽、不设上限——短文本精简后各选项长度差异小，宽度随选择小幅
+  变化是可接受的即时反馈；QSplitter 不自动回缩，长选项顶宽左栏后
+  切回短选项需手动拖回（取舍明示）
+- 菜单项保持全文 + ✓ 勾选（D3，防不同 provider 同后段名歧义）；
+  tooltip 三行全名链不变（悬停仍可见完整信息）；无勾选项时按钮回退
+  层级标签「后台/接口/模型」（空态不显示空串）
 """
 from PySide6.QtCore import Signal
 from PySide6.QtGui import QAction, QActionGroup
@@ -39,6 +54,28 @@ from PySide6.QtWidgets import QHBoxLayout, QMenu, QToolButton, QWidget
 
 from gui.popups import make_translucent_popup
 from llm import spec_of, vendor_groups, vendor_of
+
+
+def short_interface_label(spec_label: str, vendor_label: str) -> str:
+    """接口显示名剥后台前缀："Kimi CLI" - "Kimi" → "CLI"。
+
+    不匹配前缀（或剥后为空）时回退原文——注册项 label 无强制命名公约，
+    兜底防误判（2026-0730-1143 计划 D1）。仅用于 UI 呈现，不碰数据链路。
+    """
+    prefix = vendor_label.strip()
+    if prefix and spec_label.startswith(prefix):
+        short = spec_label[len(prefix):].strip()
+        if short:
+            return short
+    return spec_label
+
+
+def short_model_alias(alias: str) -> str:
+    """模型别名取 '/' 末段："kimi-code/k3-256k" → "k3-256k"。
+
+    多层 '/' 取最末段（rsplit）；无 '/' 回退全文（D1）。仅用于 UI 呈现。
+    """
+    return alias.rsplit("/", 1)[-1]
 
 
 class ModelBar(QWidget):
@@ -84,6 +121,7 @@ class ModelBar(QWidget):
             default_vendor.setChecked(True)
         self._refresh_interfaces(self.current_vendor())
         self._refresh_tooltips()
+        self._refresh_button_texts()
 
         layout = QHBoxLayout(self)
         layout.addWidget(self._vendor_button)
@@ -96,21 +134,20 @@ class ModelBar(QWidget):
     # 控件构造（按钮 + 透明化菜单 + 互斥勾选项）
     # ------------------------------------------------------------------
     def _make_button(self, title: str) -> QToolButton:
-        """恒显标签的下拉按钮：文本不随选择变化（当前值归 tooltip/菜单勾选）。
+        """下拉按钮：文本 = 当前值短文本 + ▾（构造初值为层级标签占位，
+        菜单建好后由 _refresh_button_texts() 统一改写）。
 
         箭头为文本内嵌字形「▾」（与文字同字体同色同基线），Qt 原生
         menu-arrow 由 qss 隐藏（image: none）——原生箭头过小且风格与
         字体不搭（2026-07-25 观感修复第二轮）。
-        最小宽度按「标签+▾ 文本 + qss padding」显式给定：默认 sizeHint
-        过窄会把箭头挤到文字下方（第一轮修复）。
+        宽度不在此设定：由 _refresh_button_texts() 按当前短文本贴合
+        setFixedWidth（用户拍板口径，见模块 docstring）。
         """
         button = QToolButton(self)
         button.setObjectName("chatModelButton")
         button.setText(f"{title} ▾")
         button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         button.setMenu(make_translucent_popup(QMenu(button)))
-        text_width = button.fontMetrics().horizontalAdvance(f"{title} ▾")
-        button.setMinimumWidth(text_width + 24)  # qss padding 12*2
         return button
 
     def _add_action(
@@ -161,13 +198,44 @@ class ModelBar(QWidget):
         for button in (self._vendor_button, self._interface_button, self._model_button):
             button.setToolTip(tooltip)
 
+    def _refresh_button_texts(self) -> None:
+        """三按钮直显当前值短文本，宽度贴合文本（用户拍板口径）。
+
+        文本规则（D1/D4-A）：后台原文；接口剥 vendor 前缀；模型取 '/' 末段；
+        无勾选项时回退层级标签（空态不显示空串，T4）。
+        宽度规则：各按钮 setFixedWidth(当前短文本宽 + 样式余量)——随选择
+        变化即时贴合（短文本精简后差异小，取舍见模块 docstring）。
+        与 _refresh_tooltips 同点调用、同生命周期。
+        """
+        vendor_action = self._vendor_group.checkedAction()
+        vendor_label = vendor_action.text() if vendor_action is not None else ""
+        interface_action = self._interface_group.checkedAction()
+        model_action = self._model_group.checkedAction()
+
+        vendor_text = vendor_label or "后台"
+        interface_text = (
+            short_interface_label(interface_action.text(), vendor_label)
+            if interface_action is not None else "接口")
+        model_text = (
+            short_model_alias(model_action.text())
+            if model_action is not None else "模型")
+
+        for button, text in ((self._vendor_button, vendor_text),
+                             (self._interface_button, interface_text),
+                             (self._model_button, model_text)):
+            button.setText(f"{text} ▾")
+            # 样式余量实测 37~38px（qss padding 12*2 + 边框/内容区余量，
+            # base.qss #chatModelButton 唯一出处、四主题不覆写，取整 40）
+            width = button.fontMetrics().horizontalAdvance(f"{text} ▾") + 40
+            button.setFixedWidth(width)
+
     # ------------------------------------------------------------------
     # 忙碌态（流式响应中）
     # ------------------------------------------------------------------
     def set_busy(self, is_busy: bool) -> None:
         """busy：禁用三按钮（任一标签响应中即全标签禁用，ChatTabs 遍历调用）。
 
-        按钮恒显标签、菜单随点随建，sizeHint 不随 busy 变化。
+        按钮宽度贴合当前文本且 busy 不改文本，sizeHint 不随 busy 变化。
         """
         self._vendor_button.setEnabled(not is_busy)
         self._interface_button.setEnabled(not is_busy)
@@ -221,6 +289,7 @@ class ModelBar(QWidget):
         if mtarget is not None:
             mtarget.setChecked(True)
         self._refresh_tooltips()
+        self._refresh_button_texts()
 
     # ------------------------------------------------------------------
     # 三级联动（D6 红线 4：切换先清后建 + 回退首项，无残留）
@@ -268,15 +337,18 @@ class ModelBar(QWidget):
         """用户勾选后台 → 接口/模型列表联动重建（各回退首项）→ 发射切换。"""
         self._refresh_interfaces(vendor)
         self._refresh_tooltips()
+        self._refresh_button_texts()
         self.selection_changed.emit(self.current_backend(), self.current_version())
 
     def _on_interface_picked(self, backend: str) -> None:
         """用户勾选接口 → 模型列表联动重建（回退首项）→ 发射切换。"""
         self._refresh_models(backend)
         self._refresh_tooltips()
+        self._refresh_button_texts()
         self.selection_changed.emit(backend, self.current_version())
 
     def _on_model_picked(self, alias: str) -> None:
         """用户勾选模型 → 发射切换（写盘与广播归 ChatTabs 单一来源）。"""
         self._refresh_tooltips()
+        self._refresh_button_texts()
         self.selection_changed.emit(self.current_backend(), alias)
