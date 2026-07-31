@@ -145,6 +145,8 @@ class ChatPanel(QWidget):
             # 选区带色与 ChatOutput 同源（timeline_read_fg 复用，不新增主题键）
             chat_pack["timeline_read_fg"], self)
         self.input.set_workspace_root(workspace_root)
+        # 0438 计划 T2：输出区 @路径 引用存在性校验的工作区基准
+        self.output.set_workspace_root(workspace_root)
         # 图片附件行（0340 方案 B 计划 T2/T3）：状态行与输入框之间，
         # chip 底色复用 user_bubble_bg（不新增主题键）；初态 hide
         self.attachments = AttachmentStrip(chat_pack["user_bubble_bg"], self)

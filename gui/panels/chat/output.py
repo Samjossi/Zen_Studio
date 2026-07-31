@@ -32,6 +32,14 @@ AI 活动块（1602 计划 T4/T5：对话区 AI 活动信息充分展示）：
   `路径[:行号]` 片段，就地施加锚点字符格式（零文本改动、零重排），
   点击经 anchorClicked 信号外抛（setOpenLinks(False) 拦截默认导航）。
 
+2026-0801-0438 计划（文件引用链接着色补全）：
+- T1 @路径 分支：_FILE_LINK_RE 升级单正则双分支，输入框 _mention_text
+  产出的 @相对路径 引用（AI 复读时同形）一并链接化；
+- T2 存在性校验：@分支查盘着色（D4 防 AI 臆造路径误着色），工作区根
+  经 set_workspace_root 注入；
+- T3 用户气泡卡链接化：append_user_message 转义后 _linkify_html 单趟
+  替换为 <a>+<span> 内联色链接，点击链路与正文锚点同一出口。
+
 选区带自绘（2026-0731-2055 方案 A 聊天区推广）：原生带因思源黑体
 leading 全部垫底而偏下，qss 透明化抑制后经 gui/selection_band.py
 公共辅助自绘墨盒上下对称留白带（与 Markdown 预览页同机理）。
@@ -51,10 +59,19 @@ from gui.theme import get_mono_family
 
 _STREAM_FLUSH_MS = 30  # 流式合帧节流间隔（人眼无感下限，1836 计划 D5）
 
-#: L2-5 文件路径链接正则：反引号包裹的 `路径` / `路径:行号`（kilocode
-#: TextPartDisplay 给 Markdown code 片段打 .file-link 的等价物；本仓纯
-#: 文本渲染保留反引号，锚点区间含反引号，文本零改动）
-_FILE_LINK_RE = re.compile(r"`([^\s`]+?\.[A-Za-z0-9]{1,10})(?::(\d+))?`")
+#: L2-5 文件路径链接正则（2026-0801-0438 计划 T1 升级，单正则双分支）：
+#: - 反引号分支（bt_* 组）：`路径` / `路径:行号`（kilocode TextPartDisplay
+#:   给 Markdown code 片段打 .file-link 的等价物；本仓纯文本渲染保留
+#:   反引号，锚点区间含反引号，文本零改动，强制扩展名，L2-5 语义不变）；
+#: - @分支（at_* 组）：@路径——输入框拖放/粘贴 _mention_text 的产出
+#:   形态（目录带尾 /，工作区外为绝对路径）；(?<![\w@]) 防邮箱
+#:   user@host 形态的 @ 误命中，尾标点由使用处 rstrip 裁剪。
+_FILE_LINK_RE = re.compile(
+    r"`(?P<bt_path>[^\s`]+?\.[A-Za-z0-9]{1,10})(?::(?P<bt_line>\d+))?`"
+    r"|(?<![\w@])@(?P<at_path>[^\s`@]+)")
+
+#: @分支尾标点裁剪集：中英文句读均不入链接范围（含全角。，；：？！）」）
+_AT_TRAILING_PUNCT = ".,;:!?)]}\"'。，；：？！）】」"
 
 
 class ChatOutput(QTextBrowser):
@@ -95,6 +112,9 @@ class ChatOutput(QTextBrowser):
         self._user_bubble_bg = QColor(user_bubble_bg)
         self._tool_output_bg = QColor(tool_output_bg)
         self._link_color = QColor(link_fg)
+        #: @路径 存在性校验的工作区基准（0438 计划 T2，panel 构造后注入）；
+        #: None = 未注入（独立控件用法），@分支降级为不校验
+        self._workspace_root: Path | None = None
         #: todo 块锚点（起始/结束 document position）；None = 本轮尚无 todo 块
         self._todo_anchor: tuple[int, int] | None = None
         #: T3 流式合帧：正文缓冲 + 单发冲刷定时器
@@ -111,6 +131,10 @@ class ChatOutput(QTextBrowser):
         """主题切换时更新思维链前景色（仅影响此后追加的块）。"""
         self._reasoning_color = QColor(color)
 
+    def set_workspace_root(self, root: str) -> None:
+        """@路径 引用存在性校验的工作区基准（0438 计划 T2/D4）。"""
+        self._workspace_root = Path(root)
+
     def set_activity_colors(self, tool_fg: str, error_fg: str) -> None:
         """主题切换时更新工具行/失败行前景色（仅影响此后追加的块）。"""
         self._tool_color = QColor(tool_fg)
@@ -119,7 +143,11 @@ class ChatOutput(QTextBrowser):
     def set_card_colors(
         self, user_bubble_bg: str, tool_output_bg: str, link_fg: str
     ) -> None:
-        """主题切换时更新气泡卡/输出卡底色与链接色（仅影响此后追加的块）。"""
+        """主题切换时更新气泡卡/输出卡底色与链接色（仅影响此后追加的块）。
+
+        0438 计划 T4 已知取舍：气泡卡内链接色为 HTML 内联样式，主题切换
+        对已渲染历史消息不重渲染（新消息生效），与既有块同一语义。
+        """
         self._user_bubble_bg = QColor(user_bubble_bg)
         self._tool_output_bg = QColor(tool_output_bg)
         self._link_color = QColor(link_fg)
@@ -158,7 +186,9 @@ class ChatOutput(QTextBrowser):
         依赖落盘文件在盘——D7 惰性清理保最近 20 个兜底）。
         """
         self._flush_stream()
-        body = _html_escape(content).replace("\n", "<br>")
+        # 0438 计划 T3：先转义后链接化（转义产物 &lt; 等实体语法与路径
+        # 字符集不冲突；<a> 标签在转义后插入不破结构），再换行转 <br>
+        body = self._linkify_html(_html_escape(content)).replace("\n", "<br>")
         for img in images or []:
             uri = Path(img["path"]).resolve().as_uri()
             body += f'<br><img src="{uri}" width="200">'
@@ -351,7 +381,8 @@ class ChatOutput(QTextBrowser):
     def _flush_stream(self) -> None:
         """T3 冲刷：缓冲正文按默认格式落盘（各非正文上屏方法的次序守卫）。
 
-        L2-5：落盘后对本区间反引号 `路径[:行号]` 片段就地施加锚点格式。
+        L2-5：落盘后对本区间文件引用片段（反引号路径 / @路径）就地施加
+        锚点格式。
         """
         self._flush_timer.stop()
         if not self._stream_pending:
@@ -365,25 +396,74 @@ class ChatOutput(QTextBrowser):
         self._scroll_to_bottom()
 
     def _linkify_range(self, start: int, text: str) -> None:
-        """L2-5：冲刷区间内 `路径[:行号]` 反引号片段就地锚点化（零重排）。
+        """L2-5：冲刷区间内文件引用片段就地锚点化（零重排）。
 
         区间限定本次冲刷文本（start = 插入前文档末位 position，insertText
         的 \\n 与块分隔符 1:1 对应）：规避全文档重复扫描；跨 30ms 合帧
         边界被截断的路径片段不链接化（已知取舍，概率极低）。点击由
         anchorClicked 信号外抛，路由层解析跳查看器。
+        0438 计划 T1：@路径 分支与反引号分支共用 _iter_file_links。
         """
-        for match in _FILE_LINK_RE.finditer(text):
-            path, line = match.group(1), match.group(2)
+        for mstart, mend, path, line in self._iter_file_links(text):
             cursor = QTextCursor(self.document())
-            cursor.setPosition(start + match.start())
-            cursor.setPosition(
-                start + match.end(), QTextCursor.MoveMode.KeepAnchor)
+            cursor.setPosition(start + mstart)
+            cursor.setPosition(start + mend, QTextCursor.MoveMode.KeepAnchor)
             fmt = QTextCharFormat()
             fmt.setAnchor(True)
             fmt.setAnchorHref(f"file:{path}" + (f"#L{line}" if line else ""))
             fmt.setForeground(self._link_color)
             fmt.setUnderlineStyle(QTextCharFormat.UnderlineStyle.SingleUnderline)
             cursor.setCharFormat(fmt)
+
+    def _linkify_html(self, escaped: str) -> str:
+        """0438 计划 T3：HTML 转义文本中的文件引用 → <a> 内联色链接。
+
+        供用户气泡卡使用（HTML 通道，_linkify_range 的文本游标不适用）。
+        Qt 富文本 <a> 颜色取 palette Link 不可控，嵌 <span style=color>
+        覆盖为 _link_color；单趟拼接避免替换产物被二次扫描。
+        """
+        color = self._link_color.name()
+        parts, last = [], 0
+        for mstart, mend, path, line in self._iter_file_links(escaped):
+            href = f"file:{path}" + (f"#L{line}" if line else "")
+            parts.append(escaped[last:mstart])
+            parts.append(
+                f'<a href="{href}"><span style="color:{color}">'
+                f"{escaped[mstart:mend]}</span></a>")
+            last = mend
+        if not parts:
+            return escaped
+        parts.append(escaped[last:])
+        return "".join(parts)
+
+    def _iter_file_links(self, text: str):
+        """文件引用统一判定（两渲染通道共用，0438 计划 3.1）。
+
+        产出 (start, end, path, line|None)：反引号分支区间含反引号、
+        免存在性校验（L2-5 语义）；@分支区间含 @、尾标点裁剪、须经
+        存在性校验（D3/D4：@是显式引用动作，误报防护靠查盘而非字符集）。
+        """
+        for match in _FILE_LINK_RE.finditer(text):
+            if (bt_path := match.group("bt_path")) is not None:
+                yield match.start(), match.end(), bt_path, match.group("bt_line")
+                continue
+            raw = match.group("at_path").rstrip(_AT_TRAILING_PUNCT)
+            if not raw or not self._mention_exists(raw):
+                continue
+            yield match.start(), match.start() + 1 + len(raw), raw, None
+
+    def _mention_exists(self, path: str) -> bool:
+        """@路径 存在性校验（0438 计划 D4）：绝对路径直查，相对按工作区根。
+
+        命中频次受 @引用 数量约束（每条消息个位数），os.stat 走系统缓存
+        代价可忽略，不做结果缓存（负缓存会对新建文件产生陈旧误判）。
+        """
+        p = Path(path)
+        if not p.is_absolute():
+            if self._workspace_root is None:
+                return True  # 未注入根（独立控件用法）降级为不校验
+            p = self._workspace_root / p
+        return p.exists()
 
     def _flush_reasoning_head(self) -> None:
         """T1 标题判定：缓冲推理文本经四级正则提取，标题加粗+正文灰斜体。"""
