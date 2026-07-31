@@ -136,6 +136,39 @@ def _truncate_line(text: object) -> str | None:
     return line if len(line) <= _SUMMARY_MAX else line[: _SUMMARY_MAX - 1] + "…"
 
 
+_OUTPUT_KEEP_LINES = 20  # bash 输出卡截尾行数（1836 计划 L2-3）
+_OUTPUT_LINE_MAX = 300   # 输出单行字符上限（防 minified 单行撑爆卡片）
+
+
+def _extract_tool_output(update: dict) -> tuple[str, int] | None:
+    """tool_call_update 输出正文提取（1836 计划 L2-3）：rawOutput.output
+    → content 文本项兜底拼接；净化（ANSI/`\\r`）+ 单行截断 + 截尾末 N 行。
+
+    返回 (截尾正文, 原始行数)；无有效输出返回 None。数据装载不分工具
+    kind（update 帧常缺 kind，F3）——execute 过滤归路由层（非 execute
+    工具不上屏输出卡，防 read/edit 长文刷屏）。
+    """
+    output = (update.get("rawOutput") or {}).get("output")
+    if not isinstance(output, str):
+        parts = []
+        for item in update.get("content") or []:
+            if isinstance(item, dict):
+                content = item.get("content")
+                if isinstance(content, dict) and isinstance(content.get("text"), str):
+                    parts.append(content["text"])
+        output = "\n".join(parts)
+    output = _clean_terminal_text(output).strip("\n")
+    if not output.strip():
+        return None
+    lines = [line if len(line) <= _OUTPUT_LINE_MAX
+             else line[: _OUTPUT_LINE_MAX - 1] + "…"
+             for line in output.split("\n")]
+    total = len(lines)
+    if total > _OUTPUT_KEEP_LINES:
+        lines = lines[-_OUTPUT_KEEP_LINES:]
+    return "\n".join(lines), total
+
+
 def _tool_call_fallback(payload: ToolCallPayload) -> str:
     """tool_call 兜底显示行（与 output.append_tool_call 渲染格式保持一致）。"""
     icon = "⧉" if payload.get("is_subagent") else "▸"
@@ -237,6 +270,11 @@ def _map_tool_call(update: dict) -> Chunk:
     payload["tool_kind"] = tool_kind
     if tool_kind == "think":  # task 子代理（D5 标记）
         payload["is_subagent"] = True
+    if tool_kind == "execute":
+        # L2-3 bash 输出卡 `$ ` 头：留存完整命令（净化；可多行，渲染取首行）
+        if isinstance(raw.get("command"), str):
+            if command := _clean_terminal_text(raw["command"]).strip():
+                payload["command"] = command
     if summary := _tool_call_summary(update):
         payload["summary"] = summary
     return Chunk("tool_call", _tool_call_fallback(payload), payload=payload)
@@ -245,9 +283,10 @@ def _map_tool_call(update: dict) -> Chunk:
 def _map_tool_call_update(update: dict) -> Chunk | None:
     """tool_call_update → 状态流转 Chunk；status 缺省（纯 content 快照帧）返回 None。
 
-    一级范围（D1）不上屏输出正文，content/rawOutput 长输出不消费；
     failed 时尽力提取错误首行（rawOutput.error → content 文本首行），
-    取不到则缺省。
+    取不到则缺省。1836 计划 L2-3 起携带净化截尾的输出正文
+    （_extract_tool_output；execute 过滤上屏归路由层，替代 1602 D1
+    「长输出不消费」的一级范围限定——截尾后载荷有界）。
     """
     payload = ToolUpdatePayload()
     if isinstance(update.get("toolCallId"), str):
@@ -258,6 +297,8 @@ def _map_tool_call_update(update: dict) -> Chunk | None:
     payload["status"] = status
     if isinstance(update.get("title"), str):
         payload["title"] = update["title"]
+    if extracted := _extract_tool_output(update):
+        payload["output"], payload["output_total_lines"] = extracted
     if status == "failed":
         error = (update.get("rawOutput") or {}).get("error")
         if isinstance(error, dict):

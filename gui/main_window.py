@@ -188,6 +188,8 @@ class MainWindow(QMainWindow):
         # 双击文件 → 中栏查看器打开
         self.file_explorer = FileExplorer(workspace_root)
         self.file_explorer.file_opened.connect(self.viewer_panel.open_file)
+        # 对话区正文文件路径链接点击 → 查看器打开并跳行（1836 计划 L2-5）
+        self.chat_tabs.file_open_requested.connect(self.viewer_panel.open_file)
         self.changes_panel = ChangesPanel()
         self._splitter_sidebar = QSplitter(Qt.Orientation.Vertical)
         self._splitter_sidebar.addWidget(self.file_explorer)

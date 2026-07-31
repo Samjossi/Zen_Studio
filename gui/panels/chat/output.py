@@ -19,15 +19,36 @@ AI 活动块（1602 计划 T4/T5：对话区 AI 活动信息充分展示）：
 - T3 流式合帧节流：append_stream_chunk 入缓冲 + 30ms QTimer 单发
   冲刷；任何非正文上屏（reasoning/工具行/todo/收尾）先 _flush_stream
   强制冲刷保次序，轮次收尾防残帧。
+
+1836 计划 L2 四项（QTextBrowser HTML 子集可达规格，摘 Kilo Code 设计）：
+- L2-1 用户消息气泡卡：append_user_message 改 table+bgcolor 单格卡片
+  （Qt 富文本经典技法；圆角不可达取直角卡），底色 ChatPack.user_bubble_bg；
+- L2-2 工具行层级升级：图标/摘要维持 tool_fg 灰，标题加粗默认前景，
+  双格式分段（整行单色的观感升级）；
+- L2-3 bash 工具卡：完成态 execute 工具行下追加等宽字体输出卡
+  （table+bgcolor + 自带更纱黑体，`$ 命令` 头 + 输出体 + 超限行尾注），
+  底色 ChatPack.tool_output_bg；输出正文由协议层净化截尾；
+- L2-5 文件路径可点击：_flush_stream 冲刷后对本次区间正则扫描反引号
+  `路径[:行号]` 片段，就地施加锚点字符格式（零文本改动、零重排），
+  点击经 anchorClicked 信号外抛（setOpenLinks(False) 拦截默认导航）。
 """
+import re
+from html import escape as _html_escape
+
 from PySide6.QtCore import QTimer
 from PySide6.QtGui import QColor, QFont, QTextCharFormat, QTextCursor
 from PySide6.QtWidgets import QTextBrowser
 
 from gui.panels.chat.reasoning_heading import split_heading
 from gui.popups import exec_standard_context_menu
+from gui.theme import get_mono_family
 
 _STREAM_FLUSH_MS = 30  # 流式合帧节流间隔（人眼无感下限，1836 计划 D5）
+
+#: L2-5 文件路径链接正则：反引号包裹的 `路径` / `路径:行号`（kilocode
+#: TextPartDisplay 给 Markdown code 片段打 .file-link 的等价物；本仓纯
+#: 文本渲染保留反引号，锚点区间含反引号，文本零改动）
+_FILE_LINK_RE = re.compile(r"`([^\s`]+?\.[A-Za-z0-9]{1,10})(?::(\d+))?`")
 
 
 class ChatOutput(QTextBrowser):
@@ -38,22 +59,34 @@ class ChatOutput(QTextBrowser):
         reasoning_color: str,
         tool_color: str,
         error_color: str,
+        user_bubble_bg: str,
+        tool_output_bg: str,
+        link_fg: str,
         parent=None,
     ) -> None:
         """
         :param reasoning_color: 思维链前景色（主题资源包 chat.reasoning_fg 注入）；
-            兼作 todo 完成项弱化色（复用不新增键，1602 计划 T7）
+            兼作 todo 完成项弱化色（复用不新增键，1602 计划 T7）与输出卡
+            超限行尾注色
         :param tool_color: 工具行/todo 清单前景色（chat.tool_fg）
         :param error_color: 失败状态行前景色（chat.tool_error_fg）
+        :param user_bubble_bg: 用户消息气泡卡底色（chat.user_bubble_bg，L2-1）
+        :param tool_output_bg: bash 输出卡底色（chat.tool_output_bg，L2-3）
+        :param link_fg: 正文文件路径链接色（chat.timeline_read_fg 复用——
+            VS Code textLink-foreground 同源值，L2-5）
         :param parent: 父控件
         """
         super().__init__(parent)
         self.setOpenExternalLinks(False)
+        self.setOpenLinks(False)  # L2-5：拦截默认导航，anchorClicked 外抛
         # 样式由主题 qss 统一（透明融入侧栏，无边框）
         self.setObjectName("ChatOutput")
         self._reasoning_color = QColor(reasoning_color)
         self._tool_color = QColor(tool_color)
         self._error_color = QColor(error_color)
+        self._user_bubble_bg = QColor(user_bubble_bg)
+        self._tool_output_bg = QColor(tool_output_bg)
+        self._link_color = QColor(link_fg)
         #: todo 块锚点（起始/结束 document position）；None = 本轮尚无 todo 块
         self._todo_anchor: tuple[int, int] | None = None
         #: T3 流式合帧：正文缓冲 + 单发冲刷定时器
@@ -75,15 +108,39 @@ class ChatOutput(QTextBrowser):
         self._tool_color = QColor(tool_fg)
         self._error_color = QColor(error_fg)
 
+    def set_card_colors(
+        self, user_bubble_bg: str, tool_output_bg: str, link_fg: str
+    ) -> None:
+        """主题切换时更新气泡卡/输出卡底色与链接色（仅影响此后追加的块）。"""
+        self._user_bubble_bg = QColor(user_bubble_bg)
+        self._tool_output_bg = QColor(tool_output_bg)
+        self._link_color = QColor(link_fg)
+
     def contextMenuEvent(self, event) -> None:
         """标准编辑菜单透明化（见 gui/popups.py 与 0751 计划 §3.1）。"""
         exec_standard_context_menu(self, event)
 
     def append_message(self, role: str, content: str) -> None:
-        """追加一条完整消息（role 为显示名，如"我"/"AI"）。"""
+        """追加一条完整消息（role 为显示名，如"系统"）；用户消息走 append_user_message。"""
         self._flush_stream()
         self.append(f"<b>{role}：</b>")
         self.append(f"{content}<br>")
+        self._scroll_to_bottom()
+
+    def append_user_message(self, content: str) -> None:
+        """用户消息气泡卡上屏（L2-1）：table 单格 + bgcolor 直角卡。
+
+        Qt 富文本不支持圆角，直角灰底卡即「用户消息有卡、AI 消息裸文」
+        层级差（1836 计划 D4）的载体可达形态；内容 HTML 转义防用户输入
+        的 `<`/`&` 破坏结构（多行换行转 <br>）。
+        """
+        self._flush_stream()
+        body = _html_escape(content).replace("\n", "<br>")
+        self.append(
+            f'<table width="100%" cellspacing="0" cellpadding="8">'
+            f'<tr><td bgcolor="{self._user_bubble_bg.name()}">'
+            f"<b>我：</b>{body}</td></tr></table>")
+        self.append("")  # 卡后与后续内容的间距空行
         self._scroll_to_bottom()
 
     def begin_stream(self, role: str) -> None:
@@ -129,42 +186,85 @@ class ChatOutput(QTextBrowser):
     # AI 活动块（1602 计划 T4：工具调用行 / 状态流转行）
     # ------------------------------------------------------------------
     def append_tool_call(self, payload: dict) -> None:
-        """工具调用行上屏：`◐ ▸ title — summary`（tool_fg 整行着色）。
+        """工具调用行上屏：`◐ ▸ title — summary`（L2-2 双格式分段）。
 
-        is_subagent（task 子代理，D5）时图标改 `⧉`。格式与
+        图标/摘要 tool_fg 灰、标题加粗默认前景——「标题是动作主体、摘要是
+        附属参数」的层级差（摘 kilo-ui basic-tool 标题行骨架设计）。
+        is_subagent（task 子代理，D5）时图标改 `⧉`。文本内容与
         acp._tool_call_fallback 兜底文本保持一致（改一处须同步）。
         """
         self._flush_stream()
-        fmt = QTextCharFormat()
-        fmt.setForeground(self._tool_color)
         icon = "⧉" if payload.get("is_subagent") else "▸"
-        line = f"◐ {icon} {payload.get('title') or '?'}"
+        fmt_dim = QTextCharFormat()
+        fmt_dim.setForeground(self._tool_color)
+        fmt_title = QTextCharFormat()
+        fmt_title.setFontWeight(QFont.Weight.Bold)
+        self._insert_at_end("\n", QTextCharFormat(), scroll=False)
+        self._insert_at_end(f"◐ {icon} ", fmt_dim, scroll=False)
+        self._insert_at_end(payload.get("title") or "?", fmt_title, scroll=False)
         if summary := payload.get("summary"):
-            line += f" — {summary}"
-        self._insert_at_end(f"\n{line}\n", fmt)
+            self._insert_at_end(f" — {summary}", fmt_dim, scroll=False)
+        self._insert_at_end("\n", QTextCharFormat())
 
     def append_tool_update(self, payload: dict) -> None:
         """状态流转行上屏：completed `✔ ▸ title`；failed `✖ ▸ title（错误首行）`。
 
         in_progress 一级不上屏（D1：bash 长任务中途快照帧频繁，上屏即刷屏；
         工具行本身的 ◐ 已表达「进行中」）。一级不做就地改写，状态变化追加
-        新行。格式与 acp._tool_update_fallback 兜底文本保持一致。
+        新行。文本内容与 acp._tool_update_fallback 兜底文本保持一致。
+        L2-2：标题加粗（失败行连标题整体 error 色）；L2-3：execute 工具
+        携带 output 时追加 bash 输出卡。
         """
         status = payload.get("status")
         if status not in ("completed", "failed"):
             return
         self._flush_stream()
-        fmt = QTextCharFormat()
         name = payload.get("title") or payload.get("tool_call_id") or "?"
-        if status == "failed":
-            fmt.setForeground(self._error_color)
-            line = f"✖ ▸ {name}"
-            if error := payload.get("error"):
-                line += f"（{error}）"
-        else:
-            fmt.setForeground(self._tool_color)
-            line = f"✔ ▸ {name}"
-        self._insert_at_end(f"{line}\n", fmt)
+        failed = status == "failed"
+        fmt_dim = QTextCharFormat()
+        fmt_dim.setForeground(self._error_color if failed else self._tool_color)
+        fmt_title = QTextCharFormat()
+        fmt_title.setFontWeight(QFont.Weight.Bold)
+        if failed:  # 失败行标题随错误色（完成行标题默认前景拉开层级）
+            fmt_title.setForeground(self._error_color)
+        self._insert_at_end(f"{'✖' if failed else '✔'} ▸ ", fmt_dim, scroll=False)
+        self._insert_at_end(name, fmt_title, scroll=False)
+        if failed and (error := payload.get("error")):
+            self._insert_at_end(f"（{error}）", fmt_dim, scroll=False)
+        self._insert_at_end("\n", QTextCharFormat(), scroll=False)
+        if output := payload.get("output"):  # L2-3 bash 输出卡
+            self._insert_tool_output_card(
+                payload.get("command"), output, payload.get("output_total_lines"))
+        self._scroll_to_bottom()
+
+    def _insert_tool_output_card(
+        self, command: str | None, output: str, total_lines: int | None
+    ) -> None:
+        """bash 输出卡（L2-3）：table 单格等宽字体块——`$ 命令` 头 + 输出体。
+
+        输出正文已由协议层净化（ANSI/`\\r`）并截尾（末 N 行 + 原始行数），
+        本方法纯渲染；超限行补灰字尾注（1425 封存款 K6 降级规格摘用）。
+        insertHtml 于文档末（表格自带块边界，不经光标格式继承，与显式
+        QTextCharFormat 纪律同效）。
+        """
+        body_lines = output.split("\n")
+        lines = []
+        if command:
+            lines.append(f"<b>$ {_html_escape(command.splitlines()[0])}</b>")
+        lines.extend(_html_escape(line) for line in body_lines)
+        if total_lines and total_lines > len(body_lines):
+            lines.append(
+                f'<font color="{self._reasoning_color.name()}">'
+                f"…… 共 {total_lines} 行（仅显示末 {len(body_lines)} 行）</font>")
+        card = (
+            f'<table width="100%" cellspacing="0" cellpadding="6">'
+            f'<tr><td bgcolor="{self._tool_output_bg.name()}">'
+            f'<font face="{get_mono_family()}">{"<br>".join(lines)}</font>'
+            f"</td></tr></table>")
+        cursor = self.textCursor()
+        cursor.movePosition(QTextCursor.MoveOperation.End)
+        cursor.insertHtml(card)
+        cursor.insertText("\n", QTextCharFormat())  # 卡后空行间距
 
     # ------------------------------------------------------------------
     # todo 清单块（1602 计划 T5：锚点就地更新，D2-A）
@@ -223,12 +323,41 @@ class ChatOutput(QTextBrowser):
     # 内部
     # ------------------------------------------------------------------
     def _flush_stream(self) -> None:
-        """T3 冲刷：缓冲正文按默认格式落盘（各非正文上屏方法的次序守卫）。"""
+        """T3 冲刷：缓冲正文按默认格式落盘（各非正文上屏方法的次序守卫）。
+
+        L2-5：落盘后对本区间反引号 `路径[:行号]` 片段就地施加锚点格式。
+        """
         self._flush_timer.stop()
         if not self._stream_pending:
             return
         text, self._stream_pending = self._stream_pending, ""
-        self._insert_at_end(text, QTextCharFormat())
+        cursor = self.textCursor()
+        cursor.movePosition(QTextCursor.MoveOperation.End)
+        start = cursor.position()
+        cursor.insertText(text, QTextCharFormat())
+        self._linkify_range(start, text)
+        self._scroll_to_bottom()
+
+    def _linkify_range(self, start: int, text: str) -> None:
+        """L2-5：冲刷区间内 `路径[:行号]` 反引号片段就地锚点化（零重排）。
+
+        区间限定本次冲刷文本（start = 插入前文档末位 position，insertText
+        的 \\n 与块分隔符 1:1 对应）：规避全文档重复扫描；跨 30ms 合帧
+        边界被截断的路径片段不链接化（已知取舍，概率极低）。点击由
+        anchorClicked 信号外抛，路由层解析跳查看器。
+        """
+        for match in _FILE_LINK_RE.finditer(text):
+            path, line = match.group(1), match.group(2)
+            cursor = QTextCursor(self.document())
+            cursor.setPosition(start + match.start())
+            cursor.setPosition(
+                start + match.end(), QTextCursor.MoveMode.KeepAnchor)
+            fmt = QTextCharFormat()
+            fmt.setAnchor(True)
+            fmt.setAnchorHref(f"file:{path}" + (f"#L{line}" if line else ""))
+            fmt.setForeground(self._link_color)
+            fmt.setUnderlineStyle(QTextCharFormat.UnderlineStyle.SingleUnderline)
+            cursor.setCharFormat(fmt)
 
     def _flush_reasoning_head(self) -> None:
         """T1 标题判定：缓冲推理文本经四级正则提取，标题加粗+正文灰斜体。"""

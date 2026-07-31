@@ -214,8 +214,12 @@ class ViewerPanel(QWidget):
         """当前查看文件的绝对路径（未打开为 None）。"""
         return self._current_path
 
-    def open_file(self, path: str) -> None:
-        """打开文件：媒体/图片/Markdown 分流对应页；文本读取 → 守卫判定 → 上屏高亮 → 更新 watcher。"""
+    def open_file(self, path: str, line: int | None = None) -> None:
+        """打开文件：媒体/图片/Markdown 分流对应页；文本读取 → 守卫判定 → 上屏高亮 → 更新 watcher。
+
+        :param line: 指定时文本页定位到该行（1 起始；对话区文件路径链接，
+            1836 计划 L2-5；非文本分流页忽略）
+        """
         p = Path(path)
         if not p.is_file():
             return self._show_placeholder(f"（文件不存在：{path}）")
@@ -254,6 +258,11 @@ class ViewerPanel(QWidget):
         self.viewer.setPlainText(text)
         self._highlighter.set_source(p.name, text)
         self.viewer.verticalScrollBar().setValue(scroll)
+        if line is not None and line >= 1:  # L2-5：链接带行号 → 定位该行
+            block = self.viewer.document().findBlockByNumber(line - 1)
+            if block.isValid():
+                self.viewer.setTextCursor(QTextCursor(block))
+                self.viewer.centerCursor()
 
         title = str(p) + ("（已截断：超过 1 MB）" if truncated else "")
         self._path_label.setText(title)

@@ -36,6 +36,7 @@ AI 活动信息路由（2026-07-31，work plans/2026-0731-1602 计划 T6）：
   (Esc)」、Multi_Cli_Studio Escape 中断）
 """
 import threading
+from pathlib import Path
 
 from PySide6.QtCore import Qt, QThread, QTimer, Signal
 from PySide6.QtGui import QKeySequence, QShortcut
@@ -82,6 +83,10 @@ class ChatPanel(QWidget):
     #: 重载，补此事件源闭合，诊断报告 work plans/2026-0731-1256 方案 A）
     turn_finished = Signal()
 
+    #: 正文文件路径链接点击（1836 计划 L2-5）：载荷 (绝对路径, 行号|None)；
+    #: ChatTabs 转发 → 主窗口接查看器 open_file
+    file_open_requested = Signal(str, object)
+
     #: 默认布局尺寸（px）：输出区 / 输入区（初排与 reset_layout 单点来源）。
     #: 输入区 212 = 输入框原可视高度 180 + 底行按钮区约 32（T8 实测补偿，
     #: 2026-0724-2305 计划：发送/停止按钮入底行后保持输入框可视行数不缩水）
@@ -113,6 +118,10 @@ class ChatPanel(QWidget):
         #: tool_call_update 帧常缺 title，状态行显示经此簿记补全；
         #: _on_send 时随 _stream_buffer 一并清空
         self._tool_titles: dict[str, str] = {}
+        #: execute 工具命令簿记（toolCallId → command，1836 计划 L2-3）：
+        #: bash 输出卡 `$ ` 头数据源，兼作 execute 判定键（非 execute 工具
+        #: 的输出正文不上屏，防 read/edit 长文刷屏）
+        self._tool_commands: dict[str, str] = {}
         #: 本标签最新一轮的上下文用量（usage_update 每轮一条，覆盖即
         #: 「最后一条 assistant 消息」语义）；None = 未收到/已切换后端
         self._usage: UsageStats | None = None
@@ -120,7 +129,11 @@ class ChatPanel(QWidget):
         chat_pack = get_theme_palette(load_settings()[KEY_THEME])["chat"]
         self.output = ChatOutput(
             chat_pack["reasoning_fg"], chat_pack["tool_fg"],
-            chat_pack["tool_error_fg"], self)
+            chat_pack["tool_error_fg"], chat_pack["user_bubble_bg"],
+            chat_pack["tool_output_bg"],
+            # L2-5 链接色复用 timeline_read_fg（VS Code textLink-foreground
+            # 同源值，单一来源纪律不新增键）
+            chat_pack["timeline_read_fg"], self)
         self.timeline = ActivityTimeline(_timeline_colors(chat_pack), self)
         self.input = ChatInput(self)
         self.input.set_workspace_root(workspace_root)
@@ -326,6 +339,24 @@ class ChatPanel(QWidget):
         esc = QShortcut(QKeySequence(Qt.Key.Key_Escape), self)
         esc.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
         esc.activated.connect(self._on_esc_stop)
+        # L2-5：输出区文件路径链接点击 → 解析外抛（主窗口接查看器）
+        self.output.anchorClicked.connect(self._on_output_link)
+
+    def _on_output_link(self, url) -> None:
+        """文件链接点击（L2-5）：`file:路径#L行号` → 相对转绝对后外抛。
+
+        链接由 output 冲刷时对反引号 `路径[:行号]` 片段生成；相对路径按
+        工作区根解析，不存在也照常外抛（查看器自带「文件不存在」占位兜底）。
+        """
+        href = url.toString()
+        if not href.startswith("file:"):
+            return
+        path, sep, frag = href[len("file:"):].partition("#L")
+        p = Path(path)
+        if not p.is_absolute():
+            p = Path(self._workspace_root) / p
+        line = int(frag) if sep and frag.isdigit() else None
+        self.file_open_requested.emit(str(p), line)
 
     # ------------------------------------------------------------------
     # 发送/停止双态按钮（T3）与 Esc 中断（T7）
@@ -356,6 +387,9 @@ class ChatPanel(QWidget):
         chat_pack = get_theme_palette(theme)["chat"]
         self.output.set_reasoning_color(chat_pack["reasoning_fg"])
         self.output.set_activity_colors(chat_pack["tool_fg"], chat_pack["tool_error_fg"])
+        self.output.set_card_colors(
+            chat_pack["user_bubble_bg"], chat_pack["tool_output_bg"],
+            chat_pack["timeline_read_fg"])
         self.timeline.set_colors(_timeline_colors(chat_pack))
         self._apply_usage_label_style(theme)
 
@@ -450,11 +484,12 @@ class ChatPanel(QWidget):
         self._set_busy(True)
 
         self._history.append({"role": "user", "content": text})
-        self.output.append_message("我", text)
+        self.output.append_user_message(text)  # L2-1 气泡卡
         self.output.begin_stream("AI")
         self._stream_buffer = ""
         self._has_seen_reasoning = False
         self._tool_titles = {}
+        self._tool_commands = {}
 
         messages: list[Message] = list(self._history)
 
@@ -498,15 +533,25 @@ class ChatPanel(QWidget):
             self._has_seen_reasoning = False
         payload = chunk.payload or {}
         if chunk.kind == "tool_call":
-            if (tid := payload.get("tool_call_id")) and payload.get("title"):
-                self._tool_titles[tid] = payload["title"]
+            if tid := payload.get("tool_call_id"):
+                if payload.get("title"):
+                    self._tool_titles[tid] = payload["title"]
+                if payload.get("command"):  # execute 簿记（L2-3 输出卡数据源）
+                    self._tool_commands[tid] = payload["command"]
             self.output.append_tool_call(payload)
         elif chunk.kind == "tool_call_update":
+            tid = payload.get("tool_call_id") or ""
             # 更新帧常缺 title（F3 部分更新）：自簿记补全，缺省回退 id 短串
             if not payload.get("title"):
-                tid = payload.get("tool_call_id") or ""
                 payload = {**payload,
                            "title": self._tool_titles.get(tid, tid[:8] or "?")}
+            # L2-3 bash 输出卡：仅 execute 工具（有 command 簿记者）放行
+            # 输出正文并补 `$ ` 头；其余工具长输出丢弃（防 read/edit 刷屏）
+            if payload.get("output"):
+                if tid in self._tool_commands:
+                    payload = {**payload, "command": self._tool_commands[tid]}
+                else:
+                    payload = {k: v for k, v in payload.items() if k != "output"}
             self.output.append_tool_update(payload)
         else:
             self.output.upsert_todo_block(payload.get("entries") or [])

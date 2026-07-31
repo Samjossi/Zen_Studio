@@ -54,20 +54,25 @@ class Chunk:
 
 
 class ToolCallPayload(TypedDict, total=False):
-    """kind="tool_call" 的载荷（协议层 map_session_update 产出，1602 计划 T1）。"""
+    """tool_call Chunk 的结构化载荷（路由层直递 output.append_tool_call）。"""
     tool_call_id: str   # 状态更新的锚点键（1425 封存款 F3）
     title: str          # 工具标题（shell 工具 title 即命令本身）
     tool_kind: str      # execute/edit/read/search/fetch/think/other
     summary: str        # 参数摘要（协议层预格式化单行，GUI 不解析 rawInput）
     is_subagent: bool   # tool_kind="think"（task 子代理）时 True（D5 标记）
+    command: str        # execute 工具的完整命令（1836 计划 L2-3 输出卡 `$ ` 头）
 
 
 class ToolUpdatePayload(TypedDict, total=False):
-    """kind="tool_call_update" 的载荷。"""
+    """tool_call_update Chunk 的结构化载荷（路由层补 title 后递 append_tool_update）。"""
     tool_call_id: str
     status: str         # in_progress / completed / failed
     title: str          # 路由层自簿记补入（协议层不携带，total=False）
     error: str          # failed 时的错误首行（预截断；尽力而为，可缺省）
+    output: str         # 输出正文（1836 计划 L2-3：净化 + 截尾末 N 行；
+                        # 路由层仅 execute 工具放行上屏，其余丢弃）
+    output_total_lines: int  # 输出原始行数（截尾前；GUI 超限行尾注用）
+    command: str        # 路由层自簿记补入（execute 命令，输出卡 `$ ` 头）
 
 
 class TodoEntry(TypedDict, total=False):
