@@ -664,8 +664,16 @@ class MainWindow(QMainWindow):
         box.setWindowTitle("关于 Zen Studio")
         box.setText(
             f"<b>Zen Studio</b> {APP_VERSION}"
-            "<p>AI-first 桌面 IDE：代码修改一律经 AI agent 落盘。</p>"
-            "<p>技术栈：Python + PySide6</p>"
+            "<p>Agent 驱动的桌面 IDE：本机 agent CLI 是唯一执笔人，代码修改一律经"
+            "agent 落盘；IDE 本体只承担「看、问、跑」——只读查看器看代码，"
+            "AI 聊天面板问问题，真 PTY 终端跑命令。</p>"
+            "<p>技术栈：Python 3.12 + PySide6，Linux 桌面优先。</p>"
+            "<p><b>站在巨人的肩膀上</b>：本项目设计参考了 Eclipse Theia"
+            "（LanguageModel 协议与面板装配范式）、Visual Studio Code"
+            "（workspaceStorage 窗口状态语义、SCM 变更面板形态）、PyGPT"
+            "（界面视觉风格与部分控件实现）、Multi_Cli_Studio（多 CLI 后台接入形态）、"
+            "kilocode（ACP 协议接入参考）。</p>"
+            "<p>以 MIT 协议发布，致谢详见 NOTICE。</p>"
         )
         logo = LOGO_DIR / "logo_64.png"
         if logo.is_file():

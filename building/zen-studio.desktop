@@ -16,7 +16,7 @@
 [Desktop Entry]
 Type=Application
 Name=Zen Studio
-Comment=AI-first 桌面 IDE（本机 agent CLI 统一后端）
+Comment=Agent 驱动的桌面 IDE（本机 agent CLI 统一后端）
 Exec=<INSTALL_DIR>/zen-studio
 Icon=<INSTALL_DIR>/_internal/assets/logo/logo_256.png
 Terminal=false

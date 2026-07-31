@@ -1,7 +1,7 @@
 [project]
 name = "zen-studio"
 version = "1.3"  # 包元数据副本：单一来源为 config/version.json，发版同步手改
-description = "AI 优先的桌面 IDE：以本机 agent CLI 为统一后端（零密钥），集聊天、代码查看、文件树与真 PTY 终端于一体"
+description = "Agent 驱动的桌面 IDE：看代码、问 AI、跑命令，一个窗口全收——代码让 agent 写（本机 agent CLI 统一后端，零密钥）"
 requires-python = ">=3.12"
 dependencies = [
     "ptyprocess>=0.7.0",
