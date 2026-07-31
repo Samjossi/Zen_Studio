@@ -33,6 +33,8 @@ cache/
 building/build/
 building/dist/
 building/tools/
+# fcitx5 输入法插件编译工具链（building/build-fcitx5-qt6-plugin.sh，数百 MB aqt Qt 与源码）
+.build-tools/
 # 防裸跑 pyinstaller（不带 --distpath/--workpath）在根级产物外溢入库（审计 W8）
 build/
 dist/

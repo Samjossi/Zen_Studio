@@ -107,7 +107,8 @@ for want in "AppRun" "zen-studio.desktop" "zen-studio.png" \
             "usr/bin/_internal/assets/fonts/更纱黑体/LICENSE.txt" \
             "usr/bin/_internal/assets/logo/logo_256.png" \
             "usr/bin/_internal/PySide6/Qt/plugins/platforms/libqxcb.so" \
-            "usr/bin/_internal/PySide6/Qt/plugins/platforms/libqwayland.so"; do
+            "usr/bin/_internal/PySide6/Qt/plugins/platforms/libqwayland.so" \
+            "usr/bin/_internal/PySide6/Qt/plugins/platforminputcontexts/libfcitx5platforminputcontextplugin.so"; do
     [[ -e "$SQ/$want" ]] || { echo "❌ 冒烟缺失：$want"; exit 1; }
 done
 for banned in "usr/bin/_internal/assets/fonts/思源宋体" \
