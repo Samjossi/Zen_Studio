@@ -94,6 +94,7 @@ class GitStatusPack(TypedDict):
 #: 聊天面板配色包键
 class ChatPack(TypedDict):
     reasoning_fg: str
+    usage_hot_fg: str
 
 
 #: 标题栏配色包键（无边框自绘标题栏 TitleBar 专用，见 gui/title_bar.py；
@@ -155,15 +156,17 @@ GIT_STATUS_PACK: GitStatusPack = {
     "conflict": "#d40000",   # 强红
 }
 
-#: 聊天面板配色包（思维链灰：与正文样式区分的弱化前景色）
-CHAT_PACK: ChatPack = {
-    "reasoning_fg": "#888888",
-}
-
 #: UI 警示色单一来源（危险操作/高危选项文案；PermissionDialog 危险原因行、
 #: 设置中心 auto_all 档说明共用。与 GIT_STATUS_PACK["deleted"] 语义无关——
 #: 后者是文件状态色，色值碰巧相同，不引用本常量）
 WARNING_COLOR = "#c0392b"
+
+#: 聊天面板配色包（reasoning_fg 思维链灰：与正文样式区分的弱化前景色；
+#: usage_hot_fg 上下文用量徽章热态色（≥50% 警示），引用警示色单一来源）
+CHAT_PACK: ChatPack = {
+    "reasoning_fg": "#888888",
+    "usage_hot_fg": WARNING_COLOR,
+}
 
 # ----------------------------------------------------------------------
 # 主题调色板注册表（qss 令牌 + 五资源包；注册顺序即视图菜单顺序）

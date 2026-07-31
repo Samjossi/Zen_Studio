@@ -19,6 +19,8 @@ import threading
 from collections.abc import Callable
 from typing import Literal, TypedDict
 
+from llm.base import UsageStats
+
 _ACP_TIMEOUT_S = 30  # initialize / session/new / set_config_option 等控制请求超时
 
 
@@ -53,6 +55,27 @@ PermissionHandler = Callable[[PermissionParams], str | None]
 
 #: 轮次内消息：update/response 载荷为 JSON-RPC 帧，dead 载荷为进程退出码
 _TurnMessage = tuple[Literal["update", "response"], dict] | tuple[Literal["dead"], int | None]
+
+
+def map_usage_update(update: dict) -> UsageStats | None:
+    """`usage_update` 通知载荷 → UsageStats；无有效上限数据返回 None。
+
+    协议载荷：`{"sessionUpdate": "usage_update", "used": N, "size": M,
+    "cost": {"amount": f, "currency": "USD"}}`——used/size 同帧送达，
+    IDE 侧无需自维护模型上下文上限表。size 缺失或为 0 的通知无意义
+    （算不出百分比），返回 None 不上屏（UI 须容忍收不到用量的后端，
+    保持隐藏而非显示 0%）。
+    """
+    size = update.get("size")
+    used = update.get("used")
+    if not isinstance(size, int) or size <= 0 or not isinstance(used, int) or used < 0:
+        return None
+    cost_amount = (update.get("cost") or {}).get("amount")
+    return UsageStats(
+        used=used,
+        size=size,
+        cost=cost_amount if isinstance(cost_amount, (int, float)) else None,
+    )
 
 
 class AcpConnection:
@@ -282,4 +305,5 @@ __all__ = [
     "ToolCallInfo",
     "PermissionParams",
     "PermissionHandler",
+    "map_usage_update",
 ]

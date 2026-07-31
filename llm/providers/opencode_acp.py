@@ -45,7 +45,7 @@ from typing import Iterator
 from core.paths import PROJECT_ROOT  # agent 工作目录限定于项目根
 from core.version import APP_VERSION
 from llm.base import Chunk, LanguageModel, Message
-from llm.providers.acp import AcpConnection, PermissionHandler
+from llm.providers.acp import AcpConnection, PermissionHandler, map_usage_update
 
 OPENCODE_BIN = "opencode"
 
@@ -325,4 +325,7 @@ class OpenCodeAcpLLM(LanguageModel):
             return Chunk("reasoning", text) if text else None
         if kind == "tool_call":
             return Chunk("reasoning", f"\n• 调用工具 {update.get('title') or '?'}\n")
-        return None  # tool_call_update / plan / usage_update / available_commands_update 等
+        if kind == "usage_update":
+            stats = map_usage_update(update)
+            return Chunk("usage", "", usage=stats) if stats else None
+        return None  # tool_call_update / plan / available_commands_update 等

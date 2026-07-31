@@ -31,6 +31,7 @@ from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
+    QLabel,
     QPushButton,
     QSplitter,
     QVBoxLayout,
@@ -52,6 +53,7 @@ from llm import (
     LanguageModel,
     Message,
     PermissionParams,
+    UsageStats,
     spec_of,
 )
 from llm.permission_policy import DECISION_ALLOW, decide_permission, select_option_id
@@ -95,6 +97,9 @@ class ChatPanel(QWidget):
         self._worker: ChatWorker | None = None
         self._stream_buffer = ""
         self._has_seen_reasoning = False
+        #: 本标签最新一轮的上下文用量（usage_update 每轮一条，覆盖即
+        #: 「最后一条 assistant 消息」语义）；None = 未收到/已切换后端
+        self._usage: UsageStats | None = None
 
         self.output = ChatOutput(self._reasoning_color_of(load_settings()[KEY_THEME]), self)
         self.input = ChatInput(self)
@@ -111,6 +116,7 @@ class ChatPanel(QWidget):
 
         self._build_layout()
         self._connect_signals()
+        self._apply_usage_label_style(load_settings()[KEY_THEME])
 
     # ------------------------------------------------------------------
     # provider 实例（注册表工厂懒实例化，D4；建成后每标签独立连接）
@@ -152,6 +158,9 @@ class ChatPanel(QWidget):
         version = self.model_bar.current_version()
         if backend != self._llm_name:
             old = self._providers.pop(self._llm_name, None)
+            # 旧后端会话用量不得残留到新后端：清零徽章（reset_session 语义点）
+            self._usage = None
+            self._refresh_usage_label()
             if old is not None and getattr(old, "close", None) is not None:
                 # 切换路径与 close() 同策略（计划 2026-0730-2338 D4）：
                 # provider.close() 内 terminate()+wait(timeout=5) 为秒级
@@ -257,8 +266,18 @@ class ChatPanel(QWidget):
         )
         self._send_button.setFixedWidth(text_width + 26)  # qss padding 11px*2 + border
 
+        # 上下文用量徽章（2026-0731-1412 计划 D1-A/D2-A）：纯文本百分比 +
+        # tooltip 明细；常驻占位恒宽（按 "100%" 宽度一次写死），无数据时
+        # 空文本——显隐不改 sizeHint（左栏宽度病根教训，2026-0724-2305）
+        self._usage_label = QLabel(self)
+        self._usage_label.setObjectName("chatUsageLabel")
+        self._usage_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._usage_label.setFixedWidth(
+            self._usage_label.fontMetrics().horizontalAdvance("100%") + 8)
+
         button_row = QHBoxLayout()
         button_row.addWidget(self.model_bar)
+        button_row.addWidget(self._usage_label)
         button_row.addStretch(1)
         button_row.addWidget(self._send_button)
         button_row.setContentsMargins(0, 0, 0, 0)
@@ -313,8 +332,37 @@ class ChatPanel(QWidget):
         return get_theme_palette(theme)["chat"]["reasoning_fg"]
 
     def apply_theme(self, theme: str) -> None:
-        """主题切换：更新输出区思维链前景色（仅影响此后追加的块）。"""
+        """主题切换：更新输出区思维链前景色与用量徽章配色（仅影响此后追加的块）。"""
         self.output.set_reasoning_color(self._reasoning_color_of(theme))
+        self._apply_usage_label_style(theme)
+
+    # ------------------------------------------------------------------
+    # 上下文用量徽章（2026-0731-1412 计划：usage_update → 底行百分比徽章）
+    # ------------------------------------------------------------------
+    def _refresh_usage_label(self) -> None:
+        """按 _usage 簿记刷新徽章：无数据空文本（常驻占位不撤）；≥50% 热态变色。"""
+        stats = self._usage
+        if stats is None:
+            self._usage_label.setText("")
+            self._usage_label.setToolTip("")
+            self._usage_label.setProperty("hot", False)
+        else:
+            percent = round(stats.used / stats.size * 100)
+            self._usage_label.setText(f"{percent}%")
+            self._usage_label.setToolTip(
+                f"上下文已用 {stats.used:,} / 上限 {stats.size:,} tokens（{percent}%）")
+            self._usage_label.setProperty("hot", percent >= 50)
+        # qss 动态属性（[hot="true"] 警示色）切换后强制刷新
+        self._usage_label.style().unpolish(self._usage_label)
+        self._usage_label.style().polish(self._usage_label)
+
+    def _apply_usage_label_style(self, theme: str) -> None:
+        """徽章配色随主题刷新（控件级 qss：常态 muted_text，热态 chat.usage_hot_fg）。"""
+        palette = get_theme_palette(theme)
+        self._usage_label.setStyleSheet(
+            f"#chatUsageLabel {{ color: {palette['muted_text']}; }}"
+            f"#chatUsageLabel[hot='true'] {{"
+            f" color: {palette['chat']['usage_hot_fg']}; font-weight: 600; }}")
 
     # ------------------------------------------------------------------
     # 输出/输入区分隔栏状态持久化（由 ChatTabs 转发）
@@ -380,6 +428,12 @@ class ChatPanel(QWidget):
         self._worker.start()
 
     def _on_chunk(self, chunk: Chunk) -> None:
+        if chunk.kind == "usage":
+            # 上下文用量通知：只更新徽章簿记，不进输出区文本流、不入 _history
+            if chunk.usage is not None:
+                self._usage = chunk.usage
+                self._refresh_usage_label()
+            return
         if chunk.kind == "reasoning":
             # 思维链只上屏，不入 buffer/历史（DeepSeek 约束：不得回传）
             self._has_seen_reasoning = True

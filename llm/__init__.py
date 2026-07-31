@@ -8,7 +8,7 @@
 
 依赖方向（无环）：本模块 → registry → providers → llm.base。
 """
-from llm.base import Chunk, LanguageModel, Message
+from llm.base import Chunk, LanguageModel, Message, UsageStats
 from llm.providers.acp import PermissionHandler, PermissionParams
 from llm.providers.kilocode_acp import KiloCodeAcpLLM, kilocode_available, list_kilocode_models
 from llm.providers.kimi_acp import KimiAcpLLM
@@ -36,6 +36,7 @@ __all__ = [
     "Chunk",
     "LanguageModel",
     "Message",
+    "UsageStats",
     "BACKEND_KIMI_ACP",
     "BACKEND_LABELS",
     # 注册表（D3；阶段二 UI 三级选择的数据源）

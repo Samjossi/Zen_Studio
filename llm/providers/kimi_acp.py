@@ -25,6 +25,7 @@ from llm.providers.acp import (
     PermissionOption,
     PermissionParams,
     ToolCallInfo,
+    map_usage_update,
 )
 from llm.providers.kimi_common import _find_bin
 
@@ -201,4 +202,7 @@ class KimiAcpLLM(LanguageModel):
             return Chunk("reasoning", text) if text else None
         if kind == "tool_call":
             return Chunk("reasoning", f"\n• 调用工具 {update.get('title') or '?'}\n")
-        return None  # tool_call_update / plan / usage_update / available_commands_update 等
+        if kind == "usage_update":
+            stats = map_usage_update(update)
+            return Chunk("usage", "", usage=stats) if stats else None
+        return None  # tool_call_update / plan / available_commands_update 等

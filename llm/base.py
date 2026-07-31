@@ -11,11 +11,30 @@ class Message(TypedDict):
 
 
 @dataclass(frozen=True)
-class Chunk:
-    """流式块：kind 区分正文与思维链。"""
+class UsageStats:
+    """ACP `usage_update` 载荷定型（协议键 used/size/cost 入口定型）。
 
-    kind: Literal["text", "reasoning"]
+    口径照单接受 agent 产出端语义：used = input + cache.read（不含
+    output/reasoning，偏保守但不失真）；size 为模型上下文窗口上限；
+    cost 为会话累计成本（agent 未给则 None，本期解析留存不上屏）。
+    """
+
+    used: int            # 已用 token（input + cache.read，agent 口径）
+    size: int            # 上下文窗口上限
+    cost: float | None   # 会话累计成本（USD；agent 未给则 None）
+
+
+@dataclass(frozen=True)
+class Chunk:
+    """流式块：kind 区分正文、思维链与上下文用量通知。
+
+    kind="usage" 时 text 为空串、载荷经 usage 字段携带（用量不上屏进
+    输出区文本流，由 GUI 路由到徽章控件）。
+    """
+
+    kind: Literal["text", "reasoning", "usage"]
     text: str
+    usage: UsageStats | None = None
 
 
 class LanguageModel(Protocol):
