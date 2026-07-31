@@ -97,6 +97,9 @@ class ChatPack(TypedDict):
     usage_hot_fg: str
     tool_fg: str
     tool_error_fg: str
+    timeline_read_fg: str
+    timeline_write_fg: str
+    timeline_tool_fg: str
 
 
 #: 标题栏配色包键（无边框自绘标题栏 TitleBar 专用，见 gui/title_bar.py；
@@ -168,12 +171,22 @@ WARNING_COLOR = "#c0392b"
 #: tool_fg 工具行/todo 清单灰（1602 计划 T7：与 reasoning_fg 区分一级明度——
 #: 工具活动是「事实记录」，比思维链的「自言自语」视觉权重高一档；
 #: todo 完成项弱化复用 reasoning_fg 不新增键）；
-#: tool_error_fg 失败状态行色，同引警示色单一来源）
+#: tool_error_fg 失败状态行色，同引警示色单一来源；
+#: timeline_*_fg 会话活动时间线色块条三键（1824 计划 T2，移植 kilocode
+#: TaskTimeline palette——read/write 取 VS Code 浅色主题对应变量值：
+#: read=textLink-foreground、write=focusBorder；tool（其他工具）参考侧为
+#: activityBarBadge.background #007acc，与 read 色差过小视觉混档，改取
+#: 终端包 cyan 同值青蓝拉开区分度（截图走查实证调优）；
+#: 条上 text/reasoning 复用 reasoning_fg、todo 复用 tool_fg、error 复用
+#: tool_error_fg，不另设键——单一来源纪律）
 CHAT_PACK: ChatPack = {
     "reasoning_fg": "#888888",
     "usage_hot_fg": WARNING_COLOR,
     "tool_fg": "#6f6f6f",
     "tool_error_fg": WARNING_COLOR,
+    "timeline_read_fg": "#006ab1",
+    "timeline_write_fg": "#0090f1",
+    "timeline_tool_fg": "#168396",
 }
 
 # ----------------------------------------------------------------------

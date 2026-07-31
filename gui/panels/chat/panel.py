@@ -16,6 +16,11 @@ AI 活动信息路由（2026-07-31，work plans/2026-0731-1602 计划 T6）：
   toolCallId→title 簿记补全状态行标题；轮次收尾 reset_activity_anchors
   作废 todo 锚点（T5-4 防跨轮串位）
 
+会话活动时间线色块条（2026-07-31，work plans/2026-0731-1824 计划 T3）：
+- 卡片内 splitter 之下常驻 ActivityTimeline 细条（D2），_on_chunk 入口
+  旁路分接 feed（不改动既有分支语义）；_on_finished/_on_stopped 随
+  reset_activity_anchors 同位置 end_turn 作废段指针；切后端新会话清条
+
 关闭异步化（2026-07-22，work plans/2026-0722-1117 计划 P2）：
 - close() 两段式：GUI 段毫秒级（request_stop + 断信号 + 起 daemon
   清理线程），terminate/wait/deleteLater 全在线程段——GUI 零冻结
@@ -49,6 +54,7 @@ from gui.panels.chat.input import ChatInput
 from gui.panels.chat.model_bar import ModelBar
 from gui.panels.chat.output import ChatOutput
 from gui.panels.chat.permission_queue import PERMISSION_QUEUE
+from gui.panels.chat.timeline import ActivityTimeline
 from gui.panels.chat.worker import ChatWorker
 from gui.settings import KEY_PERMISSION_MODE, KEY_THEME
 from gui.theme import get_theme_palette, load_settings
@@ -115,6 +121,7 @@ class ChatPanel(QWidget):
         self.output = ChatOutput(
             chat_pack["reasoning_fg"], chat_pack["tool_fg"],
             chat_pack["tool_error_fg"], self)
+        self.timeline = ActivityTimeline(_timeline_colors(chat_pack), self)
         self.input = ChatInput(self)
         self.input.set_workspace_root(workspace_root)
         # 底行模型选择（纯视图）：注入初始选择后以回退后的有效值为准
@@ -174,6 +181,7 @@ class ChatPanel(QWidget):
             # 旧后端会话用量不得残留到新后端：清零徽章（reset_session 语义点）
             self._usage = None
             self._refresh_usage_label()
+            self.timeline.clear()  # 新会话清空色块条（1824 计划 D5 随标签会话）
             if old is not None and getattr(old, "close", None) is not None:
                 # 切换路径与 close() 同策略（计划 2026-0730-2338 D4）：
                 # provider.close() 内 terminate()+wait(timeout=5) 为秒级
@@ -236,11 +244,13 @@ class ChatPanel(QWidget):
     # UI 构建与接线
     # ------------------------------------------------------------------
     def _build_layout(self) -> None:
-        """布局装配：PanelCard 单卡片整合（输出区 + 输入区）。
+        """布局装配：PanelCard 单卡片整合（输出区 + 输入区 + 活动时间线条）。
 
         卡片内保留垂直 splitter（输出/输入比例可调、状态持久化不变）；
         ChatOutput 透明融入卡片白底，输入框保留自身 6px 圆角嵌于卡内。
         输入区 = 输入框 + 底行（左：模型/版本双下拉；右：发送/停止双态按钮）。
+        活动时间线色块条（1824 计划 D2）置卡片内 splitter 之下常驻——
+        不进 splitter（子件会被拖拽均分），细条固定高度全程可见。
         """
         self._splitter = QSplitter(Qt.Orientation.Vertical)
         self._splitter.addWidget(self.output)
@@ -253,8 +263,9 @@ class ChatPanel(QWidget):
         card.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         card_layout = QVBoxLayout(card)
         card_layout.addWidget(self._splitter, 1)
+        card_layout.addWidget(self.timeline)
         card_layout.setContentsMargins(8, 6, 8, 8)
-        card_layout.setSpacing(0)
+        card_layout.setSpacing(4)
 
         layout = QVBoxLayout(self)
         layout.addWidget(card, 1)
@@ -345,6 +356,7 @@ class ChatPanel(QWidget):
         chat_pack = get_theme_palette(theme)["chat"]
         self.output.set_reasoning_color(chat_pack["reasoning_fg"])
         self.output.set_activity_colors(chat_pack["tool_fg"], chat_pack["tool_error_fg"])
+        self.timeline.set_colors(_timeline_colors(chat_pack))
         self._apply_usage_label_style(theme)
 
     # ------------------------------------------------------------------
@@ -453,6 +465,7 @@ class ChatPanel(QWidget):
         self._worker.start()
 
     def _on_chunk(self, chunk: Chunk) -> None:
+        self.timeline.feed(chunk)  # 时间线色块条旁路分接（1824 计划 T3）
         if chunk.kind == "usage":
             # 上下文用量通知：只更新徽章簿记，不进输出区文本流、不入 _history
             if chunk.usage is not None:
@@ -508,6 +521,7 @@ class ChatPanel(QWidget):
         else:
             self._history.append({"role": "assistant", "content": self._stream_buffer})
         self.output.reset_activity_anchors()  # todo 锚点轮次收尾作废（T5-4）
+        self.timeline.end_turn()  # 色块条段指针轮次收尾作废（1824 计划 T3）
         self.output.end_stream()
         self._set_busy(False)
         self._worker = None
@@ -522,6 +536,7 @@ class ChatPanel(QWidget):
         self._history.pop()  # 回滚用户消息；半截回复随 _stream_buffer 丢弃
         self.output.append_stream_chunk("\n⏹ 已手动停止")
         self.output.reset_activity_anchors()  # todo 锚点轮次收尾作废（T5-4）
+        self.timeline.end_turn()  # 色块条段指针轮次收尾作废（1824 计划 T3）
         self.output.end_stream()
         self._set_busy(False)
         self._worker = None
@@ -547,6 +562,23 @@ class ChatPanel(QWidget):
         self._send_button.style().unpolish(self._send_button)
         self._send_button.style().polish(self._send_button)
         self.input.setPlaceholderText(busy_text)
+
+
+def _timeline_colors(chat_pack: dict) -> dict[str, str]:
+    """ChatPack → 色块条分类色表（1824 计划 §3.3 映射，构造/主题切换共用单点）。
+
+    新增三键专用于读/写/其他工具；text/reasoning 复用 reasoning_fg、
+    todo 复用 tool_fg、error 复用 tool_error_fg（单一来源纪律，不另设键）。
+    """
+    return {
+        "text": chat_pack["reasoning_fg"],
+        "reasoning": chat_pack["reasoning_fg"],
+        "tool_read": chat_pack["timeline_read_fg"],
+        "tool_write": chat_pack["timeline_write_fg"],
+        "tool_other": chat_pack["timeline_tool_fg"],
+        "todo": chat_pack["tool_fg"],
+        "error": chat_pack["tool_error_fg"],
+    }
 
 
 def _close_providers(providers: list[LanguageModel]) -> None:
