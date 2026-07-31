@@ -19,7 +19,14 @@ import threading
 from collections.abc import Callable
 from typing import Literal, TypedDict
 
-from llm.base import UsageStats
+from llm.base import (
+    Chunk,
+    TodoEntry,
+    TodoPayload,
+    ToolCallPayload,
+    ToolUpdatePayload,
+    UsageStats,
+)
 
 _ACP_TIMEOUT_S = 30  # initialize / session/new / set_config_option 等控制请求超时
 
@@ -76,6 +83,191 @@ def map_usage_update(update: dict) -> UsageStats | None:
         size=size,
         cost=cost_amount if isinstance(cost_amount, (int, float)) else None,
     )
+
+
+# ----------------------------------------------------------------------
+# session/update 公共映射（1602 计划 T2：四 provider 私有 _map_update 上收，D4）
+# ----------------------------------------------------------------------
+_SUMMARY_MAX = 80  # 参数摘要/错误首行截断阈值（防单行过长撑爆输出区）
+
+
+def _truncate_line(text: object) -> str | None:
+    """取首行并截断至 _SUMMARY_MAX；非字符串/空串返回 None（摘要缺省）。"""
+    if not isinstance(text, str):
+        return None
+    stripped = text.strip()
+    if not stripped:
+        return None
+    line = stripped.splitlines()[0]
+    return line if len(line) <= _SUMMARY_MAX else line[: _SUMMARY_MAX - 1] + "…"
+
+
+def _tool_call_fallback(payload: ToolCallPayload) -> str:
+    """tool_call 兜底显示行（与 output.append_tool_call 渲染格式保持一致）。"""
+    icon = "⧉" if payload.get("is_subagent") else "▸"
+    line = f"◐ {icon} {payload.get('title') or '?'}"
+    if summary := payload.get("summary"):
+        line += f" — {summary}"
+    return f"\n{line}\n"
+
+
+def _tool_update_fallback(payload: ToolUpdatePayload) -> str:
+    """tool_call_update 兜底显示行（与 output.append_tool_update 保持一致）。"""
+    name = payload.get("title") or payload.get("tool_call_id") or "?"
+    if payload.get("status") == "failed":
+        line = f"✖ ▸ {name}"
+        if error := payload.get("error"):
+            line += f"（{error}）"
+    else:
+        line = f"✔ ▸ {name}"
+    return f"{line}\n"
+
+
+def _todo_fallback_text(entries: list[TodoEntry]) -> str:
+    """todo 清单兜底文本（与 output.upsert_todo_block 渲染格式保持一致）。"""
+    marks = {"pending": "[ ]", "in_progress": "[>]"}
+    lines = []
+    for entry in entries:
+        mark = marks.get(entry.get("status") or "", "[x]")
+        lines.append(f"- {mark} {entry.get('content') or ''}")
+    return "\n".join(lines) + "\n" if lines else ""
+
+
+def _extract_todo_entries(items: object) -> list[TodoEntry]:
+    """plan.entries / rawInput.todos → TodoEntry 列表（两通道同构，F1）。
+
+    仅收录 content 为字符串的条目；status/priority 为字符串才保留
+    （渲染层按缺省 pending 容错），结构不符的条目静默跳过。
+    """
+    entries: list[TodoEntry] = []
+    if not isinstance(items, list):
+        return entries
+    for item in items:
+        if not isinstance(item, dict) or not isinstance(item.get("content"), str):
+            continue
+        entry = TodoEntry(content=item["content"])
+        if isinstance(item.get("status"), str):
+            entry["status"] = item["status"]
+        if isinstance(item.get("priority"), str):
+            entry["priority"] = item["priority"]
+        entries.append(entry)
+    return entries
+
+
+def _tool_call_summary(update: dict) -> str | None:
+    """参数摘要（协议层单点格式化，GUI 不碰 rawInput 各家差异）。
+
+    分 kind 取值（1602 计划 T2 规则表）；未识别/取值失败返回 None
+    （摘要缺省，仅显示 title，不阻断上屏）。
+    """
+    kind = update.get("kind")
+    raw = update.get("rawInput") or {}
+    if kind == "execute":
+        command = _truncate_line(raw.get("command"))
+        # shell 工具 title 即命令本身（F3）：摘要与 title 重复时省略
+        if command and command != _truncate_line(update.get("title")):
+            return command
+        return None
+    if kind in ("edit", "read"):
+        locations = update.get("locations") or []
+        if locations and isinstance(locations[0], dict):
+            if path := _truncate_line(locations[0].get("path")):
+                return path
+        return _truncate_line(raw.get("path") or raw.get("filePath"))
+    if kind == "search":
+        return _truncate_line(raw.get("pattern") or raw.get("query"))
+    if kind == "fetch":
+        return _truncate_line(raw.get("url"))
+    if kind == "think":
+        return _truncate_line(raw.get("description") or raw.get("prompt"))
+    return None
+
+
+def _map_tool_call(update: dict) -> Chunk:
+    """tool_call → 结构化 Chunk；todowrite 特判改产 todo Chunk（F1 第二通道）。
+
+    kilocode/opencode 系后端不发 plan，todo 走 todowrite 普通工具调用，
+    载荷在 rawInput.todos——检出即与 plan 通道归一为同一 todo Chunk
+    （1425 封存款 F1/HIDDEN_TOOLS 同范式：todo 块与工具块分流）。
+    """
+    raw = update.get("rawInput") or {}
+    if isinstance(raw.get("todos"), list):
+        entries = _extract_todo_entries(raw["todos"])
+        return Chunk("todo", _todo_fallback_text(entries),
+                     payload=TodoPayload(entries=entries))
+    payload = ToolCallPayload()
+    if isinstance(update.get("toolCallId"), str):
+        payload["tool_call_id"] = update["toolCallId"]
+    payload["title"] = update.get("title") or "?"
+    tool_kind = update.get("kind") if isinstance(update.get("kind"), str) else "other"
+    payload["tool_kind"] = tool_kind
+    if tool_kind == "think":  # task 子代理（D5 标记）
+        payload["is_subagent"] = True
+    if summary := _tool_call_summary(update):
+        payload["summary"] = summary
+    return Chunk("tool_call", _tool_call_fallback(payload), payload=payload)
+
+
+def _map_tool_call_update(update: dict) -> Chunk | None:
+    """tool_call_update → 状态流转 Chunk；status 缺省（纯 content 快照帧）返回 None。
+
+    一级范围（D1）不上屏输出正文，content/rawOutput 长输出不消费；
+    failed 时尽力提取错误首行（rawOutput.error → content 文本首行），
+    取不到则缺省。
+    """
+    payload = ToolUpdatePayload()
+    if isinstance(update.get("toolCallId"), str):
+        payload["tool_call_id"] = update["toolCallId"]
+    status = update.get("status")
+    if not isinstance(status, str) or not status:
+        return None  # 无状态可报（bash 输出快照等部分更新帧，F3 字段可缺省）
+    payload["status"] = status
+    if isinstance(update.get("title"), str):
+        payload["title"] = update["title"]
+    if status == "failed":
+        error = (update.get("rawOutput") or {}).get("error")
+        if isinstance(error, dict):
+            error = error.get("message")
+        if not (first := _truncate_line(error)):
+            for item in update.get("content") or []:
+                text = (item.get("content") or {}) if isinstance(item, dict) else {}
+                if first := _truncate_line(text.get("text")):
+                    break
+        if first:
+            payload["error"] = first
+    return Chunk("tool_call_update", _tool_update_fallback(payload), payload=payload)
+
+
+def map_session_update(obj: dict) -> Chunk | None:
+    """session/update 通知帧 → Chunk；未消费类型返回 None。
+
+    四 provider 私有 _map_update 的上收公共实现（1602 计划 T2，D4）：
+    原 agent_message_chunk / agent_thought_chunk / usage_update 三分支
+    行为等价原样搬入；tool_call 由「压一行灰字」扩展为结构化 Chunk；
+    新增 tool_call_update / plan 两分支。available_commands_update /
+    未知类型 / `_meta` 厂商扩展维持返回 None（F5；R1 纪律：泛化层
+    不臆造协议）。
+    """
+    update = (obj.get("params") or {}).get("update") or {}
+    kind = update.get("sessionUpdate")
+    if kind == "agent_message_chunk":
+        text = (update.get("content") or {}).get("text")
+        return Chunk("text", text) if text else None
+    if kind == "agent_thought_chunk":
+        text = (update.get("content") or {}).get("text")
+        return Chunk("reasoning", text) if text else None
+    if kind == "tool_call":
+        return _map_tool_call(update)
+    if kind == "tool_call_update":
+        return _map_tool_call_update(update)
+    if kind == "plan":
+        entries = _extract_todo_entries(update.get("entries"))
+        return Chunk("todo", _todo_fallback_text(entries),
+                     payload=TodoPayload(entries=entries))
+    if kind == "usage_update":
+        stats = map_usage_update(update)
+        return Chunk("usage", "", usage=stats) if stats else None
+    return None  # available_commands_update / _meta 扩展等
 
 
 class AcpConnection:
@@ -305,5 +497,6 @@ __all__ = [
     "ToolCallInfo",
     "PermissionParams",
     "PermissionHandler",
+    "map_session_update",
     "map_usage_update",
 ]

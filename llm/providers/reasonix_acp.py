@@ -24,6 +24,10 @@ reasonix 侧 ACP v1（protocolVersion: 1）与 kimi 实现协议同构（计划 
    轮次收尾读快照做 chars/4 文本估算（source="estimate"）；size 取
    config.toml `[[providers]].context_window`（llm/context_limits.py），
    缺项/解析失败静默降级（D4 隐藏徽章，不臆造上限）。
+
+session/update 映射（1602 计划 T3）：私有 _map_update 已删除，统一改调
+llm/providers/acp.py 的公共实现 map_session_update（D4 上收——原四份
+逐行一致副本同一改动改四处必然漂移）。
 """
 import atexit
 import json
@@ -39,7 +43,7 @@ from core.paths import PROJECT_ROOT  # agent 工作目录限定于项目根
 from core.version import APP_VERSION
 from llm.base import Chunk, LanguageModel, Message, UsageStats
 from llm.context_limits import reasonix_config_path, reasonix_context_window
-from llm.providers.acp import AcpConnection, PermissionHandler, map_usage_update
+from llm.providers.acp import AcpConnection, PermissionHandler, map_session_update
 
 REASONIX_BIN = "reasonix"
 
@@ -361,7 +365,7 @@ class ReasonixAcpLLM(LanguageModel):
                 if stats is not None:
                     yield Chunk("usage", "", usage=stats)
                 return
-            chunk = self._map_update(obj)
+            chunk = map_session_update(obj)
             if chunk:
                 yield chunk
 
@@ -383,26 +387,3 @@ class ReasonixAcpLLM(LanguageModel):
             raise RuntimeError(
                 "reasonix 本轮响应失败（stopReason=error，多见于模型 provider 配置问题，"
                 "请检查 ~/.reasonix/config.toml 对应 provider 的 base_url/api_key）")
-
-    @staticmethod
-    def _map_update(obj: dict) -> Chunk | None:
-        """session/update 通知 → Chunk；未消费类型返回 None。
-
-        复用 ACP 标准映射（与 KimiAcpLLM 逐行一致）；未识别类型返回 None
-        （R1：泛化层不臆造协议——`_reasonix.io/*` 等 `_meta` 厂商扩展
-        与 usage_update/available_commands_update 等忽略即可兼容）。
-        """
-        update = (obj.get("params") or {}).get("update") or {}
-        kind = update.get("sessionUpdate")
-        if kind == "agent_message_chunk":
-            text = (update.get("content") or {}).get("text")
-            return Chunk("text", text) if text else None
-        if kind == "agent_thought_chunk":
-            text = (update.get("content") or {}).get("text")
-            return Chunk("reasoning", text) if text else None
-        if kind == "tool_call":
-            return Chunk("reasoning", f"\n• 调用工具 {update.get('title') or '?'}\n")
-        if kind == "usage_update":
-            stats = map_usage_update(update)
-            return Chunk("usage", "", usage=stats) if stats else None
-        return None  # tool_call_update / plan / _meta 扩展等

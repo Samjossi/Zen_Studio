@@ -16,7 +16,8 @@ class ChatWorker(QThread):
     （取消路径会打断阻塞等待，残余异常不能误判为失败）。
     """
 
-    #: 流式块（Chunk，kind 区分正文/思维链）
+    #: 流式块（Chunk，kind 区分正文/思维链/用量/AI 活动信息；Signal(object)
+    #: 透传结构化载荷，1602 计划 D3-A 零改动复用）
     chunk_received = Signal(object)
     #: 完成（正常或异常均触发，附带错误信息或空串）
     finished_with_error = Signal(str)

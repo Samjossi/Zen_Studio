@@ -10,6 +10,12 @@
   广播经 set_model_selection 同步本面板 UI（阻断）与 provider
 - 审批请求统一提交全局审批队列（PERMISSION_QUEUE），多标签串行弹窗
 
+AI 活动信息路由（2026-07-31，work plans/2026-0731-1602 计划 T6）：
+- _on_chunk 新增 tool_call / tool_call_update / todo 三分支——只上屏，
+  不入 _stream_buffer/_history（与 reasoning 同约束，防历史污染回传）；
+  toolCallId→title 簿记补全状态行标题；轮次收尾 reset_activity_anchors
+  作废 todo 锚点（T5-4 防跨轮串位）
+
 关闭异步化（2026-07-22，work plans/2026-0722-1117 计划 P2）：
 - close() 两段式：GUI 段毫秒级（request_stop + 断信号 + 起 daemon
   清理线程），terminate/wait/deleteLater 全在线程段——GUI 零冻结
@@ -97,11 +103,18 @@ class ChatPanel(QWidget):
         self._worker: ChatWorker | None = None
         self._stream_buffer = ""
         self._has_seen_reasoning = False
+        #: 工具调用 title 簿记（toolCallId → title，1602 计划 T6）：
+        #: tool_call_update 帧常缺 title，状态行显示经此簿记补全；
+        #: _on_send 时随 _stream_buffer 一并清空
+        self._tool_titles: dict[str, str] = {}
         #: 本标签最新一轮的上下文用量（usage_update 每轮一条，覆盖即
         #: 「最后一条 assistant 消息」语义）；None = 未收到/已切换后端
         self._usage: UsageStats | None = None
 
-        self.output = ChatOutput(self._reasoning_color_of(load_settings()[KEY_THEME]), self)
+        chat_pack = get_theme_palette(load_settings()[KEY_THEME])["chat"]
+        self.output = ChatOutput(
+            chat_pack["reasoning_fg"], chat_pack["tool_fg"],
+            chat_pack["tool_error_fg"], self)
         self.input = ChatInput(self)
         self.input.set_workspace_root(workspace_root)
         # 底行模型选择（纯视图）：注入初始选择后以回退后的有效值为准
@@ -325,16 +338,13 @@ class ChatPanel(QWidget):
         self._send_button.setEnabled(bool(self.input.toPlainText().strip()))
 
     # ------------------------------------------------------------------
-    # 主题（思维链前景色随主题资源包切换；由 ChatTabs 统一转发）
+    # 主题（思维链/活动块前景色随主题资源包切换；由 ChatTabs 统一转发）
     # ------------------------------------------------------------------
-    @staticmethod
-    def _reasoning_color_of(theme: str) -> str:
-        """主题名 → 思维链前景色（资源包 chat.reasoning_fg）。"""
-        return get_theme_palette(theme)["chat"]["reasoning_fg"]
-
     def apply_theme(self, theme: str) -> None:
-        """主题切换：更新输出区思维链前景色与用量徽章配色（仅影响此后追加的块）。"""
-        self.output.set_reasoning_color(self._reasoning_color_of(theme))
+        """主题切换：更新输出区思维链/活动块配色与用量徽章（仅影响此后追加的块）。"""
+        chat_pack = get_theme_palette(theme)["chat"]
+        self.output.set_reasoning_color(chat_pack["reasoning_fg"])
+        self.output.set_activity_colors(chat_pack["tool_fg"], chat_pack["tool_error_fg"])
         self._apply_usage_label_style(theme)
 
     # ------------------------------------------------------------------
@@ -432,6 +442,7 @@ class ChatPanel(QWidget):
         self.output.begin_stream("AI")
         self._stream_buffer = ""
         self._has_seen_reasoning = False
+        self._tool_titles = {}
 
         messages: list[Message] = list(self._history)
 
@@ -448,6 +459,9 @@ class ChatPanel(QWidget):
                 self._usage = chunk.usage
                 self._refresh_usage_label()
             return
+        if chunk.kind in ("tool_call", "tool_call_update", "todo"):
+            self._on_activity_chunk(chunk)
+            return
         if chunk.kind == "reasoning":
             # 思维链只上屏，不入 buffer/历史（DeepSeek 约束：不得回传）
             self._has_seen_reasoning = True
@@ -459,6 +473,31 @@ class ChatPanel(QWidget):
         self._stream_buffer += chunk.text
         self.output.append_stream_chunk(chunk.text)
 
+    def _on_activity_chunk(self, chunk: Chunk) -> None:
+        """AI 活动信息路由（1602 计划 T6）：tool_call / tool_call_update / todo。
+
+        只上屏，不入 _stream_buffer/_history（与 reasoning 同约束，防历史
+        污染回传禁令）；与 text 同位处理思维链收尾（reasoning → 工具活动
+        → 正文 交错序列语义不变）。
+        """
+        if self._has_seen_reasoning:
+            self.output.end_reasoning()
+            self._has_seen_reasoning = False
+        payload = chunk.payload or {}
+        if chunk.kind == "tool_call":
+            if (tid := payload.get("tool_call_id")) and payload.get("title"):
+                self._tool_titles[tid] = payload["title"]
+            self.output.append_tool_call(payload)
+        elif chunk.kind == "tool_call_update":
+            # 更新帧常缺 title（F3 部分更新）：自簿记补全，缺省回退 id 短串
+            if not payload.get("title"):
+                tid = payload.get("tool_call_id") or ""
+                payload = {**payload,
+                           "title": self._tool_titles.get(tid, tid[:8] or "?")}
+            self.output.append_tool_update(payload)
+        else:
+            self.output.upsert_todo_block(payload.get("entries") or [])
+
     def _on_finished(self, error: str) -> None:
         if error:
             if self._has_seen_reasoning:
@@ -468,6 +507,7 @@ class ChatPanel(QWidget):
             self._history.pop()  # 失败的用户消息不入历史
         else:
             self._history.append({"role": "assistant", "content": self._stream_buffer})
+        self.output.reset_activity_anchors()  # todo 锚点轮次收尾作废（T5-4）
         self.output.end_stream()
         self._set_busy(False)
         self._worker = None
@@ -481,6 +521,7 @@ class ChatPanel(QWidget):
             self._has_seen_reasoning = False
         self._history.pop()  # 回滚用户消息；半截回复随 _stream_buffer 丢弃
         self.output.append_stream_chunk("\n⏹ 已手动停止")
+        self.output.reset_activity_anchors()  # todo 锚点轮次收尾作废（T5-4）
         self.output.end_stream()
         self._set_busy(False)
         self._worker = None

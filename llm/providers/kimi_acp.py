@@ -17,6 +17,10 @@ usage_update（1412 T5 实测），轮次收尾改读 agent 会话落盘记录
 的末条 usage.record（API 真值，source="transcript"）；size 取末条
 llm.request.maxTokens。usage.record 于 response 后约 1~3s 异步写盘，
 轮次开始记基线条数、收尾短轮询（≤3s）只接受新记录，超时/残缺静默降级。
+
+session/update 映射（1602 计划 T3）：私有 _map_update 已删除，统一改调
+llm/providers/acp.py 的公共实现 map_session_update（D4 上收——原四份
+逐行一致副本同一改动改四处必然漂移）。
 """
 import atexit
 import json
@@ -35,7 +39,7 @@ from llm.providers.acp import (
     PermissionOption,
     PermissionParams,
     ToolCallInfo,
-    map_usage_update,
+    map_session_update,
 )
 from llm.providers.kimi_common import _find_bin
 
@@ -256,7 +260,7 @@ class KimiAcpLLM(LanguageModel):
                 if stats is not None:
                     yield Chunk("usage", "", usage=stats)
                 return
-            chunk = self._map_update(obj)
+            chunk = map_session_update(obj)
             if chunk:
                 yield chunk
 
@@ -287,21 +291,3 @@ class KimiAcpLLM(LanguageModel):
         if "error" in response:
             err = response["error"]
             raise RuntimeError(f"kimi acp 对话失败 {err.get('code')}：{err.get('message')}")
-
-    @staticmethod
-    def _map_update(obj: dict) -> Chunk | None:
-        """session/update 通知 → Chunk；未消费类型返回 None。"""
-        update = (obj.get("params") or {}).get("update") or {}
-        kind = update.get("sessionUpdate")
-        if kind == "agent_message_chunk":
-            text = (update.get("content") or {}).get("text")
-            return Chunk("text", text) if text else None
-        if kind == "agent_thought_chunk":
-            text = (update.get("content") or {}).get("text")
-            return Chunk("reasoning", text) if text else None
-        if kind == "tool_call":
-            return Chunk("reasoning", f"\n• 调用工具 {update.get('title') or '?'}\n")
-        if kind == "usage_update":
-            stats = map_usage_update(update)
-            return Chunk("usage", "", usage=stats) if stats else None
-        return None  # tool_call_update / plan / available_commands_update 等

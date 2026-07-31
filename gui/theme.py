@@ -95,6 +95,8 @@ class GitStatusPack(TypedDict):
 class ChatPack(TypedDict):
     reasoning_fg: str
     usage_hot_fg: str
+    tool_fg: str
+    tool_error_fg: str
 
 
 #: 标题栏配色包键（无边框自绘标题栏 TitleBar 专用，见 gui/title_bar.py；
@@ -162,10 +164,16 @@ GIT_STATUS_PACK: GitStatusPack = {
 WARNING_COLOR = "#c0392b"
 
 #: 聊天面板配色包（reasoning_fg 思维链灰：与正文样式区分的弱化前景色；
-#: usage_hot_fg 上下文用量徽章热态色（≥50% 警示），引用警示色单一来源）
+#: usage_hot_fg 上下文用量徽章热态色（≥50% 警示），引用警示色单一来源；
+#: tool_fg 工具行/todo 清单灰（1602 计划 T7：与 reasoning_fg 区分一级明度——
+#: 工具活动是「事实记录」，比思维链的「自言自语」视觉权重高一档；
+#: todo 完成项弱化复用 reasoning_fg 不新增键）；
+#: tool_error_fg 失败状态行色，同引警示色单一来源）
 CHAT_PACK: ChatPack = {
     "reasoning_fg": "#888888",
     "usage_hot_fg": WARNING_COLOR,
+    "tool_fg": "#6f6f6f",
+    "tool_error_fg": WARNING_COLOR,
 }
 
 # ----------------------------------------------------------------------

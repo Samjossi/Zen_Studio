@@ -34,6 +34,10 @@ OpenCode fork，协议级兼容）：会话生命周期、审批回环、思维�
    `session/set_config_option` 触碰，不暴露 UI（计划 §2.4）。
 5. 别名私有语义（D6 红线 2）：`provider/model` 全名（含 `~` 别名）不透明
    透传，公共层不解析不拼接。
+
+session/update 映射（1602 计划 T3）：私有 _map_update 已删除，统一改调
+llm/providers/acp.py 的公共实现 map_session_update（D4 上收——原四份
+逐行一致副本同一改动改四处必然漂移）。
 """
 import atexit
 import os
@@ -47,7 +51,7 @@ from typing import Iterator
 from core.paths import PROJECT_ROOT  # agent 工作目录限定于项目根
 from core.version import APP_VERSION
 from llm.base import Chunk, LanguageModel, Message
-from llm.providers.acp import AcpConnection, PermissionHandler, map_usage_update
+from llm.providers.acp import AcpConnection, PermissionHandler, map_session_update
 
 #: PATH 探测的候选二进制名（双名 symlink 同指同一二进制，计划 §2.1）
 KILOCODE_BIN_NAMES = ("kilocode", "kilo")
@@ -295,7 +299,7 @@ class KiloCodeAcpLLM(LanguageModel):
             if kind == "response":
                 self._raise_on_turn_error(obj)
                 return
-            chunk = self._map_update(obj)
+            chunk = map_session_update(obj)
             if chunk:
                 yield chunk
 
@@ -310,27 +314,3 @@ class KiloCodeAcpLLM(LanguageModel):
             error = RuntimeError(f"kilocode acp 对话失败 {err.get('code')}：{err.get('message')}")
             self._raise_login_hint_if_auth(error)
             raise error
-
-    @staticmethod
-    def _map_update(obj: dict) -> Chunk | None:
-        """session/update 通知 → Chunk；未消费类型返回 None。
-
-        复用 ACP 标准映射（与 KimiAcpLLM/ReasonixAcpLLM/OpenCodeAcpLLM 逐行
-        一致，计划 §2.5 实测 update 类型 agent_thought_chunk ×47 /
-        agent_message_chunk / usage_update 全部命中标准映射）；未识别类型
-        返回 None（R1：泛化层不臆造协议——usage_update 等忽略即可兼容）。
-        """
-        update = (obj.get("params") or {}).get("update") or {}
-        kind = update.get("sessionUpdate")
-        if kind == "agent_message_chunk":
-            text = (update.get("content") or {}).get("text")
-            return Chunk("text", text) if text else None
-        if kind == "agent_thought_chunk":
-            text = (update.get("content") or {}).get("text")
-            return Chunk("reasoning", text) if text else None
-        if kind == "tool_call":
-            return Chunk("reasoning", f"\n• 调用工具 {update.get('title') or '?'}\n")
-        if kind == "usage_update":
-            stats = map_usage_update(update)
-            return Chunk("usage", "", usage=stats) if stats else None
-        return None  # tool_call_update / plan 等

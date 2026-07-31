@@ -34,15 +34,52 @@ class UsageStats:
 
 @dataclass(frozen=True)
 class Chunk:
-    """流式块：kind 区分正文、思维链与上下文用量通知。
+    """流式块：kind 区分正文、思维链、上下文用量通知与 AI 活动信息。
 
     kind="usage" 时 text 为空串、载荷经 usage 字段携带（用量不上屏进
     输出区文本流，由 GUI 路由到徽章控件）。
+
+    kind="tool_call" / "tool_call_update" / "todo"（1602 计划 T1：
+    对话区 AI 活动信息充分展示）时载荷经 payload 字段携带，schema
+    见下方三个 TypedDict；text 字段为协议层预填的兜底显示单行——
+    GUI 对未识别 kind 按 text 渲染，新协议层配旧 GUI 不崩
+    （多标签/多开版本错配防御）。新三 kind 与 reasoning 同约束：
+    仅上屏，不入历史、不回传。
     """
 
-    kind: Literal["text", "reasoning", "usage"]
+    kind: Literal["text", "reasoning", "usage", "tool_call", "tool_call_update", "todo"]
     text: str
     usage: UsageStats | None = None
+    payload: dict | None = None
+
+
+class ToolCallPayload(TypedDict, total=False):
+    """kind="tool_call" 的载荷（协议层 map_session_update 产出，1602 计划 T1）。"""
+    tool_call_id: str   # 状态更新的锚点键（1425 封存款 F3）
+    title: str          # 工具标题（shell 工具 title 即命令本身）
+    tool_kind: str      # execute/edit/read/search/fetch/think/other
+    summary: str        # 参数摘要（协议层预格式化单行，GUI 不解析 rawInput）
+    is_subagent: bool   # tool_kind="think"（task 子代理）时 True（D5 标记）
+
+
+class ToolUpdatePayload(TypedDict, total=False):
+    """kind="tool_call_update" 的载荷。"""
+    tool_call_id: str
+    status: str         # in_progress / completed / failed
+    title: str          # 路由层自簿记补入（协议层不携带，total=False）
+    error: str          # failed 时的错误首行（预截断；尽力而为，可缺省）
+
+
+class TodoEntry(TypedDict, total=False):
+    """todo 清单条目（plan 快照与 todowrite rawInput 两通道同构，1425 封存款 F1）。"""
+    content: str
+    status: str         # pending / in_progress / completed / cancelled
+    priority: str       # high / medium / low（渲染层本期不消费，载荷留存）
+
+
+class TodoPayload(TypedDict):
+    """kind="todo" 的载荷：entries 为全量快照。"""
+    entries: list[TodoEntry]
 
 
 class LanguageModel(Protocol):
@@ -52,8 +89,11 @@ class LanguageModel(Protocol):
         """发送多轮消息，流式产出文本/思维链块。
 
         :param messages: OpenAI 格式的消息列表
-        :yield: Chunk（kind="text" 为正文增量，kind="reasoning" 为思维链增量；
-            思维链仅当次显示，调用方不得回传入请求历史）
+        :yield: Chunk（kind="text" 为正文增量，kind="reasoning" 为思维链增量，
+            思维链仅当次显示，调用方不得回传入请求历史；kind="usage" 为上下文
+            用量通知，路由徽章不上屏；kind="tool_call"/"tool_call_update"/"todo"
+            为 AI 活动信息（1602 计划），与 reasoning 同约束——仅上屏，
+            不入历史、不回传）
         """
         ...
 
