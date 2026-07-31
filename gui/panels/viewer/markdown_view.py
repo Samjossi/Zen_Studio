@@ -8,15 +8,21 @@
 能力：GFM 渲染（表格/任务列表/删除线/围栏代码块）、相对图片/链接以 md
 所在目录为基准解析（searchPaths + baseUrl）、链接三分发（http→系统浏览器、
 工作区内文件→file_link_clicked 信号、#锚点→页内跳转）、主题样式表重建、
-全局字号跟随、大文件 1MB 截断守卫。
+全局字号跟随、大文件 1MB 截断守卫、选区带自绘（2026-0731-2055 方案 A）。
+
+选区带自绘（方案 A）：原生选区带 = QTextLine 整行高（含 leading），而
+Qt 排版把 leading 全部垫在行框底部——思源黑体 lineGap 6.5px@10pt 导致
+带上缘留白 2px/下缘 7px 视觉偏下。此处以 qss 透明化抑制原生带，
+paintEvent 基类绘制后按行 ascent+descent 墨盒上下对称加留白自绘
+半透明圆角带（色取主题 accent，文字保持原色可读）。
 
 协议合规：theia-zen（EPL-2.0）零接触；setMarkdown 为 Qt 内建 API，
 VS_Code_Python（MIT）仅证实其 PySide6 可用性，无代码移植。
 """
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QUrl, Signal
-from PySide6.QtGui import QDesktopServices, QFont, QTextDocument
+from PySide6.QtCore import Qt, QRectF, QUrl, Signal
+from PySide6.QtGui import QColor, QDesktopServices, QFont, QPainter, QPalette, QTextCursor, QTextDocument
 from PySide6.QtWidgets import QApplication, QFrame, QTextBrowser, QWidget
 
 from core.external_apps import TyporaLauncher, default_launcher
@@ -27,6 +33,13 @@ MARKDOWN_EXTS: frozenset[str] = frozenset({"md", "markdown"})
 
 #: 大文件守卫：超过 1 MB 截断渲染（与 ViewerPanel 文本页 MAX_BYTES 一致）
 MAX_BYTES = 1_048_576
+
+#: 自绘选区带：墨盒（ascent+descent）上下对称留白（px，方案 A）
+SELECTION_PAD_Y = 3
+#: 自绘选区带圆角半径（px）
+SELECTION_RADIUS = 3
+#: 自绘选区带填充不透明度（0-255；半透明叠绘保文字可读）
+SELECTION_ALPHA = 110
 
 
 class MarkdownView(QTextBrowser):
@@ -52,10 +65,15 @@ class MarkdownView(QTextBrowser):
         self.setFrameShape(QFrame.Shape.NoFrame)  # 卡片统一描边，控件自身去框
         self.setOpenLinks(False)  # 链接点击全由 anchorClicked 分发，不做内置导航
         self.anchorClicked.connect(self._dispatch_link)
+        # 方案 A：抑制原生选区带（qss 继承自 QMainWindow 的 accent 色规则，
+        # 控件级声明优先）；选中文字保持正文色（原生会反白），由自绘带承担高亮
+        self.setStyleSheet(
+            "selection-background-color: rgba(0,0,0,0); selection-color: palette(text);")
 
         self._typora = typora or default_launcher
         self._current_path: Path | None = None
         self._truncated = False
+        self._selection_color: QColor | None = None  # apply_theme 注入 accent
 
         self.refresh_font()
         self.apply_theme(palette)
@@ -154,6 +172,7 @@ class MarkdownView(QTextBrowser):
     def apply_theme(self, palette: dict) -> None:
         """切换主题：重建文档默认样式表（色值取调色板现有令牌派生，不新增令牌）。"""
         self.document().setDefaultStyleSheet(self._build_stylesheet(palette))
+        self._selection_color = QColor(palette["accent"])  # 自绘选区带色源
         self.viewport().update()
 
     @staticmethod
@@ -179,3 +198,70 @@ class MarkdownView(QTextBrowser):
             font = QFont(app.font())
             self.setFont(font)
             self.document().setDefaultFont(font)
+
+    # ------------------------------------------------------------------
+    # 选区带自绘（2026-0731-2055 方案 A：墨盒上下对称留白，矫正原生带偏下）
+    # ------------------------------------------------------------------
+    def paintEvent(self, event) -> None:
+        """基类绘制（原生选区带已被透明化）后，叠绘半透明对称选区带。"""
+        super().paintEvent(event)
+        rects = self._selection_rects()
+        if not rects:
+            return
+        color = QColor(self._selection_color) if self._selection_color else QApplication.palette().color(
+            QPalette.ColorRole.Highlight)
+        color.setAlpha(SELECTION_ALPHA)
+        painter = QPainter(self.viewport())
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(color)
+        for rect in rects:
+            painter.drawRoundedRect(rect, SELECTION_RADIUS, SELECTION_RADIUS)
+        painter.end()
+
+    def _selection_rects(self) -> list[QRectF]:
+        """当前选区的视口坐标矩形列（逐行一段；纵向=行墨盒±SELECTION_PAD_Y）。
+
+        坐标映射：块内行坐标 → 视口，锚点取块首 cursorRect（规避块内/视口
+        坐标混用坑，见 2055 计划 §3.4）；横向端点取 QTextLine.cursorToX。
+        """
+        cursor = self.textCursor()
+        if not cursor.hasSelection():
+            return []
+        sel_start, sel_end = cursor.selectionStart(), cursor.selectionEnd()
+        doc = self.document()
+        rects: list[QRectF] = []
+        block = doc.findBlock(sel_start)
+        while block.isValid() and block.position() < sel_end:
+            layout = block.layout()
+            if layout.lineCount() == 0:
+                block = block.next()
+                continue
+            # 块首行首字符的视口光标矩形 = 块布局坐标系原点锚点
+            anchor = self.cursorRect(QTextCursor(block))
+            base_y = layout.lineAt(0).position().y()
+            base_x = layout.lineAt(0).position().x()
+            rel_lo = sel_start - block.position()
+            rel_hi = sel_end - block.position()
+            for i in range(layout.lineCount()):
+                line = layout.lineAt(i)
+                lo = max(line.textStart(), rel_lo)
+                hi = min(line.textStart() + line.textLength(), rel_hi)
+                if lo >= hi:
+                    continue
+                x1 = self._line_x(line, lo)
+                x2 = self._line_x(line, hi)
+                if hi >= line.textStart() + line.textLength() and sel_end > block.position() + block.length() - 1:
+                    x2 += 4  # 选及换行符：行尾补一小段（对齐原生观感）
+                top = anchor.top() + (line.position().y() - base_y) - SELECTION_PAD_Y
+                left = anchor.left() + (line.position().x() - base_x) + x1
+                height = line.ascent() + line.descent() + 2 * SELECTION_PAD_Y
+                rects.append(QRectF(left, top, max(x2 - x1, 1.0), height))
+            block = block.next()
+        return rects
+
+    @staticmethod
+    def _line_x(line, pos: int) -> float:
+        """QTextLine.cursorToX 兼容取值（绑定版本返回值/元组不一）。"""
+        result = line.cursorToX(pos)
+        return float(result[0] if isinstance(result, tuple) else result)
