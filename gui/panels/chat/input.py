@@ -104,6 +104,11 @@ class ChatInput(QTextEdit):
     #: 仅当前后端 supports_images 时发射（能力外后端走 @路径 退化）
     image_attached = Signal(str, str, bool)
 
+    #: 图片退化提示信号（2026-08-01 用户反馈：D4 退化不得静默）：
+    #: 能力外后端粘贴/拖入图片按 @路径 退化时发射，panel 转输出区
+    #: 系统提示告知用户当前后端不支持图片附件
+    image_fallback = Signal()
+
     def __init__(self, band_color: str | None = None, parent=None) -> None:
         super().__init__(parent)
         self.setPlaceholderText("输入消息，Enter 发送 / Shift+Enter 换行")
@@ -222,8 +227,9 @@ class ChatInput(QTextEdit):
                 if path is not None:
                     if self._image_attachments_enabled:
                         self.image_attached.emit(str(path), "image/png", True)
-                    else:  # D4 退化：能力外后端维持方案 D @路径 透传
+                    else:  # D4 退化：能力外后端维持方案 D @路径 透传（不静默）
                         self.insertPlainText(self._mention_text(str(path)))
+                        self.image_fallback.emit()
                     return
             # 落盘失败：静默退化默认粘贴（与拖放防御分支同哲学）
         # 本地文件 URL 分支：与拖放对齐，引用原路径不复制文件
@@ -237,12 +243,15 @@ class ChatInput(QTextEdit):
     def _insert_file_reference(self, path: str) -> None:
         """本地文件入口统一分流（拖放/粘贴文件 URL 共用，0340 计划 D4）：
         图片 + 附件化开关 → image_attached（引用原路径不复制，pasted=False）；
-        其余 → @路径 引用（非图片文件语义零改动）。"""
+        图片 + 开关关闭 → @路径 退化 + image_fallback 提示（不静默）；
+        非图片 → @路径 引用（零改动）。"""
         mime = mime_type_of(path)
         if mime is not None and self._image_attachments_enabled:
             self.image_attached.emit(path, mime, False)
         else:
             self.insertPlainText(self._mention_text(path))
+            if mime is not None:
+                self.image_fallback.emit()
 
     def _mention_text(self, path: str) -> str:
         """本地路径 → '@相对路径 '（目录带尾 '/'，工作区外用绝对路径）。"""

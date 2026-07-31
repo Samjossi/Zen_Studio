@@ -377,8 +377,10 @@ class ChatPanel(QWidget):
         # 空闲态按钮 enabled 跟随输入文本非空（T3/D6）；busy 态恒可用
         self.input.textChanged.connect(self._refresh_send_button)
         # 图片附件化（0340 方案 B）：入口信号 → 附件行；附件行变化 →
-        # 发送键使能与空文本发送开关（D5）；超限拒绝 → 输出区系统提示
+        # 发送键使能与空文本发送开关（D5）；超限拒绝 → 输出区系统提示；
+        # 能力外退化提示（D4 不静默，用户反馈 2026-08-01）
         self.input.image_attached.connect(self._on_image_attached)
+        self.input.image_fallback.connect(self._on_image_fallback)
         self.attachments.changed.connect(self._on_attachments_changed)
         self.attachments.rejected.connect(
             lambda reason: self.output.append_message("系统", reason))
@@ -459,6 +461,18 @@ class ChatPanel(QWidget):
     def _on_image_attached(self, path: str, mime_type: str, pasted: bool) -> None:
         """输入区图片入口信号 → 附件行（校验与拒绝提示归 AttachmentStrip）。"""
         self.attachments.add(path, mime_type, pasted)
+
+    def _on_image_fallback(self) -> None:
+        """能力外后端图片退化提示（2026-08-01 用户反馈：D4 退化不得静默）。
+
+        每次粘贴/拖入图片一条系统提示（与用户动作一一对应，不算刷屏）；
+        @路径 退化行为本身不变——模型可自行读取该图片文件。
+        """
+        label = BACKEND_LABELS.get(self._llm_name, self._llm_name)
+        self.output.append_message(
+            "系统",
+            f"当前后端（{label}）不支持图片附件，已按 @路径 引用发送；"
+            f"切换至 Kimi / Kilo Code 后端可使用图片缩略图附件")
 
     def _on_attach_files(self) -> None:
         """📎 附件按钮（1c）：QFileDialog 多选图片入附件行（引用原路径不复制）。"""
