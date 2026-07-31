@@ -24,6 +24,7 @@
 #
 # 依赖（需预先安装）：
 #   - aqtinstall      （pipx install aqtinstall）
+#   - patchelf        （uv pip install patchelf，改写插件 RUNPATH 用）
 #   - cmake / ninja / g++
 #   - extra-cmake-modules
 #   - libfcitx5utils-dev（提供 Fcitx5Utils CMake 宏）
@@ -137,12 +138,24 @@ if objdump -T "$PLUGIN" | grep -q "Qt_6_PRIVATE_API"; then
     echo "[校验] 产物使用 Qt 私有 API（符合预期）"
 fi
 
-# ---------- 步骤 6：归档产物 ----------
+# ---------- 步骤 6：改写 RUNPATH ----------
+# 链接期 RUNPATH 指向 aqt 下载的 Qt 前缀（.build-tools/Qt/.../lib），会导致：
+# ① PyInstaller 插件校验拒绝收编（Qt 依赖解析于 venv Qt 库目录之外，
+#    _validate_plugin_dependencies 判 invalid，AppImage 冒烟必失败）；
+# ② 打包态 bindepend 可能把 .build-tools 的重复 Qt 库拖进产物（ABI 冲突）。
+# 改写为相对路径 $ORIGIN/../../lib（插件位 platforminputcontexts/，向上两级
+# 即 PySide6/Qt/lib），开发/打包两态通用；patchelf 经 uv pip 入 .venv
+PATCHELF="$PROJECT_ROOT/.venv/bin/patchelf"
+[ -x "$PATCHELF" ] || { echo "错误: 未找到 $PATCHELF，请先 uv pip install patchelf"; exit 1; }
+"$PATCHELF" --set-rpath '$ORIGIN/../../lib' "$PLUGIN"
+echo "[RUNPATH] $("$PATCHELF" --print-rpath "$PLUGIN")"
+
+# ---------- 步骤 7：归档产物 ----------
 mkdir -p "$DIST_DIR"
 cp "$PLUGIN" "$DIST_DIR/"
 echo "[归档] $DIST_DIR/libfcitx5platforminputcontextplugin.so"
 
-# ---------- 步骤 7：部署到 venv ----------
+# ---------- 步骤 8：部署到 venv ----------
 if [ -x "$VENV_PY" ]; then
     PLUGIN_DEST=$(find "$PROJECT_ROOT/.venv/lib" -type d -path '*PySide6/Qt/plugins/platforminputcontexts' | head -1)
     if [ -n "$PLUGIN_DEST" ]; then

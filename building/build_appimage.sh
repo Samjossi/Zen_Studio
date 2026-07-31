@@ -43,6 +43,10 @@ ACTUAL_SHA256="$(sha256sum "$TOOL" | cut -d' ' -f1)"
 }
 
 echo "==> [2/5] PyInstaller 构建（onedir）"
+# 清 Analysis 缓存：PyInstaller 6.21 复用 workpath 缓存，不感知 venv 内
+# 已安装文件的盘内变更（实证：fcitx5 插件 patchelf 改写 RUNPATH 后
+# 缓存未失效，插件持续漏收编），发布构建必须全量重算
+rm -rf "$WORK_DIR/zen-studio"
 uv run pyinstaller building/zen-studio.spec \
     --distpath "$DIST_DIR" --workpath "$WORK_DIR" --noconfirm
 [[ -x "$ONEDIR/zen-studio" ]] || { echo "❌ onedir 产物缺失"; exit 1; }
@@ -52,13 +56,20 @@ INTERNAL="$ONEDIR/_internal"
 DANGLING="$(find "$ONEDIR" -xtype l -print -delete | wc -l)"
 (( DANGLING == 0 )) || echo "    清理悬空符号链接 ${DANGLING} 个（spec 过滤残留）"
 # 不该打包项断言（计划 §4.2 清单）
-for banned in "assets/fonts/思源宋体" "assets/logo候选池" "config" "参考代码"; do
+for banned in "assets/fonts/思源宋体" "assets/logo候选池" "参考代码"; do
     [[ -e "$INTERNAL/$banned" ]] && { echo "❌ 禁打包项混入产物：$banned"; exit 1; }
 done
+# config 白名单断言：仅 version.json（版本单一来源，spec datas 第五条收编）
+# 允许入包，用户配置（settings 等）严禁混入——2026-07-31 起 version.json
+# 为打包态必需，缺失即打包失败
+[[ -f "$INTERNAL/config/version.json" ]] \
+    || { echo "❌ 版本文件缺失：_internal/config/version.json 未入包"; exit 1; }
+find "$INTERNAL/config" -mindepth 1 ! -name "version.json" -print -quit | grep -q . \
+    && { echo "❌ config 目录混入 version.json 以外内容"; exit 1; }
 # api_key 全深度扫描（防改名/嵌套变体——审计 W7 补强的兜底层）
 find "$INTERNAL" -iname "*api_key*" -print -quit | grep -q . \
     && { echo "❌ 产物内发现 api_key 痕迹（全深度扫描）"; exit 1; }
-echo "    禁打包项断言通过（思源宋体/logo候选池/config/参考代码/api_key 均缺席）"
+echo "    禁打包项断言通过（思源宋体/logo候选池/参考代码/api_key 均缺席，config 仅 version.json）"
 
 echo "==> [3/5] 组装 AppDir"
 rm -rf "$APPDIR"
@@ -106,6 +117,7 @@ for want in "AppRun" "zen-studio.desktop" "zen-studio.png" \
             "usr/bin/_internal/assets/fonts/思源黑体/LICENSE.txt" \
             "usr/bin/_internal/assets/fonts/更纱黑体/LICENSE.txt" \
             "usr/bin/_internal/assets/logo/logo_256.png" \
+            "usr/bin/_internal/config/version.json" \
             "usr/bin/_internal/PySide6/Qt/plugins/platforms/libqxcb.so" \
             "usr/bin/_internal/PySide6/Qt/plugins/platforms/libqwayland.so" \
             "usr/bin/_internal/PySide6/Qt/plugins/platforminputcontexts/libfcitx5platforminputcontextplugin.so"; do
@@ -113,10 +125,12 @@ for want in "AppRun" "zen-studio.desktop" "zen-studio.png" \
 done
 for banned in "usr/bin/_internal/assets/fonts/思源宋体" \
               "usr/bin/_internal/assets/logo候选池" \
-              "usr/bin/_internal/config" \
               "usr/bin/_internal/参考代码"; do
     [[ -e "$SQ/$banned" ]] && { echo "❌ 冒烟发现禁打包项：$banned"; exit 1; }
 done
+# config 白名单（解包层复核）：仅 version.json 允许，其余内容禁止混入
+find "$SQ/usr/bin/_internal/config" -mindepth 1 ! -name "version.json" -print -quit | grep -q . \
+    && { echo "❌ 冒烟：config 目录混入 version.json 以外内容"; exit 1; }
 # 解包层兜底：api_key 全深度扫描 + 悬空链接零残留（审计 W1/W7）
 find "$SQ" -iname "*api_key*" -print -quit | grep -q . \
     && { echo "❌ 冒烟：AppImage 内发现 api_key 痕迹"; exit 1; }
