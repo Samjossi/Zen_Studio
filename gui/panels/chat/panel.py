@@ -16,10 +16,14 @@ AI 活动信息路由（2026-07-31，文档/修改记录/2026-0731-1602 计划 T
   toolCallId→title 簿记补全状态行标题；轮次收尾 reset_activity_anchors
   作废 todo 锚点（T5-4 防跨轮串位）
 
-会话活动时间线色块条（2026-07-31，文档/修改记录/2026-0731-1824 计划 T3）：
-- 卡片内 splitter 之下常驻 ActivityTimeline 细条（D2），_on_chunk 入口
-  旁路分接 feed（不改动既有分支语义）；_on_finished/_on_stopped 随
-  reset_activity_anchors 同位置 end_turn 作废段指针；切后端新会话清条
+会话活动时间线色块条（2026-07-31，文档/修改记录/2026-0731-1824 计划 T3；
+挂载点 2242 计划方案 F 迁移）：
+- ActivityTimeline 细条与上下文用量徽章同行组成状态行（左条右徽），
+  置输入区内输入框上方——随 splitter 拖拽移动，视觉恒在输出/输入分界
+  （原 1824 D2 卡片底部挂载废止；不进 splitter 的约束不变）；
+  _on_chunk 入口旁路分接 feed（不改动既有分支语义）；_on_finished/
+  _on_stopped 随 reset_activity_anchors 同位置 end_turn 作废段指针；
+  切后端新会话清条
 
 关闭异步化（2026-07-22，文档/修改记录/2026-0722-1117 计划 P2）：
 - close() 两段式：GUI 段毫秒级（request_stop + 断信号 + 起 daemon
@@ -259,13 +263,15 @@ class ChatPanel(QWidget):
     # UI 构建与接线
     # ------------------------------------------------------------------
     def _build_layout(self) -> None:
-        """布局装配：PanelCard 单卡片整合（输出区 + 输入区 + 活动时间线条）。
+        """布局装配：PanelCard 单卡片整合（输出区 + 输入区含状态行）。
 
         卡片内保留垂直 splitter（输出/输入比例可调、状态持久化不变）；
         ChatOutput 透明融入卡片白底，输入框保留自身 6px 圆角嵌于卡内。
-        输入区 = 输入框 + 底行（左：模型/版本双下拉；右：发送/停止双态按钮）。
-        活动时间线色块条（1824 计划 D2）置卡片内 splitter 之下常驻——
-        不进 splitter（子件会被拖拽均分），细条固定高度全程可见。
+        输入区 = 状态行（时间线条 + 用量徽章）+ 输入框 + 底行（左：模型/
+        版本双下拉；右：发送/停止双态按钮）。
+        活动时间线色块条于 2242 计划（方案 F）由卡片底部迁入输入区状态行
+        ——仍不进 splitter（子件会被拖拽均分，1824 计划 D2），细条定高
+        随输入区拖拽移动，视觉恒在输出/输入分界。
         """
         self._splitter = QSplitter(Qt.Orientation.Vertical)
         self._splitter.addWidget(self.output)
@@ -278,7 +284,6 @@ class ChatPanel(QWidget):
         card.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         card_layout = QVBoxLayout(card)
         card_layout.addWidget(self._splitter, 1)
-        card_layout.addWidget(self.timeline)
         card_layout.setContentsMargins(8, 6, 8, 8)
         card_layout.setSpacing(4)
 
@@ -290,12 +295,36 @@ class ChatPanel(QWidget):
         layout.setSpacing(0)
 
     def _build_input_box(self) -> QWidget:
-        """输入区容器：输入框 + 底行（左：模型/版本双下拉；右：发送/停止双态按钮）。
+        """输入区容器：状态行 + 输入框 + 底行（左：模型/版本双下拉；右：发送/停止双态按钮）。
+
+        状态行（2026-0731-2242 计划方案 F，work plans 立项）：时间线色块条 +
+        上下文用量徽章同行（左条右徽），置输入框上方——随 splitter 拖拽与
+        输入区整体移动，视觉恒在输出/输入分界；定高不参与拉伸（仍守 1824
+        计划 D2：时间线条不进 splitter，子件会被拖拽均分）。
 
         底行双下拉为 2026-0724-2354 计划 T3（原顶部全局模型行下移）；
         双态按钮常驻恒宽（宽度按两态文本较大者一次写死），任何状态下
         sizeHint 不变——QSplitter 撑宽左栏病根切除的一部分。
+        徽章移出底行后，底行回归纯操作行（模型选择 + 发送/停止）。
         """
+        # 上下文用量徽章（2026-0731-1412 计划 D1-A/D2-A）：纯文本百分比 +
+        # tooltip 明细；常驻占位恒宽（按 "~100%" 宽度一次写死——1454 起
+        # estimate 来源带 ~ 前缀），无数据时空文本——显隐不改 sizeHint
+        # （左栏宽度病根教训，2026-0724-2305）。2242 计划由底行迁入状态行
+        # 右侧，恒宽/对齐语义不变
+        self._usage_label = QLabel(self)
+        self._usage_label.setObjectName("chatUsageLabel")
+        self._usage_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._usage_label.setFixedWidth(
+            self._usage_label.fontMetrics().horizontalAdvance("~100%") + 8)
+
+        # 状态行：左时间线条（横向延展）→ 右用量徽章（恒宽）；
+        # 行高由时间线条决定（约 30px，1824 计划已定），徽章随布局垂直居中
+        status_row = QHBoxLayout()
+        status_row.addWidget(self.timeline, 1)
+        status_row.addWidget(self._usage_label)
+        status_row.setContentsMargins(0, 0, 0, 0)
+
         self._send_button = QPushButton("发送", self)
         self._send_button.setObjectName("chatSendButton")
         self._send_button.setToolTip("发送消息（Enter）")
@@ -305,25 +334,15 @@ class ChatPanel(QWidget):
         )
         self._send_button.setFixedWidth(text_width + 26)  # qss padding 11px*2 + border
 
-        # 上下文用量徽章（2026-0731-1412 计划 D1-A/D2-A）：纯文本百分比 +
-        # tooltip 明细；常驻占位恒宽（按 "~100%" 宽度一次写死——1454 起
-        # estimate 来源带 ~ 前缀），无数据时空文本——显隐不改 sizeHint
-        # （左栏宽度病根教训，2026-0724-2305）
-        self._usage_label = QLabel(self)
-        self._usage_label.setObjectName("chatUsageLabel")
-        self._usage_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._usage_label.setFixedWidth(
-            self._usage_label.fontMetrics().horizontalAdvance("~100%") + 8)
-
         button_row = QHBoxLayout()
         button_row.addWidget(self.model_bar)
-        button_row.addWidget(self._usage_label)
         button_row.addStretch(1)
         button_row.addWidget(self._send_button)
         button_row.setContentsMargins(0, 0, 0, 0)
 
         box = QWidget(self)
         box_layout = QVBoxLayout(box)
+        box_layout.addLayout(status_row)
         box_layout.addWidget(self.input, 1)
         box_layout.addLayout(button_row)
         box_layout.setContentsMargins(0, 0, 0, 0)
@@ -396,7 +415,8 @@ class ChatPanel(QWidget):
         self._apply_usage_label_style(theme)
 
     # ------------------------------------------------------------------
-    # 上下文用量徽章（2026-0731-1412 计划：usage_update → 底行百分比徽章）
+    # 上下文用量徽章（2026-0731-1412 计划：usage_update → 百分比徽章；
+    # 2242 计划方案 F 由输入区底行迁入状态行右侧，簿记/刷新语义不变）
     # ------------------------------------------------------------------
     def _refresh_usage_label(self) -> None:
         """按 _usage 簿记刷新徽章：无数据空文本（常驻占位不撤）；≥50% 热态变色。
