@@ -13,4 +13,9 @@ dependencies = [
 [dependency-groups]
 dev = [
     "pyinstaller>=6.21.0",
+    # XTEST 真机驱动依赖（视觉验证闭环第二级「怎么动」用，见
+    # 文档/修改记录/2026-0731-2208_聊天区选区高亮偏下修复与视觉验证闭环经验.md §6.2）。
+    # 仅 .temp/ 验证脚本 import，生产代码零引用，PyInstaller 按 import 链
+    # 收编不会打进包，无需 spec 级排除。
+    "python-xlib>=0.33",
 ]
