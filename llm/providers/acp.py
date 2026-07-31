@@ -148,7 +148,15 @@ def _extract_tool_output(update: dict) -> tuple[str, int] | None:
     kind（update 帧常缺 kind，F3）——execute 过滤归路由层（非 execute
     工具不上屏输出卡，防 read/edit 长文刷屏）。
     """
-    output = (update.get("rawOutput") or {}).get("output")
+    raw = update.get("rawOutput")
+    # rawOutput 三态分流：dict 走 .output；str 为中止/失败场景的纯文本
+    # 降级形态（kimi-code 工具被中止时实证），直接作为输出文本进既有管线
+    if isinstance(raw, dict):
+        output = raw.get("output")
+    elif isinstance(raw, str):
+        output = raw
+    else:
+        output = None
     if not isinstance(output, str):
         parts = []
         for item in update.get("content") or []:
@@ -300,9 +308,14 @@ def _map_tool_call_update(update: dict) -> Chunk | None:
     if extracted := _extract_tool_output(update):
         payload["output"], payload["output_total_lines"] = extracted
     if status == "failed":
-        error = (update.get("rawOutput") or {}).get("error")
-        if isinstance(error, dict):
-            error = error.get("message")
+        raw = update.get("rawOutput")
+        error = None
+        if isinstance(raw, dict):
+            error = raw.get("error")
+            if isinstance(error, dict):
+                error = error.get("message")
+        elif isinstance(raw, str):
+            error = raw  # 中止场景的纯文本降级形态（同 _extract_tool_output 分流）
         if not (first := _truncate_line(error)):
             for item in update.get("content") or []:
                 text = (item.get("content") or {}) if isinstance(item, dict) else {}

@@ -1,4 +1,6 @@
 """流式工作线程：后台跑 LLM generator，信号上屏，避免阻塞 UI。"""
+import traceback
+
 from PySide6.QtCore import QThread, Signal
 
 from llm import LanguageModel, Message
@@ -53,6 +55,7 @@ class ChatWorker(QThread):
             if self._is_stop_requested:
                 self.stopped_by_user.emit()
             else:
+                traceback.print_exc()  # stderr 诊断通道：协议层异常留完整 traceback
                 self.finished_with_error.emit(str(e))
             return
         finally:
