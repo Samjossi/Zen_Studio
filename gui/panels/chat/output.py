@@ -31,16 +31,21 @@ AI 活动块（1602 计划 T4/T5：对话区 AI 活动信息充分展示）：
 - L2-5 文件路径可点击：_flush_stream 冲刷后对本次区间正则扫描反引号
   `路径[:行号]` 片段，就地施加锚点字符格式（零文本改动、零重排），
   点击经 anchorClicked 信号外抛（setOpenLinks(False) 拦截默认导航）。
+
+选区带自绘（2026-0731-2055 方案 A 聊天区推广）：原生带因思源黑体
+leading 全部垫底而偏下，qss 透明化抑制后经 gui/selection_band.py
+公共辅助自绘墨盒上下对称留白带（与 Markdown 预览页同机理）。
 """
 import re
 from html import escape as _html_escape
 
 from PySide6.QtCore import QTimer
-from PySide6.QtGui import QColor, QFont, QTextCharFormat, QTextCursor
-from PySide6.QtWidgets import QTextBrowser
+from PySide6.QtGui import QColor, QFont, QPalette, QTextCharFormat, QTextCursor
+from PySide6.QtWidgets import QApplication, QTextBrowser
 
 from gui.panels.chat.reasoning_heading import split_heading
 from gui.popups import exec_standard_context_menu
+from gui.selection_band import SUPPRESSION_QSS, paint_selection_band
 from gui.theme import get_mono_family
 
 _STREAM_FLUSH_MS = 30  # 流式合帧节流间隔（人眼无感下限，1836 计划 D5）
@@ -81,6 +86,8 @@ class ChatOutput(QTextBrowser):
         self.setOpenLinks(False)  # L2-5：拦截默认导航，anchorClicked 外抛
         # 样式由主题 qss 统一（透明融入侧栏，无边框）
         self.setObjectName("ChatOutput")
+        # 选区带自绘（2055 计划方案 A 聊天区推广）：抑原生带，paintEvent 自绘
+        self.setStyleSheet(SUPPRESSION_QSS)
         self._reasoning_color = QColor(reasoning_color)
         self._tool_color = QColor(tool_color)
         self._error_color = QColor(error_color)
@@ -119,6 +126,17 @@ class ChatOutput(QTextBrowser):
     def contextMenuEvent(self, event) -> None:
         """标准编辑菜单透明化（见 gui/popups.py 与 0751 计划 §3.1）。"""
         exec_standard_context_menu(self, event)
+
+    def paintEvent(self, event) -> None:
+        """基类绘制（原生选区带已透明化）后，叠绘半透明对称选区带。
+
+        2055 计划方案 A 聊天区推广：带色复用 link_fg（timeline_read_fg，
+        与文件链接同源蓝，守不新增键纪律），缺省回退 QPalette Highlight。
+        """
+        super().paintEvent(event)
+        color = self._link_color or QApplication.palette().color(
+            QPalette.ColorRole.Highlight)
+        paint_selection_band(self, color)
 
     def append_message(self, role: str, content: str) -> None:
         """追加一条完整消息（role 为显示名，如"系统"）；用户消息走 append_user_message。"""

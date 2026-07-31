@@ -21,25 +21,19 @@ VS_Code_Python（MIT）仅证实其 PySide6 可用性，无代码移植。
 """
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QRectF, QUrl, Signal
-from PySide6.QtGui import QColor, QDesktopServices, QFont, QPainter, QPalette, QTextCursor, QTextDocument
+from PySide6.QtCore import QUrl, Signal
+from PySide6.QtGui import QColor, QDesktopServices, QFont, QPalette, QTextDocument
 from PySide6.QtWidgets import QApplication, QFrame, QTextBrowser, QWidget
 
 from core.external_apps import TyporaLauncher, default_launcher
 from gui.popups import make_translucent_popup
+from gui.selection_band import SUPPRESSION_QSS, paint_selection_band
 
 #: 可渲染预览的 Markdown 扩展名（不含点，与 IMAGE_EXTS 同规约；不含 mdx——决策不启用）
 MARKDOWN_EXTS: frozenset[str] = frozenset({"md", "markdown"})
 
 #: 大文件守卫：超过 1 MB 截断渲染（与 ViewerPanel 文本页 MAX_BYTES 一致）
 MAX_BYTES = 1_048_576
-
-#: 自绘选区带：墨盒（ascent+descent）上下对称留白（px，方案 A）
-SELECTION_PAD_Y = 3
-#: 自绘选区带圆角半径（px）
-SELECTION_RADIUS = 3
-#: 自绘选区带填充不透明度（0-255；半透明叠绘保文字可读）
-SELECTION_ALPHA = 110
 
 
 class MarkdownView(QTextBrowser):
@@ -66,9 +60,8 @@ class MarkdownView(QTextBrowser):
         self.setOpenLinks(False)  # 链接点击全由 anchorClicked 分发，不做内置导航
         self.anchorClicked.connect(self._dispatch_link)
         # 方案 A：抑制原生选区带（qss 继承自 QMainWindow 的 accent 色规则，
-        # 控件级声明优先）；选中文字保持正文色（原生会反白），由自绘带承担高亮
-        self.setStyleSheet(
-            "selection-background-color: rgba(0,0,0,0); selection-color: palette(text);")
+        # 控件级声明优先）；选中文字保持正文色，由自绘带承担高亮
+        self.setStyleSheet(SUPPRESSION_QSS)
 
         self._typora = typora or default_launcher
         self._current_path: Path | None = None
@@ -200,68 +193,12 @@ class MarkdownView(QTextBrowser):
             self.document().setDefaultFont(font)
 
     # ------------------------------------------------------------------
-    # 选区带自绘（2026-0731-2055 方案 A：墨盒上下对称留白，矫正原生带偏下）
+    # 选区带自绘（2026-0731-2055 方案 A：墨盒上下对称留白，矫正原生带偏下；
+    # 实现已通用化至 gui/selection_band.py，聊天区 ChatOutput 共用）
     # ------------------------------------------------------------------
     def paintEvent(self, event) -> None:
         """基类绘制（原生选区带已被透明化）后，叠绘半透明对称选区带。"""
         super().paintEvent(event)
-        rects = self._selection_rects()
-        if not rects:
-            return
-        color = QColor(self._selection_color) if self._selection_color else QApplication.palette().color(
+        color = self._selection_color or QApplication.palette().color(
             QPalette.ColorRole.Highlight)
-        color.setAlpha(SELECTION_ALPHA)
-        painter = QPainter(self.viewport())
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(color)
-        for rect in rects:
-            painter.drawRoundedRect(rect, SELECTION_RADIUS, SELECTION_RADIUS)
-        painter.end()
-
-    def _selection_rects(self) -> list[QRectF]:
-        """当前选区的视口坐标矩形列（逐行一段；纵向=行墨盒±SELECTION_PAD_Y）。
-
-        坐标映射：块内行坐标 → 视口，锚点取块首 cursorRect（规避块内/视口
-        坐标混用坑，见 2055 计划 §3.4）；横向端点取 QTextLine.cursorToX。
-        """
-        cursor = self.textCursor()
-        if not cursor.hasSelection():
-            return []
-        sel_start, sel_end = cursor.selectionStart(), cursor.selectionEnd()
-        doc = self.document()
-        rects: list[QRectF] = []
-        block = doc.findBlock(sel_start)
-        while block.isValid() and block.position() < sel_end:
-            layout = block.layout()
-            if layout.lineCount() == 0:
-                block = block.next()
-                continue
-            # 块首行首字符的视口光标矩形 = 块布局坐标系原点锚点
-            anchor = self.cursorRect(QTextCursor(block))
-            base_y = layout.lineAt(0).position().y()
-            base_x = layout.lineAt(0).position().x()
-            rel_lo = sel_start - block.position()
-            rel_hi = sel_end - block.position()
-            for i in range(layout.lineCount()):
-                line = layout.lineAt(i)
-                lo = max(line.textStart(), rel_lo)
-                hi = min(line.textStart() + line.textLength(), rel_hi)
-                if lo >= hi:
-                    continue
-                x1 = self._line_x(line, lo)
-                x2 = self._line_x(line, hi)
-                if hi >= line.textStart() + line.textLength() and sel_end > block.position() + block.length() - 1:
-                    x2 += 4  # 选及换行符：行尾补一小段（对齐原生观感）
-                top = anchor.top() + (line.position().y() - base_y) - SELECTION_PAD_Y
-                left = anchor.left() + (line.position().x() - base_x) + x1
-                height = line.ascent() + line.descent() + 2 * SELECTION_PAD_Y
-                rects.append(QRectF(left, top, max(x2 - x1, 1.0), height))
-            block = block.next()
-        return rects
-
-    @staticmethod
-    def _line_x(line, pos: int) -> float:
-        """QTextLine.cursorToX 兼容取值（绑定版本返回值/元组不一）。"""
-        result = line.cursorToX(pos)
-        return float(result[0] if isinstance(result, tuple) else result)
+        paint_selection_band(self, color)
