@@ -38,6 +38,7 @@ leading 全部垫底而偏下，qss 透明化抑制后经 gui/selection_band.py
 """
 import re
 from html import escape as _html_escape
+from pathlib import Path
 
 from PySide6.QtCore import QTimer
 from PySide6.QtGui import QColor, QFont, QPalette, QTextCharFormat, QTextCursor
@@ -145,15 +146,22 @@ class ChatOutput(QTextBrowser):
         self.append(f"{content}<br>")
         self._scroll_to_bottom()
 
-    def append_user_message(self, content: str) -> None:
+    def append_user_message(self, content: str, images: list | None = None) -> None:
         """用户消息气泡卡上屏（L2-1）：table 单格 + bgcolor 直角卡。
 
         Qt 富文本不支持圆角，直角灰底卡即「用户消息有卡、AI 消息裸文」
         层级差（1836 计划 D4）的载体可达形态；内容 HTML 转义防用户输入
         的 `<`/`&` 破坏结构（多行换行转 <br>）。
+
+        images（0340 方案 B 计划 T4）：文本后追加每图 `<img>` 缩略
+        （Qt 富文本本地 file URI 直渲，宽限 200 防撑破气泡卡；回显
+        依赖落盘文件在盘——D7 惰性清理保最近 20 个兜底）。
         """
         self._flush_stream()
         body = _html_escape(content).replace("\n", "<br>")
+        for img in images or []:
+            uri = Path(img["path"]).resolve().as_uri()
+            body += f'<br><img src="{uri}" width="200">'
         self.append(
             f'<table width="100%" cellspacing="0" cellpadding="8">'
             f'<tr><td bgcolor="{self._user_bubble_bg.name()}">'

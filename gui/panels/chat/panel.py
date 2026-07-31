@@ -45,6 +45,7 @@ from pathlib import Path
 from PySide6.QtCore import Qt, QThread, QTimer, Signal
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
+    QFileDialog,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -55,6 +56,7 @@ from PySide6.QtWidgets import (
 )
 from shiboken6 import isValid
 
+from gui.panels.chat.attachments import AttachmentStrip, mime_type_of
 from gui.panels.chat.input import ChatInput
 from gui.panels.chat.model_bar import ModelBar
 from gui.panels.chat.output import ChatOutput
@@ -143,6 +145,11 @@ class ChatPanel(QWidget):
             # 选区带色与 ChatOutput 同源（timeline_read_fg 复用，不新增主题键）
             chat_pack["timeline_read_fg"], self)
         self.input.set_workspace_root(workspace_root)
+        # 图片附件行（0340 方案 B 计划 T2/T3）：状态行与输入框之间，
+        # chip 底色复用 user_bubble_bg（不新增主题键）；初态 hide
+        self.attachments = AttachmentStrip(chat_pack["user_bubble_bg"], self)
+        #: 发送时收集的附件簿记（失败/中断回滚恢复数据源，D6）
+        self._sent_attachments: list = []
         # 底行模型选择（纯视图）：注入初始选择后以回退后的有效值为准
         self.model_bar = ModelBar(self)
         self.model_bar.set_selection(backend, version)
@@ -156,6 +163,7 @@ class ChatPanel(QWidget):
         self._build_layout()
         self._connect_signals()
         self._apply_usage_label_style(load_settings()[KEY_THEME])
+        self._apply_image_capability()  # 0340 方案 B：初始后端能力位注入
 
     # ------------------------------------------------------------------
     # provider 实例（注册表工厂懒实例化，D4；建成后每标签独立连接）
@@ -212,6 +220,7 @@ class ChatPanel(QWidget):
             self.output.append_message(
                 "系统", f"已切换到 {BACKEND_LABELS.get(backend, backend)} 后端，开始新会话")
         self._llm_name = backend
+        self._apply_image_capability()  # 0340 方案 B：能力位随后端切换刷新
         provider = self._get_provider(backend)
         if provider is not None and isinstance(version, str):
             if (set_model := getattr(provider, "set_model", None)) is not None:
@@ -334,15 +343,26 @@ class ChatPanel(QWidget):
         )
         self._send_button.setFixedWidth(text_width + 26)  # qss padding 11px*2 + border
 
+        # 图片附件按钮（0340 方案 B 计划 1c）：QFileDialog 多选图片入附件行；
+        # 恒宽（2305 纪律），能力外后端禁用并 tooltip 说明（D4）
+        self._attach_button = QPushButton("📎", self)
+        self._attach_button.setObjectName("chatAttachButton")
+        self._attach_button.setFixedWidth(
+            self._attach_button.fontMetrics().horizontalAdvance("📎") + 26)
+
         button_row = QHBoxLayout()
         button_row.addWidget(self.model_bar)
         button_row.addStretch(1)
+        button_row.addWidget(self._attach_button)
         button_row.addWidget(self._send_button)
         button_row.setContentsMargins(0, 0, 0, 0)
 
         box = QWidget(self)
         box_layout = QVBoxLayout(box)
         box_layout.addLayout(status_row)
+        # 附件行：状态行与输入框之间第 2 件（0340 计划 D1；垂直显隐，
+        # 宽度随父不设 stretch——左栏宽度零影响）
+        box_layout.addWidget(self.attachments)
         box_layout.addWidget(self.input, 1)
         box_layout.addLayout(button_row)
         box_layout.setContentsMargins(0, 0, 0, 0)
@@ -353,8 +373,15 @@ class ChatPanel(QWidget):
         """跨组件信号统一接线（本面板的接线图）。"""
         self.input.send_requested.connect(self._on_send)
         self._send_button.clicked.connect(self._on_send_button)
+        self._attach_button.clicked.connect(self._on_attach_files)
         # 空闲态按钮 enabled 跟随输入文本非空（T3/D6）；busy 态恒可用
         self.input.textChanged.connect(self._refresh_send_button)
+        # 图片附件化（0340 方案 B）：入口信号 → 附件行；附件行变化 →
+        # 发送键使能与空文本发送开关（D5）；超限拒绝 → 输出区系统提示
+        self.input.image_attached.connect(self._on_image_attached)
+        self.attachments.changed.connect(self._on_attachments_changed)
+        self.attachments.rejected.connect(
+            lambda reason: self.output.append_message("系统", reason))
         self._refresh_send_button()  # 初始：空文本禁用发送
         # T7：busy 期间 Esc 中断本标签（输入框内 Esc 无默认行为，安全占用）
         esc = QShortcut(QKeySequence(Qt.Key.Key_Escape), self)
@@ -395,10 +422,65 @@ class ChatPanel(QWidget):
             self.request_stop()
 
     def _refresh_send_button(self) -> None:
-        """空闲态刷新按钮可用性（文本非空才可发送）；busy 态不触碰。"""
+        """空闲态刷新按钮可用性（文本非空**或**有附件才可发送，0340 D5）；
+        busy 态不触碰。"""
         if self._worker is not None and self._worker.isRunning():
             return
-        self._send_button.setEnabled(bool(self.input.toPlainText().strip()))
+        self._send_button.setEnabled(
+            bool(self.input.toPlainText().strip()) or self.attachments.count() > 0)
+
+    # ------------------------------------------------------------------
+    # 图片附件（0340 方案 B 计划 T3：能力位注入 / 附件按钮 / 附件行变化）
+    # ------------------------------------------------------------------
+    def _supports_images(self) -> bool:
+        """当前后端图片附件能力（注册表 BackendSpec.supports_images，
+        T0 spike 实证填值；接口级判定，D9）。"""
+        spec = spec_of(self._llm_name)
+        return bool(spec and spec.supports_images)
+
+    def _apply_image_capability(self) -> None:
+        """按当前后端能力位刷新图片入口语义（初始化与后端切换共用单点）。
+
+        能力内：粘贴/拖入图片走附件化信号，📎 按钮可用；
+        能力外：退化方案 D @路径 透传（D4），📎 按钮禁用。
+        """
+        enabled = self._supports_images()
+        self.input.set_image_attachments_enabled(enabled)
+        self._attach_button.setEnabled(enabled)
+        self._attach_button.setToolTip(
+            "添加图片附件" if enabled
+            else "当前后端不支持图片附件（粘贴/拖入图片将按 @路径 引用发送）")
+        if not enabled and self.attachments.count() > 0:
+            # 切到能力外后端时残留附件：保留在附件行但发送时不再携带
+            # （_on_send 能力守卫），用户可 × 删
+            self.output.append_message(
+                "系统", "当前后端不支持图片附件，附件已保留但不会随消息发送")
+
+    def _on_image_attached(self, path: str, mime_type: str, pasted: bool) -> None:
+        """输入区图片入口信号 → 附件行（校验与拒绝提示归 AttachmentStrip）。"""
+        self.attachments.add(path, mime_type, pasted)
+
+    def _on_attach_files(self) -> None:
+        """📎 附件按钮（1c）：QFileDialog 多选图片入附件行（引用原路径不复制）。"""
+        paths, _ = QFileDialog.getOpenFileNames(
+            self, "选择图片附件", "",
+            "图片文件 (*.png *.jpg *.jpeg *.gif *.webp *.bmp)")
+        for path in paths:
+            if mime := mime_type_of(path):
+                self.attachments.add(path, mime, False)
+
+    def _on_attachments_changed(self) -> None:
+        """附件行变化 → 空文本发送开关（D5）与发送键使能。"""
+        self.input.set_allow_empty_send(
+            self.attachments.count() > 0 and self._supports_images())
+        self._refresh_send_button()
+
+    def _restore_sent_attachments(self) -> None:
+        """失败/中断回滚（0340 计划 D6）：已收集的附件恢复回附件行
+        （文件仍在盘上；AttachmentStrip.restore 静默跳过消失文件）。"""
+        if self._sent_attachments:
+            self.attachments.restore(self._sent_attachments)
+            self._sent_attachments = []
 
     # ------------------------------------------------------------------
     # 主题（思维链/活动块前景色随主题资源包切换；由 ChatTabs 统一转发）
@@ -412,6 +494,7 @@ class ChatPanel(QWidget):
             chat_pack["user_bubble_bg"], chat_pack["tool_output_bg"],
             chat_pack["timeline_read_fg"])
         self.timeline.set_colors(_timeline_colors(chat_pack))
+        self.attachments.set_chip_color(chat_pack["user_bubble_bg"])
         self._apply_usage_label_style(theme)
 
     # ------------------------------------------------------------------
@@ -505,8 +588,16 @@ class ChatPanel(QWidget):
         self.input.clear()
         self._set_busy(True)
 
-        self._history.append({"role": "user", "content": text})
-        self.output.append_user_message(text)  # L2-1 气泡卡
+        # 图片附件随消息携带（0340 方案 B 计划 T3）：能力守卫——切到
+        # 能力外后端后残留的附件不发送（_apply_image_capability 已提示）
+        images = self.attachments.attachments() if self._supports_images() else []
+        message: Message = {"role": "user", "content": text}
+        if images:
+            message["images"] = images
+        self._history.append(message)
+        self._sent_attachments = images  # 失败/中断回滚恢复数据源（D6）
+        self.attachments.clear()  # 不删落盘文件（气泡卡回显依赖在盘，D7）
+        self.output.append_user_message(text, images)  # L2-1 气泡卡 + 缩略图
         self.output.begin_stream("AI")
         self._stream_buffer = ""
         self._has_seen_reasoning = False
@@ -585,8 +676,10 @@ class ChatPanel(QWidget):
                 self._has_seen_reasoning = False
             self.output.append_stream_chunk(f"\n[请求失败] {error}")
             self._history.pop()  # 失败的用户消息不入历史
+            self._restore_sent_attachments()  # 附件恢复回附件行（0340 D6）
         else:
             self._history.append({"role": "assistant", "content": self._stream_buffer})
+            self._sent_attachments = []
         self.output.reset_activity_anchors()  # todo 锚点轮次收尾作废（T5-4）
         self.timeline.end_turn()  # 色块条段指针轮次收尾作废（1824 计划 T3）
         self.output.end_stream()
@@ -601,6 +694,7 @@ class ChatPanel(QWidget):
             self.output.end_reasoning()
             self._has_seen_reasoning = False
         self._history.pop()  # 回滚用户消息；半截回复随 _stream_buffer 丢弃
+        self._restore_sent_attachments()  # 附件恢复回附件行（0340 D6）
         self.output.append_stream_chunk("\n⏹ 已手动停止")
         self.output.reset_activity_anchors()  # todo 锚点轮次收尾作废（T5-4）
         self.timeline.end_turn()  # 色块条段指针轮次收尾作废（1824 计划 T3）

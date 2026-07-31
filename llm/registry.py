@@ -47,6 +47,11 @@ class BackendSpec:
     list_models: Callable[[], list[str]]
     #: 实例工厂：(model=None, workspace_root=None) → LanguageModel 实例
     factory: Callable[..., LanguageModel]
+    #: 图片附件能力位（0340 方案 B 计划 T5）：接口级——ACP image ContentBlock
+    #: 是否有效送达模型。真值来源唯一：T0 spike 实测
+    #: （.temp/spike_image_results.json，2026-08-01）；
+    #: False 的后端聊天输入区自动退化方案 D 落盘 @路径 行为（D4）
+    supports_images: bool = False
 
 
 # ----------------------------------------------------------------------
@@ -103,6 +108,9 @@ REGISTRY: dict[str, BackendSpec] = {
             available=kimi_available,
             list_models=_cached_list_models("kimi-acp", list_kimi_models),
             factory=KimiAcpLLM,
+            # T0 spike：默认模型与 kimi-code/k3 均正确识图；空 text 块被拒
+            # （-32603），纯图发送经 build_prompt_blocks 占位文案回退（D5）
+            supports_images=True,
         ),
         BackendSpec(
             name="reasonix-acp",
@@ -112,6 +120,10 @@ REGISTRY: dict[str, BackendSpec] = {
             available=reasonix_available,
             list_models=_cached_list_models("reasonix-acp", list_reasonix_models),
             factory=ReasonixAcpLLM,
+            # T0 spike：协议层接受 image 块但默认模型回报「没有看到任何图片」
+            # （疑静默丢弃或非视觉模型）——保守置 False，维持方案 D @路径
+            # 退化（D4）；后续换视觉模型实测后可翻案
+            supports_images=False,
         ),
         BackendSpec(
             name="opencode-acp",
@@ -121,6 +133,10 @@ REGISTRY: dict[str, BackendSpec] = {
             available=opencode_available,
             list_models=_cached_list_models("opencode-acp", list_opencode_models),
             factory=OpenCodeAcpLLM,
+            # T0 spike：image 块确认透传（模型明确回报「当前模型不支持图片
+            # 输入」——图已送达，模型级不支持）；接口级置 True（D9），用户
+            # 切换视觉模型即生效；空 text 块接受
+            supports_images=True,
         ),
         BackendSpec(
             name="kilocode-acp",
@@ -130,6 +146,8 @@ REGISTRY: dict[str, BackendSpec] = {
             available=kilocode_available,
             list_models=_cached_list_models("kilocode-acp", list_kilocode_models),
             factory=KiloCodeAcpLLM,
+            # T0 spike：默认模型正确识图（回「红」），空 text 块接受
+            supports_images=True,
         ),
     )
 }

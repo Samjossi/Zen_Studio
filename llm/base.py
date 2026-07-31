@@ -1,13 +1,32 @@
 """LLM 统一接口（仿 theia-zen LanguageModel Protocol）。"""
 from dataclasses import dataclass
-from typing import Iterator, Literal, Protocol, TypedDict
+from typing import Iterator, Literal, NotRequired, Protocol, TypedDict
+
+
+class ImageAttachment(TypedDict):
+    """单条图片附件（0340 方案 B 计划 D3：4c 混合载体，path 即全部事实）。
+
+    path：粘贴型为 IDE 落盘 PNG 路径；文件型为用户原文件路径（不复制）。
+    发送时才由 provider 层读盘 base64——附件存续期不持字节，内存零占用。
+    pasted=True 表示 IDE 落盘产物（附件行删除×时连文件删）；False 为
+    用户文件（绝不删）。
+    """
+    path: str
+    mime_type: str   # 由后缀映射（png/jpg/jpeg/gif/webp/bmp）
+    pasted: bool
 
 
 class Message(TypedDict):
-    """OpenAI 格式对话消息。"""
+    """OpenAI 格式对话消息。
+
+    images（0340 方案 B 计划 D8）：仅 user 消息可携带的图片附件；
+    四家 ACP provider 历史由 agent 会话自管、只发末条 user 消息，
+    历史图片天然不回传。
+    """
 
     role: Literal["system", "user", "assistant"]
     content: str
+    images: NotRequired[list[ImageAttachment]]
 
 
 @dataclass(frozen=True)

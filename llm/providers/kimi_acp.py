@@ -39,6 +39,7 @@ from llm.providers.acp import (
     PermissionOption,
     PermissionParams,
     ToolCallInfo,
+    build_prompt_blocks,
     map_session_update,
 )
 from llm.providers.kimi_common import _find_bin
@@ -225,16 +226,17 @@ class KimiAcpLLM(LanguageModel):
     # 对话
     # ------------------------------------------------------------------
     def chat(self, messages: list[Message]) -> Iterator[Chunk]:
-        # 历史由 agent 会话管理，仅取最后一条 user 消息作 prompt
-        prompt = next((m["content"] for m in reversed(messages) if m["role"] == "user"), "")
-        if not prompt:
+        # 历史由 agent 会话管理，仅取末条 user 消息作 prompt（可携带图片附件，
+        # 0340 方案 B：text+image 多块经 build_prompt_blocks 构造）
+        message = next((m for m in reversed(messages) if m["role"] == "user"), None)
+        if message is None or (not message["content"] and not message.get("images")):
             return
         with self._turn_lock:  # 串行化轮次，防 inbox 串抢
             conn = self._ensure_session()
             conn.purge_updates()
             conn.begin_turn("session/prompt", {
                 "sessionId": self._session_id,
-                "prompt": [{"type": "text", "text": prompt}],
+                "prompt": build_prompt_blocks(message),
             })
             try:
                 yield from self._iter_turn_chunks(conn)

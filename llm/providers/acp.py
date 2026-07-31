@@ -11,6 +11,7 @@
 PermissionHandler/_TurnMessage）是 ACP 协议层产物，不属 kimi 专有，
 随连接层同居本模块。
 """
+import base64
 import json
 import queue
 import re
@@ -18,10 +19,12 @@ import subprocess
 import sys
 import threading
 from collections.abc import Callable
+from pathlib import Path
 from typing import Literal, TypedDict
 
 from llm.base import (
     Chunk,
+    Message,
     TodoEntry,
     TodoPayload,
     ToolCallPayload,
@@ -30,6 +33,33 @@ from llm.base import (
 )
 
 _ACP_TIMEOUT_S = 30  # initialize / session/new / set_config_option 等控制请求超时
+
+
+# ----------------------------------------------------------------------
+# prompt 块构造（0340 方案 B 计划 T1：text 单块 → text + image 多块）
+# ----------------------------------------------------------------------
+def build_prompt_blocks(message: Message) -> list[dict]:
+    """末条 user 消息 → ACP `session/prompt` 的 ContentBlock 数组。
+
+    恒以 text 块打头；随后每张附件一个 image 块（读盘 base64，调用点
+    位于 worker 线程，GUI 零阻塞）。读盘失败（文件被删/无权限）跳过
+    该图续发其余块——尽力而为，不阻断整轮发送。
+
+    空 text 回退占位文案（0340 计划 D5，T0 spike 2026-08-01 实证）：
+    kimi（-32603）与 reasonix（-32602）均拒绝空 text 块——纯图发送时
+    占位「请查看附图。」；opencode/kilocode 虽接受空块，占位文案
+    对二者无害且语义更明确，故统一回退不区分后端。
+    """
+    images = message.get("images", [])
+    text = message["content"] or ("请查看附图。" if images else "")
+    blocks = [{"type": "text", "text": text}]
+    for img in images:
+        try:
+            data = base64.b64encode(Path(img["path"]).read_bytes()).decode()
+        except OSError:
+            continue
+        blocks.append({"type": "image", "data": data, "mimeType": img["mime_type"]})
+    return blocks
 
 
 # ----------------------------------------------------------------------
@@ -587,4 +617,5 @@ __all__ = [
     "PermissionHandler",
     "map_session_update",
     "map_usage_update",
+    "build_prompt_blocks",
 ]
