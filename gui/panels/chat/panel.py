@@ -267,13 +267,14 @@ class ChatPanel(QWidget):
         self._send_button.setFixedWidth(text_width + 26)  # qss padding 11px*2 + border
 
         # 上下文用量徽章（2026-0731-1412 计划 D1-A/D2-A）：纯文本百分比 +
-        # tooltip 明细；常驻占位恒宽（按 "100%" 宽度一次写死），无数据时
-        # 空文本——显隐不改 sizeHint（左栏宽度病根教训，2026-0724-2305）
+        # tooltip 明细；常驻占位恒宽（按 "~100%" 宽度一次写死——1454 起
+        # estimate 来源带 ~ 前缀），无数据时空文本——显隐不改 sizeHint
+        # （左栏宽度病根教训，2026-0724-2305）
         self._usage_label = QLabel(self)
         self._usage_label.setObjectName("chatUsageLabel")
         self._usage_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._usage_label.setFixedWidth(
-            self._usage_label.fontMetrics().horizontalAdvance("100%") + 8)
+            self._usage_label.fontMetrics().horizontalAdvance("~100%") + 8)
 
         button_row = QHBoxLayout()
         button_row.addWidget(self.model_bar)
@@ -340,7 +341,13 @@ class ChatPanel(QWidget):
     # 上下文用量徽章（2026-0731-1412 计划：usage_update → 底行百分比徽章）
     # ------------------------------------------------------------------
     def _refresh_usage_label(self) -> None:
-        """按 _usage 簿记刷新徽章：无数据空文本（常驻占位不撤）；≥50% 热态变色。"""
+        """按 _usage 簿记刷新徽章：无数据空文本（常驻占位不撤）；≥50% 热态变色。
+
+        口径标注（1454 计划 D3/T6）：estimate 来源加 `~` 前缀并在 tooltip
+        注明估算口径（transcript 文本 chars/4 粗估，非 agent 精确计量）；
+        transcript 来源（kimi 会话落盘记录真值）与 push 同形态显示，tooltip
+        注明数据来源分级，诚实呈现精度。
+        """
         stats = self._usage
         if stats is None:
             self._usage_label.setText("")
@@ -348,9 +355,16 @@ class ChatPanel(QWidget):
             self._usage_label.setProperty("hot", False)
         else:
             percent = round(stats.used / stats.size * 100)
-            self._usage_label.setText(f"{percent}%")
+            prefix = "~" if stats.source == "estimate" else ""
+            self._usage_label.setText(f"{prefix}{percent}%")
+            source_note = {
+                "push": "数据来源：agent 实时推送",
+                "transcript": "数据来源：kimi 会话记录（agent 落盘的接口真值）",
+                "estimate": "数据来源：IDE 估算（会话文本 ÷4，非精确计量，仅量级参考）",
+            }[stats.source]
             self._usage_label.setToolTip(
-                f"上下文已用 {stats.used:,} / 上限 {stats.size:,} tokens（{percent}%）")
+                f"上下文已用 {stats.used:,} / 上限 {stats.size:,} tokens（{percent}%）\n"
+                f"{source_note}")
             self._usage_label.setProperty("hot", percent >= 50)
         # qss 动态属性（[hot="true"] 警示色）切换后强制刷新
         self._usage_label.style().unpolish(self._usage_label)

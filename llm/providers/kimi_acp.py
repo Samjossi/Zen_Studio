@@ -10,14 +10,24 @@ prompt。凭证由 CLI 自管（OAuth），代码库零密钥。
 kimi 专有装配（initialize 载荷、-32000 authRequired 文案映射），二进制路径
 解析复用 llm/providers/kimi_common.py 的 _find_bin。
 行为与抽离前逐行等价。
+
+上下文用量（1454 计划 T5，2026-07-31 实证落地）：kimi ACP 出口不推
+usage_update（1412 T5 实测），轮次收尾改读 agent 会话落盘记录
+`~/.kimi-code/session_index.jsonl` → sessionDir → agents/main/wire.jsonl
+的末条 usage.record（API 真值，source="transcript"）；size 取末条
+llm.request.maxTokens。usage.record 于 response 后约 1~3s 异步写盘，
+轮次开始记基线条数、收尾短轮询（≤3s）只接受新记录，超时/残缺静默降级。
 """
 import atexit
+import json
 import threading
+import time
+from pathlib import Path
 from typing import Iterator
 
 from core.paths import PROJECT_ROOT  # agent 工作目录限定于项目根
 from core.version import APP_VERSION
-from llm.base import Chunk, LanguageModel, Message
+from llm.base import Chunk, LanguageModel, Message, UsageStats
 # PermissionOption/ToolCallInfo 仅 re-export（llm/permission_policy 从此处取型）
 from llm.providers.acp import (
     AcpConnection,
@@ -28,6 +38,65 @@ from llm.providers.acp import (
     map_usage_update,
 )
 from llm.providers.kimi_common import _find_bin
+
+#: wire.jsonl usage.record 异步写盘等待上限（2026-07-31 实测：response 到达
+#: 时 llm.request 已写但 usage.record 尚未落盘，约 1~3s 后异步写入）
+_WIRE_USAGE_WAIT_S = 3.0
+_WIRE_USAGE_POLL_S = 0.2
+
+
+def _session_dir_of(session_id: str) -> Path | None:
+    """session_index.jsonl 按 sessionId 反查会话落盘目录；失败返回 None。
+
+    2026-07-31 实证：ACP `session/new` 返回的 sessionId（`session_<uuid>`）
+    与 `~/.kimi-code/session_index.jsonl` 的 sessionId 字段完全一致，索引行
+    直接给出 sessionDir（wire.jsonl 在其 agents/main/ 下）。倒序扫描取最后
+    匹配（索引按创建追加，同 sessionId 理论上唯一，倒序防御性取新）。
+    """
+    index = Path.home() / ".kimi-code" / "session_index.jsonl"
+    try:
+        lines = index.read_text(encoding="utf-8").strip().splitlines()
+        for line in reversed(lines):
+            entry = json.loads(line)
+            if entry.get("sessionId") == session_id and entry.get("sessionDir"):
+                return Path(entry["sessionDir"])
+    except (OSError, json.JSONDecodeError):
+        return None
+    return None
+
+
+def _read_wire_usage(session_dir: Path) -> tuple[int, UsageStats | None]:
+    """读 wire.jsonl → (usage.record 条数, 末条用量定型)；文件缺失/损坏返回 (0, None)。
+
+    末条口径（1454 计划 T5，E2 实证字段结构）：
+    - used = inputOther + inputCacheRead（对齐 kilocode 推送口径 input+cache.read，
+      不含 output 与 inputCacheCreation）；
+    - size = 末条 `llm.request.maxTokens`（kimi-code 以模型窗口为请求上限，
+      实测 262144 与 kilocode 推送的 size 交叉验证一致）；
+    - source="transcript"（agent 落盘的 API 真值，非协议推送）。
+    """
+    wire = session_dir / "agents" / "main" / "wire.jsonl"
+    try:
+        records = [json.loads(line)
+                   for line in wire.read_text(encoding="utf-8").strip().splitlines()
+                   if line.strip()]
+    except (OSError, json.JSONDecodeError):
+        return 0, None
+    usage_records = [r for r in records
+                     if r.get("type") == "usage.record" and r.get("usageScope") == "turn"]
+    if not usage_records:
+        return 0, None
+    usage = usage_records[-1].get("usage") or {}
+    used_other = usage.get("inputOther")
+    used_cache = usage.get("inputCacheRead")
+    requests = [r for r in records if r.get("type") == "llm.request"]
+    max_tokens = requests[-1].get("maxTokens") if requests else None
+    if (not isinstance(used_other, int) or used_other < 0
+            or not isinstance(used_cache, int) or used_cache < 0
+            or not isinstance(max_tokens, int) or max_tokens <= 0):
+        return len(usage_records), None
+    return len(usage_records), UsageStats(
+        used=used_other + used_cache, size=max_tokens, cost=None, source="transcript")
 
 
 class KimiAcpLLM(LanguageModel):
@@ -170,6 +239,12 @@ class KimiAcpLLM(LanguageModel):
 
     def _iter_turn_chunks(self, conn: AcpConnection) -> Iterator[Chunk]:
         """轮次内消息消费循环：update → Chunk；response/dead 收尾本轮。"""
+        # 用量基线（1454 T5）：kimi 无 usage_update（1412 T5 实证），轮次收尾
+        # 改读会话落盘 wire.jsonl。usage.record 于 response 后约 1~3s 异步写盘，
+        # 且须防误读上一轮记录——轮次开始时记下 (session_dir, 已有条数) 基线，
+        # 收尾只接受条数增长后的新记录。
+        session_dir = _session_dir_of(self._session_id) if self._session_id else None
+        baseline_count = _read_wire_usage(session_dir)[0] if session_dir else 0
         while True:
             kind, obj = conn.next_update()
             if kind == "dead":
@@ -177,10 +252,34 @@ class KimiAcpLLM(LanguageModel):
                 raise RuntimeError(f"kimi acp 进程意外退出（退出码 {obj}）")
             if kind == "response":
                 self._raise_on_turn_error(obj)
+                stats = self._poll_wire_usage(session_dir, baseline_count)
+                if stats is not None:
+                    yield Chunk("usage", "", usage=stats)
                 return
             chunk = self._map_update(obj)
             if chunk:
                 yield chunk
+
+    @staticmethod
+    def _poll_wire_usage(
+        session_dir: Path | None, baseline_count: int
+    ) -> UsageStats | None:
+        """轮询 wire.jsonl 直至出现本轮新 usage.record（条数 > 基线）或超时。
+
+        在 worker 线程内短轮询（最长 _WIRE_USAGE_WAIT_S），不阻塞 GUI；
+        超时/数据残缺 → None（徽章隐藏降级，D4 语义）。session_dir 为 None
+        （索引未收录）时直接放弃，不轮询。
+        """
+        if session_dir is None:
+            return None
+        deadline = time.monotonic() + _WIRE_USAGE_WAIT_S
+        while True:
+            count, stats = _read_wire_usage(session_dir)
+            if count > baseline_count:
+                return stats  # 新记录已落盘（数据残缺则 stats=None，同样收尾）
+            if time.monotonic() >= deadline:
+                return None
+            time.sleep(_WIRE_USAGE_POLL_S)
 
     @staticmethod
     def _raise_on_turn_error(response: dict) -> None:

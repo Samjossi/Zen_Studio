@@ -12,16 +12,24 @@ class Message(TypedDict):
 
 @dataclass(frozen=True)
 class UsageStats:
-    """ACP `usage_update` 载荷定型（协议键 used/size/cost 入口定型）。
+    """上下文用量载荷定型（1454 计划 T3：扩 source 来源字段）。
 
     口径照单接受 agent 产出端语义：used = input + cache.read（不含
     output/reasoning，偏保守但不失真）；size 为模型上下文窗口上限；
     cost 为会话累计成本（agent 未给则 None，本期解析留存不上屏）。
+
+    source 数据来源分级（GUI 按级标注口径，D3）：
+    - "push"：ACP `usage_update` 推送（kilocode/opencode，最准，同帧 size）；
+    - "transcript"：agent 会话落盘记录读出的真值（kimi wire.jsonl
+      usage.record，精度等同 push 但非协议推送、轮次后异步可得）；
+    - "estimate"：IDE 侧对 transcript 消息文本的 chars/4 粗估
+      （reasonix；不含 agent 运行时注入开销的精确值，仅量级参考）。
     """
 
     used: int            # 已用 token（input + cache.read，agent 口径）
     size: int            # 上下文窗口上限
     cost: float | None   # 会话累计成本（USD；agent 未给则 None）
+    source: Literal["push", "transcript", "estimate"] = "push"
 
 
 @dataclass(frozen=True)

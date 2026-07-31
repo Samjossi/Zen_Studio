@@ -18,8 +18,15 @@ reasonix 侧 ACP v1（protocolVersion: 1）与 kimi 实现协议同构（计划 
 3. 别名私有语义（D6 红线 2）：reasonix 别名是 `provider/model` 全名
    （如 `deepseek/deepseek-v4-flash`），与 kimi 的 `kimi-code/k3-256k` 各自为政，
    公共层一律不透明透传。
+4. 上下文用量估算（1454 计划 T4，2026-07-31 实证落地）：reasonix ACP 出口
+   无 usage_update、transcript 亦无 token 字段（E1 实证），但 prompt 响应帧
+   带 `result.transcriptPath`（官方持久化转录，含 system/工具结果全量快照）。
+   轮次收尾读快照做 chars/4 文本估算（source="estimate"）；size 取
+   config.toml `[[providers]].context_window`（llm/context_limits.py），
+   缺项/解析失败静默降级（D4 隐藏徽章，不臆造上限）。
 """
 import atexit
+import json
 import os
 import shutil
 import sys
@@ -30,10 +37,58 @@ from typing import Iterator
 
 from core.paths import PROJECT_ROOT  # agent 工作目录限定于项目根
 from core.version import APP_VERSION
-from llm.base import Chunk, LanguageModel, Message
+from llm.base import Chunk, LanguageModel, Message, UsageStats
+from llm.context_limits import reasonix_config_path, reasonix_context_window
 from llm.providers.acp import AcpConnection, PermissionHandler, map_usage_update
 
 REASONIX_BIN = "reasonix"
+
+# config.toml 路径解析主定义已上收 llm/context_limits.py（T2：上限查询与
+# 模型枚举共用同一路径知识）；本别名保持既有调用点与语义不变。
+_config_path = reasonix_config_path
+
+#: transcript 文本估算系数（chars/token）：英文 ~4、中文 ~1.5，reasonix
+#: system prompt 英文为主，取 4 偏保守（估算偏低，GUI 以 ~ 前缀标注口径）
+_ESTIMATE_CHARS_PER_TOKEN = 4
+
+
+def estimate_usage_from_transcript(
+    transcript_path: str | None, alias: str | None
+) -> UsageStats | None:
+    """transcript jsonl 消息文本 → 估算 UsageStats；任何环节失败返回 None。
+
+    1454 计划 T4（E1 实证定稿）：reasonix 转录无 token usage 字段（rg 全目录
+    无命中），但含完整消息快照（system/user/assistant 全量历史，含 agent
+    注入的 system prompt 与工具结果——比 IDE 侧盲估已发内容准一个量级）。
+    估算口径：Σ 各消息 content 字符数 ÷ 4（reasoning_content 不计——
+    DeepSeek 约束推理不回传，不占后续上下文）。
+
+    size 取自 config.toml `[[providers]].context_window`（官方配置字段，
+    见 llm/context_limits.py）；缺项返回 None（D4：不臆造上限，徽章隐藏）。
+    文件缺失/JSON 行损坏/路径漂移 → None（格式漂移静默降级，D2 兜底）。
+    """
+    if not transcript_path:
+        return None
+    size = reasonix_context_window(alias)
+    if size is None:
+        return None
+    try:
+        total_chars = 0
+        with open(transcript_path, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                entry = json.loads(line)
+                content = entry.get("content")
+                if isinstance(content, str):
+                    total_chars += len(content)
+        used = total_chars // _ESTIMATE_CHARS_PER_TOKEN
+        if used <= 0:
+            return None
+        return UsageStats(used=used, size=size, cost=None, source="estimate")
+    except (OSError, json.JSONDecodeError, AttributeError):
+        return None
 
 
 def _find_bin() -> str | None:
@@ -58,17 +113,6 @@ def _find_bin() -> str | None:
 def reasonix_available() -> bool:
     """检测 reasonix CLI 是否可用（PATH 或默认安装位置存在）。"""
     return _find_bin() is not None
-
-
-def _config_path() -> Path:
-    """config.toml 路径：$REASONIX_HOME/config.toml → ~/.reasonix/config.toml。
-
-    REASONIX_HOME 可覆盖安装根（计划 §3）；不存在时返回默认路径（调用方
-    按文件缺失兜底为空列表，无需区分两候选——覆盖路径优先级已隐含）。
-    """
-    if home := os.environ.get("REASONIX_HOME"):
-        return Path(home) / "config.toml"
-    return Path.home() / ".reasonix" / "config.toml"
 
 
 def list_reasonix_models() -> list[str]:
@@ -310,6 +354,12 @@ class ReasonixAcpLLM(LanguageModel):
                 raise RuntimeError(f"reasonix acp 进程意外退出（退出码 {obj}）")
             if kind == "response":
                 self._raise_on_turn_error(obj)
+                # 轮次收尾：reasonix 无 usage_update（E1/1412 T5 实证），
+                # 从响应帧 transcriptPath 读转录快照做文本估算（1454 T4）
+                stats = estimate_usage_from_transcript(
+                    (obj.get("result") or {}).get("transcriptPath"), self._model)
+                if stats is not None:
+                    yield Chunk("usage", "", usage=stats)
                 return
             chunk = self._map_update(obj)
             if chunk:
