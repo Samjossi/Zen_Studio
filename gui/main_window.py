@@ -14,13 +14,13 @@ Git 状态可视化（2026-07-20，见 文档/修改记录/2026-0720-0131 计划
 ActionRegistry 全局注册表）；本类保留面板、槽函数与面板显隐单一入口。
 控制器外移（2026-07-21，AFCP 整改任务 2.3）：Git 编排（GitStatusController）
 与窗口状态持久化（WindowStateStore）迁出至 gui/controllers.py 组合持有。
-多开工作区（2026-07-22，见 work plans/2026-0722-0756 计划）：一进程绑定
+多开工作区（2026-07-22，见 文档/修改记录/2026-0722-0756 计划）：一进程绑定
 一工作区根（启动参数注入，不再窗口内切换）；「打开文件夹」改为起新进程。
-文件菜单扩展（2026-07-22，work plans/2026-0722-1901）：「新建窗口」同根
-多开入口。「最近打开的项目」（2026-07-24，work plans/2026-0724-1003）：
+文件菜单扩展（2026-07-22，文档/修改记录/2026-0722-1901）：「新建窗口」同根
+多开入口。「最近打开的项目」（2026-07-24，文档/修改记录/2026-0724-1003）：
 窗口启动即记录自身工作区根 → RecentProjectsStore 全局共享列表
 （config/recent_projects.json），子菜单回放在新窗口绑定该根。
-「打开文件夹」（2026-07-24，work plans/2026-0724-1806）：换根关旧窗——
+「打开文件夹」（2026-07-24，文档/修改记录/2026-0724-1806）：换根关旧窗——
 预写布局（活窗口采集 patch 直写目标根哈希文件 + default 双写，复制语义）
 后起新进程，2s 探活（Popen.poll）存活才关旧窗，启动即败保留旧窗。
 
@@ -118,7 +118,7 @@ class MainWindow(QMainWindow):
         :param workspace_root: 工作区根（启动参数注入；None = 项目根）
         """
         super().__init__()
-        # 新增（work plans/2026-0730-0007 计划 T6）：隐藏系统原生标题栏，
+        # 新增（文档/修改记录/2026-0730-0007 计划 T6）：隐藏系统原生标题栏，
         # 改由 TitleBar 自绘（见 _build_layout 首行）；保留 Window 类型标志，
         # 任务栏/Alt-Tab/最小化行为不变
         self.setWindowFlags(self.windowFlags() | Qt.WindowType.FramelessWindowHint)
@@ -138,7 +138,7 @@ class MainWindow(QMainWindow):
         self._dialog_sync_suspend = 0
 
         self._build_layout()
-        # 无边框边缘缩放热区（work plans/2026-0730-0043 计划阶段二 T5/T6）：
+        # 无边框边缘缩放热区（文档/修改记录/2026-0730-0043 计划阶段二 T5/T6）：
         # 八向判定 + startSystemResize 优先/手动 setGeometry 兜底；
         # minimumSize 防缩坏三栏布局（决策点 D3 初估 900×500——左栏 ChatTabs
         # 静态下限 315 + 中栏 + 右栏 FileExplorer 240 + 边距/手柄的经验值）
@@ -154,7 +154,7 @@ class MainWindow(QMainWindow):
     # 初始化分段（__init__ 拆分；各段职责单一，顺序即装配依赖序）
     # ------------------------------------------------------------------
     def _init_recent_projects(self) -> None:
-        """最近打开的项目记录（work plans/2026-0724-1003）：窗口启动即记录
+        """最近打开的项目记录（文档/修改记录/2026-0724-1003）：窗口启动即记录
         自身工作区根——一进程绑定一根，菜单选文件夹 / 命令行 main.py
         <folder> / 新建窗口三路径汇聚于此；全局共享列表（config/
         recent_projects.json），去重置顶语义下同根重复启动无噪音。
@@ -210,7 +210,7 @@ class MainWindow(QMainWindow):
         # 职责分离，可独立调参
         central = QWidget(self)
         outer = QVBoxLayout(central)
-        # 改动（work plans/2026-0730-0007 计划 T7）：原 (12, 6, 12, 0) 下沉至内容包装器
+        # 改动（文档/修改记录/2026-0730-0007 计划 T7）：原 (12, 6, 12, 0) 下沉至内容包装器
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
         # ---- 新增：标题栏 + 菜单栏行（QMainWindow 无 API 在菜单槽之上插部件，
@@ -230,7 +230,7 @@ class MainWindow(QMainWindow):
 
     def _init_menus(self) -> None:
         """菜单栏装配 + 模型选择/忙闲信号接线。"""
-        # 改动（work plans/2026-0730-0007 计划 T8）：菜单栏显式传入（_build_layout
+        # 改动（文档/修改记录/2026-0730-0007 计划 T8）：菜单栏显式传入（_build_layout
         # 已创建并 reparent），不再走 window.menuBar() 惰性建栏
         self.menus = MenuBar(self, self._menu_bar)
         self.menus.setup()
@@ -265,7 +265,7 @@ class MainWindow(QMainWindow):
             collapse_handler=lambda: self.set_changes_visible(False),
             parent=self,
         )
-        # AI 轮次结束 → 去抖刷新（诊断报告 work plans/2026-0731-1256 方案 A：
+        # AI 轮次结束 → 去抖刷新（诊断报告 文档/修改记录/2026-0731-1256 方案 A：
         # ACP 子进程直接写盘不经窗口激活/查看器重载，补此事件源闭合）
         self.chat_tabs.turn_finished.connect(self.git_controller.schedule_refresh)
 
@@ -295,7 +295,7 @@ class MainWindow(QMainWindow):
         margin 路径已被实验否决（QMainWindow 布局不采纳 menubar qss margin），
         故按 actionGeometry 实测项高定高。字号/主题变化后需重入本方法。
         """
-        # 改动（work plans/2026-0730-0007 计划 T9）：读显式持有的菜单栏引用，
+        # 改动（文档/修改记录/2026-0730-0007 计划 T9）：读显式持有的菜单栏引用，
         # 不再走 window.menuBar()（菜单栏已迁出 QMainWindow 菜单槽）
         menu_bar = self._menu_bar
         if not menu_bar.actions():
@@ -408,7 +408,7 @@ class MainWindow(QMainWindow):
     def open_folder_here(self) -> None:
         """打开文件夹（换根关旧窗）：选目录 → 预写布局 → 起新进程 → 探活关旧窗。
 
-        进程级「替换当前工作区」（work plans/2026-0724-1806）：不做窗口内
+        进程级「替换当前工作区」（文档/修改记录/2026-0724-1806）：不做窗口内
         就地换根（2026-0722-1901 否决），等价手动「在新窗口打开文件夹」
         再关旧窗的合成一步。同根选择接受（语义 = 重启当前窗口），不开特例
         （对齐 open_recent_project 既有风格）。
@@ -449,7 +449,7 @@ class MainWindow(QMainWindow):
     def open_folder_in_new_window(self) -> None:
         """在新窗口打开文件夹：QFileDialog 选目录 → 起新进程（取消无副作用）。
 
-        多开模型（work plans/2026-0722-0756）：一进程绑定一工作区根，
+        多开模型（文档/修改记录/2026-0722-0756）：一进程绑定一工作区根，
         进程边界天然隔离工作区状态，不再窗口内切换。
         """
         path = QFileDialog.getExistingDirectory(
@@ -462,7 +462,7 @@ class MainWindow(QMainWindow):
         """起新进程开指定工作区根（新建窗口 / 在新窗口打开文件夹 / 打开
         文件夹换根共用）；返回进程句柄供换根场景启动探活。
 
-        双态命令（work plans/2026-0725-1234 计划 T2）：打包态二进制自身
+        双态命令（文档/修改记录/2026-0725-1234 计划 T2）：打包态二进制自身
         即入口，拼 PROJECT_ROOT/main.py 指向的 _internal/main.py 在解包
         目录不存在（源码收在 PYZ 归档内），argv 多出的位置参数必致
         argparse exit 2、新窗秒死。

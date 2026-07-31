@@ -5,7 +5,7 @@ $KIMI_CODE_HOME/bin → ~/.kimi-code/bin），`kimi_available` 判断可用性�
 `list_kimi_models` 经 `kimi provider list --json` 动态枚举模型别名。
 
 注：CLI 传输层（`kimi -p` 一次性子进程，原 kimi_cli.py）已于
-2026-07-31 精简移除（work plans/2026-0731-0036），本模块为其残留共享设施，
+2026-07-31 精简移除（文档/修改记录/2026-0731-0036），本模块为其残留共享设施，
 现仅服务 ACP 传输层。
 """
 import json

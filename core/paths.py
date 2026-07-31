@@ -3,12 +3,12 @@
 此前多处独立推导（main / main_window / terminal.session / llm providers 等），
 `parents[N]` 层数不一，文件移动即静默漂移；收口后移动本文件只需改一行。
 
-PyInstaller frozen 兼容（2026-07-25，见 work plans/2026-0725-0859 计划 T4）：
+PyInstaller frozen 兼容（2026-07-25，见 文档/修改记录/2026-0725-0859 计划 T4）：
 打包态（onedir）内嵌解释器的 __file__ 指向解包目录，parents 推导原地失效；
 检测到 sys._MEIPASS 即改指解包根（onedir 下即 exe 同级的 _internal/），
 assets/ 经 spec datas 原样收编落位于此。
 
-用户数据写盘路径（2026-07-25，work plans/2026-0725-1053 计划 T7）：
+用户数据写盘路径（2026-07-25，文档/修改记录/2026-0725-1053 计划 T7）：
 开发态维持项目内 config/；打包态（frozen/AppImage）指向 XDG 配置目录
 ${XDG_CONFIG_HOME:-~/.config}/zen-studio/——AppImage 为只读 squashfs，
 写解包目录必然失败，用户数据必须写用户目录。

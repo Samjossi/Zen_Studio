@@ -6,7 +6,7 @@ GUI窗口状态与模型选择持久化计划.md）：主题、字号、模型�
 各自读写互相覆盖。主题有效性校验仍留在 theme.py（此处不感知主题注册表）。
 
 窗口几何与分隔栏状态已分离至 window_state.py（AFCP 整改 P3 任务 4.4）。
-多开并发治理（2026-07-22，work plans/2026-0722-0756 D7）：多进程共享
+多开并发治理（2026-07-22，文档/修改记录/2026-0722-0756 D7）：多进程共享
 settings.json，update_settings 以 flock 串行化"读-合并-写"三步根治丢更新，
 写临时文件 + os.replace 原子覆盖防文件损坏；工作区根改由启动参数决定，
 不再持久化（KEY_WORKSPACE_ROOT 已删，存量旧键读取即丢弃自然失效）。
@@ -14,13 +14,13 @@ settings.json，update_settings 以 flock 串行化"读-合并-写"三步根治�
 键空间由 AppSettings 定型（7 个固定键），消费侧一律经 KEY_* 常量
 引用键名，禁止裸字符串键（AFCP 3.1：数据结构显式）。
 
-权限键演进（2026-07-22，work plans/2026-0722-1240 计划）：二态
+权限键演进（2026-07-22，文档/修改记录/2026-0722-1240 计划）：二态
 permission_auto_allow 布尔替换为四态 permission_mode 字符串枚举
 （confirm_all / confirm_execute / auto_guarded / auto_all，模式常量单一
 来源在 llm/permission_policy.py）；旧键读取时一次性迁移（false →
 confirm_all，见 load_settings），迁移后随下次写盘自然消亡。
 
-模型键演进（2026-07-31，work plans/2026-0731-0052 计划）：全局单值
+模型键演进（2026-07-31，文档/修改记录/2026-0731-0052 计划）：全局单值
 model_version（切后台即被覆盖丢失）替换为记忆表 model_versions
 （dict[接口实现名, 模型别名]；接口缺失 = 未定制，跟随其模型列表
 首项）；旧键读取时一次性 seed 迁移（见 load_settings），随下次写盘
@@ -39,7 +39,7 @@ from llm import BACKEND_KIMI_ACP
 from llm.permission_policy import DEFAULT_PERMISSION_MODE, MODE_CONFIRM_ALL
 
 #: 配置目录：开发态项目内 config/；打包态 XDG（core/paths.py USER_CONFIG_DIR，
-#: 见 work plans/2026-0725-1053 计划 T7/T8——AppImage 只读挂载的硬性前置）
+#: 见 文档/修改记录/2026-0725-1053 计划 T7/T8——AppImage 只读挂载的硬性前置）
 CONFIG_DIR = USER_CONFIG_DIR
 SETTINGS_FILE = CONFIG_DIR / "settings.json"
 #: flock 锁文件（仅 Linux；进程死亡锁自动释放，无残留死锁）

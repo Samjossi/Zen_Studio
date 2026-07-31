@@ -42,7 +42,7 @@ from gui.settings import (
 )
 
 #: QSS 模板为只读资源（非用户数据），随 assets/ 收编进包——曾误置 config/themes/
-#: 致打包态静默丢失全部 QSS 样式（work plans/2026-0725-1053 计划 T8 修复）
+#: 致打包态静默丢失全部 QSS 样式（文档/修改记录/2026-0725-1053 计划 T8 修复）
 THEME_TEMPLATE_FILE = THEMES_ASSETS_DIR / "base.qss"
 
 # ----------------------------------------------------------------------

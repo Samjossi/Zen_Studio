@@ -4,7 +4,7 @@
     uv run main.py --auto-screenshot --screenshot-interval 1
     uv run main.py --auto-screenshot --screenshot-on-start --screenshot-interval 5
 
-多开工作区（一进程绑定一工作区根，见 work plans/2026-0722-0756 计划）：
+多开工作区（一进程绑定一工作区根，见 文档/修改记录/2026-0722-0756 计划）：
     uv run main.py [folder]
 """
 import argparse
@@ -22,7 +22,7 @@ from gui.recent_projects import RecentProjectsStore
 from gui.theme import apply_theme
 
 #: 截图输出目录：开发态项目内 .tmp/；打包态落用户数据根（AppImage 只读
-#: 挂载下写解包目录必抛 OSError，见 work plans/2026-0725-1234 计划 T3）
+#: 挂载下写解包目录必抛 OSError，见 文档/修改记录/2026-0725-1234 计划 T3）
 SCREENSHOT_DIR = (USER_CONFIG_DIR / "screenshots") if IS_FROZEN else (PROJECT_ROOT / ".tmp")
 
 #: 窗口图标注册尺寸（assets/logo/ 成套件取 16–256；512 留给 .desktop 与高分屏）
@@ -63,7 +63,7 @@ def _is_unpack_dir(path: str) -> bool:
 
 
 def _frozen_default_workspace() -> str:
-    """打包态默认工作区（work plans/2026-0725-1234 计划 T1）：最近项目
+    """打包态默认工作区（文档/修改记录/2026-0725-1234 计划 T1）：最近项目
     首项（目录仍存在且非解包目录者）→ 用户主目录 二级回退。解包目录
     （frozen 的 PROJECT_ROOT）不是任何人的工作区，绝不能作为回退落点。"""
     store = RecentProjectsStore(USER_CONFIG_DIR / "recent_projects.json")

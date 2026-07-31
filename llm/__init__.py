@@ -28,7 +28,7 @@ from llm.registry import (
 
 #: 后端注册名（settings 默认值、设置菜单、ModelBar 共用此常量）——
 #: 即 REGISTRY 的键；注册表条目以此字面量为名，无从再行"派生"
-#: （kimi-cli 已移除，见 work plans/2026-0731-0036）
+#: （kimi-cli 已移除，见 文档/修改记录/2026-0731-0036）
 BACKEND_KIMI_ACP = "kimi-acp"
 
 

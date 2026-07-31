@@ -24,7 +24,7 @@ MODULES = (file_menu, edit_menu, view_menu, terminal_menu, settings_menu, help_m
 class MenuBar:
     """装配 MainWindow 菜单栏；持有全局 action 注册表。
 
-    自定义标题栏（2026-07-30，work plans/2026-0730-0007 计划 T8）：菜单栏改由
+    自定义标题栏（2026-07-30，文档/修改记录/2026-0730-0007 计划 T8）：菜单栏改由
     MainWindow 显式创建并经构造参数传入（reparent 进中央容器，居于 TitleBar 之下），
     不再占用 QMainWindow 菜单槽——`window.menuBar()` 惰性建栏会顶掉槽位冲突方。
     """

@@ -119,7 +119,7 @@ class FileExplorer(QWidget):
         self.model.setReadOnly(False)  # 允许重命名编辑
         # Qt 默认 filter（Dirs|Files|Drives|AllDirs|NoDot|NoDotDot）不含
         # Hidden，dotfile 永不入模型；IDE 须全量可见（含 .gitignore 与
-        # .git/.venv/__pycache__/node_modules），见 work plans/2026-0730-1933 计划
+        # .git/.venv/__pycache__/node_modules），见 文档/修改记录/2026-0730-1933 计划
         self.model.setFilter(
             QDir.Filter.AllEntries
             | QDir.Filter.AllDirs

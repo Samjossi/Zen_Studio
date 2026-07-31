@@ -1,6 +1,6 @@
 """PDF 查看器：QPdfView（QtPdf 内核渲染）承载 .pdf 的就地预览。
 
-（2026-07-29，见 work plans/2026-0729-1212_PDF文件预览功能实施计划 T1–T3）
+（2026-07-29，见 文档/修改记录/2026-0729-1212_PDF文件预览功能实施计划 T1–T3）
 形态：QWidget 组合 QPdfView（组合优先，AFCP 2.4），内嵌 ViewerPanel PDF 页
 （QStackedLayout 第五页，.pdf 经 open_file 分流直进）。
 能力：MultiPage 连续滚动（决策锁定）、缩放三件套（步进 1.25× / 适应宽度 /

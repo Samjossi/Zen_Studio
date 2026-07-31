@@ -88,7 +88,7 @@ class SelectionController:
                     row_count: int, column_count: int) -> Cell:
         """像素坐标 → 网格 (y, x)，clamp 进网格（拖入滚动条区不越界）。
 
-        格宽为浮点度量（work plans/2026-0722-2013），// 结果须 int 收敛
+        格宽为浮点度量（文档/修改记录/2026-0722-2013），// 结果须 int 收敛
         ——返回坐标下游作切片索引，float 会 TypeError。
         """
         x = min(max(int(px // cell_w), 0), column_count - 1)

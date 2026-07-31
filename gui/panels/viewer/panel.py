@@ -13,22 +13,22 @@ externally_reloaded 供主窗口联动刷新 Git 状态。
 （经 CodeViewer.set_search_highlights，与当前行高亮合并上屏）+ 上一个/下一个；
 编辑菜单「查找」按焦点分发进入，Esc 关闭。
 
-图片预览（2026-07-29，见 work plans/2026-0729-1102_图片文件预览功能实施计划）：
+图片预览（2026-07-29，见 文档/修改记录/2026-0729-1102_图片文件预览功能实施计划）：
 QStackedLayout 双页——文本页 CodeViewer（兼占位提示）/ 图片页 ImageViewer，
 open_file 按扩展名分流；图片页标题行显示 ◀ ▶ 适应 100% 按钮，
 查找浮层在图片页降级为弱提示。
 
-音视频播放（2026-07-29，见 work plans/2026-0729-1120_音视频播放功能实施计划）：
+音视频播放（2026-07-29，见 文档/修改记录/2026-0729-1120_音视频播放功能实施计划）：
 QStackedLayout 第三页 MediaViewer（QMediaPlayer 就地播放），open_file 按
 扩展名分流；任何离开媒体页的路径（切文本/图片/占位）一律 stop() 释放；
 解码失败经 MediaViewer.failed 信号回落文本页占位提示。
 
-Markdown 渲染预览（2026-07-29，见 work plans/2026-0729-1155_Markdown渲染预览与
+Markdown 渲染预览（2026-07-29，见 文档/修改记录/2026-0729-1155_Markdown渲染预览与
 Typora打开功能实施计划）：QStackedLayout 第四页 MarkdownView（QTextBrowser
 + setMarkdown GFM 渲染），.md/.markdown 直进渲染页（决策：不做源码↔渲染
 双模式）；查找浮层降级弱提示；页内「使用 Typora 打开」右键入口。
 
-PDF 预览（2026-07-29，见 work plans/2026-0729-1212_PDF文件预览功能实施计划）：
+PDF 预览（2026-07-29，见 文档/修改记录/2026-0729-1212_PDF文件预览功能实施计划）：
 QStackedLayout 第五页 PdfViewer（QPdfView 连续滚动渲染），.pdf 直进 PDF 页；
 标题行 ◀ ▶ 翻页 + 缩放/适配 + 「外部打开」按钮组；加密/损坏/加载失败
 回落文本页占位提示；外部修改重载恢复页码/缩放；查找浮层降级弱提示；

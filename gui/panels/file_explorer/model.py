@@ -5,17 +5,17 @@ Git 状态装饰（2026-07-20，见 文档/修改记录/2026-0720-0131_Git文件
 ForegroundRole 按文件状态返回主题色（色值按主题名查 gui/theme.py
 THEME_PALETTES 的 git_status 资源包）。
 
-目录聚合着色（2026-07-25，见 work plans/2026-0725-0933_文件树Git状态颜色
-目录冒泡计划.md；2026-07-30 修订，见 work plans/2026-0730-1940_忽略灰色
+目录聚合着色（2026-07-25，见 文档/修改记录/2026-0725-0933_文件树Git状态颜色
+目录冒泡计划.md；2026-07-30 修订，见 文档/修改记录/2026-0730-1940_忽略灰色
 着色不透传父目录修复计划.md）：目录按子树内可冒泡状态的最高优先级着色
 （conflict > modified > untracked；deleted/ignored 不冒泡——ignored
 仅自身暗显，不透传父目录），聚合缓存在服务层 refresh() 时预构建，
 此处查询 O(1)。被 gitignore 整体命中的目录经 status_of_dir 下透
-兜底，自身与子孙目录同显暗色（2026-07-30，见 work plans/
+兜底，自身与子孙目录同显暗色（2026-07-30，见 文档/修改记录/
 2026-0730-2025_忽略目录灰色下透子目录修复计划.md 及其 ls-files
 数据源修订——对齐 VS Code：ignored 目录内容整体暗显，任意深度）。
 
-噪音过滤移除（2026-07-30，见 work plans/2026-0730-1933_移除噪音过滤
+噪音过滤移除（2026-07-30，见 文档/修改记录/2026-0730-1933_移除噪音过滤
 与全量文件可见改造计划.md）：IDE 全量可见（含 dotfile 与
 .git/.venv/__pycache__/node_modules），代理不再承担过滤职责；
 基类 QSortFilterProxyModel → QIdentityProxyModel（索引映射直通，

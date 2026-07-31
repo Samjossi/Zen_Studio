@@ -77,7 +77,7 @@ class GitStatusController(QObject):
         self._debounce.timeout.connect(self.refresh)
         viewer_panel.externally_reloaded.connect(self._debounce.start)
         # 文件树模型结构变更 → 同一去抖（兜底一切外部写盘，诊断报告
-        # work plans/2026-0731-1256 方案 B）：QFileSystemModel 自带磁盘
+        # 文档/修改记录/2026-0731-1256 方案 B）：QFileSystemModel 自带磁盘
         # 监视，AI ACP 子进程/终端 touch/其他编辑器引发的新建、删除、
         # 重命名、目录内容变更在此汇流；懒加载展开目录同样触发
         # rowsInserted/directoryLoaded，经 300ms 去抖天然合并
@@ -185,7 +185,7 @@ class WindowStateStore:
         splitter_chat 为 None（聊天标签全关）时跳过该键：保留文件中的
         旧值，防零标签期退出把用户分隔比例静默洗成默认。save 与
         「打开文件夹」换根预写（直写目标根哈希文件）共用此采集，
-        防两份逻辑漂移（work plans/2026-0724-1806 P1）。
+        防两份逻辑漂移（文档/修改记录/2026-0724-1806 P1）。
         """
         patch: WindowStatePatch = {
             KEY_WINDOW_GEOMETRY: encode_state(self._window.saveGeometry()),

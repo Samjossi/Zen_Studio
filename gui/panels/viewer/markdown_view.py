@@ -1,6 +1,6 @@
 """Markdown 渲染预览：QTextBrowser + setMarkdown（GitHub 方言）。
 
-（2026-07-29，见 work plans/2026-0729-1155_Markdown渲染预览与Typora打开功能实施计划 T2–T4）
+（2026-07-29，见 文档/修改记录/2026-0729-1155_Markdown渲染预览与Typora打开功能实施计划 T2–T4）
 形态：内嵌 ViewerPanel Markdown 页（QStackedLayout 第四页，.md/.markdown
 经 open_file 分流直进渲染页——决策：不做源码↔渲染双模式，轻量预览定位，
 深度阅读/编辑经右键「使用 Typora 打开」交给专业软件）。

@@ -1,6 +1,6 @@
 #!/bin/bash
 # building/build_appimage.sh — Zen Studio AppImage 唯一构建入口
-# （Linux x86_64 单平台，见 work plans/2026-0725-1053 计划 §5.3）
+# （Linux x86_64 单平台，见 文档/修改记录/2026-0725-1053 计划 §5.3）
 #
 # 流程：前置自查 → PyInstaller 构建 → AppDir 组装 → appimagetool → 冒烟验证
 # 用法：./building/build_appimage.sh（从任意目录调用均可，不依赖 CWD）

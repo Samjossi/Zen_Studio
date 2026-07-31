@@ -183,7 +183,7 @@ class GitStatusService:
         缓存未命中时按 ignored 目录键下透：被 gitignore 整体命中的
         目录（ls-files --directory 折叠输出）**自身与全部子孙目录**
         （任意深度）继承暗显（对齐 VS Code：ignored 目录内容整体
-        暗显；与向上冒泡方向相反，互不冲突——见 work plans/
+        暗显；与向上冒泡方向相反，互不冲突——见 文档/修改记录/
         2026-0730-2025 计划及其 ls-files 数据源修订）。
         """
         rel = self._rel(abs_path)

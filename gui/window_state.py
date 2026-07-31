@@ -3,16 +3,16 @@
 自 settings.py 分离（AFCP 整改 P3 任务 4.4）：用户偏好（settings.json）
 与窗口状态（本文件）分文件存放——reset_settings 重置偏好即重写
 settings.json，保留布局即不动本文件，消除"手动挑键保留"的脆弱点。
-多开改造（2026-07-22，work plans/2026-0722-0756 D4）：状态文件按工作区根
+多开改造（2026-07-22，文档/修改记录/2026-0722-0756 D4）：状态文件按工作区根
 哈希分文件，多开窗口各自恢复各自几何/分隔栏，互不覆盖；文件路径由
 window_state_file_for(workspace_root) 推导，调用方显式传入（AFCP 2.3
 依赖显式）。键空间由 WindowState 定型（5 个固定键），消费侧一律经 KEY_*
 常量引用键名，禁止裸字符串键（AFCP 3.1：数据结构显式）。
-最近打开文件键 recent_files 已于 2026-07-24 回收（work plans/
+最近打开文件键 recent_files 已于 2026-07-24 回收（文档/修改记录/
 2026-0724-1003：功能改造为「最近打开的项目」，改存全局
 config/recent_projects.json）；存量状态文件中的旧键经「未登记键读取
 即丢弃」自然失效，零迁移代码。
-VS Code 式改造（2026-07-24，work plans/2026-0724-1015）：
+VS Code 式改造（2026-07-24，文档/修改记录/2026-0724-1015）：
 ①目录收纳——状态文件统一收进 config/window_state/ 子目录（对齐 VS Code
 workspaceStorage/，不散落 config 根目录），存量根目录文件经
 migrate_state_dir() 一次性幂等迁入；

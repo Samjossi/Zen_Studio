@@ -8,7 +8,7 @@
 Ctrl+Shift+V 粘贴（写剪贴板无副作用、粘贴与键盘输入同路径，均 widget 自治）。
 2026-07-21 新增：复制/粘贴快捷键反转开关（set_swap_copy_paste，设置菜单勾选项
 经 panel 即时注入；反转后 Ctrl+C/V 复制粘贴、Ctrl+Shift+C/V 回落 VT100 转换）。
-2026-07-22 修复：字符格宽改 QFontMetricsF 浮点度量（work plans/2026-0722-2013）——
+2026-07-22 修复：字符格宽改 QFontMetricsF 浮点度量（文档/修改记录/2026-0722-2013）——
 QFontMetrics int 接口截断前进宽（8.484→8），drawText 浮点排版与之每字差 0.484px
 沿 run 累积，实机 xcb 上后画 run 盖前字、网格光标切字成残片（offscreen 自洽不可见）。
 """
@@ -210,7 +210,7 @@ class TerminalWidget(QWidget):
         排版，而 QFontMetrics 为 int 接口（Sarasa 13pt M 前进宽 8.484 → 8
         截断），两套度量每字差 0.484px 沿 run 累积——第 51 字处文本偏右
         ≈3 格，后画 run 盖前字、网格光标块切字成残片（实机 xcb 独有，
-        offscreen 度量自洽不可见；work plans/2026-0722-2013）。
+        offscreen 度量自洽不可见；文档/修改记录/2026-0722-2013）。
         格高/基线维持 int：垂直方向每行独立定位，无行内累积路径。
         """
         metrics_f = QFontMetricsF(self.font())

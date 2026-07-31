@@ -8,9 +8,9 @@
 
 ## 1. 概述
 
-`llm/` 是 Zen Studio 的 LLM 调用层，与 `gui/` 平级。职责单一：把"多轮消息 → 流式文本"抽象为统一接口 `LanguageModel`。多标签改造（2026-07-22，work plans/2026-0722-0756）后注册表模式移除：provider 由每个 `ChatPanel` 自持实例（标签间完全隔离可并行），依赖方向为"前端 → 后端"，包内不 import 任何 GUI 代码。
+`llm/` 是 Zen Studio 的 LLM 调用层，与 `gui/` 平级。职责单一：把"多轮消息 → 流式文本"抽象为统一接口 `LanguageModel`。多标签改造（2026-07-22，文档/修改记录/2026-0722-0756）后注册表模式移除：provider 由每个 `ChatPanel` 自持实例（标签间完全隔离可并行），依赖方向为"前端 → 后端"，包内不 import 任何 GUI 代码。
 
-**注册表装配**（2026-07-30，work plans/2026-0730-0150）：后端发现/可用性探测/模型枚举/实例工厂收敛为 `llm/registry.py` 单一注册表（`BackendSpec` + `REGISTRY`），`ChatPanel` 经注册表工厂**懒实例化** provider（首轮对话前创建，切换接口时旧实例关闭丢弃，防多标签×多后台长驻进程膨胀）；新增 CLI 后台只动 `llm/providers/` 一处。
+**注册表装配**（2026-07-30，文档/修改记录/2026-0730-0150）：后端发现/可用性探测/模型枚举/实例工厂收敛为 `llm/registry.py` 单一注册表（`BackendSpec` + `REGISTRY`），`ChatPanel` 经注册表工厂**懒实例化** provider（首轮对话前创建，切换接口时旧实例关闭丢弃，防多标签×多后台长驻进程膨胀）；新增 CLI 后台只动 `llm/providers/` 一处。
 
 **统一后端策略**：对话统一经本机 agent CLI（当前为 Kimi Code CLI）完成，代码库**不存放、不读取、不输入任何 API KEY**——凭证由各 CLI 自行管理（如 kimi 的 OAuth）。DeepSeek API KEY 直连已于 2026-07-18 移除（见 `2026-0718-1455_移除APIKEY直连统一CLI后端实施计划.md`）。
 
@@ -21,12 +21,12 @@
 | 文件 | 说明 |
 |:---|:---|
 | `llm/__init__.py` | 包初始化：导出统一接口、后端常量（`BACKEND_KIMI_ACP`/`BACKEND_LABELS`，由 REGISTRY 派生 re-export）与 provider 类 |
-| `llm/base.py` | `LanguageModel` Protocol + `Message` 类型别名 + `Chunk` 流式块（kind：text/reasoning/usage）+ `UsageStats` 用量定型（source 三级 push/transcript/estimate，2026-07-31，work plans/2026-0731-1454） |
-| `llm/context_limits.py` | 模型上下文窗口上限查询（2026-07-31，work plans/2026-0731-1454）：`reasonix_context_window()`（config.toml `[[providers]].context_window` 动态解析，缺项 None 不臆造）+ `reasonix_config_path()` 路径主定义（providers 反向复用，无环） |
-| `llm/registry.py` | 后端注册表：`BackendSpec`（name/label/vendor/available/list_models/factory）+ `REGISTRY` 单点 + 查询 API（`spec_of`/`vendor_of`/`vendor_groups`）；模型列表进程级缓存（`_cached_list_models` 包装，锁覆盖查拉写防并发重复拉取）+ `refresh_models()` 唯一失效口（2026-07-30，work plans/2026-0730-2338）；import 无副作用，探测均惰性 |
+| `llm/base.py` | `LanguageModel` Protocol + `Message` 类型别名 + `Chunk` 流式块（kind：text/reasoning/usage）+ `UsageStats` 用量定型（source 三级 push/transcript/estimate，2026-07-31，文档/修改记录/2026-0731-1454） |
+| `llm/context_limits.py` | 模型上下文窗口上限查询（2026-07-31，文档/修改记录/2026-0731-1454）：`reasonix_context_window()`（config.toml `[[providers]].context_window` 动态解析，缺项 None 不臆造）+ `reasonix_config_path()` 路径主定义（providers 反向复用，无环） |
+| `llm/registry.py` | 后端注册表：`BackendSpec`（name/label/vendor/available/list_models/factory）+ `REGISTRY` 单点 + 查询 API（`spec_of`/`vendor_of`/`vendor_groups`）；模型列表进程级缓存（`_cached_list_models` 包装，锁覆盖查拉写防并发重复拉取）+ `refresh_models()` 唯一失效口（2026-07-30，文档/修改记录/2026-0730-2338）；import 无副作用，探测均惰性 |
 | `llm/providers/__init__.py` | provider 子包标记（每家厂商一个文件） |
 | `llm/providers/acp.py` | 泛化 ACP 连接层 `AcpConnection`（ndjson JSON-RPC 帧收发/id 配对/反向请求分发/死讯注入；agent 名参数化）+ 审批协议定型类型（`PermissionParams`/`PermissionHandler`）+ session/update 公共映射 `map_session_update`（2026-0731-1602 计划 T2：四 provider 私有 `_map_update` 上收，message/thought/usage 原三分支 + tool_call 结构化（含 todowrite→todo 特判）/tool_call_update/plan 新三分支）与 `map_usage_update` |
-| `llm/providers/kimi_common.py` | kimi 二进制公共探测与模型枚举：`_find_bin`（PATH → `$KIMI_CODE_HOME/bin` → `~/.kimi-code/bin`）、`kimi_available`、`list_kimi_models`（CLI 传输层已于 2026-07-31 移除，见 work plans/2026-0731-0036） |
+| `llm/providers/kimi_common.py` | kimi 二进制公共探测与模型枚举：`_find_bin`（PATH → `$KIMI_CODE_HOME/bin` → `~/.kimi-code/bin`）、`kimi_available`、`list_kimi_models`（CLI 传输层已于 2026-07-31 移除，见 文档/修改记录/2026-0731-0036） |
 | `llm/providers/kimi_acp.py` | `KimiAcpLLM`：Kimi ACP 后端（长驻 `kimi acp` 子进程，复用 `AcpConnection`；token 级流式、思维链可见、审批反向请求路由；上下文用量走 wire.jsonl 落盘记录读取，source="transcript"，2026-0731-1454） |
 | `llm/providers/reasonix_acp.py` | `ReasonixAcpLLM`：Reasonix ACP 后端（长驻 `reasonix acp`，与 KimiAcpLLM 同构；模型目录解析 `~/.reasonix/config.toml`；未 setup 经 session/new 错误映射引导「请先运行 reasonix setup」；轮次失败 `stopReason=error` 转可读报错；上下文用量走 transcript 快照文本估算，source="estimate"，2026-0731-1454） |
 | `llm/providers/opencode_acp.py` | `OpenCodeAcpLLM`：OpenCode ACP 后端（同构；`opencode models` 纯文本枚举，Zen 官方 `opencode/` 前缀模型菜单层剔除） |
@@ -79,7 +79,7 @@ for chunk in llm.chat([{"role": "user", "content": "你好"}]):
 **kimi 二进制探测与模型枚举**（`llm/providers/kimi_common.py`）：
 
 - 二进制检测链：`PATH` → `$KIMI_CODE_HOME/bin/kimi` → `~/.kimi-code/bin/kimi`（桌面启动 PATH 不含安装目录时仍可发现）
-- 可用模型别名由 `list_kimi_models()`（`kimi provider list --json`）**动态解析**，随 CLI 重登录刷新的服务端目录自动增减，IDE 侧零硬编码（2026-07-25 起目录含 `kimi-code/k3-256k`：K3 的 256K 版，同模式消耗约为 `k3`（1M）一半，**仅图片输入不支持视频**，effort `low`/`high`/`max`；IDE 持久化默认版本与 CLI `default_model` 均已切换至它，见 work plans/2026-0725-0205）
+- 可用模型别名由 `list_kimi_models()`（`kimi provider list --json`）**动态解析**，随 CLI 重登录刷新的服务端目录自动增减，IDE 侧零硬编码（2026-07-25 起目录含 `kimi-code/k3-256k`：K3 的 256K 版，同模式消耗约为 `k3`（1M）一半，**仅图片输入不支持视频**，effort `low`/`high`/`max`；IDE 持久化默认版本与 CLI `default_model` 均已切换至它，见 文档/修改记录/2026-0725-0205）
 
 ## 5. 安全模型（零密钥）
 

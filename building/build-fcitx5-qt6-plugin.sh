@@ -13,7 +13,7 @@
 # 背景：
 # - PySide6 wheel 自带的 Qt 不含 fcitx 输入法平台插件，系统的
 #   fcitx5-frontend-qt6 插件（基于系统 Qt 6.4.2 编译）与 wheel 内 Qt 6.11.1
-#   的私有 ABI 不兼容（详见 work plans/2026-0731-1640_中文输入法fcitx5失效修复计划.md
+#   的私有 ABI 不兼容（详见 文档/修改记录/2026-0731-1640_中文输入法fcitx5失效修复计划.md
 #   与 PySide6_Linux_中文输入法失效诊断手册_V1.1.md）
 # - 因此必须用与 wheel 内 Qt 完全相同的版本从源码编译 fcitx5-qt 插件
 #

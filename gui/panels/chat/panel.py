@@ -1,6 +1,6 @@
 """聊天面板装配：上输出 + 下输入，连接 LLM 流式线程。
 
-多标签改造（2026-07-22，work plans/2026-0722-0756 计划 P3 任务 13）：
+多标签改造（2026-07-22，文档/修改记录/2026-0722-0756 计划 P3 任务 13）：
 - 自持 provider 实例（不再从共享 registry 取单例）：注册表工厂懒实例化
   （2026-0730-0150 计划 D4——实例推迟到首轮对话/切换广播前经
   _get_provider 即建即用，防"标签数 × 后端数"长驻进程膨胀；
@@ -10,24 +10,24 @@
   广播经 set_model_selection 同步本面板 UI（阻断）与 provider
 - 审批请求统一提交全局审批队列（PERMISSION_QUEUE），多标签串行弹窗
 
-AI 活动信息路由（2026-07-31，work plans/2026-0731-1602 计划 T6）：
+AI 活动信息路由（2026-07-31，文档/修改记录/2026-0731-1602 计划 T6）：
 - _on_chunk 新增 tool_call / tool_call_update / todo 三分支——只上屏，
   不入 _stream_buffer/_history（与 reasoning 同约束，防历史污染回传）；
   toolCallId→title 簿记补全状态行标题；轮次收尾 reset_activity_anchors
   作废 todo 锚点（T5-4 防跨轮串位）
 
-会话活动时间线色块条（2026-07-31，work plans/2026-0731-1824 计划 T3）：
+会话活动时间线色块条（2026-07-31，文档/修改记录/2026-0731-1824 计划 T3）：
 - 卡片内 splitter 之下常驻 ActivityTimeline 细条（D2），_on_chunk 入口
   旁路分接 feed（不改动既有分支语义）；_on_finished/_on_stopped 随
   reset_activity_anchors 同位置 end_turn 作废段指针；切后端新会话清条
 
-关闭异步化（2026-07-22，work plans/2026-0722-1117 计划 P2）：
+关闭异步化（2026-07-22，文档/修改记录/2026-0722-1117 计划 P2）：
 - close() 两段式：GUI 段毫秒级（request_stop + 断信号 + 起 daemon
   清理线程），terminate/wait/deleteLater 全在线程段——GUI 零冻结
 - 线程段顺序先 terminate 后 wait：杀 acp 进程注入死讯解封 worker
   全部阻塞点（治"先干等 3s 才 terminate"的顺序倒置）
 
-左栏宽度根治（2026-07-24，work plans/2026-0724-2305 计划 T3/T7）：
+左栏宽度根治（2026-07-24，文档/修改记录/2026-0724-2305 计划 T3/T7）：
 - 输入区底行新增发送/停止双态按钮：空闲=「发送」（等价 Enter，
   空文本禁用），busy=「■ 停止」（直停本标签）；按钮常驻恒宽，
   任何状态下 sizeHint 不变——替代原 ModelBar 停止按钮的显隐模式
@@ -80,7 +80,7 @@ class ChatPanel(QWidget):
 
     #: 一轮对话结束（正常/失败/用户停止均触发；主窗口经 ChatTabs 转发
     #: 联动 Git 状态去抖刷新——ACP 子进程直接写盘不经窗口激活/查看器
-    #: 重载，补此事件源闭合，诊断报告 work plans/2026-0731-1256 方案 A）
+    #: 重载，补此事件源闭合，诊断报告 文档/修改记录/2026-0731-1256 方案 A）
     turn_finished = Signal()
 
     #: 正文文件路径链接点击（1836 计划 L2-5）：载荷 (绝对路径, 行号|None)；
@@ -135,7 +135,9 @@ class ChatPanel(QWidget):
             # 同源值，单一来源纪律不新增键）
             chat_pack["timeline_read_fg"], self)
         self.timeline = ActivityTimeline(_timeline_colors(chat_pack), self)
-        self.input = ChatInput(self)
+        self.input = ChatInput(
+            # 选区带色与 ChatOutput 同源（timeline_read_fg 复用，不新增主题键）
+            chat_pack["timeline_read_fg"], self)
         self.input.set_workspace_root(workspace_root)
         # 底行模型选择（纯视图）：注入初始选择后以回退后的有效值为准
         self.model_bar = ModelBar(self)

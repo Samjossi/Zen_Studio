@@ -4,7 +4,7 @@
 契约从类型系统可见（原 mixin 隐式接口的整改，见 AFCP 计划任务 3.2）。
 后续 git 动作（blame/log 等）在此层扩展。
 
-「使用 Typora 打开」（2026-07-29，见 work plans/2026-0729-1155_Markdown渲染
+「使用 Typora 打开」（2026-07-29，见 文档/修改记录/2026-0729-1155_Markdown渲染
 预览与Typora打开功能实施计划 T6）：.md/.markdown 文件且检测到系统 Typora
 时显示于「打开」之后；调起失败沿用 QMessageBox.critical 提示风格。
 """

@@ -1,15 +1,17 @@
 """输入区：Enter 发送 / Shift+Enter 换行；支持文件拖入插入 @路径 引用。
 
-左栏宽度根治（2026-07-24，work plans/2026-0724-2305 计划 T2）：
+左栏宽度根治（2026-07-24，文档/修改记录/2026-0724-2305 计划 T2）：
 发送校验收敛为公共入口 trigger_send()——Enter 键与输入区底行
 发送按钮共用同一路径，两种触发方式行为严格等价。
 """
 from pathlib import Path
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import QTextEdit
+from PySide6.QtGui import QColor, QPalette
+from PySide6.QtWidgets import QApplication, QTextEdit
 
 from gui.popups import exec_standard_context_menu
+from gui.selection_band import SUPPRESSION_QSS, paint_selection_band
 
 
 class ChatInput(QTextEdit):
@@ -18,17 +20,34 @@ class ChatInput(QTextEdit):
     拖放文件引用（方案 A：纯文本透传，由后端 agent CLI 解析 @路径）：
     从文件树或系统文件管理器拖入本地文件，在落点插入 `@工作区相对路径 `；
     目录带尾 `/`，多选逐个插入、空格分隔；工作区外路径退化为绝对路径。
+
+    选区带自绘（2055 计划方案 A 再推广，2145 计划增补）：原生选区带 =
+    QTextLine 整行高，Qt 排版 leading 全部垫底，思源黑体下视觉偏下
+    （实测带上缘 1px/下缘 7px，中心偏差 +3px）；抑原生带后 paintEvent
+    叠绘墨盒对称带，带色与 ChatOutput 同源（timeline_read_fg 复用，
+    不新增主题键）。
     """
 
     #: 请求发送（携带输入文本）
     send_requested = Signal(str)
 
-    def __init__(self, parent=None) -> None:
+    def __init__(self, band_color: str | None = None, parent=None) -> None:
         super().__init__(parent)
         self.setPlaceholderText("输入消息，Enter 发送 / Shift+Enter 换行")
         self.setAcceptRichText(False)
+        # 选区带自绘：抑原生带（控件级 qss 优先于 base.qss 继承规则）
+        self.setStyleSheet(SUPPRESSION_QSS)
+        #: 自绘带色；None 时退化为应用 palette highlight（测试裸建场景）
+        self._band_color = QColor(band_color) if band_color else None
         #: 工作区根路径（set_workspace_root 注入）；None 时文件拖入静默忽略
         self._workspace_root: Path | None = None
+
+    def paintEvent(self, event) -> None:
+        """基类绘制后叠绘选区对称带（方案 A）。"""
+        super().paintEvent(event)
+        color = self._band_color or QApplication.palette().color(
+            QPalette.ColorRole.Highlight)
+        paint_selection_band(self, color)
 
     # ------------------------------------------------------------------
     # 工作区根路径（拖入文件时据此计算 @相对路径）
