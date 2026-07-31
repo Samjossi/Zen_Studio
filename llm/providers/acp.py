@@ -13,6 +13,7 @@ PermissionHandler/_TurnMessage）是 ACP 协议层产物，不属 kimi 专有，
 """
 import json
 import queue
+import re
 import subprocess
 import sys
 import threading
@@ -90,12 +91,45 @@ def map_usage_update(update: dict) -> UsageStats | None:
 # ----------------------------------------------------------------------
 _SUMMARY_MAX = 80  # 参数摘要/错误首行截断阈值（防单行过长撑爆输出区）
 
+#: ANSI 转义序列（CSI 颜色/光标、OSC 标题/超链接、字符集切换、两字符转义）
+_ANSI_RE = re.compile(
+    r"\x1b\[[0-9;?]*[ -/]*[@-~]"
+    r"|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)"
+    r"|\x1b[()][0-9A-B]"
+    r"|\x1b."
+)
+
+
+def _clean_terminal_text(text: str) -> str:
+    """终端控制字符净化：ANSI 转义剥离 + `\\r` 进度帧折叠（逐行取最后非空帧）。
+
+    1836 计划 T2（摘 kilo-ui shell-rolling-results 思路）：bash 输出进
+    error/summary 预格式化前单点净化，四家 provider 经公共映射自动受益。
+    """
+    text = _ANSI_RE.sub("", text)
+    if "\r" not in text:
+        return text
+    lines = []
+    for line in text.split("\n"):
+        frames = line.split("\r")
+        picked = frames[-1]
+        for frame in reversed(frames):
+            if frame.strip():
+                picked = frame
+                break
+        lines.append(picked)
+    return "\n".join(lines)
+
 
 def _truncate_line(text: object) -> str | None:
-    """取首行并截断至 _SUMMARY_MAX；非字符串/空串返回 None（摘要缺省）。"""
+    """取首行并截断至 _SUMMARY_MAX；非字符串/空串返回 None（摘要缺省）。
+
+    先经 _clean_terminal_text 净化（T2）：bash 错误/命令常带 ANSI 着色与
+    `\\r` 进度帧，不净化则乱码直上屏。
+    """
     if not isinstance(text, str):
         return None
-    stripped = text.strip()
+    stripped = _clean_terminal_text(text).strip()
     if not stripped:
         return None
     line = stripped.splitlines()[0]
