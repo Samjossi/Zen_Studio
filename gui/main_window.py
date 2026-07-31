@@ -263,6 +263,9 @@ class MainWindow(QMainWindow):
             collapse_handler=lambda: self.set_changes_visible(False),
             parent=self,
         )
+        # AI 轮次结束 → 去抖刷新（诊断报告 work plans/2026-0731-1256 方案 A：
+        # ACP 子进程直接写盘不经窗口激活/查看器重载，补此事件源闭合）
+        self.chat_tabs.turn_finished.connect(self.git_controller.schedule_refresh)
 
     def changeEvent(self, event) -> None:
         """窗口重获焦点 → 去抖刷新（兜底终端 checkout 等外部 git 操作）。"""

@@ -63,6 +63,11 @@ class ChatPanel(QWidget):
     #: 发送/停止状态变化（ChatTabs 汇总后联动禁用全部标签双下拉与菜单组）
     busy_changed = Signal(bool)
 
+    #: 一轮对话结束（正常/失败/用户停止均触发；主窗口经 ChatTabs 转发
+    #: 联动 Git 状态去抖刷新——ACP 子进程直接写盘不经窗口激活/查看器
+    #: 重载，补此事件源闭合，诊断报告 work plans/2026-0731-1256 方案 A）
+    turn_finished = Signal()
+
     #: 默认布局尺寸（px）：输出区 / 输入区（初排与 reset_layout 单点来源）。
     #: 输入区 212 = 输入框原可视高度 180 + 底行按钮区约 32（T8 实测补偿，
     #: 2026-0724-2305 计划：发送/停止按钮入底行后保持输入框可视行数不缩水）
@@ -196,6 +201,10 @@ class ChatPanel(QWidget):
                 pass  # 测试替身：忽略
         try:
             self.busy_changed.disconnect()  # 迟到的 busy 不再进 ChatTabs 汇总
+        except (TypeError, RuntimeError):
+            pass
+        try:
+            self.turn_finished.disconnect()  # 摘出的标签不再触发 Git 刷新
         except (TypeError, RuntimeError):
             pass
         threading.Thread(
@@ -394,6 +403,7 @@ class ChatPanel(QWidget):
         self.output.end_stream()
         self._set_busy(False)
         self._worker = None
+        self.turn_finished.emit()
 
     def _on_stopped(self) -> None:
         """用户中断收尾（第三态）：整体回滚——中断轮不入历史；
@@ -406,6 +416,7 @@ class ChatPanel(QWidget):
         self.output.end_stream()
         self._set_busy(False)
         self._worker = None
+        self.turn_finished.emit()
 
     def _set_busy(self, is_busy: bool) -> None:
         # 输入框保持可编辑（Enter 发送有 isRunning 守卫拦截，文本不丢）；

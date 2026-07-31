@@ -51,6 +51,10 @@ class ChatTabs(QWidget):
     #: 模型选择变化（携带 registry 后端名 + 版本载荷；主窗口联动设置中心）
     selection_changed = Signal(str, object)
 
+    #: 任一标签一轮对话结束（转发 ChatPanel.turn_finished；主窗口联动
+    #: Git 状态去抖刷新，诊断报告 work plans/2026-0731-1256 方案 A）
+    turn_finished = Signal()
+
     #: 标签数上限（用户决策 D1：约束长驻 kimi acp 进程数与 token 消耗）
     MAX_TABS = 4
 
@@ -148,6 +152,7 @@ class ChatTabs(QWidget):
         )
         panel.busy_changed.connect(lambda busy, p=panel: self._on_tab_busy(p, busy))
         panel.model_bar.selection_changed.connect(self._on_selection_changed)
+        panel.turn_finished.connect(self.turn_finished)
         if self._backend is None:
             # 启动无持久化记录：回读标签经 ModelBar 回退后的有效值
             # （不写盘——与原启动恢复「阻断信号不落盘」语义一致）

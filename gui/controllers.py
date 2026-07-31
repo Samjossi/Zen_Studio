@@ -37,9 +37,10 @@ from gui.window_state import (
 class GitStatusController(QObject):
     """Git 状态编排：服务创建/重建、去抖汇流、四面板扇出刷新。
 
-    事件源三处：窗口激活（schedule_refresh）、查看器外部重载（去抖）、
-    手动菜单（refresh 直调）；扇出四面：文件树着色 / 查看器徽标 /
-    变更面板 / 状态栏统计。
+    事件源五处：窗口激活（schedule_refresh）、查看器外部重载（去抖）、
+    手动菜单（refresh 直调）、AI 轮次结束（schedule_refresh，主窗口
+    接线）、文件树模型结构变更（去抖汇流）；扇出四面：文件树着色 /
+    查看器徽标 / 变更面板 / 状态栏统计。
     """
 
     #: 刷新去抖间隔（ms）：连续触发合并为一次，防进程风暴
@@ -75,6 +76,16 @@ class GitStatusController(QObject):
         self._debounce.setInterval(self.REFRESH_DEBOUNCE_MS)
         self._debounce.timeout.connect(self.refresh)
         viewer_panel.externally_reloaded.connect(self._debounce.start)
+        # 文件树模型结构变更 → 同一去抖（兜底一切外部写盘，诊断报告
+        # work plans/2026-0731-1256 方案 B）：QFileSystemModel 自带磁盘
+        # 监视，AI ACP 子进程/终端 touch/其他编辑器引发的新建、删除、
+        # 重命名、目录内容变更在此汇流；懒加载展开目录同样触发
+        # rowsInserted/directoryLoaded，经 300ms 去抖天然合并
+        fs_model = file_explorer.model
+        fs_model.rowsInserted.connect(lambda *_args: self._debounce.start())
+        fs_model.rowsRemoved.connect(lambda *_args: self._debounce.start())
+        fs_model.fileRenamed.connect(lambda *_args: self._debounce.start())
+        fs_model.directoryLoaded.connect(lambda *_args: self._debounce.start())
         self.refresh()
 
     @property
