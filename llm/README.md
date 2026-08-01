@@ -21,13 +21,13 @@
 | 文件 | 说明 |
 |:---|:---|
 | `llm/__init__.py` | 包初始化：导出统一接口、后端常量（`BACKEND_KIMI_ACP`/`BACKEND_LABELS`，由 REGISTRY 派生 re-export）与 provider 类 |
-| `llm/base.py` | `LanguageModel` Protocol + `Message` 类型别名 + `Chunk` 流式块（kind：text/reasoning/usage）+ `UsageStats` 用量定型（source 三级 push/transcript/estimate，2026-07-31，文档/修改记录/2026-0731-1454） |
+| `llm/base.py` | `LanguageModel` Protocol + `Message` 类型别名 + `Chunk` 流式块（kind：text/reasoning/usage）+ `UsageStats` 用量定型（source 三级 push/transcript/estimate，2026-07-31，文档/修改记录/2026-0731-1454）+ `poll_usage()` 可选轮询方法（默认 None，2026-08-02，work plans/2026-0802-0117） |
 | `llm/context_limits.py` | 模型上下文窗口上限查询（2026-07-31，文档/修改记录/2026-0731-1454）：`reasonix_context_window()`（config.toml `[[providers]].context_window` 动态解析，缺项 None 不臆造）+ `reasonix_config_path()` 路径主定义（providers 反向复用，无环） |
 | `llm/registry.py` | 后端注册表：`BackendSpec`（name/label/vendor/available/list_models/factory）+ `REGISTRY` 单点 + 查询 API（`spec_of`/`vendor_of`/`vendor_groups`）；模型列表进程级缓存（`_cached_list_models` 包装，锁覆盖查拉写防并发重复拉取）+ `refresh_models()` 唯一失效口（2026-07-30，文档/修改记录/2026-0730-2338）；import 无副作用，探测均惰性 |
 | `llm/providers/__init__.py` | provider 子包标记（每家厂商一个文件） |
 | `llm/providers/acp.py` | 泛化 ACP 连接层 `AcpConnection`（ndjson JSON-RPC 帧收发/id 配对/反向请求分发/死讯注入；agent 名参数化）+ 审批协议定型类型（`PermissionParams`/`PermissionHandler`）+ session/update 公共映射 `map_session_update`（2026-0731-1602 计划 T2：四 provider 私有 `_map_update` 上收，message/thought/usage 原三分支 + tool_call 结构化（含 todowrite→todo 特判）/tool_call_update/plan 新三分支）与 `map_usage_update` |
 | `llm/providers/kimi_common.py` | kimi 二进制公共探测与模型枚举：`_find_bin`（PATH → `$KIMI_CODE_HOME/bin` → `~/.kimi-code/bin`）、`kimi_available`、`list_kimi_models`（CLI 传输层已于 2026-07-31 移除，见 文档/修改记录/2026-0731-0036） |
-| `llm/providers/kimi_acp.py` | `KimiAcpLLM`：Kimi ACP 后端（长驻 `kimi acp` 子进程，复用 `AcpConnection`；token 级流式、思维链可见、审批反向请求路由；上下文用量走 wire.jsonl 落盘记录读取，source="transcript"，2026-0731-1454） |
+| `llm/providers/kimi_acp.py` | `KimiAcpLLM`：Kimi ACP 后端（长驻 `kimi acp` 子进程，复用 `AcpConnection`；token 级流式、思维链可见、审批反向请求路由；上下文用量走 wire.jsonl 落盘记录读取，source="transcript"，2026-0731-1454；轮次内 `poll_usage()` 尾部轮询实时刷新，2026-08-02，work plans/2026-0802-0117） |
 | `llm/providers/reasonix_acp.py` | `ReasonixAcpLLM`：Reasonix ACP 后端（长驻 `reasonix acp`，与 KimiAcpLLM 同构；模型目录解析 `~/.reasonix/config.toml`；未 setup 经 session/new 错误映射引导「请先运行 reasonix setup」；轮次失败 `stopReason=error` 转可读报错；上下文用量走 transcript 快照文本估算，source="estimate"，2026-0731-1454） |
 | `llm/providers/opencode_acp.py` | `OpenCodeAcpLLM`：OpenCode ACP 后端（同构；`opencode models` 纯文本枚举，Zen 官方 `opencode/` 前缀模型菜单层剔除） |
 | `llm/providers/kilocode_acp.py` | `KiloCodeAcpLLM`：Kilo Code ACP 后端（同构；`kilo models` 纯文本枚举，网关聚合 `kilo/` 前缀模型菜单层剔除） |
@@ -57,6 +57,21 @@ class LanguageModel(Protocol):
 | `ReasonixAcpLLM` | provider（`"reasonix-acp"`，后台 Reasonix）：长驻 `reasonix acp` 子进程，协议层与 `KimiAcpLLM` 同构（ACP v1）；模型目录经 `list_reasonix_models()` 解析 `~/.reasonix/config.toml`（`$REASONIX_HOME` 可覆盖）`[[providers]]` 段，别名为 `provider/model` 全名（DeepSeek 系）；未 setup（`session/new` 报 `not configured` 类错误）时映射为「请先运行 reasonix setup」友好提示；轮次失败 `stopReason=error` 转可读报错 |
 | `OpenCodeAcpLLM` | provider（`"opencode-acp"`，后台 OpenCode）：长驻 `opencode acp` 子进程，同构；模型目录经 `opencode models` 纯文本枚举，Zen 官方 `opencode/` 前缀模型在菜单层剔除 |
 | `KiloCodeAcpLLM` | provider（`"kilocode-acp"`，后台 Kilo Code）：长驻 `kilo acp` 子进程，同构；模型目录经 `kilo models` 纯文本枚举，网关聚合 `kilo/` 前缀模型在菜单层剔除 |
+
+### 3.1 上下文用量徽章：数据时机与各后端限制（2026-08-02，work plans/2026-0802-0117）
+
+徽章刷新分两通道，瓶颈均不在 GUI 而在**用量数据的产生时机**：
+
+| 通道 | 机制 | 覆盖后端 |
+|:---|:---|:---|
+| 轮末推送/收尾读盘 | agent 推 `usage_update`（kilocode/opencode/reasonix，**轮末一条**——kilocode 源码实证 `service.ts` prompt 阻塞至轮末才 sendUsageUpdate；协议无频率协商手段）或 IDE 收尾短轮询 wire.jsonl 基线增量（kimi，1454 计划） | 全部 |
+| 轮次内轮询 | GUI 侧 QTimer（2s）调 `provider.poll_usage()`；kimi 实现为 wire.jsonl 尾部读法（T0 实证：轮次内每次 API 调用后 `usage.record` 增量写盘、数值单调爬升），其余后端默认 `None` 空转 | **仅 kimi-acp** |
+
+限制与红线：
+
+- **推送型后端轮次内不刷新**（kilocode/opencode/reasonix）：数据在 agent 进程内，IDE 无中间数据可挖；不插值、不估算、不按文本长度臆造百分比。上游补丁路径（kilocode `acp/event.ts` 订阅 step-finish 转 `usage_update`）可行但属 agent 侧改造，见计划 D4 补记
+- `poll_usage()` 实现约束：廉价（只读文件尾部，禁全量读 MB 级 wire.jsonl）、幂等、线程安全（GUI 线程调用），失败静默 `None`，不得臆造数值
+- reasonix 维持 transcript 文本估算（source="estimate"，轮末一条）
 
 ## 4. 使用方式
 

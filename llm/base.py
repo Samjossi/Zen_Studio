@@ -130,3 +130,18 @@ class LanguageModel(Protocol):
         残余资源由生成器 finally 兜底清理）。
         """
         ...
+
+    def poll_usage(self) -> "UsageStats | None":
+        """轮次内主动取用量快照（可选能力，默认 None 表示不支持）。
+
+        背景（0117 计划）：推送型后端（kilocode/opencode/reasonix）的
+        `usage_update` 由 agent 决定时机（轮末一条），IDE 无中间数据可挖；
+        kimi 的用量落在本地 wire.jsonl 且轮次内每次 API 调用后增量写盘
+        （0117 T0 实证），可由 provider 主动读取。GUI 侧 QTimer 在轮次进行
+        中周期调用本方法，非 None 即刷新徽章。
+
+        约束：实现须廉价（只读小数据/文件尾部）、幂等、线程安全（从 GUI
+        线程调用，与 chat 所在 worker 并发），任何失败静默返回 None，
+        不得抛出、不得阻塞、不得臆造估算值。
+        """
+        return None

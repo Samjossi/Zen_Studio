@@ -131,6 +131,12 @@ class ChatPanel(QWidget):
         #: 本标签最新一轮的上下文用量（usage_update 每轮一条，覆盖即
         #: 「最后一条 assistant 消息」语义）；None = 未收到/已切换后端
         self._usage: UsageStats | None = None
+        #: 轮次内用量轮询计时器（0117 计划 T3/D5）：_on_send 启动、
+        #: _on_finished/_on_stopped/切后端停止；tick 调 provider.poll_usage()，
+        #: 非 kimi 后端默认返回 None 空转成本可忽略（红线：不臆造数值）
+        self._usage_timer = QTimer(self)
+        self._usage_timer.setInterval(2000)  # 对齐 usage.record 1~3s 写盘节奏
+        self._usage_timer.timeout.connect(self._poll_usage_tick)
 
         chat_pack = get_theme_palette(load_settings()[KEY_THEME])["chat"]
         self.output = ChatOutput(
@@ -207,6 +213,7 @@ class ChatPanel(QWidget):
         version = self.model_bar.current_version()
         if backend != self._llm_name:
             old = self._providers.pop(self._llm_name, None)
+            self._usage_timer.stop()  # 0117 D5：切后端停轮询，不残留空转
             # 旧后端会话用量不得残留到新后端：清零徽章（reset_session 语义点）
             self._usage = None
             self._refresh_usage_label()
@@ -248,6 +255,7 @@ class ChatPanel(QWidget):
         wait 保留，但移入线程段。
         """
         self.request_stop()
+        self._usage_timer.stop()  # 0117 D5：标签销毁前停轮询（随 tab 生命周期）
         worker = self._worker
         providers = list(self._providers.values())
         if worker is not None:
@@ -627,6 +635,21 @@ class ChatPanel(QWidget):
         self._worker.finished_with_error.connect(self._on_finished)
         self._worker.stopped_by_user.connect(self._on_stopped)
         self._worker.start()
+        self._usage_timer.start()  # 0117 T3：轮次内用量轮询（kimi 尾部读 wire.jsonl）
+
+    def _poll_usage_tick(self) -> None:
+        """轮次内用量轮询（0117 计划 T3/D1）：GUI 侧 QTimer 直调 provider
+        .poll_usage()，只读文件、与 ACP 连接零交互；非 None 即更新徽章簿记。
+        无数据（不支持的 backend/写盘延迟/文件残缺）→ 保持现状不刷新，
+        绝不臆造估值（红线）。
+        """
+        provider = self._providers.get(self._llm_name)
+        if provider is None:
+            return
+        stats = provider.poll_usage()
+        if stats is not None:
+            self._usage = stats
+            self._refresh_usage_label()
 
     def _on_chunk(self, chunk: Chunk) -> None:
         self.timeline.feed(chunk)  # 时间线色块条旁路分接（1824 计划 T3）
@@ -701,11 +724,13 @@ class ChatPanel(QWidget):
         self.output.end_stream()
         self._set_busy(False)
         self._worker = None
+        self._usage_timer.stop()  # 0117 D5：轮次收尾停轮询（收尾真值已由 chunk 兜底）
         self.turn_finished.emit()
 
     def _on_stopped(self) -> None:
         """用户中断收尾（第三态）：整体回滚——中断轮不入历史；
         屏幕已输出内容不擦除（可复制兜底），追加停止标注。"""
+        self._usage_timer.stop()  # 0117 D5：中断即停轮询，不残留空转
         if self._has_seen_reasoning:
             self.output.end_reasoning()
             self._has_seen_reasoning = False

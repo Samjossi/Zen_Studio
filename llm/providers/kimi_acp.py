@@ -49,6 +49,11 @@ from llm.providers.kimi_common import _find_bin
 _WIRE_USAGE_WAIT_S = 3.0
 _WIRE_USAGE_POLL_S = 0.2
 
+#: 轮次内轮询（0117 计划 T2）只读文件尾部的字节窗口：wire.jsonl 随会话增长
+#: 可达 MB 级，每 2s 全量 read_text 不可接受；64KB 足够覆盖末多条
+#: llm.request / usage.record（单行实测数百字节至数千字节）
+_WIRE_TAIL_BYTES = 64 * 1024
+
 
 def _session_dir_of(session_id: str) -> Path | None:
     """session_index.jsonl 按 sessionId 反查会话落盘目录；失败返回 None。
@@ -104,6 +109,56 @@ def _read_wire_usage(session_dir: Path) -> tuple[int, UsageStats | None]:
         used=used_other + used_cache, size=max_tokens, cost=None, source="transcript")
 
 
+def _read_wire_usage_tail(session_dir: Path) -> UsageStats | None:
+    """轮次内轮询（0117 计划 T2/D2）：只读 wire.jsonl 尾部窗口，取末条用量定型。
+
+    与收尾 `_poll_wire_usage` 语义相反——不卡基线条数，就要最新一条（轮次内
+    任何子步骤的新记录皆可接受）；与 `_read_wire_usage` 全量读法区分——尾部
+    seek 回溯 `_WIRE_TAIL_BYTES`，防 MB 级文件每 2s 全量读（红线）。
+
+    尾部窗口内须同时找到末条 usage.record（used）与末条 llm.request
+    （maxTokens 作 size）；窗口未覆盖 llm.request（理论罕见）或字段残缺、
+    文件缺失/正被写半行（json 损坏行跳过）→ None，静默降级不抛出。
+    """
+    wire = session_dir / "agents" / "main" / "wire.jsonl"
+    try:
+        with wire.open("rb") as f:
+            f.seek(0, 2)
+            size = f.tell()
+            f.seek(max(0, size - _WIRE_TAIL_BYTES))
+            tail = f.read()
+    except OSError:
+        return None
+    lines = tail.split(b"\n")
+    if size > _WIRE_TAIL_BYTES and lines:
+        lines = lines[1:]  # 窗口起点落在行中：丢弃首条残行
+    used_other: int | None = None
+    used_cache: int | None = None
+    max_tokens: int | None = None
+    for raw in reversed(lines):  # 倒序取末条：usage.record 与 llm.request 各取一
+        if not raw.strip():
+            continue
+        try:
+            r = json.loads(raw)
+        except json.JSONDecodeError:
+            continue  # 写盘半行/损坏行跳过
+        rtype = r.get("type")
+        if used_other is None and rtype == "usage.record" and r.get("usageScope") == "turn":
+            usage = r.get("usage") or {}
+            used_other = usage.get("inputOther")
+            used_cache = usage.get("inputCacheRead")
+        elif max_tokens is None and rtype == "llm.request":
+            max_tokens = r.get("maxTokens")
+        if used_other is not None and max_tokens is not None:
+            break
+    if (not isinstance(used_other, int) or used_other < 0
+            or not isinstance(used_cache, int) or used_cache < 0
+            or not isinstance(max_tokens, int) or max_tokens <= 0):
+        return None
+    return UsageStats(
+        used=used_other + used_cache, size=max_tokens, cost=None, source="transcript")
+
+
 class KimiAcpLLM(LanguageModel):
     """Kimi ACP 后端（长驻子进程 + ndjson JSON-RPC，token 级流式 + 思维链）。"""
 
@@ -122,6 +177,11 @@ class KimiAcpLLM(LanguageModel):
         self._closed = False
         #: 审批处理器（由 GUI 注入）：session/request_permission params → optionId | None
         self._permission_handler: PermissionHandler | None = None
+        #: poll_usage 的会话目录缓存（0117 计划 T2）：session_index.jsonl 随会话
+        #: 增长，每 2s 轮询重读全索引不可接受；按 session_id 缓存反查结果，
+        #: 会话切换（reset/重建）时随 _session_id 变化失效重查
+        self._poll_dir_sid: str | None = None
+        self._poll_dir: Path | None = None
         atexit.register(self.close)
 
     # ------------------------------------------------------------------
@@ -221,6 +281,26 @@ class KimiAcpLLM(LanguageModel):
                 except RuntimeError:
                     pass  # 保持 agent 默认模型，不阻断对话
         return self._conn
+
+    def poll_usage(self) -> UsageStats | None:
+        """轮次内主动取用量快照（0117 计划 T2）：读 wire.jsonl 尾部末条记录。
+
+        T0 实证：轮次内每次 API 调用后 usage.record(scope=turn) 增量写盘，
+        数值单调爬升，可作为轮次内徽章数据源。语义见 D2——不卡基线条数，
+        就要最新一条；收尾真值仍由 `_poll_wire_usage` 基线轮询兜底。
+
+        线程安全：从 GUI QTimer 调用，与 chat 所在 worker 并发——`_session_id`
+        只读单值、目录缓存读写均为原子赋值（GIL），读文件失败静默 None。
+        """
+        session_id = self._session_id
+        if not session_id:
+            return None
+        if session_id != self._poll_dir_sid:
+            self._poll_dir = _session_dir_of(session_id)
+            self._poll_dir_sid = session_id
+        if self._poll_dir is None:
+            return None
+        return _read_wire_usage_tail(self._poll_dir)
 
     # ------------------------------------------------------------------
     # 对话
