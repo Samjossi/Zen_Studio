@@ -112,6 +112,9 @@ class CommitGraphModel(QAbstractTableModel):
             if index.column() == COL_AUTHOR:
                 return row.author
             if index.column() == COL_DATE:
+                # 相对时间 + 绝对时间并列（VS Code 式双时间）
+                if row.abs_date:
+                    return f"{row.rel_date} · {row.abs_date}"
                 return row.rel_date
             return None  # 图形列/提交列由委托自绘
         return None

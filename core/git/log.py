@@ -31,8 +31,9 @@ REF_TAG = "tag"
 REF_REMOTE = "remote"
 REF_HEAD = "head"
 
-#: 结构化取数 format 串：行首 %x1f 为图形前缀/元数据分界锚点，%x1e 记录尾
-_ROWS_FORMAT = "%x1f%h%x1f%s%x1f%an%x1f%ar%x1f%D%x1e"
+#: 结构化取数 format 串：行首 %x1f 为图形前缀/元数据分界锚点，%x1e 记录尾；
+#: %ar 相对时间 + %aI ISO 绝对时间（解析后截为 "YYYY-MM-DD HH:MM"）双时间
+_ROWS_FORMAT = "%x1f%h%x1f%s%x1f%an%x1f%ar%x1f%aI%x1f%D%x1e"
 
 
 @dataclass(frozen=True)
@@ -59,6 +60,7 @@ class CommitRow:
     subject: str = ""
     author: str = ""
     rel_date: str = ""
+    abs_date: str = ""  # 绝对时间 "YYYY-MM-DD HH:MM"（%aI 截断）
     refs: tuple[RefBadge, ...] = field(default=())
 
 
@@ -98,7 +100,8 @@ def fetch_commit_rows(repo_root: str) -> CommitGraph | None:
 
     单条命令同时取回图形与元数据；逐行解析：
     - 含锚点 \\x1f 的行：前缀（图线字符 + SGR 色码）| hash | subject |
-      author | rel_date | refs——字段数不符即格式漂移，整体返回 None（D3）
+      author | rel_date | abs_date | refs——字段数不符即格式漂移，整体
+      返回 None（D3）
     - 无锚点的行：纯图线连接行（is_connector）
     """
     out = runner.run_git(
@@ -120,9 +123,9 @@ def fetch_commit_rows(repo_root: str) -> CommitGraph | None:
                                   is_connector=True))
             continue
         parts = line.split("\x1f")
-        if len(parts) != 6:  # 前缀 + 5 字段；不符即 --graph 格式漂移（D3）
+        if len(parts) != 7:  # 前缀 + 6 字段；不符即 --graph 格式漂移（D3）
             return None
-        prefix, commit, subject, author, rel_date, decorate = parts
+        prefix, commit, subject, author, rel_date, abs_date, decorate = parts
         refs, is_head = _parse_refs(decorate)
         rows.append(CommitRow(
             graph=_parse_graph_prefix(prefix),
@@ -131,6 +134,7 @@ def fetch_commit_rows(repo_root: str) -> CommitGraph | None:
             subject=subject,
             author=author,
             rel_date=rel_date,
+            abs_date=_format_abs_date(abs_date),
             refs=refs,
         ))
     if not rows:
@@ -141,6 +145,17 @@ def fetch_commit_rows(repo_root: str) -> CommitGraph | None:
     if total is not None and total > MAX_COUNT:
         hint = f"……仅显示最近 {MAX_COUNT} 条（共 {total} 条）"
     return CommitGraph(rows=tuple(rows), truncated_hint=hint)
+
+
+def _format_abs_date(iso: str) -> str:
+    """%aI（ISO 8601，如 2026-08-02T16:35:22+08:00）→ "YYYY-MM-DD HH:MM"。
+
+    截断到分钟：秒与时区偏移对「看一眼具体时间」场景是噪音；格式异常
+    （非预期 ISO 形态）时原样返回，宽容不判格式漂移。
+    """
+    if len(iso) >= 16 and iso[4] == "-" and iso[10] == "T":
+        return iso[:16].replace("T", " ")
+    return iso
 
 
 def _parse_graph_prefix(prefix: str) -> tuple[tuple[str, str | None], ...]:
