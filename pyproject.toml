@@ -1,6 +1,6 @@
 [project]
 name = "zen-studio"
-version = "1.5"  # 包元数据副本：单一来源为 config/version.json，发版同步手改
+version = "1.6"  # 包元数据副本：单一来源为 config/version.json，发版同步手改
 description = "Agent 驱动的桌面 IDE：看代码、问 AI、跑命令，一个窗口全收——代码让 agent 写（本机 agent CLI 统一后端，零密钥）"
 requires-python = ">=3.12"
 dependencies = [
