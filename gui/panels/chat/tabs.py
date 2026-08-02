@@ -18,8 +18,8 @@
 - busy 粒度收窄：各标签独立禁用自身三按钮（原「任一忙禁全部」是为防
   广播切换打断响应中标签，广播废除后失去依据）；busy_changed 对外
   改报「当前活动标签忙闲」（主窗口联动设置中心模型页禁用）
-- 标签标题拼后台显示名（「会话 N · Kimi」），随切换即时更新——
-  异构后同名标签不可辨识
+- 标签标题恒为「会话 N」（2026-08-03 用户决策，翻案 D6「会话 N ·
+  后台名」拼接）：后台辨识归各标签底部 ModelBar，不占标签标题
 - 停止归各标签本地：输入区底行发送/停止双态按钮直停本标签
   （2026-0724-2305 计划 T5，替代原全局停止按钮 + _route_stop 路由）
 
@@ -51,7 +51,6 @@ from gui.settings import (
     remember_model_version,
     update_settings,
 )
-from llm import VENDOR_LABELS, vendor_of
 
 
 class ChatTabs(QWidget):
@@ -87,8 +86,8 @@ class ChatTabs(QWidget):
         self._workspace_root = workspace_root
         self._tab_seq = 0  # 序号：非全关不复用（防指代漂移）；全关即重置
         self._busy_panels: set[ChatPanel] = set()
-        #: 标签序号簿记（panel → 会话 N）：标题「会话 N · 后台名」切换时
-        #: 更新需要原序号；关闭时随 panel 一并剔除
+        #: 标签序号簿记（panel → 会话 N）：标题「会话 N」的序号来源；
+        #: 关闭时随 panel 一并剔除
         self._tab_numbers: dict[ChatPanel, int] = {}
         self._load_injection_value()
 
@@ -206,14 +205,11 @@ class ChatTabs(QWidget):
         panel.model_bar.set_busy(panel in self._busy_panels)
 
     def _tab_title(self, panel: ChatPanel) -> str:
-        """标签标题「会话 N · 后台显示名」（2026-0803-0112 计划 D6）：
-        异构后同名标签不可辨识；取后台级显示名（VENDOR_LABELS），不取
-        接口 label（标题寸土寸金；同一后台多接口为一期不考虑的边缘形态）。"""
+        """标签标题恒为「会话 N」（2026-08-03 用户决策）：异构后台后标题
+        曾拼后台显示名（D6「会话 N · Kimi」）以辨识标签，用户认定画蛇
+        添足予以去除——后台辨识归各标签底部 ModelBar，不占标签标题。"""
         number = self._tab_numbers.get(panel, 0)
-        backend = panel.model_bar.current_backend()
-        vendor_label = VENDOR_LABELS.get(
-            vendor_of(backend or "") or "", backend or "?")
-        return f"会话 {number} · {vendor_label}"
+        return f"会话 {number}"
 
     def _close_tab(self, index: int) -> None:
         """关闭标签：允许关到 0（全关重置序号、切占位页）；清理异步化。
@@ -249,7 +245,7 @@ class ChatTabs(QWidget):
     # ------------------------------------------------------------------
     def _on_selection_changed(self, sender: ChatPanel, backend: str, version: object) -> None:
         """某标签底行下拉用户切换 → 本标签 provider 切换 + 注入值更新 +
-        写盘 + 该标签标题更新。
+        写盘。
 
         不再广播其余标签——各标签选择独立（D1）。sender 必须为当前活动
         标签才更新注入值与写盘：注入值语义 = 「最近一次用户显式切换」，
@@ -273,9 +269,6 @@ class ChatTabs(QWidget):
         # 本标签 provider 切换（原经广播路径完成；set_model_selection 内
         # ModelBar.set_selection 全程阻断信号，不回环、不重复写盘）
         sender.set_model_selection(backend, self._version)
-        index = self._tabs.indexOf(sender)
-        if index >= 0:
-            self._tabs.setTabText(index, self._tab_title(sender))
         # 设置中心展示值跟随当前标签（载荷用 ModelBar 回退后有效值，
         # 与 UI 一致；version 为 None 时 ModelBar 已落记忆/首项）
         self.selection_changed.emit(
@@ -305,9 +298,6 @@ class ChatTabs(QWidget):
         # 传解析后的注入值（version=None 已查记忆表），与改造前广播路径
         # 语义一致；set_model_selection 内 UI 阻断同步不回环
         current.set_model_selection(backend, self._version)
-        index = self._tabs.indexOf(current)
-        if index >= 0:
-            self._tabs.setTabText(index, self._tab_title(current))
         # 回退后的有效值以 ModelBar 为准（失效 backend 被静默回退时，
         # 设置中心展示真实落点而非请求值）
         self.selection_changed.emit(
