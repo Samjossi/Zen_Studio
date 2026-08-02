@@ -66,6 +66,7 @@ from gui.panels import FileExplorer, ViewerPanel
 from gui.panels.changes import ChangesPanel
 from gui.panels.chat import ChatTabs
 from gui.panels.terminal import TerminalPanel
+from gui.git_graph_dialog import GitGraphDialog
 from gui.recent_projects import RecentProjectsStore
 from gui.settings import (
     CONFIG_DIR,
@@ -132,6 +133,8 @@ class MainWindow(QMainWindow):
 
         #: 设置中心对话框（非模态单例，首次打开时惰性创建）
         self._settings_dialog: SettingsDialog | None = None
+        #: 提交历史图对话框（非模态单例，同设置中心惰性创建模式）
+        self._git_graph_dialog: GitGraphDialog | None = None
         #: 对话框同步挂起计数（>0 时 _sync_settings_dialog 短路）：批量应用路径
         #: （如 reset_settings 多槽连发）挂起期间各槽内置 sync 被抑制，结束后
         #: 单次终态 reload，避免 N 槽触发 N+1 次全量 reload（flock 磁盘读）
@@ -561,6 +564,18 @@ class MainWindow(QMainWindow):
             self._settings_dialog.reload()
 
     # ------------------------------------------------------------------
+    # 提交历史图对话框（视图菜单 ▸ 提交历史图；非模态单例）
+    # ------------------------------------------------------------------
+    def show_git_graph(self) -> None:
+        """打开提交历史图：首次惰性创建，重复打开 raise 现有实例。"""
+        if self._git_graph_dialog is None:
+            self._git_graph_dialog = GitGraphDialog(
+                self.git_controller.service, self)
+        self._git_graph_dialog.show()
+        self._git_graph_dialog.raise_()
+        self._git_graph_dialog.activateWindow()
+
+    # ------------------------------------------------------------------
     # 设置菜单槽
     # ------------------------------------------------------------------
     #: 字号调整上下界（pt）
@@ -585,6 +600,9 @@ class MainWindow(QMainWindow):
             # 设置中心页标题/黑名单等宽区字号相对派生自全局字号，随链重刷
             # （须在 apply_theme(app) 重设全局字体之后调用）
             self._settings_dialog.apply_font_size()
+        if self._git_graph_dialog is not None:
+            # 提交历史图等宽文本区字号跟随全局（同查看器/终端先例）
+            self._git_graph_dialog.refresh_font()
         self._sync_settings_dialog()
         self.statusBar().showMessage(f"字号：{size} pt", self.STATUS_MSG_SHORT_MS)
 
