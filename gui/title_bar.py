@@ -1,8 +1,9 @@
 """自定义标题栏（2026-07-30，见 文档/修改记录/2026-0730-0007_自定义标题栏增量实施计划.md）。
 
 配合 `Qt.WindowType.FramelessWindowHint` 无边框窗口使用：
-- 左侧：Logo（SVG 优先，PNG 兜底，16×16）+ 标题文字（跟随 windowTitle，
-  多开窗口的根路径标注经 windowTitleChanged 信号同步，不丢现有功能）；
+- 左侧：Logo（SVG 优先，PNG 兜底，16×16）+ 固定标题文字 "Zen Studio"
+  （不再跟随 windowTitle 的根路径标注；windowTitle 保留路径仅供
+  任务栏/Alt-Tab 区分多开窗口）；
 - 右侧：最小化（—）/ 最大化（□⇄❐）/ 关闭（×）三按钮；
 - 交互：左键拖拽移动（优先 `QWindow.startSystemMove()` 由 WM 接管，
   Wayland/X11 流畅无闪烁；不支持时降级手动 move 兜底）、双击切换最大化、
@@ -109,9 +110,10 @@ class TitleBar(QWidget):
         self._btn_max.clicked.connect(self.toggle_maximize)
         self._btn_close.clicked.connect(window.close)
 
-        # 标题跟随 windowTitle（含多开窗口的根路径标注），窗口态变化同步 □⇄❐
-        self._title_label.setText(window.windowTitle())
-        window.windowTitleChanged.connect(self._title_label.setText)
+        # 标题固定为软件名（不再跟随 windowTitle 的根路径标注——根路径显示
+        # 已有文件资源管理器等面板承担；windowTitle 保留路径仅供任务栏/Alt-Tab
+        # 区分多开窗口），窗口态变化同步 □⇄❐
+        self._title_label.setText("Zen Studio")
         window.installEventFilter(self)
         self._sync_max_button()
 

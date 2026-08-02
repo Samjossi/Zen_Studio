@@ -1,4 +1,4 @@
-"""视图菜单：面板显隐 / 恢复默认布局 / Git 刷新 / 外观（主题）。
+"""视图菜单：面板显隐 / 恢复默认布局 / Git 刷新 / 文件树刷新 / 外观（主题）。
 
 面板显隐沿用「单一入口」法：勾选动作与面板头部「−」按钮汇入 MainWindow
 的 set_xxx_visible（setChecked 不触发 triggered，勾选态须一并同步）。
@@ -47,6 +47,11 @@ def build(menubar: QMenuBar, ctx: QMainWindow, actions: ActionRegistry) -> None:
     action = menu.addAction("刷新 Git 状态(&G)")
     action.triggered.connect(ctx.git_controller.refresh)
     actions.register("view.git_refresh", action)
+
+    # 文件树手动刷新：watcher 溢出/外部批量改动致状态滞留时由用户触发全量重读
+    action = menu.addAction("刷新文件树(&F)")
+    action.triggered.connect(ctx.file_explorer.refresh)
+    actions.register("view.file_tree_refresh", action)
 
     menu.addSeparator()
 

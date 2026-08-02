@@ -12,7 +12,7 @@
 from collections.abc import Callable
 from pathlib import Path
 
-from PySide6.QtCore import QDir, QMimeData, QUrl, Signal, Qt
+from PySide6.QtCore import QDir, QItemSelectionModel, QMimeData, QUrl, Signal, Qt
 from PySide6.QtGui import QDrag
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -77,6 +77,8 @@ class FileExplorer(QWidget):
         self.root_dir = str(Path(root_dir).resolve())
         #: 已注入的 Git 状态服务（apply_git_status 设置，主题切换时复用）
         self._git_service = None
+        #: 手动刷新待回填状态（expanded 路径集, selected 路径集）；None = 无刷新任务
+        self._refresh_restore: tuple[set[str], set[str]] | None = None
         self.setMinimumWidth(self.MIN_WIDTH)
         self.setObjectName("SidePanel")  # 侧栏灰底分区（主题 qss 统一着色）
         # 自定义 QWidget 子类的 qss 背景需 WA_StyledBackground 才会绘制
@@ -84,6 +86,8 @@ class FileExplorer(QWidget):
 
         self._build_model()
         self._build_tree()
+        # 手动刷新的展开/选中回填接力（无刷新任务时槽内立即返回）
+        self.model.directoryLoaded.connect(self._on_directory_loaded)
         # 右键动作集：组合注入（依赖显式化，见 actions.py 构造函数签名）
         self._actions = ExplorerActions(
             host=self,
@@ -172,6 +176,54 @@ class FileExplorer(QWidget):
             theme,
         )
         self.proxy.refresh_colors()
+
+    def refresh(self) -> None:
+        """手动刷新文件树（视图菜单「刷新文件树」入口）。
+
+        QFileSystemModel 依赖系统 watcher 增量更新，watcher 溢出
+        （inotify 上限/网络盘/外部批量改动）时状态会滞留；此处脱根重挂
+        强制全量重读，展开状态与选中项经 directoryLoaded 异步回填，
+        刷新后用户视角树形不变。
+        """
+        expanded: set[str] = set()
+        self._collect_expanded(self.tree.rootIndex(), expanded)
+        self._refresh_restore = (expanded, set(self._selected_paths()))
+        # 先脱根清 watcher/缓存节点，再重挂触发全量重读
+        self.model.setRootPath("")
+        self.model.setRootPath(self.root_dir)
+        self.tree.setRootIndex(self.proxy.mapFromSource(self.model.index(self.root_dir)))
+
+    # ------------------------------------------------------------------
+    # 内部：手动刷新的展开/选中状态回填
+    # ------------------------------------------------------------------
+    def _collect_expanded(self, parent_index, out: set[str]) -> None:
+        """递归收集已展开节点的文件路径（未展开节点子项未入模型，rowCount=0 自然剪枝）。"""
+        for row in range(self.proxy.rowCount(parent_index)):
+            index = self.proxy.index(row, 0, parent_index)
+            if self.tree.isExpanded(index):
+                out.add(self._file_path(index))
+                self._collect_expanded(index, out)
+
+    def _on_directory_loaded(self, path: str) -> None:
+        """目录异步加载完成：接力回填手动刷新前的展开状态与选中项。"""
+        if self._refresh_restore is None:
+            return
+        expanded, selected = self._refresh_restore
+        parent = self.proxy.mapFromSource(self.model.index(path))
+        for row in range(self.proxy.rowCount(parent)):
+            index = self.proxy.index(row, 0, parent)
+            file_path = self._file_path(index)
+            if file_path in expanded:
+                # expand 触发该节点异步加载，directoryLoaded 接力深层回填
+                self.tree.expand(index)
+                expanded.discard(file_path)
+            if file_path in selected:
+                self.tree.selectionModel().select(
+                    index, QItemSelectionModel.SelectionFlag.Select
+                           | QItemSelectionModel.SelectionFlag.Rows)
+                selected.discard(file_path)
+        if not expanded and not selected:
+            self._refresh_restore = None
 
     # ------------------------------------------------------------------
     # 内部：选中项辅助
