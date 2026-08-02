@@ -390,6 +390,9 @@ class MainWindow(QMainWindow):
         if self._settings_dialog is not None:
             # 设置中心内联 style（hint/分隔线）不受 app 级 qss 管辖，随链重刷
             self._settings_dialog.apply_theme(theme)
+        if self._git_graph_dialog is not None:
+            # 提交历史图委托自绘色/降级富文本色随链重渲染（缓存数据，不重复 spawn git）
+            self._git_graph_dialog.apply_theme(theme)
         if action := self.menus.get(theme_action_key(theme)):
             action.setChecked(True)
         self._sync_settings_dialog()

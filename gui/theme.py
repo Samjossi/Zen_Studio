@@ -91,6 +91,16 @@ class GitStatusPack(TypedDict):
     conflict: str
 
 
+#: Git 提交历史图配色包键（refs 徽标四型 + hash 文本色；图线色复用
+#: TERMINAL_PACK 不另设键——1542 计划 D4/D6。kind 枚举见 core/git/log.py）
+class GitGraphPack(TypedDict):
+    head: str
+    branch: str
+    tag: str
+    remote: str
+    hash_fg: str
+
+
 #: 聊天面板配色包键
 class ChatPack(TypedDict):
     reasoning_fg: str
@@ -161,6 +171,16 @@ GIT_STATUS_PACK: GitStatusPack = {
     "deleted": "#c0392b",    # 红
     "ignored": "#a8a8a8",    # 灰
     "conflict": "#d40000",   # 强红
+}
+
+#: Git 提交历史图配色包（refs 徽标四型分色 + hash 弱化色；徽标背景/边框
+#: 由消费方按色值派生透明度，不另设键。四主题均为亮色，共享单套）
+GIT_GRAPH_PACK: GitGraphPack = {
+    "head": "#a02c91",     # 品红（HEAD 特殊位）
+    "branch": "#1f8a3d",   # 绿（本地分支）
+    "tag": "#a05000",      # 棕橙（标签）
+    "remote": "#168396",   # 青（远程分支）
+    "hash_fg": "#767676",  # 灰（短 hash 弱化）
 }
 
 #: UI 警示色单一来源（危险操作/高危选项文案；PermissionDialog 危险原因行、
@@ -262,6 +282,7 @@ THEME_PALETTES: dict[str, dict] = {
         },
         "syntax": SYNTAX_PACK, "terminal": TERMINAL_PACK,
         "chrome": CHROME_PACK, "git_status": GIT_STATUS_PACK, "chat": CHAT_PACK,
+        "git_graph": GIT_GRAPH_PACK,
     },
     "wheat": {
         "label": "暖米",
@@ -297,6 +318,7 @@ THEME_PALETTES: dict[str, dict] = {
         },
         "syntax": SYNTAX_PACK, "terminal": TERMINAL_PACK,
         "chrome": CHROME_PACK, "git_status": GIT_STATUS_PACK, "chat": CHAT_PACK,
+        "git_graph": GIT_GRAPH_PACK,
     },
     "sky": {
         "label": "晴空",
@@ -332,6 +354,7 @@ THEME_PALETTES: dict[str, dict] = {
         },
         "syntax": SYNTAX_PACK, "terminal": TERMINAL_PACK,
         "chrome": CHROME_PACK, "git_status": GIT_STATUS_PACK, "chat": CHAT_PACK,
+        "git_graph": GIT_GRAPH_PACK,
     },
     "mint": {
         "label": "薄荷",
@@ -367,6 +390,7 @@ THEME_PALETTES: dict[str, dict] = {
         },
         "syntax": SYNTAX_PACK, "terminal": TERMINAL_PACK,
         "chrome": CHROME_PACK, "git_status": GIT_STATUS_PACK, "chat": CHAT_PACK,
+        "git_graph": GIT_GRAPH_PACK,
     },
 }
 
@@ -382,6 +406,11 @@ def get_theme_palette(theme: str) -> dict:
 def git_status_color(theme: str, status: str) -> str | None:
     """主题名 + Git 状态 → 十六进制色值；未知状态返回 None（不着色）。"""
     return get_theme_palette(theme)["git_status"].get(status)
+
+
+def git_graph_color(theme: str, kind: str) -> str | None:
+    """主题名 + refs 徽标类型/hash_fg → 十六进制色值；未知键返回 None。"""
+    return get_theme_palette(theme)["git_graph"].get(kind)
 
 
 #: 自带 UI 字体目录（assets/fonts/思源黑体/，全量 7 档，运行时注册其中三档）
