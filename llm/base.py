@@ -80,6 +80,16 @@ class ToolCallPayload(TypedDict, total=False):
     summary: str        # 参数摘要（协议层预格式化单行，GUI 不解析 rawInput）
     is_subagent: bool   # tool_kind="think"（task 子代理）时 True（D5 标记）
     command: str        # execute 工具的完整命令（1836 计划 L2-3 输出卡 `$ ` 头）
+    #: edit 类 diff 预格式化计数 `+N −M`（0645 融合计划 T1，difflib 生成）
+    diff_stat: str
+    #: edit 类预解析 hunk 列表 [{head, lines:[(前缀 +/-//空格, 文本)]}]，
+    #: 只留 hunk 不留全文，软上限 1000 行 + truncated 标记（0645 计划 D4）
+    diff_hunks: list[dict]
+    #: diff_hunks 被软上限截断时 True（卡 body 尾注用）
+    diff_truncated: bool
+    #: 通用入参区（0645 计划 D3）：rawInput 关键字段按 kind 预格式化多行
+    #: 文本（已知键 + JSON pretty 兜底），GUI 直渲不解析 rawInput
+    input_detail: str
 
 
 class ToolUpdatePayload(TypedDict, total=False):
@@ -87,11 +97,20 @@ class ToolUpdatePayload(TypedDict, total=False):
     tool_call_id: str
     status: str         # in_progress / completed / failed
     title: str          # 路由层自簿记补入（协议层不携带，total=False）
-    error: str          # failed 时的错误首行（预截断；尽力而为，可缺省）
-    output: str         # 输出正文（1836 计划 L2-3：净化 + 截尾末 N 行；
-                        # 路由层仅 execute 工具放行上屏，其余丢弃）
-    output_total_lines: int  # 输出原始行数（截尾前；GUI 超限行尾注用）
+    error: str          # failed 时的错误首行（预截断 80；旧轨行内尾注保留）
+    #: failed 完整错误文本（0645 计划 §2.3-5：净化 + 软上限 1000 行保尾；
+    #: 新轨 failed 卡 body 数据源，旧轨不消费）
+    error_detail: str
+    output: str         # 输出正文（0645 计划 §2.3-1 升级：净化 + 软上限
+                        # 1000 行，方向按 kind——execute 保尾、其余保头；
+                        # in_progress 帧为尾窗规格截尾末 5 行；
+                        # 旧轨路由层仅 execute 工具放行上屏，其余丢弃；
+                        # 新轨全工具卡 body 承接）
+    output_total_lines: int  # 输出原始行数（截断前；GUI 超限行尾注用）
     command: str        # 路由层自簿记补入（execute 命令，输出卡 `$ ` 头）
+    #: think（task 子代理）completed 帧成果摘要（0645 计划 D5：`<task_result>`
+    #: 提取、无标记取全文、全量不截 10 行——软上限 1000 行保头由协议层执行）
+    result_summary: str
 
 
 class TodoEntry(TypedDict, total=False):

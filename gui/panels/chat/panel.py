@@ -18,6 +18,15 @@ AI 活动信息路由（2026-07-31，文档/修改记录/2026-0731-1602 计划 T
   toolCallId→title 簿记补全状态行标题；轮次收尾 reset_activity_anchors
   作废 todo 锚点（T5-4 防跨轮串位）
 
+对话区双轨渲染（2026-08-03，work plans/2026-0803-0645 融合计划 D2-A）：
+- 构造时按 chat_renderer 设置选轨：cards = ChatTranscriptView 卡片折叠轨
+  （新，默认；QScrollArea + 块级 QWidget，KiloCode 式卡片）；classic =
+  ChatOutput 旧轨（冻结保留即回退通道）；存量标签不热切换
+- 新轨路由差异：取消非 execute 工具的 output 剥除（全工具卡 body 承接，
+  §2.3-2）；in_progress 尾滚帧仅 execute + 200ms 节流（T8）；旧轨维持
+  剥除纪律且 execute 输出钳回末 20 行（1836 L2-3 规格，协议层 0645 起
+  放宽至软上限 1000 行，旧轨渲染规格由路由层钳制不变）
+
 会话活动时间线色块条（2026-07-31，文档/修改记录/2026-0731-1824 计划 T3；
 挂载点 2242 计划方案 F 迁移）：
 - ActivityTimeline 细条与上下文用量徽章同行组成状态行（左条右徽），
@@ -42,6 +51,7 @@ AI 活动信息路由（2026-07-31，文档/修改记录/2026-0731-1602 计划 T
   (Esc)」、Multi_Cli_Studio Escape 中断）
 """
 import threading
+import time
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QThread, QTimer, Signal
@@ -64,8 +74,14 @@ from gui.panels.chat.model_bar import ModelBar
 from gui.panels.chat.output import ChatOutput
 from gui.panels.chat.permission_queue import PERMISSION_QUEUE
 from gui.panels.chat.timeline import ActivityTimeline
+from gui.panels.chat.transcript import ChatTranscriptView
 from gui.panels.chat.worker import ChatWorker
-from gui.settings import KEY_PERMISSION_MODE, KEY_THEME
+from gui.settings import (
+    CHAT_RENDERER_CARDS,
+    KEY_CHAT_RENDERER,
+    KEY_PERMISSION_MODE,
+    KEY_THEME,
+)
 from gui.theme import get_theme_palette, load_settings
 from gui.window_state import decode_state, encode_state
 from llm import (
@@ -142,13 +158,23 @@ class ChatPanel(QWidget):
         self._usage_timer.timeout.connect(self._poll_usage_tick)
 
         chat_pack = get_theme_palette(load_settings()[KEY_THEME])["chat"]
-        self.output = ChatOutput(
-            chat_pack["reasoning_fg"], chat_pack["tool_fg"],
-            chat_pack["tool_error_fg"], chat_pack["user_bubble_bg"],
-            chat_pack["tool_output_bg"],
-            # L2-5 链接色复用 timeline_read_fg（VS Code textLink-foreground
-            # 同源值，单一来源纪律不新增键）
-            chat_pack["timeline_read_fg"], self)
+        # 双轨并存（0645 融合计划 D2-A）：cards 卡片折叠轨（新，默认）/
+        # classic 旧轨 ChatOutput（冻结保留，即回退通道）；构造时选轨，
+        # 存量标签不热切换（设置项 hint 已注明新建标签生效）
+        self._cards_track = load_settings()[KEY_CHAT_RENDERER] == CHAT_RENDERER_CARDS
+        if self._cards_track:
+            self.output = ChatTranscriptView(chat_pack, self)
+        else:
+            self.output = ChatOutput(
+                chat_pack["reasoning_fg"], chat_pack["tool_fg"],
+                chat_pack["tool_error_fg"], chat_pack["user_bubble_bg"],
+                chat_pack["tool_output_bg"],
+                # L2-5 链接色复用 timeline_read_fg（VS Code textLink-foreground
+                # 同源值，单一来源纪律不新增键）
+                chat_pack["timeline_read_fg"], self)
+        #: bash 运行中尾滚节流簿记（0645 计划 T8：tid → 末次上屏
+        #: time.monotonic()；200ms 内到达的快照帧丢弃，终态帧不经过本簿记）
+        self._tail_last: dict[str, float] = {}
         self.timeline = ActivityTimeline(_timeline_colors(chat_pack), self)
         self.input = ChatInput(
             # 选区带色与 ChatOutput 同源（timeline_read_fg 复用，不新增主题键）
@@ -521,6 +547,9 @@ class ChatPanel(QWidget):
         self.output.set_card_colors(
             chat_pack["user_bubble_bg"], chat_pack["tool_output_bg"],
             chat_pack["timeline_read_fg"])
+        if self._cards_track:  # 0645 计划 T9：diff 红绿（仅新轨消费）
+            self.output.set_diff_colors(
+                chat_pack["diff_add_fg"], chat_pack["diff_del_fg"])
         self.timeline.set_colors(_timeline_colors(chat_pack))
         self.attachments.set_chip_color(chat_pack["user_bubble_bg"])
         self._apply_usage_label_style(theme)
@@ -631,6 +660,7 @@ class ChatPanel(QWidget):
         self._has_seen_reasoning = False
         self._tool_titles = {}
         self._tool_commands = {}
+        self._tail_last = {}
 
         messages: list[Message] = list(self._history)
 
@@ -701,14 +731,38 @@ class ChatPanel(QWidget):
             if not payload.get("title"):
                 payload = {**payload,
                            "title": self._tool_titles.get(tid, tid[:8] or "?")}
-            # L2-3 bash 输出卡：仅 execute 工具（有 command 簿记者）放行
-            # 输出正文并补 `$ ` 头；其余工具长输出丢弃（防 read/edit 刷屏）
-            if payload.get("output"):
-                if tid in self._tool_commands:
+            if self._cards_track:
+                # 新轨（0645 计划 §2.3-2）：取消非 execute 工具的 output 剥除
+                # ——所有工具的 output 随载荷进渲染层，由对应卡 body 承接
+                if payload.get("status") == "in_progress":
+                    # 尾滚帧（§2.1 BashCard 运行中实时帧）：仅 execute 工具、
+                    # 仅带输出帧，同 tid 200ms 节流（丢弃中间帧，终态帧不经
+                    # 本分支不受节流影响）
+                    if tid not in self._tool_commands or not payload.get("output"):
+                        return
+                    now = time.monotonic()
+                    if now - self._tail_last.get(tid, 0.0) < _TAIL_THROTTLE_S:
+                        return
+                    self._tail_last[tid] = now
+                if payload.get("output") and tid in self._tool_commands:
                     payload = {**payload, "command": self._tool_commands[tid]}
-                else:
-                    payload = {k: v for k, v in payload.items() if k != "output"}
-            self.output.append_tool_update(payload)
+                self.output.append_tool_update(payload)
+            else:
+                # 旧轨（冻结）：in_progress 不上屏；L2-3 bash 输出卡仅
+                # execute 工具（有 command 簿记者）放行输出正文并补 `$ ` 头，
+                # 其余工具长输出丢弃（防 read/edit 刷屏）；execute 输出钳回
+                # 末 20 行（1836 L2-3 规格——协议层 0645 起放宽至软上限
+                # 1000 行，旧轨渲染规格不变由本路由钳制）
+                if payload.get("output"):
+                    if tid in self._tool_commands:
+                        lines = payload["output"].split("\n")
+                        if len(lines) > _LEGACY_OUTPUT_KEEP_LINES:
+                            payload = {**payload,
+                                       "output": "\n".join(lines[-_LEGACY_OUTPUT_KEEP_LINES:])}
+                        payload = {**payload, "command": self._tool_commands[tid]}
+                    else:
+                        payload = {k: v for k, v in payload.items() if k != "output"}
+                self.output.append_tool_update(payload)
         else:
             self.output.upsert_todo_block(payload.get("entries") or [])
 
@@ -768,6 +822,15 @@ class ChatPanel(QWidget):
         self._send_button.style().unpolish(self._send_button)
         self._send_button.style().polish(self._send_button)
         self.input.setPlaceholderText(busy_text)
+
+
+#: 旧轨 bash 输出卡截尾行数（1836 计划 L2-3 规格；0645 起协议层放宽至
+#: 软上限 1000 行，旧轨冻结不改由路由层钳回——与 acp._OUTPUT_KEEP_LINES
+#: 同值同步，改一处须同步）
+_LEGACY_OUTPUT_KEEP_LINES = 20
+
+#: bash 运行中尾滚节流间隔（秒，0645 计划 T8/0619-T6-2 规格）
+_TAIL_THROTTLE_S = 0.2
 
 
 def _timeline_colors(chat_pack: dict) -> dict[str, str]:

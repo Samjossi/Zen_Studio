@@ -112,6 +112,10 @@ class ChatPack(TypedDict):
     timeline_tool_fg: str
     user_bubble_bg: str
     tool_output_bg: str
+    #: diff 卡 hunk 逐行着色（0645 融合计划 T9，1425 封存款 K7 色值直抄；
+    #: 仅新轨卡片视图消费，四主题共享引用纪律不变）
+    diff_add_fg: str
+    diff_del_fg: str
 
 
 #: 标题栏配色包键（无边框自绘标题栏 TitleBar 专用，见 gui/title_bar.py；
@@ -205,7 +209,9 @@ WARNING_COLOR = "#c0392b"
 #: 终端包 cyan 同值青蓝拉开区分度（截图走查实证调优）；
 #: 条上 text/reasoning 复用 reasoning_fg、todo 复用 tool_fg、error 复用
 #: tool_error_fg，不另设键——单一来源纪律；read 色（VS Code 链接前景色
-#: 同源）兼作正文文件路径链接色，1836 计划 L2-5 复用不新增键）
+#: 同源）兼作正文文件路径链接色，1836 计划 L2-5 复用不新增键）；
+#: diff_add_fg / diff_del_fg diff 卡 hunk 逐行红绿（0645 融合计划 T9，
+#: 1425 封存款 K7 色值直抄，仅新轨卡片视图消费）
 CHAT_PACK: ChatPack = {
     "reasoning_fg": "#888888",
     "usage_hot_fg": WARNING_COLOR,
@@ -216,6 +222,8 @@ CHAT_PACK: ChatPack = {
     "timeline_tool_fg": "#168396",
     "user_bubble_bg": "#ededf0",
     "tool_output_bg": "#f5f5f7",
+    "diff_add_fg": "#3a8437",
+    "diff_del_fg": "#ed4831",
 }
 
 # ----------------------------------------------------------------------

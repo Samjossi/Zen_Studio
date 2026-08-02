@@ -12,6 +12,7 @@ PermissionHandler/_TurnMessage）是 ACP 协议层产物，不属 kimi 专有，
 随连接层同居本模块。
 """
 import base64
+import difflib
 import json
 import queue
 import re
@@ -166,17 +167,22 @@ def _truncate_line(text: object) -> str | None:
     return line if len(line) <= _SUMMARY_MAX else line[: _SUMMARY_MAX - 1] + "…"
 
 
-_OUTPUT_KEEP_LINES = 20  # bash 输出卡截尾行数（1836 计划 L2-3）
-_OUTPUT_LINE_MAX = 300   # 输出单行字符上限（防 minified 单行撑爆卡片）
+_OUTPUT_KEEP_LINES = 20      # 旧轨 bash 输出卡截尾行数（1836 计划 L2-3；
+                             # 新轨起协议层不再按此截断，旧轨由路由层钳制，
+                             # 见 panel._on_activity_chunk 旧轨分支）
+_OUTPUT_LINE_MAX = 300       # 输出单行字符上限（防 minified 单行撑爆卡片）
+_BODY_SOFT_LIMIT_LINES = 1000  # 卡 body 正文软上限（0645 计划 D2；折叠载体下
+                               # 唯一保留的截断——性能护栏而非版面妥协）
+_TAIL_WINDOW_LINES = 5         # in_progress 尾窗行数（0645 计划 §2.1 BashCard
+                               # 运行中实时帧规格，同 0619-T6）
 
 
-def _extract_tool_output(update: dict) -> tuple[str, int] | None:
-    """tool_call_update 输出正文提取（1836 计划 L2-3）：rawOutput.output
-    → content 文本项兜底拼接；净化（ANSI/`\\r`）+ 单行截断 + 截尾末 N 行。
+def _extract_raw_output(update: dict) -> str | None:
+    """tool_call_update 原始输出全文提取（0645 计划 T1 重构）：
+    rawOutput.output → content 文本项兜底拼接；净化（ANSI/`\\r`）+ 单行截断，
+    **不做行数截断**（截断档位与方向归调用方按 kind/status 决定，§2.3-1）。
 
-    返回 (截尾正文, 原始行数)；无有效输出返回 None。数据装载不分工具
-    kind（update 帧常缺 kind，F3）——execute 过滤归路由层（非 execute
-    工具不上屏输出卡，防 read/edit 长文刷屏）。
+    无有效输出返回 None。数据装载不分工具 kind（update 帧常缺 kind，F3）。
     """
     raw = update.get("rawOutput")
     # rawOutput 三态分流：dict 走 .output；str 为中止/失败场景的纯文本
@@ -198,13 +204,158 @@ def _extract_tool_output(update: dict) -> tuple[str, int] | None:
     output = _clean_terminal_text(output).strip("\n")
     if not output.strip():
         return None
-    lines = [line if len(line) <= _OUTPUT_LINE_MAX
-             else line[: _OUTPUT_LINE_MAX - 1] + "…"
-             for line in output.split("\n")]
+    return "\n".join(
+        line if len(line) <= _OUTPUT_LINE_MAX
+        else line[: _OUTPUT_LINE_MAX - 1] + "…"
+        for line in output.split("\n"))
+
+
+def _truncate_lines(text: str, keep_lines: int, keep_tail: bool) -> tuple[str, int]:
+    """行数软上限截断（0645 计划 §2.4）：方向按 kind——execute 保尾（排障
+    看尾），read/search/fetch/think 保头（读/搜/抓取看头）。
+
+    返回 (截断后正文, 原始行数)；原始行数恒为截断前值供尾注「共 N 行」。
+    """
+    lines = text.split("\n")
     total = len(lines)
-    if total > _OUTPUT_KEEP_LINES:
-        lines = lines[-_OUTPUT_KEEP_LINES:]
+    if total > keep_lines:
+        lines = lines[-keep_lines:] if keep_tail else lines[:keep_lines]
     return "\n".join(lines), total
+
+
+def _extract_tool_output(
+    update: dict,
+    keep_lines: int = _BODY_SOFT_LIMIT_LINES,
+    keep_tail: bool = True,
+) -> tuple[str, int] | None:
+    """tool_call_update 输出正文提取：全文提取（_extract_raw_output）+
+    参数化截断（0645 计划 §2.3-1：行数档位与截断方向双参数）。
+
+    返回 (截断正文, 原始行数)；无有效输出返回 None。
+    """
+    if (raw_text := _extract_raw_output(update)) is None:
+        return None
+    return _truncate_lines(raw_text, keep_lines, keep_tail)
+
+
+# ----------------------------------------------------------------------
+# diff / 成果摘要 / 入参详情（0645 融合计划 T1：信息全量化载荷扩展）
+# ----------------------------------------------------------------------
+_TASK_RESULT_RE = re.compile(r"<task_result>(.*?)</task_result>", re.DOTALL)
+
+
+def _extract_diff(content: object) -> tuple[str, list[dict], bool] | None:
+    """tool_call.content[] 的 diff 项 → (`+N −M` 计数, hunk 列表, 截断标记)。
+
+    0645 计划 D4（1425 封存款 K7 摘用并放宽）：oldText/newText 经 difflib
+    生成 unified hunk（n=3 上下文），**只留 hunk 不留全文**；行数软上限
+    _BODY_SOFT_LIMIT_LINES（0619 的 200 行规格在折叠载体下放宽，§1.2），
+    超限截断并置 truncated=True（卡 body 尾注用）。
+    diff 项非协议必填：无 diff 项返回 None（缺省降级，不臆造）。
+
+    hunk 结构：[{head: str, lines: list[tuple[str, str]]}]，lines 为
+    (前缀 `+`/`-`/空格, 文本)；`---`/`+++` 文件头行丢弃（路径已在标题行）。
+    """
+    if not isinstance(content, list):
+        return None
+    hunks: list[dict] = []
+    adds = dels = 0
+    for item in content:
+        if not isinstance(item, dict):
+            continue
+        old_text = item.get("oldText")
+        new_text = item.get("newText")
+        if not isinstance(old_text, str) and not isinstance(new_text, str):
+            continue  # 非 diff 项（ACP diff 项两键至少其一，新建文件 oldText 缺省）
+        diff_iter = difflib.unified_diff(
+            (old_text or "").splitlines(),
+            (new_text or "").splitlines(),
+            n=3, lineterm="")
+        current: dict | None = None
+        for row in diff_iter:
+            if row.startswith(("---", "+++")):
+                continue
+            if row.startswith("@@"):
+                current = {"head": row, "lines": []}
+                hunks.append(current)
+                continue
+            if current is None:
+                continue  # 理论不可达（unified_diff 首行即 @@），防御跳过
+            prefix = row[:1] if row[:1] in ("+", "-") else " "
+            if prefix == "+":
+                adds += 1
+            elif prefix == "-":
+                dels += 1
+            current["lines"].append((prefix, row[1:] if row else ""))
+    if not hunks:
+        return None
+    # 软上限截断（保头：diff 从前往后读）
+    truncated = False
+    budget = _BODY_SOFT_LIMIT_LINES
+    kept: list[dict] = []
+    for hunk in hunks:
+        cost = 1 + len(hunk["lines"])
+        if cost > budget:
+            truncated = True
+            break
+        budget -= cost
+        kept.append(hunk)
+    if kept and sum(1 + len(h["lines"]) for h in hunks) > _BODY_SOFT_LIMIT_LINES:
+        truncated = truncated or len(kept) < len(hunks)
+    return f"+{adds} −{dels}", kept, truncated
+
+
+def _extract_result_summary(text: str) -> str:
+    """task 子代理成果摘要（1425 封存款 K2，0645 计划 D5 放宽）：
+    `<task_result>...</task_result>` 正则提取；无包裹标记取全文兜底。
+    行数软上限保头由调用方统一执行（不再硬截 10 行）。
+    """
+    match = _TASK_RESULT_RE.search(text)
+    return (match.group(1) if match else text).strip("\n")
+
+
+#: 通用入参区已知键（0645 计划 D3：按 kind 取 rawInput 关键字段，
+#: 未命中任何已知键时 JSON pretty 兜底——「尽可能全」的兜底保证，
+#: 即使专门渲染未覆盖的字段也不丢信息）
+_INPUT_DETAIL_KEYS: dict[str, tuple[str, ...]] = {
+    "execute": ("command",),
+    "edit": ("path", "filePath", "oldString", "newString"),
+    "read": ("path", "filePath", "offset", "limit"),
+    "search": ("pattern", "query", "path", "include"),
+    "fetch": ("url",),
+    "think": ("description", "prompt", "subagent_type"),
+}
+_INPUT_DETAIL_VALUE_MAX = 2000  # 单字段值字符上限（入参区是兜底非主渲染）
+
+
+def _format_input_detail(update: dict) -> str | None:
+    """rawInput → 入参区预格式化多行文本（协议层单点格式化纪律不变：
+    GUI 直渲不碰 rawInput 各家差异）。
+
+    分 kind 取已知键逐行 `键: 值`；dict/list 值 JSON 紧凑化；
+    一个已知键都未命中且 rawInput 非空 → JSON pretty 全文兜底
+    （软上限保头截断）。rawInput 为空返回 None（入参区缺省不挂）。
+    """
+    raw = update.get("rawInput")
+    if not isinstance(raw, dict) or not raw:
+        return None
+    kind = update.get("kind")
+    lines = []
+    for key in _INPUT_DETAIL_KEYS.get(kind if isinstance(kind, str) else "", ()):
+        if key not in raw or raw[key] is None:
+            continue
+        value = raw[key]
+        if isinstance(value, (dict, list)):
+            value = json.dumps(value, ensure_ascii=False)
+        value = str(value)
+        if len(value) > _INPUT_DETAIL_VALUE_MAX:
+            value = value[: _INPUT_DETAIL_VALUE_MAX - 1] + "…"
+        lines.append(f"{key}: {value}")
+    if lines:
+        return "\n".join(lines)
+    pretty = json.dumps(raw, ensure_ascii=False, indent=2)
+    text, _ = _truncate_lines(pretty, _BODY_SOFT_LIMIT_LINES, keep_tail=False)
+    return text
 
 
 def _tool_call_fallback(payload: ToolCallPayload) -> str:
@@ -213,6 +364,8 @@ def _tool_call_fallback(payload: ToolCallPayload) -> str:
     line = f"◐ {icon} {payload.get('title') or '?'}"
     if summary := payload.get("summary"):
         line += f" — {summary}"
+    if diff_stat := payload.get("diff_stat"):  # 0645 计划 T1：edit 计数随行
+        line += f"  {diff_stat}"
     return f"\n{line}\n"
 
 
@@ -313,18 +466,33 @@ def _map_tool_call(update: dict) -> Chunk:
         if isinstance(raw.get("command"), str):
             if command := _clean_terminal_text(raw["command"]).strip():
                 payload["command"] = command
+    if tool_kind == "edit":
+        # 0645 计划 T1：edit content diff 项 → +N −M 计数 + hunk 列表
+        # （非必填：缺省不臆造，DiffCard 退化为纯标题行）
+        if diff := _extract_diff(update.get("content")):
+            payload["diff_stat"], payload["diff_hunks"], truncated = diff
+            if truncated:
+                payload["diff_truncated"] = True
     if summary := _tool_call_summary(update):
         payload["summary"] = summary
+    # 0645 计划 D3：通用入参区（已知键 + JSON 兜底；MCP/未知工具亦受益）
+    if detail := _format_input_detail(update):
+        payload["input_detail"] = detail
     return Chunk("tool_call", _tool_call_fallback(payload), payload=payload)
 
 
 def _map_tool_call_update(update: dict) -> Chunk | None:
     """tool_call_update → 状态流转 Chunk；status 缺省（纯 content 快照帧）返回 None。
 
-    failed 时尽力提取错误首行（rawOutput.error → content 文本首行），
-    取不到则缺省。1836 计划 L2-3 起携带净化截尾的输出正文
-    （_extract_tool_output；execute 过滤上屏归路由层，替代 1602 D1
-    「长输出不消费」的一级范围限定——截尾后载荷有界）。
+    0645 融合计划 T1 信息全量化（§2.3）：
+    - 输出正文截断参数化——in_progress 帧为尾窗规格（截尾末 5 行，0619-T6
+      沿用）；完成/失败帧按 kind 定方向（execute 保尾、其余保头，§2.4）+
+      软上限 1000 行（D2）。update 帧常缺 kind（F3）：缺省按保头处理
+      （execute 缺 kind 时保尾信息损失的已知取舍见计划 §8）；
+    - think（task 子代理）completed 帧填充 result_summary（`<task_result>`
+      提取、无标记取全文、软上限保头，D5——不再硬截 10 行）；
+    - failed 完整错误文本入 error_detail（§2.3-5：净化 + 软上限保尾——
+      诊断信息在尾部；error 首行保留供旧轨行内尾注与兜底文本）。
     """
     payload = ToolUpdatePayload()
     if isinstance(update.get("toolCallId"), str):
@@ -335,8 +503,24 @@ def _map_tool_call_update(update: dict) -> Chunk | None:
     payload["status"] = status
     if isinstance(update.get("title"), str):
         payload["title"] = update["title"]
-    if extracted := _extract_tool_output(update):
+    kind = update.get("kind")
+    if status == "in_progress":
+        extracted = _extract_tool_output(
+            update, keep_lines=_TAIL_WINDOW_LINES, keep_tail=True)
+    else:
+        extracted = _extract_tool_output(
+            update, keep_tail=(kind == "execute"))
+    if extracted:
         payload["output"], payload["output_total_lines"] = extracted
+    if status == "completed" and kind == "think":
+        # D5 成果摘要：从全文提取（先于 output 截断，防 task_result 被
+        # 保头截断切掉）；软上限保头由 _truncate_lines 统一执行
+        if raw_text := _extract_raw_output(update):
+            summary, _ = _truncate_lines(
+                _extract_result_summary(raw_text),
+                _BODY_SOFT_LIMIT_LINES, keep_tail=False)
+            if summary.strip():
+                payload["result_summary"] = summary
     if status == "failed":
         raw = update.get("rawOutput")
         error = None
@@ -345,7 +529,7 @@ def _map_tool_call_update(update: dict) -> Chunk | None:
             if isinstance(error, dict):
                 error = error.get("message")
         elif isinstance(raw, str):
-            error = raw  # 中止场景的纯文本降级形态（同 _extract_tool_output 分流）
+            error = raw  # 中止场景的纯文本降级形态（同 _extract_raw_output 分流）
         if not (first := _truncate_line(error)):
             for item in update.get("content") or []:
                 text = (item.get("content") or {}) if isinstance(item, dict) else {}
@@ -353,6 +537,19 @@ def _map_tool_call_update(update: dict) -> Chunk | None:
                     break
         if first:
             payload["error"] = first
+        # §2.3-5 错误全文：rawOutput.error 优先，无则退回输出全文（content
+        # 兜底文本已在 _extract_raw_output 管线内）；净化 + 软上限保尾
+        detail_source = None
+        if isinstance(error, str) and error.strip():
+            detail_source = error
+        elif raw_text := _extract_raw_output(update):
+            detail_source = raw_text
+        if detail_source:
+            detail, _ = _truncate_lines(
+                _clean_terminal_text(detail_source).strip("\n"),
+                _BODY_SOFT_LIMIT_LINES, keep_tail=True)
+            if detail.strip():
+                payload["error_detail"] = detail
     return Chunk("tool_call_update", _tool_update_fallback(payload), payload=payload)
 
 

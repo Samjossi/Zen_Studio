@@ -11,7 +11,7 @@ settings.json，update_settings 以 flock 串行化"读-合并-写"三步根治�
 写临时文件 + os.replace 原子覆盖防文件损坏；工作区根改由启动参数决定，
 不再持久化（KEY_WORKSPACE_ROOT 已删，存量旧键读取即丢弃自然失效）。
 
-键空间由 AppSettings 定型（7 个固定键），消费侧一律经 KEY_* 常量
+键空间由 AppSettings 定型（8 个固定键），消费侧一律经 KEY_* 常量
 引用键名，禁止裸字符串键（AFCP 3.1：数据结构显式）。
 
 权限键演进（2026-07-22，文档/修改记录/2026-0722-1240 计划）：二态
@@ -55,6 +55,14 @@ KEY_MODEL_BACKEND = "model_backend"
 KEY_MODEL_VERSIONS = "model_versions"
 KEY_TERMINAL_SWAP_COPY_PASTE = "terminal_swap_copy_paste"
 KEY_PERMISSION_MODE = "permission_mode"
+KEY_CHAT_RENDERER = "chat_renderer"
+
+#: 对话区渲染轨值域（0645 融合计划 D2-A 双轨并存：cards 卡片轨默认 /
+#: classic 旧轨经典——旧轨冻结保留即回退通道，新轨稳定一个版本后再议下线）
+CHAT_RENDERER_CARDS = "cards"
+CHAT_RENDERER_CLASSIC = "classic"
+CHAT_RENDERERS = (CHAT_RENDERER_CARDS, CHAT_RENDERER_CLASSIC)
+DEFAULT_CHAT_RENDERER = CHAT_RENDERER_CARDS
 
 #: 旧权限键（2026-0722-1240 计划前）：仅用于 load_settings 一次性迁移读取，
 #: 消费侧禁止引用（未登记新键时它已不在 DEFAULT_SETTINGS 内，不写回）
@@ -88,6 +96,9 @@ class AppSettings(TypedDict):
     #: confirm_all 逐次确认 / confirm_execute 仅命令确认 / auto_guarded 智能
     #: 放行+黑名单兜底（默认）/ auto_all 全部放行）
     permission_mode: str
+    #: 对话区渲染轨（0645 融合计划：cards 卡片折叠轨（默认）/ classic
+    #: 经典行文本轨；新建会话标签生效，存量标签不热切换）
+    chat_renderer: str
 
 
 class AppSettingsPatch(TypedDict, total=False):
@@ -100,6 +111,7 @@ class AppSettingsPatch(TypedDict, total=False):
     model_versions: dict[str, str]
     terminal_swap_copy_paste: bool
     permission_mode: str
+    chat_renderer: str
 
 
 #: 默认值：文件缺失 / 字段缺失 / JSON 损坏时回退
@@ -111,6 +123,7 @@ DEFAULT_SETTINGS: AppSettings = {
     KEY_MODEL_VERSIONS: {},
     KEY_TERMINAL_SWAP_COPY_PASTE: False,
     KEY_PERMISSION_MODE: DEFAULT_PERMISSION_MODE,
+    KEY_CHAT_RENDERER: DEFAULT_CHAT_RENDERER,
 }
 
 
@@ -148,6 +161,9 @@ def load_settings() -> AppSettings:
             settings[KEY_MODEL_VERSIONS] = versions
     except (OSError, json.JSONDecodeError):
         pass
+    # 值域防御：渲染轨非法值（手改配置/旧版残留）回退默认轨
+    if settings[KEY_CHAT_RENDERER] not in CHAT_RENDERERS:
+        settings[KEY_CHAT_RENDERER] = DEFAULT_CHAT_RENDERER
     # 异常/文件缺失路径同样脱离共享引用
     settings[KEY_MODEL_VERSIONS] = dict(settings[KEY_MODEL_VERSIONS])
     return settings
