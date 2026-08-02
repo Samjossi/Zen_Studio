@@ -1,0 +1,320 @@
+#!/usr/bin/env python3
+"""Dream 最小示例 agent —— 《Dream ACP 接入协议 v1.0》的可执行形态。
+
+不接任何模型，但**覆盖协议文档（../protocol/dream-acp-v1.md）每一条**，
+Dream 开发者可逐条对照实现：
+
+- argv 恒为 `[bin, "acp"]`；stdio ndjson JSON-RPC；日志一律 stderr（§1.1/§1.2）
+- initialize → agentInfo（§1.3）
+- session/new：cwd 相对路径硬拒 -32602（§1.4）
+- session/set_config_option(configId="model")：两个演示别名切换（§1.5）
+- session/prompt：逐 chunk 流式 agent_message_chunk + agent_thought_chunk
+  演示思维链通道 + usage_update 演示真实格式 + end_turn 收尾（§2）
+- 关键词「建文件」触发演示工具：tool_call → session/request_permission
+  （三态 options）→ 按回执执行/放弃 → tool_call_update → end_turn（§3）
+- 关键词「报错」触发 stopReason="error" 收尾（§2.4，严禁静默空回复）
+- session/cancel：轮次即停（stopReason="cancelled"），停后同会话可续（§1.6）
+
+实现说明：零第三方依赖（Python 3.10+ 标准库）。主线程读 stdin 分发；
+prompt 轮次在守护线程内流式输出（写锁串行化帧写），cancel 经 Event 传递。
+agent 侧反向请求 id 用字符串独立编号空间（"perm-N"），与客户端整数 id 不碰撞。
+"""
+import json
+import os
+import sys
+import threading
+import time
+
+AGENT_NAME = "dream-example"
+AGENT_VERSION = "1.0.0"
+
+#: 演示模型别名（协议 §1.5：别名是不透明字符串；此静态表同时是
+#: 宿主 IDE 侧 list_dream_models() 示例期的枚举来源）
+DEMO_MODELS = ["dream/demo-fast", "dream/demo-smart"]
+
+#: usage_update 演示上下文上限（真实实现须用真实统计；无数据则不发，§2.3）
+_DEMO_CONTEXT_SIZE = 262144
+
+#: 演示工具触发关键词（§3 审批回环演示）
+_TRIGGER_TOOL = "建文件"
+#: 错误路径触发关键词（§2.4 stopReason="error" 演示）
+_TRIGGER_ERROR = "报错"
+
+_write_lock = threading.Lock()
+_sessions: dict[str, dict] = {}  # sessionId -> {"cwd","model","cancel":Event}
+_perm_seq = 0
+
+
+def _log(msg: str) -> None:
+    """日志一律 stderr（协议 §1.2/A.6：stdout 只写协议帧）。"""
+    print(f"[{AGENT_NAME}] {msg}", file=sys.stderr, flush=True)
+
+
+def _send(obj: dict) -> None:
+    with _write_lock:
+        sys.stdout.write(json.dumps(obj, ensure_ascii=False) + "\n")
+        sys.stdout.flush()
+
+
+def _respond(request_id, result: dict) -> None:
+    _send({"jsonrpc": "2.0", "id": request_id, "result": result})
+
+
+def _respond_error(request_id, code: int, message: str) -> None:
+    _send({"jsonrpc": "2.0", "id": request_id,
+           "error": {"code": code, "message": message}})
+
+
+def _notify_update(session_id: str, update: dict) -> None:
+    _send({"jsonrpc": "2.0", "method": "session/update",
+           "params": {"sessionId": session_id, "update": update}})
+
+
+def _text_chunk(session_id: str, text: str) -> None:
+    _notify_update(session_id, {"sessionUpdate": "agent_message_chunk",
+                                "content": {"type": "text", "text": text}})
+
+
+def _thought_chunk(session_id: str, text: str) -> None:
+    _notify_update(session_id, {"sessionUpdate": "agent_thought_chunk",
+                                "content": {"type": "text", "text": text}})
+
+
+# ----------------------------------------------------------------------
+# 方法处理
+# ----------------------------------------------------------------------
+def _handle_initialize(request_id: int, _params: dict) -> None:
+    _respond(request_id, {
+        "protocolVersion": 1,
+        "agentCapabilities": {},
+        "agentInfo": {"name": AGENT_NAME, "version": AGENT_VERSION},
+    })
+    _log(f"initialize ok ({AGENT_NAME} {AGENT_VERSION})")
+
+
+def _handle_session_new(request_id: int, params: dict) -> None:
+    cwd = params.get("cwd") or ""
+    if not os.path.isabs(cwd):  # §1.4/A.2：cwd 硬校验绝对路径
+        _respond_error(request_id, -32602,
+                       f"invalid params: cwd 必须是绝对路径，收到 {cwd!r}")
+        return
+    session_id = f"dream-session-{len(_sessions) + 1}"
+    _sessions[session_id] = {
+        "cwd": cwd, "model": DEMO_MODELS[0], "cancel": threading.Event(),
+    }
+    _respond(request_id, {"sessionId": session_id})
+    _log(f"session/new ok: {session_id} (cwd={cwd}, model={DEMO_MODELS[0]})")
+
+
+def _handle_set_config_option(request_id: int, params: dict) -> None:
+    session = _sessions.get(params.get("sessionId") or "")
+    if session is None:
+        _respond_error(request_id, -32602, "invalid params: 未知 sessionId")
+        return
+    if params.get("configId") != "model":
+        _respond_error(request_id, -32602,
+                       f"invalid params: 不支持的 configId {params.get('configId')!r}")
+        return
+    value = params.get("value")
+    if value not in DEMO_MODELS:  # 未知别名显式报错（不崩连接）
+        _respond_error(request_id, -32602,
+                       f"invalid params: 未知模型别名 {value!r}（可选：{DEMO_MODELS}）")
+        return
+    session["model"] = value
+    _respond(request_id, {})
+    _log(f"set_config_option ok: model={value}")
+
+
+def _handle_cancel(params: dict) -> None:
+    """session/cancel 通知（§1.6）：置轮次取消标志，轮次线程在 chunk 间检查。"""
+    session = _sessions.get(params.get("sessionId") or "")
+    if session is not None:
+        session["cancel"].set()
+        _log("session/cancel 收到，轮次即停")
+
+
+# ----------------------------------------------------------------------
+# 轮次（守护线程内执行；cancel 经 Event 检查）
+# ----------------------------------------------------------------------
+def _check_cancel(session: dict) -> bool:
+    """chunk 间的取消检查；返回 True 表示已取消。"""
+    if session["cancel"].is_set():
+        session["cancel"].clear()  # 停后同会话可续（§1.6）
+        return True
+    return False
+
+
+def _request_permission(session_id: str, tool_call: dict) -> str | None:
+    """反向请求 session/request_permission（§3）：阻塞等客户端回执，返回 optionId。"""
+    global _perm_seq
+    _perm_seq += 1
+    perm_id = f"perm-{_perm_seq}"  # agent 侧字符串 id 空间，与客户端整数 id 不碰撞
+    options = [
+        {"optionId": "allow_once", "name": "允许一次", "kind": "allow_once"},
+        {"optionId": "allow_always", "name": "总是允许", "kind": "allow_always"},
+        {"optionId": "reject_once", "name": "拒绝", "kind": "reject_once"},
+    ]
+    done = threading.Event()
+    outcome: dict = {}
+
+    def _wait() -> None:
+        # 回执由主读循环经 _pending_perm 表投递
+        done.wait()
+
+    _pending_perm[perm_id] = (done, outcome)
+    _send({"jsonrpc": "2.0", "id": perm_id,
+           "method": "session/request_permission",
+           "params": {"sessionId": session_id, "toolCall": tool_call,
+                      "options": options}})
+    _wait()
+    _pending_perm.pop(perm_id, None)
+    selected = (outcome.get("outcome") or {})
+    if selected.get("outcome") != "selected":
+        return None  # cancelled 视为拒绝
+    return selected.get("optionId")
+
+
+_pending_perm: dict[str, tuple[threading.Event, dict]] = {}
+
+
+def _run_tool_flow(request_id: int, session_id: str, session: dict) -> str:
+    """演示工具调用全链路（§3）：tool_call → 审批 → 执行/放弃 → tool_call_update。
+
+    返回收尾 stopReason。
+    """
+    tool_call_id = "demo-tool-1"
+    demo_path = os.path.join(session["cwd"], "dream_demo.txt")
+    tool_call = {"toolCallId": tool_call_id, "title": "创建文件 dream_demo.txt",
+                 "kind": "edit",
+                 "rawInput": {"path": demo_path,
+                              "content": "Dream 示例 agent 演示文件\n"},
+                 "locations": [{"path": demo_path}]}
+    _notify_update(session_id, {"sessionUpdate": "tool_call", **tool_call})
+
+    option = _request_permission(session_id, tool_call)
+    if _check_cancel(session):
+        return "cancelled"
+    if option and option.startswith("allow"):
+        try:
+            with open(demo_path, "w", encoding="utf-8") as f:
+                f.write("Dream 示例 agent 演示文件\n")
+            _notify_update(session_id, {
+                "sessionUpdate": "tool_call_update", "toolCallId": tool_call_id,
+                "status": "completed",
+                "content": [{"type": "content",
+                             "content": {"type": "text",
+                                         "text": f"已创建 {demo_path}"}}]})
+            _text_chunk(session_id, f"\n已按你的允许创建演示文件：{demo_path}\n")
+        except OSError as e:
+            _notify_update(session_id, {
+                "sessionUpdate": "tool_call_update", "toolCallId": tool_call_id,
+                "status": "failed", "rawOutput": {"error": {"message": str(e)}}})
+            _text_chunk(session_id, f"\n创建文件失败：{e}\n")
+    else:  # 拒绝：放弃执行并向用户追问（§3）
+        _notify_update(session_id, {
+            "sessionUpdate": "tool_call_update", "toolCallId": tool_call_id,
+            "status": "failed",
+            "rawOutput": {"error": {"message": "用户拒绝了权限请求"}}})
+        _text_chunk(session_id, "\n已放弃创建文件。需要我换个路径或换个方式再试吗？\n")
+    return "end_turn"
+
+
+def _run_turn(request_id: int, params: dict) -> None:
+    session_id = params.get("sessionId") or ""
+    session = _sessions.get(session_id)
+    if session is None:
+        _respond_error(request_id, -32602, "invalid params: 未知 sessionId")
+        return
+    session["cancel"].clear()
+
+    # §2.1：prompt 恒 text 块打头；容忍空 text（A.4）
+    prompt = params.get("prompt") or []
+    text = ""
+    for block in prompt:
+        if isinstance(block, dict) and block.get("type") == "text":
+            text = block.get("text") or ""
+            break
+
+    if _TRIGGER_ERROR in text:
+        # §2.4/A.3：轮次失败显式 stopReason="error"，严禁静默空回复
+        _text_chunk(session_id, "（演示：本轮将以 error 收尾）")
+        _respond(request_id, {"stopReason": "error"})
+        _log("演示错误路径：stopReason=error")
+        return
+
+    if _TRIGGER_TOOL in text:
+        stop_reason = _run_tool_flow(request_id, session_id, session)
+        _respond(request_id, {"stopReason": stop_reason})
+        return
+
+    # 常规演示轮次：思维链 → 逐 chunk 正文 → usage_update → end_turn（§2）
+    _thought_chunk(session_id, f"（演示思维链：模型 {session['model']} 正在组织回复……）")
+    demo = (f"你好，我是 Dream 示例 agent（当前模型 {session['model']}）。"
+            f"我收到了你的消息：「{text.strip() or '（空文本/占位）'}」。"
+            "这是协议演示回复——试试发送含「建文件」或「报错」的消息。")
+    for i in range(0, len(demo), 8):  # 逐 chunk 流式，chunk 间检查 cancel
+        if _check_cancel(session):
+            _respond(request_id, {"stopReason": "cancelled"})
+            _log("轮次被 cancel，已即停")
+            return
+        _text_chunk(session_id, demo[i:i + 8])
+        time.sleep(0.05)  # 演示流式节奏；也给 cancel 留出到达窗口
+    # §2.3：usage_update 演示真实格式（used/size 同帧；cost 可选）
+    _notify_update(session_id, {"sessionUpdate": "usage_update",
+                                "used": len(demo) * 2, "size": _DEMO_CONTEXT_SIZE})
+    _respond(request_id, {"stopReason": "end_turn"})
+
+
+# ----------------------------------------------------------------------
+# 主循环
+# ----------------------------------------------------------------------
+def main() -> int:
+    if len(sys.argv) < 2 or sys.argv[1] != "acp":
+        _log(f"用法：{os.path.basename(sys.argv[0])} acp"
+             "（ACP 模式走 stdio ndjson；本输出在 stderr，不污染协议流）")
+        return 2
+    _log(f"{AGENT_NAME} {AGENT_VERSION} 进入 ACP 模式")
+    for line in sys.stdin:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            obj = json.loads(line)
+        except json.JSONDecodeError:
+            _log(f"丢弃非 JSON 行: {line[:200]}")
+            continue
+        method = obj.get("method")
+        params = obj.get("params") or {}
+        request_id = obj.get("id")
+
+        if request_id is not None and method is None:
+            # 反向请求的回执（session/request_permission 响应）
+            pending = _pending_perm.get(str(request_id))
+            if pending is not None:
+                done, outcome = pending
+                outcome.update(obj.get("result") or {})
+                done.set()
+            continue
+
+        if method == "initialize":
+            _handle_initialize(request_id, params)
+        elif method == "session/new":
+            _handle_session_new(request_id, params)
+        elif method == "session/set_config_option":
+            _handle_set_config_option(request_id, params)
+        elif method == "session/cancel":
+            _handle_cancel(params)
+        elif method == "session/prompt":
+            # 轮次在守护线程执行：主循环继续读帧（cancel/审批应答才能及时到达）
+            threading.Thread(target=_run_turn, args=(request_id, params),
+                             daemon=True).start()
+        elif method:
+            if request_id is not None:
+                _respond_error(request_id, -32601, f"method not found: {method}")
+            _log(f"未知方法: {method}")
+    _log("stdin EOF，退出")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

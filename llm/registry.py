@@ -22,6 +22,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from llm.base import LanguageModel
+from llm.providers.dream_acp import DreamAcpLLM, dream_available, list_dream_models
 from llm.providers.kilocode_acp import KiloCodeAcpLLM, kilocode_available, list_kilocode_models
 from llm.providers.kimi_acp import KimiAcpLLM
 from llm.providers.kimi_common import kimi_available, list_kimi_models
@@ -148,6 +149,18 @@ REGISTRY: dict[str, BackendSpec] = {
             factory=KiloCodeAcpLLM,
             # T0 spike：默认模型正确识图（回「红」），空 text 块接受
             supports_images=True,
+        ),
+        BackendSpec(
+            name="dream-acp",
+            label="Dream ACP",
+            vendor="dream",
+            vendor_label="Dream",
+            available=dream_available,
+            list_models=_cached_list_models("dream-acp", list_dream_models),
+            factory=DreamAcpLLM,
+            # 示例 agent 无视觉能力（计划 2026-0803-0041 D6）；Dream 真实
+            # 视觉模型接入后按 T0 spike 方法学实测翻案置 True，GUI 侧零改动
+            supports_images=False,
         ),
     )
 }
