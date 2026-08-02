@@ -6,8 +6,10 @@
   _get_provider 即建即用，防"标签数 × 后端数"长驻进程膨胀；
   实例建成后标签间完全隔离，D6 方案 A）
 - ModelBar 各标签自持：2026-0724-2354 计划由 ChatTabs 顶部全局单例
-  改为本面板输入区底行实例（纯视图）；选择状态/写盘归 ChatTabs 状态层，
-  广播经 set_model_selection 同步本面板 UI（阻断）与 provider
+  改为本面板输入区底行实例（纯视图）；选择状态每标签自持（本面板
+  ModelBar 为有效值唯一来源，2026-0803-0112 计划翻案广播语义），
+  ChatTabs 只留「新建注入值」；外部切换经 set_model_selection 同步
+  本面板 UI（阻断）与 provider
 - 审批请求统一提交全局审批队列（PERMISSION_QUEUE），多标签串行弹窗
 
 AI 活动信息路由（2026-07-31，文档/修改记录/2026-0731-1602 计划 T6）：
@@ -81,7 +83,8 @@ from llm.permission_policy import DECISION_ALLOW, decide_permission, select_opti
 class ChatPanel(QWidget):
     """单个 AI 会话标签页（独立 provider 实例，由 ChatTabs 托管）。"""
 
-    #: 发送/停止状态变化（ChatTabs 汇总后联动禁用全部标签双下拉与菜单组）
+    #: 发送/停止状态变化（ChatTabs 按当前活动标签粒度联动禁用本标签
+    #: 三按钮与设置中心模型页，2026-0803-0112 计划 D4）
     busy_changed = Signal(bool)
 
     #: 一轮对话结束（正常/失败/用户停止均触发；主窗口经 ChatTabs 转发
@@ -107,7 +110,7 @@ class ChatPanel(QWidget):
     ) -> None:
         """
         :param backend: 初始后端（registry 名；None/失效项经 ModelBar 静默
-            回退默认；全局选择状态归 ChatTabs，广播更新见 set_model_selection）
+            回退默认；注入值归 ChatTabs，后续切换见 set_model_selection）
         :param version: 初始模型别名（None = provider 默认模型）
         :param workspace_root: 工作区根（provider cwd 与拖入文件 @相对路径 基准）
         :param parent: 父控件
@@ -200,10 +203,11 @@ class ChatPanel(QWidget):
         return provider
 
     def set_model_selection(self, backend: str, version: str | None) -> None:
-        """全局模型选择广播（D5）：同步自身 ModelBar UI + 写自身 provider 实例。
+        """模型选择应用（本标签单面板入口，2026-0803-0112 计划复用为
+        每标签切换路径）：同步自身 ModelBar UI + 写自身 provider 实例。
 
         UI 同步走 ModelBar.set_selection（全程阻断信号，不回环）；
-        持久化与状态层归 ChatTabs，本方法不管。
+        持久化与新建注入值归 ChatTabs，本方法不管。
         上下文不迁移（各后端会话各自独立），切后端时输出提示行。
         D4：切换接口时旧实例 pop 后由 daemon 线程 close() 丢弃（2026-0730-2338
         计划 D4 异步化，terminate 不再阻塞 GUI），防长驻进程随切换累积。

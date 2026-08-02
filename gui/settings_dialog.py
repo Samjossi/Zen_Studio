@@ -60,7 +60,6 @@ from gui.settings import (
     CONFIG_DIR,
     KEY_FONT_SIZE,
     KEY_MODEL_BACKEND,
-    KEY_MODEL_VERSIONS,
     KEY_PERMISSION_MODE,
     KEY_TERMINAL_SWAP_COPY_PASTE,
     KEY_THEME,
@@ -112,7 +111,7 @@ _BLACKLIST_HEIGHT = 160
 _PAGE_REGISTRY: tuple[tuple[str, str, str, str | None], ...] = (
     ("AI 工具权限", "控制 AI 工具调用的审批粒度，切换即时生效。",
      "_build_permission_page", "_reload_permission"),
-    ("AI 模型", "选择 AI 后台、接口与模型；与聊天面板底行模型按钮双向同步。",
+    ("AI 模型", "选择 AI 后台、接口与模型；作用于当前活动会话标签，与聊天面板底行模型按钮双向同步。",
      "_build_model_page", "_reload_model"),
     ("外观", "主题与字号即时应用全窗口（含各面板配色）。",
      "_build_appearance_page", "_reload_appearance"),
@@ -346,7 +345,7 @@ class SettingsDialog(QDialog):
         layout.addRow("后台", self._vendor_combo)
         layout.addRow("接口", self._interface_combo)
         layout.addRow("模型", self._model_combo)
-        layout.addRow(self._make_hint("AI 响应中暂不可切换。", page))
+        layout.addRow(self._make_hint("当前会话响应中暂不可切换。", page))
         self._vendor_combo.activated.connect(self._on_vendor_activated)
         self._interface_combo.activated.connect(self._on_interface_activated)
         self._model_combo.activated.connect(self._on_model_activated)
@@ -492,7 +491,12 @@ class SettingsDialog(QDialog):
     def _reload_model(self, settings) -> None:
         """模型页三级回显：后台（vendor 由 backend 经注册表推导，D2 不读
         settings）→ 接口列表重建并定位 backend → 模型列表（缓存优先）定位
-        持久化别名；每级失效静默回退该级首个可用项。
+        当前别名；每级失效静默回退该级首个可用项。
+
+        展示值来源（2026-0803-0112 计划 T5，异构选择语义）：**当前活动
+        标签**的有效选择（经 ChatTabs.current_backend/current_version
+        回读，零标签时为新建注入值），不再直读持久化「最近使用值」；
+        标签切换经 selection_changed → _sync_settings_dialog 链路重刷。
 
         模型列表按接口级缓存：spec.list_models 可能是子进程调用，缓存命中
         时同步填充；缓存 miss（showEvent 清缓存后 / 接口切换）改投
@@ -500,7 +504,7 @@ class SettingsDialog(QDialog):
         卡住窗口首帧绘制，呈现「先闪一个小窗口再出完整窗口」的中间态；
         窗口显示定型后填充，视觉闪动消除。
         """
-        backend = settings[KEY_MODEL_BACKEND]
+        backend = self._ctx.chat_tabs.current_backend() or settings[KEY_MODEL_BACKEND]
         # 一级：后台（持久化不存后台键，由接口实现名推导）
         vendor_index = self._vendor_combo.findData(vendor_of(backend))
         if vendor_index < 0 or not self._vendor_combo.model().item(vendor_index).isEnabled():
@@ -512,10 +516,10 @@ class SettingsDialog(QDialog):
         if backend_index < 0 or not self._interface_combo.model().item(backend_index).isEnabled():
             backend_index = self._first_enabled_index(self._interface_combo)
         self._interface_combo.setCurrentIndex(max(backend_index, 0))
-        # 三级：模型（缓存命中同步填，miss 异步拉取；回显值取该接口
-        # 记忆表条目，无记忆 = None → 落列表首项，2026-0731-0052 计划 D4）
+        # 三级：模型（缓存命中同步填，miss 异步拉取；回显值取当前活动
+        # 标签的有效模型别名，2026-0803-0112 计划 T5）
         current_backend = self._interface_combo.currentData()
-        remembered = settings[KEY_MODEL_VERSIONS].get(current_backend or "")
+        remembered = self._ctx.chat_tabs.current_version()
         if current_backend in self._models_cache:
             self._fill_models(current_backend, remembered)
         else:

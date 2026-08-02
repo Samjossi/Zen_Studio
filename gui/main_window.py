@@ -240,8 +240,8 @@ class MainWindow(QMainWindow):
         # 菜单栏定高截断镜像余量（qss padding-top 会被镜像到底部，定值见 base.qss
         # QMenuBar 段教训注释）；延迟一拍确保样式与布局已结算再测量项高
         QTimer.singleShot(0, self._fit_menubar_height)
-        # 模型选择：任一标签底行下拉切换 → ChatTabs 状态层收敛转发 →
-        # 设置中心同步；发送中模型页禁用
+        # 模型选择：标签底行下拉切换 → ChatTabs 收敛（当前活动标签语义，
+        # 2026-0803-0112 计划）转发 → 设置中心同步；当前标签响应中模型页禁用
         self.chat_tabs.selection_changed.connect(self._on_modelbar_changed)
         self.chat_tabs.busy_changed.connect(self._on_chat_busy_changed)
 
@@ -610,7 +610,8 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(f"字号：{size} pt", self.STATUS_MSG_SHORT_MS)
 
     def apply_model_selection(self, backend: str, version: str | None) -> None:
-        """设置中心驱动的模型切换：收敛到 ChatPanel 后同步设置中心控件态。"""
+        """设置中心驱动的模型切换：收敛到 ChatTabs（只作用当前活动标签，
+        2026-0803-0112 计划 D3）后同步设置中心控件态。"""
         self.chat_tabs.apply_model_selection(backend, version)
         self._sync_settings_dialog()
 
@@ -623,11 +624,13 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(f"终端快捷键：{hint}", self.STATUS_MSG_SHORT_MS)
 
     def _on_modelbar_changed(self, _backend: str, _version: object) -> None:
-        """模型选择变化（任一标签底行下拉经 ChatTabs 转发）→ 设置中心同步（reload 防回环）。"""
+        """模型选择变化（当前活动标签底行下拉/标签切换经 ChatTabs 转发）
+        → 设置中心同步（reload 防回环）。"""
         self._sync_settings_dialog()
 
     def _on_chat_busy_changed(self, busy: bool) -> None:
-        """发送中禁用设置中心模型页（与全部标签底行双下拉禁用对齐）。"""
+        """当前活动标签响应中禁用设置中心模型页（与该标签底行三按钮
+        禁用对齐，2026-0803-0112 计划 D4 粒度收窄）。"""
         if self._settings_dialog is not None:
             self._settings_dialog.set_model_enabled(not busy)
 

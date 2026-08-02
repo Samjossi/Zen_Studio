@@ -10,9 +10,11 @@
   左栏；停止改归输入区底行右端的发送/停止双态按钮（panel.py）
 
 下移底行与瘦身（2026-07-25，文档/修改记录/2026-0724-2354 计划）：
-- 从 ChatTabs 顶部全局单例改为每 ChatPanel 底行实例（纯视图组件）：
-  写盘与选择状态上移 ChatTabs（单一来源，多实例广播同步防分裂），
-  本组件只管 UI 与发射 selection_changed
+- 从 ChatTabs 顶部全局单例改为每 ChatPanel 底行实例（纯视图组件），
+  本组件只管 UI 与发射 selection_changed；
+  选择状态曾上移 ChatTabs 广播同步，2026-0803-0112 计划翻案为
+  **每标签自持**（本组件即有效值唯一来源，写「最近使用值」与新建
+  注入值归 ChatTabs）
 - 迭代 2：双 QComboBox 换 QToolButton(InstantPopup)+QMenu——框体恒显
   标签（用户拍板选项 1：切模型低频，当前值归 tooltip 全名与菜单 ✓
   勾选）；菜单天然按内容加宽显示全文，创建经 make_translucent_popup()
@@ -251,7 +253,8 @@ class ModelBar(QWidget):
     # 忙碌态（流式响应中）
     # ------------------------------------------------------------------
     def set_busy(self, is_busy: bool) -> None:
-        """busy：禁用三按钮（任一标签响应中即全标签禁用，ChatTabs 遍历调用）。
+        """busy：禁用三按钮（各标签独立粒度，本标签响应中即禁本标签，
+        2026-0803-0112 计划 D4——原「任一忙禁全部」随广播废除失去依据）。
 
         按钮宽度贴合当前文本且 busy 不改文本，sizeHint 不随 busy 变化。
         """
