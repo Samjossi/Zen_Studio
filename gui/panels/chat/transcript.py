@@ -327,9 +327,14 @@ class ChatTranscriptView(QScrollArea):
         self._scroll_to_bottom()
 
     def _flush_stream(self) -> None:
-        """各非正文上屏方法的次序守卫（与旧轨 _flush_stream 同律）。"""
+        """各非正文上屏方法的次序守卫：冲刷即封存（用后作废，同思维链卡纪律）。
+
+        不置 None 会让后续文本帧回流首个正文块（1015 修复计划 §2：
+        块 A 在布局中位于工具卡之前，总结回流即置顶）。
+        """
         if self._stream_block is not None:
             self._stream_block.flush_stream()
+            self._stream_block = None
 
     def _scroll_to_bottom(self) -> None:
         QTimer.singleShot(0, self._do_scroll)
