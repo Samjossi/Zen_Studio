@@ -20,7 +20,7 @@
 from collections import OrderedDict
 from html import escape as _html_escape
 
-from PySide6.QtCore import Qt, QUrl, Signal
+from PySide6.QtCore import Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QFrame,
@@ -271,7 +271,17 @@ class CollapsibleCard(QFrame):
         self._status_label = QLabel(self)
         self._copy_button = QToolButton(self)
         self._copy_button.setAutoRaise(True)
-        self._copy_button.setText("复制")
+        self._copy_button.setText("⧉")
+        # 克制形态复制钮（2026-0803 拍板）：容器全透明无边框，静止低对比
+        # 灰（reasoning_fg 复用主题灰，单一来源），hover 加深（tool_fg）+
+        # tooltip；定宽 20 与图标列对齐，防 ⧉/✓ 切换时 header 抖动
+        self._copy_button.setFixedSize(20, 20)
+        self._copy_button.setStyleSheet(
+            f"QToolButton {{ background: transparent; border: none; padding: 0px;"
+            f" color: {colors.reasoning_fg}; }}"
+            f"QToolButton:hover {{ background: transparent; border: none;"
+            f" color: {colors.tool_fg}; }}"
+            f"QToolButton:disabled {{ color: {colors.tool_fg}; }}")
         self._copy_button.setVisible(False)  # T11：子类 enable_copy 挂载
 
         header = QHBoxLayout()
@@ -336,13 +346,27 @@ class CollapsibleCard(QFrame):
     def add_body_widget(self, widget: QWidget) -> None:
         self._body_layout.addWidget(widget)
 
-    def enable_copy(self, getter) -> None:
-        """卡片复制按钮（T11：跨块选择丢失的补偿，0640-D6-A）。"""
-        from PySide6.QtWidgets import QApplication
+    def enable_copy(self, getter, tooltip: str = "复制回复") -> None:
+        """卡片复制按钮（T11：跨块选择丢失的补偿，0640-D6-A）。
+
+        点击后 ⧉ → ✓ 停留 1.2s 作「已复制」确认反馈（期间禁点防连击），
+        随后自动恢复 ⧉。
+        """
         self._copy_button.setVisible(True)
-        self._copy_button.setToolTip("复制卡内容")
-        self._copy_button.clicked.connect(
-            lambda: QApplication.clipboard().setText(getter()))
+        self._copy_button.setToolTip(tooltip)
+        self._copy_button.clicked.connect(lambda: self._do_copy(getter))
+
+    def _do_copy(self, getter) -> None:
+        """写剪贴板 + ✓ 确认闪烁（1.2s 后 _restore_copy_icon 恢复 ⧉）。"""
+        from PySide6.QtWidgets import QApplication
+        QApplication.clipboard().setText(getter())
+        self._copy_button.setText("✓")
+        self._copy_button.setEnabled(False)
+        QTimer.singleShot(1200, self._restore_copy_icon)
+
+    def _restore_copy_icon(self) -> None:
+        self._copy_button.setText("⧉")
+        self._copy_button.setEnabled(True)
 
 
 # ----------------------------------------------------------------------
