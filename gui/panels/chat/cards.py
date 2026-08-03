@@ -129,12 +129,17 @@ class _HugHeightMixin:
         super().resizeEvent(event)
         self._fit_height()
 
+    def _content_pixel_height(self) -> int:
+        """内容像素高度钩子。默认走 doc.size().height()——QTextDocumentLayout
+        （BodyHtml）该值单位即像素，语义正确；BodyText 覆写（见其 docstring）。"""
+        return int(self.document().size().height())
+
     def _fit_height(self) -> None:
         doc = self.document()
         width = self.viewport().width()
         if width > 0:
             doc.setTextWidth(width)
-        target = int(doc.size().height()) + 6
+        target = self._content_pixel_height() + 6
         if self._max_height is not None:
             target = min(target, self._max_height)
         target = max(target, 22)
@@ -162,6 +167,20 @@ class BodyText(_HugHeightMixin, QPlainTextEdit):
         if text:
             self.setPlainText(text)
         self._init_hug(max_height)
+
+    def _content_pixel_height(self) -> int:
+        """QPlainTextDocumentLayout 的 size().height() 单位是块数（行数）非像素
+        ——0741 空白缺陷根因：4 行文本算出 4+6=10px 被钳到一行高 22px 锁死。
+        逐块累加 blockBoundingRect（像素、含折行——长行 wrap 后一块多行
+        算足），再加上下 documentMargin，得真实内容像素高。"""
+        doc = self.document()
+        layout = doc.documentLayout()
+        total = 0.0
+        block = doc.begin()
+        while block.isValid():
+            total += layout.blockBoundingRect(block).height()
+            block = block.next()
+        return int(total + doc.documentMargin() * 2)
 
     def set_text(self, text: str) -> None:
         """整刷正文（运行中尾滚替换、完成定格的统一入口）。"""
