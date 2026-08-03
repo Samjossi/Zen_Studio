@@ -50,6 +50,11 @@ from gui.popups import exec_standard_context_menu
 
 _STREAM_FLUSH_MS = 30  # 流式合帧节流间隔（1836 计划 D5 平移）
 
+#: 回合间距（2000 计划 D4）：消息与消息之间的布局层固定间距，与块内
+#: 间距（setSpacing(6)）构成两级体系；布局层抽象不入文本（D1-B），
+#: 复制/选择/断言零污染，数值单一常量一处可调
+_TURN_GAP_PX = 14
+
 
 class TextStreamBlock(BodyHtml):
     """正文流式块：30ms 合帧节流 + 冲刷区间文件引用就地锚点化（L2-5 平移）。
@@ -71,7 +76,9 @@ class TextStreamBlock(BodyHtml):
             cursor = self.textCursor()
             fmt = QTextCharFormat()
             fmt.setFontWeight(600)
-            cursor.insertText(f"{role}：\n", fmt)
+            # 前缀与正文同行（2000 计划 D3-A）：去换行对齐旧轨
+            # <b>AI：</b> 与用户气泡 <b>我：</b> 形态，块内无空段落
+            cursor.insertText(f"{role}：", fmt)
 
     def append_chunk(self, chunk: str) -> None:
         """流式块入缓冲，30ms 单发定时器聚合冲刷（T3 平移）。"""
@@ -184,8 +191,11 @@ class ChatTranscriptView(QScrollArea):
         self._blocks.addStretch(1)
         self.setWidget(self._container)
 
-        #: 当前正文流式块（begin_stream 建 / end_stream、reset 清）
+        #: 当前正文流式块（首个正文帧懒建 / end_stream、reset 清）
         self._stream_block: TextStreamBlock | None = None
+        #: 待落块的角色前缀（2000 计划 D2-A 懒建：begin_stream 簿记，
+        #: 首个正文帧到达才建块写入——思维链/工具开头的回合不留孤块）
+        self._pending_role = ""
         #: 当前思维链卡（reasoning 首帧懒建 / end_reasoning 收尾）
         self._thinking_card: ThinkingCard | None = None
         #: 工具卡表（toolCallId → ToolCard，轮次收尾清簿记不清屏幕）
@@ -232,18 +242,20 @@ class ChatTranscriptView(QScrollArea):
             content, images, self._colors, self._mention_checker(), self._container)
         block.link_clicked.connect(self.anchorClicked)
         self._add_block(block)
+        self._add_turn_gap()  # 用户消息后回合间距（2000 计划 Part 2）
 
     def begin_stream(self, role: str) -> None:
-        """开始一条流式消息：新建正文块（"AI：" 前缀由块内插入）。"""
+        """开始一条流式消息：懒建——只簿记角色，首个正文帧才建块写前缀。
+
+        2000 计划 D2-A：抢先建块会让思维链/工具开头的回合留下只含
+        「AI：」的孤块（空段落渲染为空白行）；懒建后无正文即无块。
+        """
         self._flush_stream()
-        self._stream_block = TextStreamBlock(
-            role, self._link_qcolor(), self._mention_checker(), self._container)
-        self._stream_block.link_clicked.connect(self.anchorClicked)
-        self._add_block(self._stream_block)
+        self._pending_role = role
 
     def append_stream_chunk(self, chunk: str) -> None:
         if self._stream_block is None:
-            self.begin_stream("")  # 防御：路由层恒先 begin_stream
+            self._create_stream_block()  # 懒建落块（含 begin_stream 簿记的前缀）
         self._stream_block.append_chunk(chunk)
         self._scroll_to_bottom()
 
@@ -265,9 +277,10 @@ class ChatTranscriptView(QScrollArea):
         self._flush_stream()
 
     def end_stream(self) -> None:
-        """流式收尾：强制冲刷防残帧。"""
+        """流式收尾：强制冲刷防残帧；回合末插间距与下条消息分隔。"""
         self._flush_stream()
-        self._stream_block = None
+        self._pending_role = ""
+        self._add_turn_gap()  # AI 回合末回合间距（2000 计划 Part 2）
 
     # ------------------------------------------------------------------
     # AI 活动块（鸭式接口：tool_call / tool_call_update / todo）
@@ -308,6 +321,7 @@ class ChatTranscriptView(QScrollArea):
         self._todo_card = None
         self._thinking_card = None
         self._stream_block = None
+        self._pending_role = ""
         self._tool_cards.clear()
 
     # ------------------------------------------------------------------
@@ -325,6 +339,20 @@ class ChatTranscriptView(QScrollArea):
         self._blocks.insertWidget(self._blocks.count() - 1, widget)
         widget.show()
         self._scroll_to_bottom()
+
+    def _create_stream_block(self) -> None:
+        """懒建落块（2000 计划 D2-A）：首个正文帧到达才建正文块，
+        前缀取 begin_stream 簿记的角色（用后即清，续段块无前缀）。"""
+        role, self._pending_role = self._pending_role, ""
+        self._stream_block = TextStreamBlock(
+            role, self._link_qcolor(), self._mention_checker(), self._container)
+        self._stream_block.link_clicked.connect(self.anchorClicked)
+        self._add_block(self._stream_block)
+
+    def _add_turn_gap(self) -> None:
+        """回合间距（2000 计划 D1-B/D4）：布局层固定间距项，底部 stretch
+        前插入；纯布局项非 widget，不进任何块文本（复制/断言零污染）。"""
+        self._blocks.insertSpacing(self._blocks.count() - 1, _TURN_GAP_PX)
 
     def _flush_stream(self) -> None:
         """各非正文上屏方法的次序守卫：冲刷即封存（用后作废，同思维链卡纪律）。
