@@ -734,16 +734,9 @@ class ChatPanel(QWidget):
             if self._cards_track:
                 # 新轨（0645 计划 §2.3-2）：取消非 execute 工具的 output 剥除
                 # ——所有工具的 output 随载荷进渲染层，由对应卡 body 承接
-                if payload.get("status") == "in_progress":
-                    # 尾滚帧（§2.1 BashCard 运行中实时帧）：仅 execute 工具、
-                    # 仅带输出帧，同 tid 200ms 节流（丢弃中间帧，终态帧不经
-                    # 本分支不受节流影响）
-                    if tid not in self._tool_commands or not payload.get("output"):
-                        return
-                    now = time.monotonic()
-                    if now - self._tail_last.get(tid, 0.0) < _TAIL_THROTTLE_S:
-                        return
-                    self._tail_last[tid] = now
+                if payload.get("status") == "in_progress" \
+                        and not self._allow_progress_frame(payload, tid):
+                    return
                 if payload.get("output") and tid in self._tool_commands:
                     payload = {**payload, "command": self._tool_commands[tid]}
                 self.output.append_tool_update(payload)
@@ -765,6 +758,25 @@ class ChatPanel(QWidget):
                 self.output.append_tool_update(payload)
         else:
             self.output.upsert_todo_block(payload.get("entries") or [])
+
+    def _allow_progress_frame(self, payload: dict, tid: str) -> bool:
+        """in_progress 帧放行判定（新轨）。
+
+        尾滚帧（§2.1 BashCard 运行中实时帧）：仅 execute 工具、仅带输出
+        帧，同 tid 200ms 节流（丢弃中间帧，终态帧不经本分支不受节流
+        影响）。0919 计划 T3：带 diff/摘要的迟到信息帧（kimi 系 edit 的
+        diff content 与 rawInput.path 在 in_progress 帧才发）不限工具
+        放行，DiffCard 补挂徽标/body/副标题。
+        """
+        if payload.get("diff_hunks") or payload.get("summary"):
+            return True
+        if tid not in self._tool_commands or not payload.get("output"):
+            return False
+        now = time.monotonic()
+        if now - self._tail_last.get(tid, 0.0) < _TAIL_THROTTLE_S:
+            return False
+        self._tail_last[tid] = now
+        return True
 
     def _on_finished(self, error: str) -> None:
         if error:

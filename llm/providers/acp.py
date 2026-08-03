@@ -378,6 +378,8 @@ def _tool_update_fallback(payload: ToolUpdatePayload) -> str:
             line += f"（{error}）"
     else:
         line = f"✔ ▸ {name}"
+        if diff_stat := payload.get("diff_stat"):  # 0919 T2：completed 计数随行
+            line += f"  {diff_stat}"
     return f"{line}\n"
 
 
@@ -512,6 +514,19 @@ def _map_tool_call_update(update: dict) -> Chunk | None:
             update, keep_tail=(kind == "execute"))
     if extracted:
         payload["output"], payload["output_total_lines"] = extracted
+    # 0919 计划 T2：update 帧 diff 提取——kimi 系 edit 的 diff content 在
+    # in_progress 帧才发（首帧 content 为空壳、completed 帧只剩结果文本），
+    # 故不限 status 盲提；_extract_diff 对非 diff 项返回 None，天然安全
+    if diff := _extract_diff(update.get("content")):
+        payload["diff_stat"], payload["diff_hunks"], truncated = diff
+        if truncated:
+            payload["diff_truncated"] = True
+    # 0919 计划 T2：参数摘要迟到刷新——edit/read 首帧无 locations/rawInput
+    # 的后端（kimi 系）在 in_progress 帧补齐 rawInput.path；限 edit/read
+    # 两 kind（execute 的 command 摘要有 `$ ` 头 body 承接，不进副标题）
+    if kind in ("edit", "read"):
+        if summary := _tool_call_summary(update):
+            payload["summary"] = summary
     if status == "completed" and kind == "think":
         # D5 成果摘要：从全文提取（先于 output 截断，防 task_result 被
         # 保头截断切掉）；软上限保头由 _truncate_lines 统一执行

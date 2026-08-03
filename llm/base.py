@@ -111,6 +111,19 @@ class ToolUpdatePayload(TypedDict, total=False):
     #: think（task 子代理）completed 帧成果摘要（0645 计划 D5：`<task_result>`
     #: 提取、无标记取全文、全量不截 10 行——软上限 1000 行保头由协议层执行）
     result_summary: str
+    #: edit 类 diff 预格式化计数 `+N −M`（0919 计划 T2：kimi 系在
+    #: in_progress update 帧才发 diff content——首帧空壳、completed 帧
+    #: 只剩结果文本；与 ToolCallPayload 三键同源同构，difflib 生成）
+    diff_stat: str
+    #: edit 类预解析 hunk 列表 [{head, lines:[(前缀 +/-//空格, 文本)]}]，
+    #: 软上限 1000 行保头截断（同源 _extract_diff，零新增截断逻辑）
+    diff_hunks: list[dict]
+    #: diff_hunks 被软上限截断时 True（卡 body 尾注用）
+    diff_truncated: bool
+    #: 参数摘要迟到刷新（0919 计划 T2：edit/read 首帧无 locations/rawInput
+    #: 的后端——kimi 系——在 in_progress update 帧补齐 rawInput.path，
+    #: 协议层复用 _tool_call_summary 预格式化，GUI 不碰 rawInput）
+    summary: str
 
 
 class TodoEntry(TypedDict, total=False):

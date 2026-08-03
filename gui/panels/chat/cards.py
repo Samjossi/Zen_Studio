@@ -381,6 +381,10 @@ class ToolCard(CollapsibleCard):
 
     #: MCP/未知工具卡 body 本身即入参+出参两节，不重复附通用入参区（§2.2）
     _attach_input_detail = True
+    #: update 帧 title 是否覆盖卡标题（0919 计划 T3：kimi 系 edit 的
+    #: in_progress 帧 title 为「Editing <路径>」路径内嵌——DiffCard 置
+    #: False 标题恒定工具名，路径改走副标题两段式）
+    _accept_title_update = True
 
     def __init__(self, colors: CardColors, open_state: OpenStateMap, payload: dict) -> None:
         self._kind = payload.get("tool_kind") or "other"
@@ -392,6 +396,9 @@ class ToolCard(CollapsibleCard):
             _KIND_ICONS.get(self._kind, "🧩"),
             payload.get("title") or "?",
             payload.get("summary") or "")
+        # 虚分派重设副标题（0919 T3）：构造器直写 _subtitle_label 绕过
+        # 子类覆写，此处补一道让 DiffCard 两段式对首帧 summary 同样生效
+        self.set_subtitle(payload.get("summary") or "")
         self.set_status("◐", colors.tool_fg)
         self._build_body(payload)
         if self._attach_input_detail and (detail := payload.get("input_detail")):
@@ -429,8 +436,12 @@ class ToolCard(CollapsibleCard):
     # ------------------------------------------------------------------
     def apply_update(self, payload: dict) -> None:
         status = payload.get("status")
-        if title := payload.get("title"):
+        if self._accept_title_update and (title := payload.get("title")):
             self.set_title(title)
+        # 0919 计划 T3：副标题迟到刷新（edit/read 路径在 update 帧才到
+        # 的后端——kimi 系；其余卡无 summary 键，no-op 无害）
+        if summary := payload.get("summary"):
+            self.set_subtitle(summary)
         if status == "completed":
             self.set_status("✔", self._colors.tool_fg)
             self._on_completed(payload)
@@ -519,14 +530,50 @@ class BashCard(ToolCard):
             self._note.setText(f"…… 共 {total_lines} 行（仅显示末 {shown} 行）")
             self._note.setVisible(True)
 
-
 class DiffCard(ToolCard):
     """diff 卡（P6，edit/write）：hunk 全量三色 body（@@ 灰 / + 绿 / − 红，
+
     软上限 1000 行协议层已截断）+ 标题行 +N −M 红绿徽标；默认折叠。
     无 diff 项时退化为纯标题行（edit diff 项非必填，不臆造）。
+
+    0919 计划 T3：kimi 系 diff/路径在 in_progress update 帧才到（首帧
+    空壳）——徽标/body 挂载抽为 _render_diff 供首帧与 update 帧共用
+    （_diff_attached 去重，双帧各发一次 diff 时只挂一份）；标题恒定
+    工具名（拒收「Editing <路径>」内嵌标题），副标题两段式「文件名
+    （tool_fg 常态）· 目录（reasoning_fg 弱化）」对齐对标样式。
     """
 
+    _accept_title_update = False
+    #: diff 补挂去重标记（类级缺省；R3：首帧/completed 帧双发只挂一份）
+    _diff_attached = False
+
+    def set_subtitle(self, subtitle: str) -> None:
+        """两段式路径副标题（0919 T3-1）：仅拆显示不改载荷语义；
+        无路径分隔符时退化为纯文本（与基类一致）。"""
+        text = subtitle or ""
+        if "/" not in text:
+            super().set_subtitle(text)
+            return
+        head, _, name = text.rstrip("/").rpartition("/")
+        super().set_subtitle(
+            f'{_html_escape(name)} · '
+            f'<span style="color:{self._colors.reasoning_fg}">'
+            f'{_html_escape(head + "/")}</span>')
+
     def _build_body(self, payload: dict) -> None:
+        self._render_diff(payload)
+
+    def _on_progress(self, payload: dict) -> None:
+        # kimi 系 diff/路径在 in_progress 帧到达（0919 T1 实证）
+        self._render_diff(payload)
+
+    def _on_completed(self, payload: dict) -> None:
+        self._render_diff(payload)
+
+    def _render_diff(self, payload: dict) -> None:
+        """徽标 + hunk body 挂载（首帧 _build_body 与 update 帧两钩子共用）。"""
+        if self._diff_attached:
+            return
         if diff_stat := payload.get("diff_stat"):
             badge = QLabel(self)
             add, _, delete = diff_stat.partition(" ")
@@ -537,9 +584,11 @@ class DiffCard(ToolCard):
             self._header_layout.insertWidget(
                 self._header_layout.indexOf(self._status_label), badge)
             self._diff_badge = badge
+            self._diff_attached = True
         hunks = payload.get("diff_hunks") or []
         if not hunks:
             return
+        self._diff_attached = True
         mono = get_mono_family()
         parts = []
         for hunk in hunks:
