@@ -305,6 +305,42 @@ def _extract_diff(content: object) -> tuple[str, list[dict], bool] | None:
     return f"+{adds} −{dels}", kept, truncated
 
 
+def _extract_write_diff(update: dict) -> tuple[str, list[dict], bool] | None:
+    """write 形态合成 diff（0803 计划 T2）：rawInput.content 全文 → `+N −0`。
+
+    kimi 系 write 新建文件会话的 in_progress 帧 content **无 diff 项**
+    （edit 有），diff 徽标/hunk 无数据源（取证
+    `.temp/write_frames_kimi.json`）；但 `rawInput.content` 是写入全文，
+    新建文件语义的 diff 即 `oldText="" + newText=content`——数据为后端
+    真实所给，合成仅是真实数据的 diff 化重表达（不臆造纪律合规），
+    且直接复用 `_extract_diff` 管线（difflib hunk 化、软上限截断，
+    零新增截断逻辑）。
+
+    条件收敛（防与 edit 语义混淆）：
+    - kind 须为 "edit"（write/edit 在 ACP 同 kind，靠 rawInput 键区分）；
+    - `rawInput.content` 须为字符串且非空（写空文件返回 None，
+      无 diff 不臆造，退化为纯标题行）；
+    - rawInput 不含 old/new 文本键（snake_case 与 camelCase 双形态
+      排除——edit 形态不受合成路径污染）。
+
+    已知取舍（0803 计划 R1）：write 覆盖已存在文件时旧内容不可得
+    （后端不给，协议层不碰文件系统），合成恒为「全量新增」口径
+    （+N −0），与真实增删有偏差，记录于计划 §4。
+    """
+    if update.get("kind") != "edit":
+        return None
+    raw = update.get("rawInput")
+    if not isinstance(raw, dict):
+        return None
+    content = raw.get("content")
+    if not isinstance(content, str) or not content:
+        return None
+    if any(key in raw for key in
+           ("old_string", "new_string", "oldString", "newString")):
+        return None  # edit 形态排除
+    return _extract_diff([{"oldText": "", "newText": content}])
+
+
 def _extract_result_summary(text: str) -> str:
     """task 子代理成果摘要（1425 封存款 K2，0645 计划 D5 放宽）：
     `<task_result>...</task_result>` 正则提取；无包裹标记取全文兜底。
@@ -475,6 +511,13 @@ def _map_tool_call(update: dict) -> Chunk:
             payload["diff_stat"], payload["diff_hunks"], truncated = diff
             if truncated:
                 payload["diff_truncated"] = True
+        elif write_diff := _extract_write_diff(update):
+            # 0803 计划 T2：write 形态 content 无 diff 项，rawInput.content
+            # 全文合成 +N −0（首帧防御：kimi 首帧空壳无 rawInput 自然 no-op，
+            # 其他后端若首帧带全量 rawInput 通用受益）
+            payload["diff_stat"], payload["diff_hunks"], truncated = write_diff
+            if truncated:
+                payload["diff_truncated"] = True
     if summary := _tool_call_summary(update):
         payload["summary"] = summary
     # 0645 计划 D3：通用入参区（已知键 + JSON 兜底；MCP/未知工具亦受益）
@@ -519,6 +562,13 @@ def _map_tool_call_update(update: dict) -> Chunk | None:
     # 故不限 status 盲提；_extract_diff 对非 diff 项返回 None，天然安全
     if diff := _extract_diff(update.get("content")):
         payload["diff_stat"], payload["diff_hunks"], truncated = diff
+        if truncated:
+            payload["diff_truncated"] = True
+    elif write_diff := _extract_write_diff(update):
+        # 0803 计划 T2：write 形态 in_progress 帧 content 无 diff 项（edit 有），
+        # rawInput.content 全文合成 +N −0；条件只看 rawInput 结构不看后端身份，
+        # 同构后端通用受益（R4）
+        payload["diff_stat"], payload["diff_hunks"], truncated = write_diff
         if truncated:
             payload["diff_truncated"] = True
     # 0919 计划 T2：参数摘要迟到刷新——edit/read 首帧无 locations/rawInput

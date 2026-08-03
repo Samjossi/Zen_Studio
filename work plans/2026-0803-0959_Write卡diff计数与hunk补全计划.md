@@ -1,4 +1,5 @@
-> **状态**：待审阅（2026-08-03 09:59 创建，T1 帧取证已实证，未经任何代码改动）
+> **状态**：已闭环（2026-08-03 10:2x T2/T3 落地验证全过，剩真机收尾
+> 由用户实机对照）
 > **范围**：`llm/providers/acp.py`（write 形态 diff 合成，唯一修复点）、
 > `.temp/`（取证探针、复现/截图/冒烟脚本，不入库）
 > **时间**：2026-08-03 09:59（创建，UTC+8）
@@ -109,3 +110,28 @@ body 自然呈现全绿，`+N −0` 徽标自动上屏。两轨 fallback 文本
 - 修前/修后 offscreen 截图成对存档 `.temp/`，多模态核验通过；
 - 协议层 + GUI 冒烟新增断言全过，既有断言零回归；
 - 降级形态：空 content / 无 rawInput 时退回纯标题行（不臆造）。
+
+## 6. 执行结果（2026-08-03 10:2x 回填，T2/T3 已闭环）
+
+- **T2 协议层**：`acp.py` 新增 `_extract_write_diff`（kind=edit 且
+  rawInput.content 非空字符串且排除 old/new 双形态键 → 伪 diff 项
+  直送 `_extract_diff` 管线复用 hunk 化/软上限截断）；`_map_tool_call`
+  edit 分支与 `_map_tool_call_update` 各补一级 elif 合成——唯一修复点，
+  渲染层零改动（§3.2 如预期自动受益）；
+- **T3-1 截图核验**：`.temp/shot_write_card.py` 端到端走真协议帧
+  （`map_session_update` → `panel._on_activity_chunk`），三张截图
+  多模态核验通过——折叠态「📝 Write 文档二.md · 测试文件夹/ +3 −0 ✔」
+  红绿徽标上屏、展开态 @@ 灰头 + 三行全绿 hunk、空 content 对照卡
+  退化为纯标题行无徽标（不臆造备案形态同样上屏正确）
+  （`.temp/shots/write_card_post_collapsed.png` /
+  `write_card_post_expanded.png` / `write_card_empty_degraded.png`）；
+- **T3-2 协议层断言**：`.temp/test_map_session_update.py` 新增 11 项
+  （合成 +4 −0/全绿 hunk/摘要迟到/fallback 计数随行/edit 双形态键排除/
+  空 content None/1200 行截断置位/首帧防御合成/空壳 no-op/completed
+  裸帧不臆造）——55 项全过；
+- **T3-3 GUI 冒烟**：`.temp/smoke_chat_cards.py` 新增 16 项（卡片段 9：
+  首帧空壳/徽标补挂/两段式副标题/标题恒定/全绿 body/双帧去重×2/✔；
+  端到端 7：write 取证帧型全链路）——全量 99 项通过（既有 83 零回归）；
+- **合规检查**：修前修后违规清单逐条一致，未引入新违规；
+- **遗留**：§4-R1 覆盖写语义偏差为已知取舍（后端不给旧内容，合成恒为
+  全量新增口径）；真机收尾由用户实机 Write 新建文件对照。
