@@ -116,6 +116,8 @@ for want in "AppRun" "zen-studio.desktop" "zen-studio.png" \
             "usr/bin/_internal/assets/themes/base.qss" \
             "usr/bin/_internal/assets/fonts/思源黑体/LICENSE.txt" \
             "usr/bin/_internal/assets/fonts/更纱黑体/LICENSE.txt" \
+            "usr/bin/_internal/assets/fonts/Noto彩色Emoji/LICENSE.txt" \
+            "usr/bin/_internal/assets/fonts/Noto彩色Emoji/NotoColorEmoji.ttf" \
             "usr/bin/_internal/assets/logo/logo_256.png" \
             "usr/bin/_internal/config/version.json" \
             "usr/bin/_internal/PySide6/Qt/plugins/platforms/libqxcb.so" \

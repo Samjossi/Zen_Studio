@@ -1,6 +1,6 @@
 # assets/fonts/ — 自带字体库
 
-应用运行时**注册**使用的自带字体；打包按**族**收编（更纱黑体 + 思源黑体进产物，约 104M；思源宋体经决策不打包）。
+应用运行时**注册**使用的自带字体；打包按**族**收编（更纱黑体 + 思源黑体 + Noto 彩色 Emoji 进产物，约 114M；思源宋体经决策不打包）。
 
 ## 字体族一览
 
@@ -8,11 +8,12 @@
 |:---|:---|:---|:---|:---:|
 | `思源黑体/` | Source Han Sans CN | UI 正文/标题字体 | 加载 Regular / Medium / Bold 三档 | ✅ |
 | `更纱黑体/` | Sarasa Term SC | 终端与代码查看器**等宽**字体 | 加载 Regular / Bold 两档 | ✅ |
+| `Noto彩色Emoji/` | Noto Color Emoji | **emoji 兜底**（回退链自动拼接，不设显式字体） | 加载单文件 | ✅（0807 计划 D2-C） |
 | `思源宋体/` | Source Han Serif CN | 备用衬线字体 | ⚠️ **当前未注册** | ❌（2026-0725-1053 计划修订二决策，文件留库不删） |
 
 ## 加载机制
 
-- 加载入口：`gui/theme.py`（`BUNDLED_FONT_FILES` / `MONO_FONT_FILES` 常量列出运行时注册的字重文件）。
+- 加载入口：`gui/theme.py`（`BUNDLED_FONT_FILES` / `MONO_FONT_FILES` / `EMOJI_FONT_FILES` 常量列出运行时注册的字重文件）。
 - 目录内**多于运行时注册量**的字重属正常——未注册字重是备用资产，不是冗余。
 - 许可证见各字体族目录内的 `LICENSE.txt`。
 

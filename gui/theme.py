@@ -439,6 +439,16 @@ MONO_FONT_FILES = (
 )
 MONO_FAMILY = "Sarasa Term SC"
 
+#: 自带彩色 emoji 字体目录（assets/fonts/Noto彩色Emoji/，0807 计划 D2-C 拍板：
+#: 思源黑体不覆盖 emoji——注册后 Qt 回退链自动拼接，🧠📎🖼 等全量彩色渲染、
+#: 跨机器一致，不再依赖系统字体施舍；CBDT 位图字体，QRawFont.supportsCharacter
+#: 对其误报 False（Qt 已知怪癖），实际光栅化正常——覆盖探测勿用于 emoji）
+EMOJI_FONTS_DIR = PROJECT_ROOT / "assets" / "fonts" / "Noto彩色Emoji"
+EMOJI_FONT_FILES = (
+    "NotoColorEmoji.ttf",
+)
+EMOJI_FAMILY = "Noto Color Emoji"
+
 #: 注册幂等标志：主题切换会重入 apply_theme，字体只需注册一次
 _are_fonts_registered = False
 
@@ -494,7 +504,7 @@ def _register_dir(directory: Path, files: tuple[str, ...]) -> bool:
 
 
 def register_bundled_fonts() -> None:
-    """注册库内双字体族（幂等）；缺失仅告警（属打包错误），Qt 自然回退兜底。"""
+    """注册库内三字体族（幂等）；缺失仅告警（属打包错误），Qt 自然回退兜底。"""
     global _are_fonts_registered
     if _are_fonts_registered:
         return
@@ -503,6 +513,8 @@ def register_bundled_fonts() -> None:
         print(f"[theme] 警告：UI 字体注册失败（{BUNDLED_FONTS_DIR}），Qt 将回退默认字体")
     if not _register_dir(MONO_FONTS_DIR, MONO_FONT_FILES):
         print(f"[theme] 警告：等宽字体注册失败（{MONO_FONTS_DIR}），等宽场景将回退 monospace")
+    if not _register_dir(EMOJI_FONTS_DIR, EMOJI_FONT_FILES):
+        print(f"[theme] 警告：emoji 字体注册失败（{EMOJI_FONTS_DIR}），emoji 将回退系统字体")
 
 
 def get_mono_family() -> str:

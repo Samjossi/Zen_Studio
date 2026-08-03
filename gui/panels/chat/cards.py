@@ -54,14 +54,17 @@ _DEFAULT_OPEN = {
     "other": False,
 }
 
+#: 工具 kind → header 图标（0807 计划 D2-C/D3 拍板：彩色 emoji 集，
+#: 内置 Noto Color Emoji 回退链渲染、跨机器一致；选默认 emoji 呈现的
+#: 单码点字形，无需 VS16；emoji 自带色彩不吃 tool_fg，显眼为设计意图）
 _KIND_ICONS = {
-    "execute": "$",
-    "edit": "✎",
-    "read": "☐",
-    "search": "☐",
-    "fetch": "☐",
-    "think": "⧉",
-    "other": "☐",
+    "execute": "💻",
+    "edit": "📝",
+    "read": "📄",
+    "search": "🔍",
+    "fetch": "🌐",
+    "think": "🤖",
+    "other": "🧩",
 }
 
 
@@ -245,9 +248,19 @@ class CollapsibleCard(QFrame):
         self._chevron.setAutoRaise(True)
         self._chevron.setText("▸")
         self._chevron.setFixedSize(20, 20)
+        # 局部豁免全局 QToolButton 实体化范式（0807 计划 D1-A）：全局 QSS
+        # padding 2px 8px + border 2px 吃掉 20px 固定宽的 18px，▸ 被裁成
+        # 竖线；此处恢复 autoRaise 轻量文本钮，内容盒全量可用
+        self._chevron.setStyleSheet(
+            "QToolButton { background: transparent; border: none; padding: 0px; }"
+            "QToolButton:hover { background: transparent; border: none; }")
         self._chevron.clicked.connect(lambda: self.set_open(not self._open, user=True))
 
         self._icon_label = QLabel(icon, self)
+        # 图标列定宽居中（0807 计划 D4-A）：字形宽 10–17px 漂移曾致各卡
+        # title x 在 46–53 间不齐；定宽 20 后全族归一
+        self._icon_label.setFixedWidth(20)
+        self._icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._icon_label.setStyleSheet(f"color: {colors.tool_fg};")
         self._title_label = QLabel(title, self)
         title_font = self._title_label.font()
@@ -352,7 +365,7 @@ class ToolCard(CollapsibleCard):
         self._user_toggled = False
         super().__init__(
             colors,
-            _KIND_ICONS.get(self._kind, "☐"),
+            _KIND_ICONS.get(self._kind, "🧩"),
             payload.get("title") or "?",
             payload.get("summary") or "")
         self.set_status("◐", colors.tool_fg)
@@ -647,7 +660,7 @@ class ThinkingCard(CollapsibleCard):
     """
 
     def __init__(self, colors: CardColors, split_heading, parent=None) -> None:
-        super().__init__(colors, "…", "Thinking", "", parent)
+        super().__init__(colors, "🧠", "Thinking", "", parent)
         self._split_heading = split_heading
         self._buffer = ""
         self._user_toggled = False
@@ -677,7 +690,7 @@ class ThinkingCard(CollapsibleCard):
 
 
 class TodoCard(QFrame):
-    """TODO 卡（P7）：☑ 任务清单 — N/M 项完成 + 只读 checkbox 列表；
+    """TODO 卡（P7）：📋 任务清单 — N/M 项完成 + 只读 checkbox 列表；
     常开不可折（0640-D4-A 对应 P7 强制展开）；set_entries 整刷（弃锚点）。
     """
 
@@ -689,7 +702,7 @@ class TodoCard(QFrame):
         self.setStyleSheet(
             f"#ChatToolCard {{ background-color: {colors.tool_output_bg};"
             f" border-radius: 6px; }}")
-        icon = QLabel("☑", self)
+        icon = QLabel("📋", self)
         icon.setStyleSheet(f"color: {colors.tool_fg};")
         self._title = QLabel("任务清单", self)
         title_font = self._title.font()

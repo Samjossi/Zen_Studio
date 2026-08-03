@@ -31,6 +31,9 @@ a = Analysis(
         # 新增需打包资产须同步在此补一条——assets/README.md 纪律）
         (os.path.join(PROJECT_ROOT, "assets/fonts/更纱黑体"), "assets/fonts/更纱黑体"),
         (os.path.join(PROJECT_ROOT, "assets/fonts/思源黑体"), "assets/fonts/思源黑体"),
+        # Noto 彩色 Emoji（0807 计划 D2-C：思源缺 emoji 字形的内置回退，
+        # Qt 回退链自动拼接；OFL-1.1，约 10M）
+        (os.path.join(PROJECT_ROOT, "assets/fonts/Noto彩色Emoji"), "assets/fonts/Noto彩色Emoji"),
         (os.path.join(PROJECT_ROOT, "assets/logo"), "assets/logo"),
         # QSS 主题模板（gui/theme.py THEME_TEMPLATE_FILE 消费的只读资源）
         (os.path.join(PROJECT_ROOT, "assets/themes"), "assets/themes"),
