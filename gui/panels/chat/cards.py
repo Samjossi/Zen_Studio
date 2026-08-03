@@ -625,8 +625,9 @@ class DiffCard(ToolCard):
 
 
 class TextOutputCard(ToolCard):
-    """read/search/fetch 输出正文卡（D1-A）：标题行尾注「—— N 行」，
-    body 输出正文全量（软上限保头已由协议层执行）；默认折叠。
+    """read/search/fetch 输出正文卡（D1-A）：标题行右侧灰字徽标「N 行」
+    （复制钮旁、状态图标左，与 DiffCard 徽标同位同手法），body 输出正文
+    全量（软上限保头已由协议层执行）；默认折叠。
     """
 
     def _build_body(self, payload: dict) -> None:
@@ -649,8 +650,11 @@ class TextOutputCard(ToolCard):
                 self._note.setText(f"…… 共 {total} 行（仅显示前 {shown} 行）")
                 self._note.setVisible(True)
         if total:
-            base = payload.get("summary") or self._subtitle_label.text()
-            self.set_subtitle(f"{base} —— {total} 行" if base else f"—— {total} 行")
+            # 行数徽标常驻标题行右侧（复制钮旁，与 DiffCard 徽标同位同手法）
+            badge = QLabel(f"{total} 行", self)
+            badge.setStyleSheet(f"color: {self._colors.tool_fg};")
+            self._header_layout.insertWidget(
+                self._header_layout.indexOf(self._status_label), badge)
 
 
 class SubagentCard(ToolCard):
