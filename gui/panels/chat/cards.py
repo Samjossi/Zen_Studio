@@ -42,8 +42,10 @@ BODY_MAX_HEIGHT = 320
 #: 开合状态 Map 容量（P3 直译 kilocode tool-open-state.ts LRU 2000）
 _OPEN_STATE_CAPACITY = 2000
 
-#: 默认开合约定（P2 / 0640-D4-A）：bash 开、diff 折、read/search/fetch 折、
-#: MCP/未知折、子代理运行中开（完成自动折）；todo 常开不走本表（不可折）
+#: 默认开合约定（P2 / 0640-D4-A；2026-0803 拍板翻案：bash 改为运行中开、
+#: 完成自动折，对齐子代理卡）：bash 运行中开（完成自动折）、diff 折、
+#: read/search/fetch 折、MCP/未知折、子代理运行中开（完成自动折）；
+#: todo 常开不走本表（不可折）
 _DEFAULT_OPEN = {
     "execute": True,
     "edit": False,
@@ -480,7 +482,9 @@ class ToolCard(CollapsibleCard):
 
 class BashCard(ToolCard):
     """bash 卡（P5）：完整命令 + 输出全量 body（软上限保尾已由协议层执行）；
-    运行中尾滚 5 行实时帧（路由层 200ms 节流），完成定格 +「共 N 行」尾注。
+    运行中尾滚 5 行实时帧（路由层 200ms 节流），完成定格 +「共 N 行」尾注 +
+    自动折叠（2026-0803 拍板对齐子代理卡；手动记忆优先；failed 不受影响——
+    走 _on_failed + 强制展开路径，异常必见）。
     """
 
     def _build_body(self, payload: dict) -> None:
@@ -511,6 +515,8 @@ class BashCard(ToolCard):
     def _on_completed(self, payload: dict) -> None:
         self._render_final(payload.get("output") or self._output.toPlainText(),
                            payload.get("output_total_lines"))
+        if not self._user_toggled:  # 完成自动折（2026-0803 拍板，对齐子代理卡；手动记忆优先）
+            self.set_open(False)
 
     def _on_failed(self, payload: dict) -> None:
         # bash 失败：错误全文进输出区（红字），兼保留已滚出的输出上文语义
