@@ -2,7 +2,7 @@
 
 （2026-07-29，见 文档/修改记录/2026-0729-1102_图片文件预览功能实施计划 T1–T3）
 形态：内嵌 ViewerPanel 图片页（QStackedLayout 与 CodeViewer 文本页切换）。
-能力：fit 适应窗口 / 实际像素、锚点滚轮缩放、拖拽平移、同目录循环翻页、
+能力：默认实际像素 100% 显示（可切 fit 适应窗口）、锚点滚轮缩放、拖拽平移、同目录循环翻页、
 GIF 动画（QMovie）、SVG 矢量渲染、棋盘格透明底、超大图防护。
 
 协议合规（见 work options/2026-0729-1028_theia实质代码审计与协议补全建议.md）：
@@ -67,7 +67,7 @@ class ImageViewer(QGraphicsView):
         self._siblings: list[Path] = []  # 同目录图片集（翻页序列）
         self._index = -1
         self._image_size = QSize()
-        self._fit_mode = True  # True=适应窗口（resize 自动重 fit）；False=手动缩放
+        self._fit_mode = False  # True=适应窗口（resize 自动重 fit）；False=实际像素/手动缩放
 
         self._bg_color = QColor(palette["window_bg"])
         self._checker_tile = self._build_checker_tile(palette)
@@ -91,7 +91,7 @@ class ImageViewer(QGraphicsView):
             return str(e)
         if error is not None:
             return error
-        self.fit()  # 默认适应窗口（fit 内已发 info_changed）
+        self.actual()  # 默认实际像素 100% 显示（actual 内已发 info_changed）
         return None
 
     def _load_raster(self, path: Path) -> str | None:

@@ -184,7 +184,7 @@ class ViewerPanel(QWidget):
         return title_row
 
     def _build_image_buttons(self, parent: QWidget) -> QWidget:
-        """图片页按钮组：◀ ▶ 翻页 + 适应/100%（仅图片页可见，文本页隐藏）。"""
+        """图片页按钮组：◀ ▶ 翻页 + 实际像素/适应（仅图片页可见，文本页隐藏）。"""
         self._image_buttons = QWidget(parent)
         row = QHBoxLayout(self._image_buttons)
         row.setContentsMargins(0, 0, 0, 0)
@@ -192,8 +192,8 @@ class ViewerPanel(QWidget):
         for text, tip, slot in (
             ("◀", "上一张（同目录）", lambda: self.image_viewer.step(-1)),
             ("▶", "下一张（同目录）", lambda: self.image_viewer.step(1)),
+            ("实际像素", "实际像素（100% 显示）", lambda: self.image_viewer.actual()),
             ("适应", "适应窗口", lambda: self.image_viewer.fit()),
-            ("100%", "实际像素", lambda: self.image_viewer.actual()),
         ):
             button = QToolButton(self._image_buttons)
             button.setText(text)
