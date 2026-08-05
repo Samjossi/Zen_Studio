@@ -3,8 +3,9 @@
 （2026-07-29，见 文档/修改记录/2026-0729-1155_Markdown渲染预览与Typora打开功能实施计划 T2–T4）
 形态：内嵌 ViewerPanel Markdown 页（QStackedLayout 第四页，.md/.markdown
 经 open_file 分流直进渲染页——原决策不做源码↔渲染双模式，已于 2026-08-06
-被 0327 计划推翻：标题行开关可切源码模式，本页为「阅览模式」默认态；
-深度阅读/编辑经右键「使用 Typora 打开」交给专业软件）。
+被 0327 计划推翻：标题行开关可切源码模式，本页为「阅览模式」默认态）。
+中栏不设「使用 Typora 打开」入口（2026-08-06 用户拍板翻案 0659 计划
+D3/D4：右栏文件树右键有同款入口，中栏整体移除、右栏保留）。
 
 能力：GFM 渲染（表格/任务列表/删除线/围栏代码块）、相对图片/链接以 md
 所在目录为基准解析（searchPaths + baseUrl）、链接三分发（http→系统浏览器、
@@ -24,9 +25,8 @@ from pathlib import Path
 
 from PySide6.QtCore import Qt, QUrl, Signal
 from PySide6.QtGui import QColor, QDesktopServices, QFont, QPalette, QTextDocument
-from PySide6.QtWidgets import QApplication, QFrame, QTextBrowser, QWidget
+from PySide6.QtWidgets import QApplication, QFrame, QMenu, QTextBrowser, QWidget
 
-from core.external_apps import TyporaLauncher, default_launcher
 from gui.popups import make_translucent_popup
 from gui.selection_band import SUPPRESSION_QSS, paint_selection_band
 
@@ -38,23 +38,19 @@ MAX_BYTES = 1_048_576
 
 
 class MarkdownView(QTextBrowser):
-    """Markdown 只读渲染控件（GFM 方言 + 相对资源解析 + 链接分发 + Typora 跳转）。"""
+    """Markdown 只读渲染控件（GFM 方言 + 相对资源解析 + 链接分发）。"""
 
     #: 工作区内相对文件链接点击（参数为解析后的绝对路径；面板转 open_file）
     file_link_clicked = Signal(str)
-    #: Typora 调起失败（参数为原因字符串；面板转弱提示）
-    typora_failed = Signal(str)
 
     def __init__(
         self,
         palette: dict,
         parent: QWidget | None = None,
-        typora: TyporaLauncher | None = None,
     ) -> None:
         """
         :param palette: 主题调色板（gui/theme.py get_theme_palette 全量包）
         :param parent: 父控件
-        :param typora: Typora 启动器（构造注入，探针可传假实现；缺省共享实例）
         """
         super().__init__(parent)
         self.setFrameShape(QFrame.Shape.NoFrame)  # 卡片统一描边，控件自身去框
@@ -64,7 +60,6 @@ class MarkdownView(QTextBrowser):
         # 控件级声明优先）；选中文字保持正文色，由自绘带承担高亮
         self.setStyleSheet(SUPPRESSION_QSS)
 
-        self._typora = typora or default_launcher
         self._current_path: Path | None = None
         self._truncated = False
         self._selection_color: QColor | None = None  # apply_theme 注入 accent
@@ -142,30 +137,25 @@ class MarkdownView(QTextBrowser):
         super().wheelEvent(event)
 
     # ------------------------------------------------------------------
-    # 右键菜单（标准菜单透明化 + 追加「使用 Typora 打开」）
+    # 右键菜单（单项「全选」）
     # ------------------------------------------------------------------
-    def _build_context_menu(self, pos) -> tuple:
-        """装配右键菜单：标准菜单透明化 + Typora 入口（构建与弹出分离，可探针断言）。
+    def _build_context_menu(self, pos) -> QMenu:
+        """装配右键菜单：单项「全选」（构建与弹出分离，可探针断言）。
 
-        返回 (menu, action_typora)；action_typora 在已打开 md 且检测到系统
-        Typora 时才创建，否则为 None。
+        精简决策（2026-0806-0659 计划 D1/D2）：只读查看器高频路径为
+        「全选 → Ctrl+C」，「全选」无前置条件随时可用，是右键菜单中唯一
+        不依赖选区状态的有效项；复制走 Ctrl+C（有选区时）。
         """
-        menu = self.createStandardContextMenu(pos)
+        menu = QMenu(self)
         make_translucent_popup(menu)
-        action_typora = None
-        if self._current_path is not None and self._typora.is_available():
-            menu.addSeparator()
-            action_typora = menu.addAction("使用 Typora 打开")
-        return menu, action_typora
+        menu.addAction("全选", self.selectAll)
+        return menu
 
     def contextMenuEvent(self, event) -> None:
-        """右键弹出（见 gui/popups.py 规约）；选中 Typora 入口则调起。"""
-        menu, action_typora = self._build_context_menu(event.pos())
-        chosen = menu.exec(event.globalPos())
+        """右键弹出单项「全选」菜单（见 gui/popups.py 透明化规约）。"""
+        menu = self._build_context_menu(event.pos())
+        menu.exec(event.globalPos())
         menu.deleteLater()
-        if action_typora is not None and chosen is action_typora:
-            if error := self._typora.open(self._current_path):
-                self.typora_failed.emit(error)
 
     # ------------------------------------------------------------------
     # 主题与字号

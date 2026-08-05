@@ -26,7 +26,9 @@ QStackedLayout 第三页 MediaViewer（QMediaPlayer 就地播放），open_file 
 Markdown 渲染预览（2026-07-29，见 文档/修改记录/2026-0729-1155_Markdown渲染预览与
 Typora打开功能实施计划）：QStackedLayout 第四页 MarkdownView（QTextBrowser
 + setMarkdown GFM 渲染），.md/.markdown 直进渲染页；
-查找浮层降级弱提示；页内「使用 Typora 打开」右键入口。
+查找浮层降级弱提示；中栏不设「使用 Typora 打开」入口（2026-08-06
+用户拍板翻案 0659 计划 D3/D4——右栏文件树右键有同款入口，中栏
+整体移除，右栏保留）。
 
 Markdown 阅览/源码双模式开关（2026-08-06，见 文档/修改记录/2026-0806-0327_Markdown
 阅览源码双模式滑块开关计划）：推翻上节「不做源码↔渲染双模式」决策——标题行
@@ -147,11 +149,9 @@ class ViewerPanel(QWidget):
         # 媒体页：视频/音频就地播放（解码失败经 failed 信号回落占位）
         self.media_viewer = MediaViewer(palette, self)
         self.media_viewer.failed.connect(self._on_media_failed)
-        # Markdown 页：.md/.markdown GFM 渲染预览（工作区内链接点击转 open_file，
-        # Typora 调起失败转弱提示）
+        # Markdown 页：.md/.markdown GFM 渲染预览（工作区内链接点击转 open_file）
         self.markdown_view = MarkdownView(palette, self)
         self.markdown_view.file_link_clicked.connect(self.open_file)
-        self.markdown_view.typora_failed.connect(self._show_hint)
         # PDF 页：.pdf 就地预览（QPdfView 连续滚动；外部打开失败转弱提示）
         self.pdf_viewer = PdfViewer(palette, self)
         self.pdf_viewer.page_info_changed.connect(self._show_hint)

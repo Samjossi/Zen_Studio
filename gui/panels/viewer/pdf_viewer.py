@@ -57,7 +57,7 @@ class PdfViewer(QWidget):
 
     #: 页码/缩放弱提示（文案形如 "第 3/12 页 · 125%"；面板接 _show_hint）
     page_info_changed = Signal(str)
-    #: 外部打开失败（参数为原因字符串；面板转弱提示，同 Markdown 页 typora_failed 先例）
+    #: 外部打开失败（参数为原因字符串；面板转弱提示）
     external_failed = Signal(str)
 
     def __init__(self, palette: dict, parent: QWidget | None = None) -> None:

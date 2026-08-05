@@ -31,7 +31,7 @@
 | `gui/panels/file_explorer/` | 文件树子包（右栏上）：`explorer.py` 主控件 / `model.py` 模型层（噪音过滤 + Git 状态着色）/ `actions.py` 右键菜单动作 |
 | `gui/panels/changes/` | Git 变更面板子包（右栏下）：`panel.py` 已变更文件列表（状态着色 + 增减行数，VS Code SCM 简化版） |
 | `gui/panels/chat/` | 聊天面板子包（左栏）：`tabs.py` 标签容器（选择状态层 + 上限 4 标签）/ `panel.py` 装配（含底行：模型选择按钮 + 发送/停止双态按钮）/ `output.py` 输出区 / `input.py` 输入框（文件拖入 → `@路径` 引用）/ `model_bar.py` 模型选择三按钮（纯视图）/ `worker.py` 流式线程 / `permission_dialog.py` ACP 工具审批对话框 / `permission_queue.py` 多标签审批串行弹窗队列 |
-| `gui/panels/viewer/` | 文件查看面板子包（中栏上，五页预览分流）：`panel.py` 装配（QStackedLayout 五页 + Git 差异徽标）/ `code_viewer.py` 只读文本查看器（行号栏）/ `highlighter.py` Pygments 高亮器 / `image_viewer.py` 图片页（位图 + SVG + GIF）/ `pdf_viewer.py` PDF 页（QPdfView 连续滚动）/ `markdown_view.py` Markdown 渲染页（GFM + Typora 打开）/ `media_viewer.py` 音视频播放页 |
+| `gui/panels/viewer/` | 文件查看面板子包（中栏上，五页预览分流）：`panel.py` 装配（QStackedLayout 五页 + Git 差异徽标）/ `code_viewer.py` 只读文本查看器（行号栏）/ `highlighter.py` Pygments 高亮器 / `image_viewer.py` 图片页（位图 + SVG + GIF）/ `pdf_viewer.py` PDF 页（QPdfView 连续滚动）/ `markdown_view.py` Markdown 渲染页（GFM）/ `media_viewer.py` 音视频播放页 |
 | `gui/panels/terminal/` | 终端面板子包（中栏下）：`panel.py` 装配 / `widget.py` 自绘终端控件 / `screen.py` pyte 语义层 / `session.py` PTY 会话 / `palette.py` ANSI 双主题色板 / `selection.py` 选区控制器（纯逻辑零 Qt 依赖） |
 
 > LLM 调用层为后端逻辑，位于项目根 `llm/`（与 `gui/` 平级）：`base.py` Protocol / `providers/` 下 kimi / reasonix / OpenCode / Kilo Code 四家 ACP 长驻后端（传输层统一为 ACP，kimi CLI `-p` 模式已于 2026-07-31 移除）。多标签改造后 provider 由每个 `ChatPanel` 自持（`ChatPanel._build_providers` 装配单点）。
@@ -108,7 +108,7 @@
 | 文本页 | 代码与纯文本 | `CodeViewer(QPlainTextEdit)` + Pygments 高亮 + 行号栏 |
 | 图片页 | 位图 / SVG / GIF | `ImageViewer(QGraphicsView)`：fit/实际像素、滚轮缩放、拖拽平移、同目录循环翻页、GIF 动画、棋盘格透明底 |
 | PDF 页 | `.pdf` | `PdfViewer`（QPdfView，QtPdf 内核）：MultiPage 连续滚动、缩放三件套、翻页 |
-| Markdown 页 | `.md` / `.markdown` | `MarkdownView(QTextBrowser.setMarkdown)` GFM 渲染；右键「使用 Typora 打开」（`core/external_apps.py`）；Qt 内建 Ctrl+滚轮缩放已禁用 |
+| Markdown 页 | `.md` / `.markdown` | `MarkdownView(QTextBrowser.setMarkdown)` GFM 渲染；右键菜单精简为单项「全选」（代码页同）；中栏不设 Typora 入口（右栏文件树右键有）；Qt 内建 Ctrl+滚轮缩放已禁用 |
 | 音视频页 | 常见音视频格式 | `MediaViewer`（QtMultimedia）：就地播放，双击即播（播放状态机移植自 PyGPT） |
 
 | 组件 | 说明 |

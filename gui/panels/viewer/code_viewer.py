@@ -11,9 +11,9 @@ AI-first 定位：永久只读（产品决策，`setReadOnly` 可逆）；行号
 """
 from PySide6.QtCore import QRect, QSize, Qt
 from PySide6.QtGui import QColor, QFont, QPainter, QTextCursor, QTextFormat, QTextOption
-from PySide6.QtWidgets import QApplication, QPlainTextEdit, QTextEdit, QWidget
+from PySide6.QtWidgets import QApplication, QMenu, QPlainTextEdit, QTextEdit, QWidget
 
-from gui.popups import exec_standard_context_menu
+from gui.popups import make_translucent_popup
 from gui.theme import ChromePack, get_mono_family
 
 
@@ -62,8 +62,14 @@ class CodeViewer(QPlainTextEdit):
         super().wheelEvent(event)
 
     def contextMenuEvent(self, event) -> None:
-        """标准编辑菜单透明化（见 gui/popups.py 与 0751 计划 §3.1）。"""
-        exec_standard_context_menu(self, event)
+        """右键单项「全选」菜单（2026-0806-0659 计划 D1/D2：只读查看器右键
+        精简——「全选」无前置条件随时可用，走通「右键全选 → Ctrl+C」路径；
+        复制走 Ctrl+C；透明化规约不变，见 gui/popups.py）。"""
+        menu = QMenu(self)
+        make_translucent_popup(menu)
+        menu.addAction("全选", self.selectAll)
+        menu.exec(event.globalPos())
+        menu.deleteLater()
 
     # ------------------------------------------------------------------
     # 主题
