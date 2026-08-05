@@ -1,6 +1,6 @@
 """Git 提交历史图列表视图：QTreeView + 委托自绘（图形列/refs 徽标）。
 
-实施计划：work plans/2026-0802-1542_Git提交历史图美化计划.md（T3/T4）。
+实施计划：文档/修改记录/2026-0802-1542_Git提交历史图美化计划.md（T3/T4）。
 
 - 图形列（GraphColumnDelegate）：逐格绘制 git --graph 解析出的图线格，
   颜色取格携带的 TERMINAL_PACK 键（None 格 = git 未着色的单 lane 线性段，

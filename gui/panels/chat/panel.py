@@ -18,7 +18,7 @@ AI 活动信息路由（2026-07-31，文档/修改记录/2026-0731-1602 计划 T
   toolCallId→title 簿记补全状态行标题；轮次收尾 reset_activity_anchors
   作废 todo 锚点（T5-4 防跨轮串位）
 
-对话区双轨渲染（2026-08-03，work plans/2026-0803-0645 融合计划 D2-A）：
+对话区双轨渲染（2026-08-03，文档/修改记录/2026-0803-0645 融合计划 D2-A）：
 - 构造时按 chat_renderer 设置选轨：cards = ChatTranscriptView 卡片折叠轨
   （新，默认；QScrollArea + 块级 QWidget，KiloCode 式卡片）；classic =
   ChatOutput 旧轨（冻结保留即回退通道）；存量标签不热切换

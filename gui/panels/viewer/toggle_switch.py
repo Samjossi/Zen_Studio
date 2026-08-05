@@ -1,6 +1,6 @@
 """滑块开关控件（PySide6 自绘）：iOS 风格两态对色 + 滑动动画。
 
-（2026-08-06，见 work plans/2026-0806-0327_Markdown阅览源码双模式滑块开关计划 T1）
+（2026-08-06，见 文档/修改记录/2026-0806-0327_Markdown阅览源码双模式滑块开关计划 T1）
 用法与 QCheckBox 一致（isChecked()/setChecked()/toggled），便于替换复选框。
 实现逐字采用 动态标签滑块开关_复用说明.md「完整代码 §1」，关键坑已规避：
 动画目标属性必须注册为 Qt Property（Python 内置 @property 无效——运行时
