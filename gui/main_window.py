@@ -98,11 +98,10 @@ from gui.window_state import (
 
 class MainWindow(QMainWindow):
     #: 默认布局尺寸（px）：__init__ 初排与 reset_layout 共用单点来源。
-    #: 左栏 320 = ChatTabs.MIN_WIDTH（0401 计划 D4 起为最小宽单一来源；
-    #: 320 ≥ ChatTabs 实测静态下限 315，2026-0724-2354 计划 T6 回摆：
-    #: 模型选择下移底行 + 下拉瘦身 N=3 后，320 从「永远不可达」恢复为
-    #: 「可达且正确」，总和 1200 对齐默认窗口宽）
-    DEFAULT_SIZES_MAIN = [320, 630, 250]    # 外层水平：聊天 / 中栏 / 右栏
+    #: 左栏 460 = ChatTabs.MIN_WIDTH（0401 计划 D4 起为最小宽单一来源；
+    #: 0634 计划 D3 由 320 上调——底行「■ 停止」常驻钮入列，T5 实测
+    #: 静态下限 456 回填 460；默认宽即最小宽，总和 1200 对齐默认窗口宽）
+    DEFAULT_SIZES_MAIN = [460, 490, 250]    # 外层水平：聊天 / 中栏 / 右栏
     DEFAULT_SIZES_EDITOR = [550, 250]       # 中栏垂直：查看器 / 终端
     DEFAULT_SIZES_SIDEBAR = [340, 170]        # 右栏垂直：文件树 / 变更面板
 

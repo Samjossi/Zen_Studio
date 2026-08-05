@@ -49,6 +49,19 @@ AI 活动信息路由（2026-07-31，文档/修改记录/2026-0731-1602 计划 T
   （busy 显隐改变 sizeHint 触发 QSplitter 撑宽左栏的病根）
 - busy 期间 Esc 快捷键中断本标签生成（参考实现同效：theia「取消
   (Esc)」、Multi_Cli_Studio Escape 中断）
+
+插话（排队消息）与停止按钮修复（2026-08-06，work plans/2026-0806-0634 计划）：
+- 停止按钮失效修复（D1）：_busy 簿记单点置位（_set_busy），停止钮使能
+  只由 _set_busy 管理——消除「busy UI 已立、worker 未建/已销毁」竞态
+  窗口内 worker 存在性代理守卫失效的误禁用根因；attachments.py 信号
+  精确化（clear() 已空不再空发 changed）双保险
+- 插话（D2）：busy 期间输入在 IDE 侧每标签 FIFO 队列排队上屏（上限
+  10 条），轮次正常收尾自动出队发送（零协议改动，四后端同构）；
+  三态出队（D5）：完成=自动接续 / 失败=保留不自动接续 / 停止=清空
+  且文本合并退回输入框草稿
+- 底行双常驻恒宽钮（D3）：「发送/插话」双态钮 +「■ 停止」常驻钮
+  （仅 busy 可用）；排队气泡 = 用户气泡 + 「排队中」徽标 + ×删（D4，
+  新旧双轨同构三方法接口）
 """
 import threading
 import time
@@ -140,6 +153,14 @@ class ChatPanel(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self._history: list[Message] = []
         self._worker: ChatWorker | None = None
+        #: busy 簿记（0634 计划 D1）：_set_busy 单点置位；
+        #: _refresh_send_button 守卫改查本簿记——消除「busy UI 已立、
+        #: worker 未建/已销毁」竞态窗口（worker 存在性代理守卫失效导致
+        #: 停止按钮被误禁用的根因，§2.1 诊断）
+        self._busy = False
+        #: 插话队列（0634 计划 D2，每标签 FIFO）：元素 (文本, 附件快照,
+        #: 排队气泡 handle)；内存态不持久化，轮次收尾按三态出队（D5）
+        self._queue: list[tuple[str, list, object]] = []
         self._stream_buffer = ""
         self._has_seen_reasoning = False
         #: 工具调用 title 簿记（toolCallId → title，1602 计划 T6）：
@@ -392,7 +413,7 @@ class ChatPanel(QWidget):
         layout.setSpacing(0)
 
     def _build_input_box(self) -> QWidget:
-        """输入区容器：状态行 + 输入框 + 底行（左：模型/版本双下拉；右：发送/停止双态按钮）。
+        """输入区容器：状态行 + 输入框 + 底行（左：模型/版本双下拉；右：发送/插话 + ■ 停止 双常驻钮）。
 
         状态行（2026-0731-2242 计划方案 F，work plans 立项）：时间线色块条 +
         上下文用量徽章同行（左条右徽），置输入框上方——随 splitter 拖拽与
@@ -400,9 +421,10 @@ class ChatPanel(QWidget):
         计划 D2：时间线条不进 splitter，子件会被拖拽均分）。
 
         底行双下拉为 2026-0724-2354 计划 T3（原顶部全局模型行下移）；
-        双态按钮常驻恒宽（宽度按两态文本较大者一次写死），任何状态下
-        sizeHint 不变——QSplitter 撑宽左栏病根切除的一部分。
-        徽章移出底行后，底行回归纯操作行（模型选择 + 发送/停止）。
+        双常驻恒宽钮为 0634 计划 D3（替代原「发送/停止」单双态钮——busy
+        期间停止/插话两动作并存）：宽度各按自身文本一次写死，任何状态下
+        sizeHint 不变——QSplitter 撑宽左栏病根纪律（2305）。
+        徽章移出底行后，底行回归纯操作行（模型选择 + 发送/插话/停止）。
         """
         # 上下文用量徽章（2026-0731-1412 计划 D1-A/D2-A）：纯文本百分比 +
         # tooltip 明细；常驻占位恒宽（按 "~100%" 宽度一次写死——1454 起
@@ -425,16 +447,27 @@ class ChatPanel(QWidget):
         self._send_button = QPushButton("发送", self)
         self._send_button.setObjectName("chatSendButton")
         self._send_button.setToolTip("发送消息（Enter）")
+        # 恒宽按「发送/插话」两态文本较大者一次写死（2305 纪律现状手法平移）
         text_width = max(
             self._send_button.fontMetrics().horizontalAdvance("发送"),
-            self._send_button.fontMetrics().horizontalAdvance("■ 停止"),
+            self._send_button.fontMetrics().horizontalAdvance("插话"),
         )
         self._send_button.setFixedWidth(text_width + 26)  # qss padding 11px*2 + border
+
+        # 「■ 停止」常驻钮（0634 计划 D3）：文本恒定故宽度恒定；仅 busy 可用
+        # （空闲禁用，busy 恒可用——D1 簿记保障），与「发送/插话」并存
+        self._stop_button = QPushButton("■ 停止", self)
+        self._stop_button.setObjectName("chatStopButton")
+        self._stop_button.setToolTip("停止当前生成（Esc）")
+        self._stop_button.setFixedWidth(
+            self._stop_button.fontMetrics().horizontalAdvance("■ 停止") + 26)
+        self._stop_button.setEnabled(False)
 
         button_row = QHBoxLayout()
         button_row.addWidget(self.model_bar)
         button_row.addStretch(1)
         button_row.addWidget(self._send_button)
+        button_row.addWidget(self._stop_button)
         button_row.setContentsMargins(0, 0, 0, 0)
 
         box = QWidget(self)
@@ -453,7 +486,9 @@ class ChatPanel(QWidget):
         """跨组件信号统一接线（本面板的接线图）。"""
         self.input.send_requested.connect(self._on_send)
         self._send_button.clicked.connect(self._on_send_button)
-        # 空闲态按钮 enabled 跟随输入文本非空（T3/D6）；busy 态恒可用
+        self._stop_button.clicked.connect(self._on_stop_button)
+        # 「发送/插话」钮使能跟随输入文本与附件（空闲=发送、busy=插话，
+        # 使能门槛一致，0634 计划 D3）
         self.input.textChanged.connect(self._refresh_send_button)
         # 图片附件化（0340 方案 B）：入口信号 → 附件行；附件行变化 →
         # 发送键使能与空文本发送开关（D5）；超限拒绝 → 输出区系统提示；
@@ -488,25 +523,30 @@ class ChatPanel(QWidget):
         self.file_open_requested.emit(str(p), line)
 
     # ------------------------------------------------------------------
-    # 发送/停止双态按钮（T3）与 Esc 中断（T7）
+    # 底行双常驻钮路由（0634 计划 D3）与 Esc 中断（T7）
     # ------------------------------------------------------------------
     def _on_send_button(self) -> None:
-        """双态路由：busy → 停止本标签；空闲 → 与 Enter 同一发送入口。"""
-        if self._worker is not None and self._worker.isRunning():
-            self.request_stop()
-            return
+        """「发送/插话」钮：与 Enter 同一入口（busy 时 _on_send 自动入队）。"""
         self.input.trigger_send()
+
+    def _on_stop_button(self) -> None:
+        """「■ 停止」常驻钮：busy 直停本标签（空闲禁用，正常不可达）。"""
+        if self._busy:
+            self.request_stop()
 
     def _on_esc_stop(self) -> None:
         """busy 期间 Esc = 点击停止（空闲时静默忽略）。"""
-        if self._worker is not None and self._worker.isRunning():
+        if self._busy:
             self.request_stop()
 
     def _refresh_send_button(self) -> None:
-        """空闲态刷新按钮可用性（文本非空**或**有附件才可发送，0340 D5）；
-        busy 态不触碰。"""
-        if self._worker is not None and self._worker.isRunning():
-            return
+        """「发送/插话」钮使能按文本/附件重算（文本非空**或**有附件，
+        0340 D5）；空闲=发送、busy=插话门槛一致（0634 计划 D3）。
+
+        停止钮不在此触碰——其使能只由 _set_busy 管理（D1 簿记守卫：
+        消除「busy UI 已立、worker 未建/已销毁」竞态窗口内 worker
+        存在性代理守卫失效导致停止被误禁用的根因，0634 计划 §2.1）。
+        """
         self._send_button.setEnabled(
             bool(self.input.toPlainText().strip()) or self.attachments.count() > 0)
 
@@ -659,28 +699,44 @@ class ChatPanel(QWidget):
         return PERMISSION_QUEUE.ask(params, self, danger_reason=reason)
 
     # ------------------------------------------------------------------
-    # 发送与流式接收
+    # 发送与流式接收（含插话队列路由，0634 计划 D2/D5）
     # ------------------------------------------------------------------
     def _on_send(self, text: str) -> None:
-        if self._worker is not None and self._worker.isRunning():
-            return  # 上一次未结束，忽略（输入框此时已禁用）
+        if self._busy:
+            self._enqueue(text)  # busy 期间输入入队（Enter 与按钮同入口）
+            return
         provider = self._get_provider(self._llm_name)
         if provider is None:
             self.output.append_message("系统", f"后端不可用：{self._llm_name}（未检测到本机 agent CLI）")
             return
-        self.input.clear()
-        self._set_busy(True)
-
         # 图片附件随消息携带（0340 方案 B 计划 T3）：能力守卫——切到
         # 能力外后端后残留的附件不发送（_apply_image_capability 已提示）
         images = self.attachments.attachments() if self._supports_images() else []
+        self.input.clear()
+        self.attachments.clear()  # 不删落盘文件（气泡卡回显依赖在盘，D7）
+        self._send_turn(text, images, provider)
+
+    def _send_turn(
+        self,
+        text: str,
+        images: list,
+        provider: LanguageModel,
+        *,
+        bubble_on_screen: bool = False,
+    ) -> None:
+        """一轮发送主流程（_on_send 直发与队列出队共用，0634 计划 D2）。
+
+        bubble_on_screen=True（出队路径）：排队气泡已 promote 转正式
+        气泡（D4 同一控件改写），不再重复 append 用户气泡。
+        """
+        self._set_busy(True)
         message: Message = {"role": "user", "content": text}
         if images:
             message["images"] = images
         self._history.append(message)
         self._sent_attachments = images  # 失败/中断回滚恢复数据源（D6）
-        self.attachments.clear()  # 不删落盘文件（气泡卡回显依赖在盘，D7）
-        self.output.append_user_message(text, images)  # L2-1 气泡卡 + 缩略图
+        if not bubble_on_screen:
+            self.output.append_user_message(text, images)  # L2-1 气泡卡 + 缩略图
         self.output.begin_stream("AI")
         self._stream_buffer = ""
         self._has_seen_reasoning = False
@@ -696,6 +752,88 @@ class ChatPanel(QWidget):
         self._worker.stopped_by_user.connect(self._on_stopped)
         self._worker.start()
         self._usage_timer.start()  # 0117 T3：轮次内用量轮询（kimi 尾部读 wire.jsonl）
+
+    # ------------------------------------------------------------------
+    # 插话队列（0634 计划 D2/D4/D5：每标签 FIFO，内存态不持久化）
+    # ------------------------------------------------------------------
+    def _enqueue(self, text: str) -> None:
+        """busy 期间输入入队上屏：排队气泡（徽标 + ×）+ 队列簿记。
+
+        附件与正常发送同一收集路径：入队时快照、出队时随消息发送；
+        _history 仅在实际发送时写入（现语义不变）。满队（10 条）再
+        发送 → 输出区系统提示（对齐附件上限提示惯例）。
+        """
+        if len(self._queue) >= MAX_QUEUED_MESSAGES:
+            self.output.append_message("系统", f"排队消息最多 {MAX_QUEUED_MESSAGES} 条")
+            return
+        images = self.attachments.attachments() if self._supports_images() else []
+        handle = self.output.append_queued_user_message(text, images)
+        # 新轨句柄（UserBubbleBlock）自带 ×删信号；旧轨句柄为 position
+        # 三元组（纯文本文档无 ×，单条删除走停止清空——output.py 注记取舍）
+        if (sig := getattr(handle, "remove_requested", None)) is not None:
+            sig.connect(lambda h=handle: self._discard_queued(h))
+        self._queue.append((text, images, handle))
+        self.input.clear()
+        self.attachments.clear()  # 附件快照已入队列项；不删落盘文件
+        self._refresh_placeholder()
+
+    def _discard_queued(self, handle) -> None:
+        """排队气泡 ×删（D4）：队列项剔除 + 气泡移除。"""
+        self._queue = [item for item in self._queue if item[2] is not handle]
+        self.output.discard_queued(handle)
+        self._refresh_placeholder()
+
+    def _dequeue_next(self) -> bool:
+        """轮次正常收尾自动出队发送（D5：FIFO；接续轮不加中断标注——
+        kilocode superseded 同义）。队列空或后端不可用返回 False。"""
+        if not self._queue:
+            return False
+        provider = self._get_provider(self._llm_name)
+        if provider is None:
+            # 极端：轮间后端失效——队列保留不丢，按失败惯例系统提示
+            self.output.append_message(
+                "系统", f"后端不可用：{self._llm_name}（未检测到本机 agent CLI）")
+            return False
+        text, images, handle = self._queue.pop(0)
+        self.output.promote_queued(handle)  # 徽标摘除转正式气泡（D4）
+        self._send_turn(text, images, provider, bubble_on_screen=True)
+        return True
+
+    def _drain_queue_to_input(self) -> None:
+        """停止清空队列（D5，对齐 kilocode abort 语义：停=全停）：排队
+        文本合并退回输入框草稿（多条换行相接）不丢——比 kilocode 整队
+        删除宽容；附件尽力恢复回附件行（上限内，0340 D6 恢复惯例）。"""
+        if not self._queue:
+            return
+        texts: list[str] = []
+        images: list = []
+        for text, item_images, handle in self._queue:
+            texts.append(text)
+            images.extend(item_images)
+            self.output.discard_queued(handle)
+        self._queue = []
+        if images:
+            self.attachments.restore(images)
+        merged = "\n".join(t for t in texts if t)
+        existing = self.input.toPlainText().strip()
+        if existing:
+            merged = f"{existing}\n{merged}" if merged else existing
+        if merged:
+            self.input.setPlainText(merged)
+
+    def _refresh_placeholder(self) -> None:
+        """输入框占位符（D6）：busy=「响应中…Enter 插话排队 / ■ 停止或
+        Esc 中断」+ 已排队计数；空闲=常规提示；停止进行中提示不被覆盖。"""
+        if self._busy:
+            if self.input.placeholderText() == "正在停止…":
+                return
+            label = BACKEND_LABELS.get(self._llm_name, "AI")
+            text = f"{label} 响应中…Enter 插话排队 / ■ 停止或 Esc 中断"
+            if self._queue:
+                text += f"（已排队 {len(self._queue)} 条）"
+        else:
+            text = "输入消息，Enter 发送 / Shift+Enter 换行"
+        self.input.setPlaceholderText(text)
 
     def _poll_usage_tick(self) -> None:
         """轮次内用量轮询（0117 计划 T3/D1）：GUI 侧 QTimer 直调 provider
@@ -818,10 +956,20 @@ class ChatPanel(QWidget):
         self.output.reset_activity_anchors()  # todo 锚点轮次收尾作废（T5-4）
         self.timeline.end_turn()  # 色块条段指针轮次收尾作废（1824 计划 T3）
         self.output.end_stream()
-        self._set_busy(False)
         self._worker = None
         self._usage_timer.stop()  # 0117 D5：轮次收尾停轮询（收尾真值已由 chunk 兜底）
         self.turn_finished.emit()
+        # 0634 D5 出队三态：正常完成自动出队接续（接续轮 busy 不间断）；
+        # 失败不自动接续——队列保留 + 系统提示（防连环失败烧 token），
+        # 下次正常发送成功后经本条成功路径自动恢复接续
+        if error:
+            self._set_busy(False)
+            if self._queue:
+                self.output.append_message(
+                    "系统", f"上轮失败，排队消息已保留（{len(self._queue)} 条），"
+                    f"可手动发送或删除")
+        elif not self._dequeue_next():
+            self._set_busy(False)
 
     def _on_stopped(self) -> None:
         """用户中断收尾（第三态）：整体回滚——中断轮不入历史；
@@ -836,30 +984,30 @@ class ChatPanel(QWidget):
         self.output.reset_activity_anchors()  # todo 锚点轮次收尾作废（T5-4）
         self.timeline.end_turn()  # 色块条段指针轮次收尾作废（1824 计划 T3）
         self.output.end_stream()
-        self._set_busy(False)
         self._worker = None
+        # 0634 D5：停止清空队列（对齐 kilocode abort 语义：停=全停）；
+        # 排队文本合并退回输入框草稿不丢（比 kilocode 整队删除宽容）
+        self._drain_queue_to_input()
+        self._set_busy(False)
         self.turn_finished.emit()
 
     def _set_busy(self, is_busy: bool) -> None:
-        # 输入框保持可编辑（Enter 发送有 isRunning 守卫拦截，文本不丢）；
+        self._busy = is_busy  # 簿记单点置位（0634 D1），先于一切 UI 动作
+        # 输入框保持可编辑（busy 期间 Enter=插话入队，0634 D2/D3）；
         # 全局 ModelBar 双下拉禁用归 ChatTabs 汇总处理
         self.busy_changed.emit(is_busy)
         if is_busy:
-            busy_text = f"{BACKEND_LABELS.get(self._llm_name, 'AI')} 响应中…点击下方 ■ 停止或按 Esc 可中断"
-            self._send_button.setText("■ 停止")
-            self._send_button.setToolTip("停止当前生成（Esc）")
-            self._send_button.setProperty("stop", True)
-            self._send_button.setEnabled(True)  # 停止态恒可用
+            self._send_button.setText("插话")
+            self._send_button.setToolTip("排队插话：当前轮结束后自动发送（Enter）")
+            self._stop_button.setEnabled(True)  # 停止恒可用（D1 保障）
         else:
-            busy_text = "输入消息，Enter 发送 / Shift+Enter 换行"
             self._send_button.setText("发送")
             self._send_button.setToolTip("发送消息（Enter）")
-            self._send_button.setProperty("stop", False)
-            self._refresh_send_button()  # 回空闲态：enabled 按文本重算
-        # qss 动态属性（[stop="true"] 双态配色）切换后强制刷新
-        self._send_button.style().unpolish(self._send_button)
-        self._send_button.style().polish(self._send_button)
-        self.input.setPlaceholderText(busy_text)
+            self._stop_button.setEnabled(False)
+        # 「发送/插话」使能按文本/附件重算（两态门槛一致，D3）；
+        # 两钮恒宽，文本切换不改 sizeHint（2305 病根纪律）
+        self._refresh_send_button()
+        self._refresh_placeholder()
 
 
 #: 旧轨 bash 输出卡截尾行数（1836 计划 L2-3 规格；0645 起协议层放宽至
@@ -869,6 +1017,9 @@ _LEGACY_OUTPUT_KEEP_LINES = 20
 
 #: bash 运行中尾滚节流间隔（秒，0645 计划 T8/0619-T6-2 规格）
 _TAIL_THROTTLE_S = 0.2
+
+#: 插话队列上限（0634 计划 D2：防误触连发刷屏，对齐附件上限提示惯例）
+MAX_QUEUED_MESSAGES = 10
 
 
 def _timeline_colors(chat_pack: dict) -> dict[str, str]:

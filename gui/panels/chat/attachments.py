@@ -211,7 +211,16 @@ class AttachmentStrip(QWidget):
         self._sync_visibility()
 
     def _sync_visibility(self) -> None:
-        self.setVisible(bool(self._chips))
+        """可见性实际变化才发射 changed（0634 计划 D1 信号精确化）。
+
+        clear() 在已空时重复调用不再空发 changed——此前无条件发射会让
+        panel._refresh_send_button 在「busy UI 已立、worker 未建」竞态
+        窗口内误判禁用停止按钮（停止按钮失效根因，0634 计划 §2.1）。
+        """
+        visible = bool(self._chips)
+        if visible == self.isVisible():
+            return
+        self.setVisible(visible)
         self.changed.emit()
 
     def _preview(self, path: str) -> None:

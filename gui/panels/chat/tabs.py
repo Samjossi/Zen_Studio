@@ -87,10 +87,13 @@ class ChatTabs(QWidget):
     MAX_TABS = 4
 
     #: 左栏最小宽度（px，2026-0806-0401 计划 D4/T4 单一来源）：
-    #: 取 2026-0724-2354 计划 T6 实证链数值（默认 320 ≥ 底行双下拉 +
-    #: 附件/发送按钮静态下限 315）；MainWindow 构造处 setMinimumWidth +
-    #: splitter setCollapsible(0, False) 双闸，用户拖到 320 即触底
-    MIN_WIDTH = 320
+    #: 0634 计划 D3 由 320 上调——底行新增「■ 停止」常驻钮（双钮并存）
+    #: 抬高静态下限；T5 实测底行（双下拉 + 发送/插话 + ■ 停止）静态
+    #: 下限 456px（offscreen 探针，2026-08-06），拍板值 400 低于实测，
+    #: 按计划「实测 >400 以实测为准」回填 460（实测 + 4px 余量，0401
+    #: 计划 320≥315 同法）；MainWindow 构造处 setMinimumWidth +
+    #: splitter setCollapsible(0, False) 双闸，用户拖到 460 即触底
+    MIN_WIDTH = 460
 
     def __init__(self, workspace_root: str, parent: QWidget | None = None) -> None:
         """
