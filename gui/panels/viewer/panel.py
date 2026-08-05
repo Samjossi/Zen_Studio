@@ -33,11 +33,17 @@ QStackedLayout 第五页 PdfViewer（QPdfView 连续滚动渲染），.pdf 直�
 标题行 ◀ ▶ 翻页 + 缩放/适配 + 「外部打开」按钮组；加密/损坏/加载失败
 回落文本页占位提示；外部修改重载恢复页码/缩放；查找浮层降级弱提示；
 离开 PDF 页一律 close_document() 释放文档。
+标题行路径相对化（2026-08-05，见 work plans/2026-0805-2048_标题行路径
+相对化与截断显示计划）：打包客户实机反馈标题行被完整绝对路径占满——
+标题行/提示内嵌路径一律经 _display_path() 单点格式化（resolve 归一 →
+相对 workspace_root 相对化 → 超 60 字符保尾中间省略，根外回退绝对），
+tooltip 兜底完整绝对路径；标题行三标签字号严格派生为「全局字号 − 4pt」
+（无地板，镜像 settings_dialog._TITLE_FONT_DELTA_PT = +4 先例）。
 """
 from pathlib import Path
 
 from PySide6.QtCore import QFileSystemWatcher, Qt, QTimer, Signal
-from PySide6.QtGui import QTextCursor
+from PySide6.QtGui import QFont, QTextCursor
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -56,7 +62,7 @@ from gui.panels.viewer.image_viewer import IMAGE_EXTS, ImageViewer
 from gui.panels.viewer.markdown_view import MARKDOWN_EXTS, MarkdownView
 from gui.panels.viewer.media_viewer import AUDIO_EXTS, VIDEO_EXTS, MediaViewer
 from gui.panels.viewer.pdf_viewer import PDF_EXTS, PdfViewer
-from gui.settings import KEY_THEME
+from gui.settings import KEY_FONT_SIZE, KEY_THEME
 from gui.theme import load_settings, get_theme_palette
 
 #: 大文件守卫：超过 1 MB 截断显示并提示
@@ -65,6 +71,14 @@ MAX_BYTES = 1_048_576
 RELOAD_DEBOUNCE_MS = 150
 #: 状态提示展示时长
 HINT_TIMEOUT_MS = 3000
+#: 标题行显示路径字符上限：超过则保尾中间省略（文件名优先级高于目录链，
+#: 字符级确定性方案，放弃像素级 elidedText 的 resizeEvent 重算，见 2048 计划 D3）
+_PATH_DISPLAY_MAX_CHARS = 60
+#: 标题行三标签（路径/徽标/提示）相对全局字号的派生步长（pt）：严格 −4、
+#: 无地板钳制（用户定夺：默认 10pt 本身很小，客户实机必然调大全局字号，
+#: 地板反而破坏恒定视觉层级，见 2048 计划 D7/R7）；镜像
+#: settings_dialog._TITLE_FONT_DELTA_PT = +4 先例（相对派生而非绝对值）
+_TITLE_ROW_FONT_DELTA_PT = -4
 
 
 class ViewerPanel(QWidget):
@@ -73,11 +87,17 @@ class ViewerPanel(QWidget):
     #: 外部修改自动重载完成时发射（供主窗口联动刷新 Git 状态）
     externally_reloaded = Signal()
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(self, parent: QWidget | None = None,
+                 workspace_root: str | None = None) -> None:
         super().__init__(parent)
         self._current_path: str | None = None
         #: Git 状态服务（set_git_service 注入；None = 差异徽标不启用）
         self._git_service: GitStatusService | None = None
+        #: 相对化基准（MainWindow 注入；resolve 归一化存根）。None = 退化
+        #: 为绝对路径现状（探针/测试直接实例化不受累，见 2048 计划 D1）
+        self._workspace_root: str | None = (
+            str(Path(workspace_root).resolve()) if workspace_root else None
+        )
 
         title_row = self._build_title_row()
 
@@ -105,6 +125,9 @@ class ViewerPanel(QWidget):
 
         self._init_file_watch()
         self._build_find_bar()
+        # 标题行字号自初始化：启动不走 _apply_font_size（仅设置调整/恢复默认
+        # 两调用点），全靠 app 字体继承——减 4 派生须此处显式落地一次（2048 D7）
+        self._apply_title_row_font()
 
     def _build_pages(self, palette: dict) -> QStackedLayout:
         """五页查看器装配（文本/图片/媒体/Markdown/PDF）：信号接线 + 入栈。"""
@@ -222,7 +245,7 @@ class ViewerPanel(QWidget):
         """
         p = Path(path)
         if not p.is_file():
-            return self._show_placeholder(f"（文件不存在：{path}）")
+            return self._show_placeholder(f"（文件不存在：{self._display_path(path)}）")
         suffix = p.suffix.lower().lstrip(".")
         # PDF 分流须先于图片：QImageReader 自带 pdf 图像插件（IMAGE_EXTS 含 pdf），
         # 顺序靠后会被图片页截胡（扩展名并非互斥，实施实测发现）
@@ -239,7 +262,10 @@ class ViewerPanel(QWidget):
         try:
             raw = p.read_bytes()
         except OSError as e:
-            return self._show_placeholder(f"（读取失败：{e}）")
+            # 重格式化拆分：OSError 字符串内嵌绝对路径（如 [Errno 13] ...: '/abs/...'），
+            # 不原样拼接——显示路径走相对化，错误原因取 strerror（2048 计划 T2-2）
+            return self._show_placeholder(
+                f"（读取失败：{self._display_path(str(p))}：{e.strerror or e}）")
 
         truncated = len(raw) > MAX_BYTES
         if truncated:
@@ -264,8 +290,9 @@ class ViewerPanel(QWidget):
                 self.viewer.setTextCursor(QTextCursor(block))
                 self.viewer.centerCursor()
 
-        title = str(p) + ("（已截断：超过 1 MB）" if truncated else "")
+        title = self._display_path(str(p)) + ("（已截断：超过 1 MB）" if truncated else "")
         self._path_label.setText(title)
+        self._path_label.setToolTip(self._full_path_tooltip(str(p)))
         self._current_path = str(p)
         self.refresh_git_badge()
         # 查找浮层开启中换文件/重载：按新文档重搜；未开启则清残留高亮
@@ -287,7 +314,8 @@ class ViewerPanel(QWidget):
         self._stack.setCurrentWidget(self.image_viewer)
         self._image_buttons.setVisible(True)
         self._pdf_buttons.setVisible(False)
-        self._path_label.setText(str(p))
+        self._path_label.setText(self._display_path(str(p)))
+        self._path_label.setToolTip(self._full_path_tooltip(str(p)))
         self._current_path = str(p)
         self.refresh_git_badge()
         # 查找浮层绑定文本文档，切图片页即关闭并清残留高亮
@@ -305,7 +333,8 @@ class ViewerPanel(QWidget):
         self._stack.setCurrentWidget(self.media_viewer)
         self._image_buttons.setVisible(False)
         self._pdf_buttons.setVisible(False)
-        self._path_label.setText(str(p))
+        self._path_label.setText(self._display_path(str(p)))
+        self._path_label.setToolTip(self._full_path_tooltip(str(p)))
         self._current_path = str(p)
         self.refresh_git_badge()
         # 查找浮层绑定文本文档，切媒体页即关闭并清残留高亮
@@ -326,7 +355,9 @@ class ViewerPanel(QWidget):
         self._image_buttons.setVisible(False)
         self._pdf_buttons.setVisible(False)
         truncated = self.markdown_view.truncated
-        self._path_label.setText(str(p) + ("（已截断：超过 1 MB）" if truncated else ""))
+        self._path_label.setText(
+            self._display_path(str(p)) + ("（已截断：超过 1 MB）" if truncated else ""))
+        self._path_label.setToolTip(self._full_path_tooltip(str(p)))
         self._current_path = str(p)
         self.refresh_git_badge()
         # 查找浮层绑定文本文档，切 Markdown 页即关闭并清残留高亮
@@ -346,7 +377,8 @@ class ViewerPanel(QWidget):
         self._stack.setCurrentWidget(self.pdf_viewer)
         self._image_buttons.setVisible(False)
         self._pdf_buttons.setVisible(True)
-        self._path_label.setText(str(p))
+        self._path_label.setText(self._display_path(str(p)))
+        self._path_label.setToolTip(self._full_path_tooltip(str(p)))
         self._current_path = str(p)
         self.refresh_git_badge()
         # 查找浮层绑定文本文档，切 PDF 页即关闭并清残留高亮
@@ -394,6 +426,47 @@ class ViewerPanel(QWidget):
         """全局字号调整：查看器等宽字体重建（行号栏宽随新字宽重算），渲染页字体跟随。"""
         self.viewer.refresh_font()
         self.markdown_view.refresh_font()
+        self._apply_title_row_font()  # 标题行 −4pt 派生随全局字号调整跟随
+
+    # ------------------------------------------------------------------
+    # 标题行路径/字号显示（2048 计划：相对化 + 截断 + −4pt 派生）
+    # ------------------------------------------------------------------
+    def _display_path(self, path: str) -> str:
+        """标题行/提示上屏路径统一格式化：归一 → 相对化 → 截断（单点收口）。
+
+        归一 resolve 绝对化（兼解 symlink、兼容对话区链接发来的相对入参）→
+        有根则 relative_to 相对化（ValueError = 根外文件/ symlink 出根，回退
+        绝对路径）→ 超 _PATH_DISPLAY_MAX_CHARS 保尾中间省略为 `…/…文件名`。
+        """
+        display = self._full_path_tooltip(path)
+        if self._workspace_root is not None:
+            try:
+                display = str(Path(display).relative_to(self._workspace_root))
+            except ValueError:
+                pass  # 根外文件（含 symlink 出根）：显示绝对路径（提示真实性优先）
+        if len(display) > _PATH_DISPLAY_MAX_CHARS:
+            # 保尾中间省略：文件名始终可见（同名歧义由 tooltip 全路径兜底）
+            display = "…/" + display[-(_PATH_DISPLAY_MAX_CHARS - 2):]
+        return display
+
+    def _full_path_tooltip(self, path: str) -> str:
+        """tooltip 用的归一化绝对路径（resolve 解 symlink、兼容相对入参）。"""
+        try:
+            return str(Path(path).resolve())
+        except OSError:  # 极端入参（非法字符等）：原样兜底
+            return path
+
+    def _apply_title_row_font(self) -> None:
+        """标题行三标签字号相对派生：严格「全局字号 − 4pt」（无地板）。
+
+        仅缩三个文字标签（路径/徽标/提示），按钮组不缩——QToolButton 是
+        点击目标，随标签缩小会同时缩小热区，可用性受损（2048 计划 D7）。
+        """
+        size = load_settings()[KEY_FONT_SIZE] + _TITLE_ROW_FONT_DELTA_PT
+        for label in (self._path_label, self._git_badge, self._hint_label):
+            font = QFont(label.font())
+            font.setPointSize(size)
+            label.setFont(font)
 
     # ------------------------------------------------------------------
     # 查找浮层（右上角悬浮；当前文档搜索 + 命中高亮 + 上一个/下一个）
@@ -473,7 +546,8 @@ class ViewerPanel(QWidget):
         if not Path(self._current_path).is_file():
             if self._watcher.files():
                 self._watcher.removePaths(self._watcher.files())
-            return self._show_placeholder(f"（文件已被删除：{self._current_path}）")
+            return self._show_placeholder(
+                f"（文件已被删除：{self._display_path(self._current_path)}）")
         self.open_file(self._current_path)
         self._show_hint("已重新加载（外部修改）")
         self.externally_reloaded.emit()
@@ -491,12 +565,19 @@ class ViewerPanel(QWidget):
         self._pdf_buttons.setVisible(False)
         self.viewer.setPlainText("")
         self._highlighter.set_source("", "")
-        self._path_label.setText(path or "（未打开文件）")
+        if path:
+            self._path_label.setText(self._display_path(path))
+            self._path_label.setToolTip(self._full_path_tooltip(path))
+        else:
+            self._path_label.setText("（未打开文件）")
+            self._path_label.setToolTip("")
         self._current_path = None
         self._git_badge.setVisible(False)
         self._show_hint(text, sticky=True)
 
     def _show_hint(self, text: str, sticky: bool = False) -> None:
         self._hint_label.setText(text)
+        # 提示全文 tooltip：sticky 长文案被布局挤压时可悬停看全（2048 计划 T2-3）
+        self._hint_label.setToolTip(text)
         if not sticky:
             QTimer.singleShot(HINT_TIMEOUT_MS, self._hint_label.clear)

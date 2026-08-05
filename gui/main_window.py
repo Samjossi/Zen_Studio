@@ -172,7 +172,7 @@ class MainWindow(QMainWindow):
         """布局装配：三栏 splitter（聊天 / 中栏查看器+终端 / 右栏文件树+变更）。"""
         # 中栏垂直拆分：上为文件查看器（只读+高亮），下为内嵌终端（真 PTY）
         self._splitter_editor = QSplitter(Qt.Orientation.Vertical)
-        self.viewer_panel = ViewerPanel()
+        self.viewer_panel = ViewerPanel(workspace_root=self._workspace_root)
         self.terminal_panel = TerminalPanel(cwd=self._workspace_root)
         self._splitter_editor.addWidget(self.viewer_panel)
         self._splitter_editor.addWidget(self.terminal_panel)
