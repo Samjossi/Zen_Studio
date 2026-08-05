@@ -168,6 +168,8 @@ class KimiAcpLLM(LanguageModel):
         :param workspace_root: agent 工作目录（None = 项目根；多开模式由启动参数注入）
         """
         self._model = model
+        #: 推理强度预选值（2026-0806 计划；None = 未定制，agent 默认强度生效）
+        self._effort: str | None = None
         self._cwd = workspace_root or str(PROJECT_ROOT)
         self._conn: AcpConnection | None = None
         self._session_id: str | None = None
@@ -196,6 +198,26 @@ class KimiAcpLLM(LanguageModel):
                     "sessionId": self._session_id, "configId": "model", "value": alias}, timeout=10)
             except RuntimeError:
                 self._session_id = None  # 降级：下轮重建会话并应用模型
+
+    def set_effort(self, value: str) -> None:
+        """切换推理强度（2026-0806 计划；会话存在则即时生效）。
+
+        生效机制同 set_model（D6 红线 3）：session/set_config_option
+        （configId="thinking"——kimi configOptions 的 thinking 选择器，
+        2026-0718-1555 实测），强度值原样透传不解析不校验（D6 红线 2 同款
+        不透明字符串语义）；值域随模型而异（k3-256k 为 low/high/max，
+        2026-0725-0205 实测），当前模型不支持的档位由 agent 侧拒绝。
+        失败不丢弃会话（与 set_model 的差异）：强度是辅助控制轴，拒绝
+        不该陪葬会话上下文——`_effort` 已记，下个新会话生效。
+        """
+        self._effort = value
+        if self._conn and self._conn.is_alive and self._session_id:
+            try:
+                self._conn.request("session/set_config_option", {
+                    "sessionId": self._session_id, "configId": "thinking",
+                    "value": value}, timeout=10)
+            except RuntimeError:
+                pass  # 降级：保持会话与当前强度，新会话时应用 _effort
 
     def reset_session(self) -> None:
         """清空会话，下次请求 `session/new` 开新会话（进程保留）。"""
@@ -280,6 +302,13 @@ class KimiAcpLLM(LanguageModel):
                         "value": self._model}, timeout=10)
                 except RuntimeError:
                     pass  # 保持 agent 默认模型，不阻断对话
+            if self._effort:  # 新会话应用预选推理强度（2026-0806 计划）
+                try:
+                    self._conn.request("session/set_config_option", {
+                        "sessionId": self._session_id, "configId": "thinking",
+                        "value": self._effort}, timeout=10)
+                except RuntimeError:
+                    pass  # 保持 agent 默认强度，不阻断对话
         return self._conn
 
     def poll_usage(self) -> UsageStats | None:

@@ -11,7 +11,7 @@ settings.json，update_settings 以 flock 串行化"读-合并-写"三步根治�
 写临时文件 + os.replace 原子覆盖防文件损坏；工作区根改由启动参数决定，
 不再持久化（KEY_WORKSPACE_ROOT 已删，存量旧键读取即丢弃自然失效）。
 
-键空间由 AppSettings 定型（8 个固定键），消费侧一律经 KEY_* 常量
+键空间由 AppSettings 定型（9 个固定键），消费侧一律经 KEY_* 常量
 引用键名，禁止裸字符串键（AFCP 3.1：数据结构显式）。
 
 权限键演进（2026-07-22，文档/修改记录/2026-0722-1240 计划）：二态
@@ -53,6 +53,8 @@ KEY_FONT_SIZE = "font_size"
 KEY_FONT_FAMILY = "font_family"
 KEY_MODEL_BACKEND = "model_backend"
 KEY_MODEL_VERSIONS = "model_versions"
+#: 推理强度记忆表（2026-0806 计划）：接口实现名 → 用户显式选定的强度值
+KEY_MODEL_EFFORTS = "model_efforts"
 KEY_TERMINAL_SWAP_COPY_PASTE = "terminal_swap_copy_paste"
 KEY_PERMISSION_MODE = "permission_mode"
 KEY_CHAT_RENDERER = "chat_renderer"
@@ -79,7 +81,7 @@ DEFAULT_THEME = "cloud"
 
 
 class AppSettings(TypedDict):
-    """settings.json 全量结构（7 个固定键，均为用户偏好）。"""
+    """settings.json 全量结构（9 个固定键，均为用户偏好）。"""
 
     theme: str                   # 主题名（gui/theme.py 注册表键）
     font_size: int               # 全局 UI 字号（pt）
@@ -90,6 +92,10 @@ class AppSettings(TypedDict):
     #: 模型记忆表（2026-0731-0052 计划 D1）：接口实现名 → 用户显式选定的
     #: 模型别名；某接口缺失 = 未定制，跟随其模型列表首项（不写条目）
     model_versions: dict[str, str]
+    #: 推理强度记忆表（2026-0806 计划，与 model_versions 同构）：接口实现名
+    #: → 用户显式选定的强度值（如 "high"）；某接口缺失 = 未定制，跟随
+    #: agent 默认强度（不下发 set_config_option）
+    model_efforts: dict[str, str]
     #: 终端复制/粘贴快捷键反转（True：Ctrl+C/V 复制粘贴，Ctrl+Shift+C/V 发 SIGINT/\x16）
     terminal_swap_copy_paste: bool
     #: AI 工具权限模式（四态枚举，值域见 llm/permission_policy.PERMISSION_MODES：
@@ -109,6 +115,7 @@ class AppSettingsPatch(TypedDict, total=False):
     font_family: str
     model_backend: str
     model_versions: dict[str, str]
+    model_efforts: dict[str, str]
     terminal_swap_copy_paste: bool
     permission_mode: str
     chat_renderer: str
@@ -121,6 +128,7 @@ DEFAULT_SETTINGS: AppSettings = {
     KEY_FONT_FAMILY: "Source Han Sans CN",
     KEY_MODEL_BACKEND: BACKEND_KIMI_ACP,
     KEY_MODEL_VERSIONS: {},
+    KEY_MODEL_EFFORTS: {},
     KEY_TERMINAL_SWAP_COPY_PASTE: False,
     KEY_PERMISSION_MODE: DEFAULT_PERMISSION_MODE,
     KEY_CHAT_RENDERER: DEFAULT_CHAT_RENDERER,
@@ -159,6 +167,12 @@ def load_settings() -> AppSettings:
             if isinstance(legacy_version, str) and isinstance(legacy_backend, str):
                 versions.setdefault(legacy_backend, legacy_version)
             settings[KEY_MODEL_VERSIONS] = versions
+            # 强度记忆表同款类型防御 + 脱离共享引用（2026-0806 计划）
+            efforts = settings[KEY_MODEL_EFFORTS]
+            if not isinstance(efforts, dict):
+                efforts = {}
+            settings[KEY_MODEL_EFFORTS] = {k: v for k, v in efforts.items()
+                                           if isinstance(k, str) and isinstance(v, str)}
     except (OSError, json.JSONDecodeError):
         pass
     # 值域防御：渲染轨非法值（手改配置/旧版残留）回退默认轨
@@ -166,6 +180,7 @@ def load_settings() -> AppSettings:
         settings[KEY_CHAT_RENDERER] = DEFAULT_CHAT_RENDERER
     # 异常/文件缺失路径同样脱离共享引用
     settings[KEY_MODEL_VERSIONS] = dict(settings[KEY_MODEL_VERSIONS])
+    settings[KEY_MODEL_EFFORTS] = dict(settings[KEY_MODEL_EFFORTS])
     return settings
 
 
@@ -217,4 +232,16 @@ def remember_model_version(backend: str, alias: str) -> None:
         fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
         settings = load_settings()
         settings[KEY_MODEL_VERSIONS][backend] = alias
+        write_json_atomic(SETTINGS_FILE, settings)
+
+
+def remember_model_effort(backend: str, effort: str) -> None:
+    """推理强度记忆表单条目写入（2026-0806 计划）：与 remember_model_version
+    完全同构——flock 锁内「读全量 → 改 dict 单条目 → 原子写回」，防多开
+    实例写不同接口记忆时互相覆盖。"""
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    with open(SETTINGS_LOCK_FILE, "w", encoding="utf-8") as lock:
+        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        settings = load_settings()
+        settings[KEY_MODEL_EFFORTS][backend] = effort
         write_json_atomic(SETTINGS_FILE, settings)

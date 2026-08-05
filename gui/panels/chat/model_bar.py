@@ -57,6 +57,19 @@
   "用户未指定模型"，记忆/首项解析归 ChatTabs；点模型 emit
   (backend, 别名)——str = 显式选定，状态层写记忆
 - 本组件边界不变：不读 settings、不管写盘（持久化写盘上移 ChatTabs）
+
+四级「推理强度」（2026-08-06，用户拍板：每接口静态声明 + 记忆表即时
+生效）：
+- 三按钮扩为四按钮：「后台 → 接口 → 模型 → 推理强度」；第四级数据源
+  = BackendSpec.efforts（接口级静态声明，空 = 不支持，按钮禁用标注、
+  回退层级标签「推理强度」）；强度值协议原样透传（不透明字符串红线
+  同款语义），configId 归各 provider 的 set_effort 自持
+- 独立信号 effort_changed(str, str)（backend, 强度值）——只承载用户
+  显式选择；记忆表解析/写盘/provider 应用归 ChatTabs（model_efforts
+  记忆表与 model_versions 同构），selection_changed 签名不破
+- 未定制语义：无记忆时勾选接口 default_effort（纯 UI 呈现，与 agent
+  默认一致），不下发 set_config_option；切接口时第四级随模型菜单
+  联动重建（先清后建 + 回退默认项，D6 红线 4 同款）
 """
 from PySide6.QtCore import Signal
 from PySide6.QtGui import QAction, QActionGroup
@@ -89,13 +102,15 @@ def short_model_alias(alias: str) -> str:
 
 
 class ModelBar(QWidget):
-    """输入区底行左端：后台 + 接口 + 模型三按钮（InstantPopup 菜单三级联动）。
+    """输入区底行左端：后台 + 接口 + 模型 + 推理强度四按钮（InstantPopup
+    菜单四级联动）。
 
     数据源为注册表（llm.registry）：一级菜单 = vendor_groups() 的后台
     分组，二级菜单 = 当前后台的 BackendSpec 列表，三级菜单 = 当前接口的
-    spec.list_models()。某后台下全部接口 available() 为 False 时该后台
-    项禁用并标「（未检测到）」（沿用 kimi 未安装态范式）；单个接口不可用
-    同理禁用标注。
+    spec.list_models()，四级菜单 = 当前接口的 spec.efforts（静态声明；
+    空 = 不支持，按钮禁用标注）。某后台下全部接口 available() 为 False
+    时该后台项禁用并标「（未检测到）」（沿用 kimi 未安装态范式）；单个
+    接口不可用同理禁用标注。
     """
 
     #: 接口/模型切换（携带 registry 接口实现名 + 模型别名载荷：
@@ -107,21 +122,31 @@ class ModelBar(QWidget):
     #: 选定，状态层写入记忆表
     selection_changed = Signal(str, object)
 
+    #: 推理强度显式选择（2026-0806 计划）：(backend, 强度值)——只承载
+    #: 用户点击；记忆表写盘与 provider 应用归 ChatTabs/ChatPanel
+    effort_changed = Signal(str, str)
+
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
 
         self._vendor_button = self._make_button("后台")
         self._interface_button = self._make_button("接口")
         self._model_button = self._make_button("模型")
+        self._effort_button = self._make_button("推理强度")
         self._vendor_group = QActionGroup(self)  # 默认互斥
         self._interface_group = QActionGroup(self)
         self._model_group = QActionGroup(self)
+        self._effort_group = QActionGroup(self)
         #: 当前接口/模型菜单对应的数据源（后台名/接口名；None = 未建过）。
         #: 用于 set_selection 跳过「数据未变」的无谓重建（计划
         #: 2026-0730-2338 D3）：重建由 _refresh_interfaces/_refresh_models
         #: 同步改写，先清后建语义不变
         self._interfaces_vendor: str | None = None
         self._models_backend: str | None = None
+        #: 第四级数据源接口名与能力位（2026-0806 计划）：_effort_supported
+        #: = False 时按钮禁用（busy 恢复不得误启用，见 set_busy）
+        self._efforts_backend: str | None = None
+        self._effort_supported: bool = False
 
         # 一级菜单：后台分组（注册序即菜单序）；整组不可用 → 禁用 + 标注
         for vendor, specs in vendor_groups().items():
@@ -147,6 +172,7 @@ class ModelBar(QWidget):
         layout.addWidget(self._vendor_button)
         layout.addWidget(self._interface_button)
         layout.addWidget(self._model_button)
+        layout.addWidget(self._effort_button)
         # 边距归零：底行装配（按钮/stretch/间距）归 ChatPanel 统一分配
         layout.setContentsMargins(0, 0, 0, 0)
 
@@ -205,24 +231,32 @@ class ModelBar(QWidget):
         return None
 
     def _refresh_tooltips(self) -> None:
-        """三级当前值全名写入三个按钮 tooltip（同一三行文本，悬停任一
-        按钮可见完整链：后台 / 接口 / 模型）。"""
+        """四级当前值全名写入四个按钮 tooltip（同一四行文本，悬停任一
+        按钮可见完整链：后台 / 接口 / 模型 / 推理强度）。"""
         vendor = self._vendor_group.checkedAction()
         interface = self._interface_group.checkedAction()
         model = self._model_group.checkedAction()
+        effort = self._effort_group.checkedAction()
+        if effort is not None:
+            effort_line = f"推理强度：{effort.text()}"
+        else:
+            effort_line = "推理强度：当前接口不支持"
         tooltip = "\n".join((
             f"后台：{vendor.text() if vendor else '无'}",
             f"接口：{interface.text() if interface else '无'}",
             f"模型：{model.text() if model else '无'}",
+            effort_line,
         ))
-        for button in (self._vendor_button, self._interface_button, self._model_button):
+        for button in (self._vendor_button, self._interface_button,
+                       self._model_button, self._effort_button):
             button.setToolTip(tooltip)
 
     def _refresh_button_texts(self) -> None:
-        """三按钮直显当前值短文本，宽度贴合文本（用户拍板口径）。
+        """四按钮直显当前值短文本，宽度贴合文本（用户拍板口径）。
 
         文本规则（D1/D4-A）：后台原文；接口剥 vendor 前缀；模型取 '/' 末段；
-        无勾选项时回退层级标签（空态不显示空串，T4）。
+        强度原文（协议值本身即短文本，2026-0806 计划）；无勾选项时回退
+        层级标签（空态不显示空串，T4）。
         宽度规则：各按钮 setFixedWidth(当前短文本宽 + 样式余量)——随选择
         变化即时贴合（短文本精简后差异小，取舍见模块 docstring）。
         与 _refresh_tooltips 同点调用、同生命周期。
@@ -231,6 +265,7 @@ class ModelBar(QWidget):
         vendor_label = vendor_action.text() if vendor_action is not None else ""
         interface_action = self._interface_group.checkedAction()
         model_action = self._model_group.checkedAction()
+        effort_action = self._effort_group.checkedAction()
 
         vendor_text = vendor_label or "后台"
         interface_text = (
@@ -239,10 +274,14 @@ class ModelBar(QWidget):
         model_text = (
             short_model_alias(model_action.text())
             if model_action is not None else "模型")
+        effort_text = (
+            effort_action.text()
+            if effort_action is not None else "推理强度")
 
         for button, text in ((self._vendor_button, vendor_text),
                              (self._interface_button, interface_text),
-                             (self._model_button, model_text)):
+                             (self._model_button, model_text),
+                             (self._effort_button, effort_text)):
             button.setText(f"{text} ▾")
             # 样式余量实测 37~38px（qss padding 12*2 + 边框/内容区余量，
             # base.qss #chatModelButton 唯一出处、四主题不覆写，取整 40）
@@ -253,14 +292,17 @@ class ModelBar(QWidget):
     # 忙碌态（流式响应中）
     # ------------------------------------------------------------------
     def set_busy(self, is_busy: bool) -> None:
-        """busy：禁用三按钮（各标签独立粒度，本标签响应中即禁本标签，
+        """busy：禁用四按钮（各标签独立粒度，本标签响应中即禁本标签，
         2026-0803-0112 计划 D4——原「任一忙禁全部」随广播废除失去依据）。
 
+        强度按钮叠加能力闸（2026-0806 计划）：接口不支持强度轴时
+        busy 恢复不得误启用。
         按钮宽度贴合当前文本且 busy 不改文本，sizeHint 不随 busy 变化。
         """
         self._vendor_button.setEnabled(not is_busy)
         self._interface_button.setEnabled(not is_busy)
         self._model_button.setEnabled(not is_busy)
+        self._effort_button.setEnabled(self._effort_supported and not is_busy)
 
     # ------------------------------------------------------------------
     # 选择查询与恢复（持久化写盘上移 ChatTabs，本组件不管）
@@ -279,6 +321,35 @@ class ModelBar(QWidget):
         """当前模型（模型别名）；模型列表为空时为 None。"""
         checked = self._model_group.checkedAction()
         return checked.data() if checked is not None else None
+
+    def current_effort(self) -> str | None:
+        """当前推理强度（协议值）；接口不支持强度轴（菜单为空）时为 None。"""
+        checked = self._effort_group.checkedAction()
+        return checked.data() if checked is not None else None
+
+    def set_effort_selection(self, effort: str | None) -> None:
+        """注入强度选择（2026-0806 计划）：静默勾选，不发信号（与
+        set_selection 同款阻断语义）。
+
+        None = 未定制 → 勾选接口默认项（spec.default_effort，缺省回落
+        efforts 首项）——纯 UI 呈现勾选，与 agent 默认强度一致，不代表
+        已下发 set_config_option；失效值静默回退默认项（红线 5：回退
+        不写盘，本组件不管写盘）。
+        """
+        backend = self.current_backend()
+        if backend != self._efforts_backend:
+            self._refresh_efforts(backend)
+        target = self._find_action(self._effort_group, effort) if effort else None
+        if target is None and self._effort_group.actions():
+            spec = spec_of(backend or "")
+            default = spec.default_effort if spec is not None else None
+            target = self._find_action(self._effort_group, default)
+        if target is None:
+            target = self._first_enabled(self._effort_group)
+        if target is not None:
+            target.setChecked(True)
+        self._refresh_tooltips()
+        self._refresh_button_texts()
 
     def set_selection(self, backend: str | None, version: str | None) -> None:
         """注入选择：后台（由 backend 推导）→ 接口 → 模型逐级勾选。
@@ -317,6 +388,10 @@ class ModelBar(QWidget):
             mtarget = self._model_group.actions()[0]
         if mtarget is not None:
             mtarget.setChecked(True)
+        # 四级：推理强度随接口联动（2026-0806 计划；菜单未建/接口已变时
+        # 重建并勾选接口默认项——纯 UI 呈现，未定制语义见 set_effort_selection）
+        if backend_effective != self._efforts_backend:
+            self._refresh_efforts(backend_effective)
         self._refresh_tooltips()
         self._refresh_button_texts()
 
@@ -363,6 +438,35 @@ class ModelBar(QWidget):
         if self._model_group.actions():
             self._model_group.actions()[0].setChecked(True)
         self._models_backend = backend
+        self._refresh_efforts(backend)  # 四级随接口联动重建（2026-0806 计划）
+
+    def _refresh_efforts(self, backend: str | None) -> None:
+        """推理强度菜单按接口重建（2026-0806 计划，先清后建）：数据源 =
+        BackendSpec.efforts 静态声明（用户拍板方案一，零运行时探测开销）。
+
+        空值域（接口不支持/未实测强度轴）→ 按钮禁用、无勾选项（按钮文本
+        回退层级标签「推理强度」，tooltip 标注不支持）；非空 → 重建后
+        勾选接口默认项（default_effort，缺省首项，静默）——纯 UI 呈现
+        勾选，用户未显式选择前不下发 set_config_option。
+        """
+        menu = self._effort_button.menu()
+        for action in list(self._effort_group.actions()):
+            self._effort_group.removeAction(action)
+        menu.clear()
+        spec = spec_of(backend or "")
+        efforts = spec.efforts if spec is not None and spec.available() else ()
+        for value in efforts:
+            self._add_action(
+                self._effort_button, self._effort_group,
+                value, value, self._on_effort_picked)
+        self._effort_supported = bool(efforts)
+        self._effort_button.setEnabled(self._effort_supported)
+        if efforts and spec is not None:
+            default = spec.default_effort if spec.default_effort in efforts else efforts[0]
+            target = self._find_action(self._effort_group, default)
+            if target is not None:
+                target.setChecked(True)
+        self._efforts_backend = backend
 
     def _on_vendor_picked(self, vendor: str) -> None:
         """用户勾选后台 → 接口/模型列表联动重建（各回退首项作即时显示）
@@ -386,3 +490,11 @@ class ModelBar(QWidget):
         self._refresh_tooltips()
         self._refresh_button_texts()
         self.selection_changed.emit(self.current_backend(), alias)
+
+    def _on_effort_picked(self, value: str) -> None:
+        """用户勾选推理强度 → 发射 effort_changed（2026-0806 计划：
+        记忆表写盘与 provider 应用归 ChatTabs/ChatPanel，本组件只管
+        UI 与信号）。"""
+        self._refresh_tooltips()
+        self._refresh_button_texts()
+        self.effort_changed.emit(self.current_backend(), value)

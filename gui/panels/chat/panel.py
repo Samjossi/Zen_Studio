@@ -123,6 +123,7 @@ class ChatPanel(QWidget):
         version: str | None,
         workspace_root: str,
         parent: QWidget | None = None,
+        effort: str | None = None,
     ) -> None:
         """
         :param backend: 初始后端（registry 名；None/失效项经 ModelBar 静默
@@ -130,6 +131,8 @@ class ChatPanel(QWidget):
         :param version: 初始模型别名（None = provider 默认模型）
         :param workspace_root: 工作区根（provider cwd 与拖入文件 @相对路径 基准）
         :param parent: 父控件
+        :param effort: 初始推理强度（2026-0806 计划；None = 未定制，agent
+            默认强度生效；注入值归 ChatTabs 记忆表解析，后续切换见 set_effort）
         """
         super().__init__(parent)
         self.setObjectName("SidePanel")  # 侧栏灰底分区（主题 qss 统一着色）
@@ -191,11 +194,15 @@ class ChatPanel(QWidget):
         self.model_bar = ModelBar(self)
         self.model_bar.set_selection(backend, version)
         self._llm_name = self.model_bar.current_backend()
+        #: 用户显式选定的推理强度（2026-0806 计划；None = 未定制，不下发
+        #: set_config_option）——_get_provider 懒实例化时的预选数据源
+        self._effort_explicit: str | None = None
         # D4 懒实例化：不预建实例；workspace_root 留存供工厂使用。
         # 启动一致性（预选模型写入实例）不暂存 pending——建实例时取
         # model_bar.current_version()（选择状态单一来源，语义不变）
         self._workspace_root = workspace_root
         self._providers: dict[str, LanguageModel] = {}
+        self.set_effort(effort)  # 注入恢复（静默 UI + 簿记；provider 未建则跳过）
 
         self._build_layout()
         self._connect_signals()
@@ -225,8 +232,29 @@ class ChatPanel(QWidget):
         version = self.model_bar.current_version()
         if version and (set_model := getattr(provider, "set_model", None)) is not None:
             set_model(version)
+        # 预选推理强度（2026-0806 计划）：仅用户显式定制过才下发——未定制
+        # 时 agent 默认强度生效（ModelBar UI 勾选默认项纯呈现，不据此下发）
+        if self._effort_explicit \
+                and (set_effort := getattr(provider, "set_effort", None)) is not None:
+            set_effort(self._effort_explicit)
         self._providers[name] = provider
         return provider
+
+    def set_effort(self, effort: str | None) -> None:
+        """推理强度应用（2026-0806 计划，本标签单面板入口）：同步自身
+        ModelBar 第四级 UI + 写自身 provider 实例（鸭子类型 set_effort，
+        不支持的 provider 静默跳过）。
+
+        None = 未定制（agent 默认强度生效，不下发 set_config_option）；
+        持久化与新建注入值归 ChatTabs，本方法不管。provider 未懒实例化时
+        只簿记 _effort_explicit，实例建成时由 _get_provider 应用。
+        """
+        self.model_bar.set_effort_selection(effort)
+        self._effort_explicit = effort
+        provider = self._providers.get(self._llm_name)
+        if effort and provider is not None:
+            if (set_effort := getattr(provider, "set_effort", None)) is not None:
+                set_effort(effort)
 
     def set_model_selection(self, backend: str, version: str | None) -> None:
         """模型选择应用（本标签单面板入口，2026-0803-0112 计划复用为

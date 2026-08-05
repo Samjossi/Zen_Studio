@@ -23,6 +23,12 @@
 - 停止归各标签本地：输入区底行发送/停止双态按钮直停本标签
   （2026-0724-2305 计划 T5，替代原全局停止按钮 + _route_stop 路由）
 
+推理强度四级（2026-08-06，用户拍板：每接口静态声明 + 记忆表即时生效）：
+- ModelBar 第四级 effort_changed 信号由本容器收敛：注入值 _effort
+  更新 + model_efforts 记忆表写盘（与 model_versions 同构）+ 本标签
+  provider 鸭子类型 set_effort 即时生效；切后台/接口/模型路径按（新）
+  接口记忆表解析并应用（None = 未定制，agent 默认强度生效）
+
 全关与关闭卡顿治理（2026-07-22，文档/修改记录/2026-0722-1117 计划）：
 - 标签可全部关闭（不再保底一个）；零标签时 QStackedWidget 切到占位页
   （提示文案 + 居中「新建会话」按钮）；选择状态在本容器不随标签消失，
@@ -46,8 +52,10 @@ from PySide6.QtWidgets import (
 from gui.panels.chat.panel import ChatPanel
 from gui.settings import (
     KEY_MODEL_BACKEND,
+    KEY_MODEL_EFFORTS,
     KEY_MODEL_VERSIONS,
     load_settings,
+    remember_model_effort,
     remember_model_version,
     update_settings,
 )
@@ -143,6 +151,10 @@ class ChatTabs(QWidget):
         self._backend: str | None = settings.get(KEY_MODEL_BACKEND)
         self._version: str | None = settings[KEY_MODEL_VERSIONS].get(
             self._backend or "")
+        #: 推理强度注入值（2026-0806 计划）：当前接口的 model_efforts 记忆
+        #: 值；None = 未定制（agent 默认强度生效，UI 勾选接口默认项纯呈现）
+        self._effort: str | None = settings[KEY_MODEL_EFFORTS].get(
+            self._backend or "")
 
     def _build_placeholder(self) -> QWidget:
         """零标签占位页：提示文案 + 居中「新建会话」按钮（沿用全局主题，不引新色值）。"""
@@ -189,10 +201,13 @@ class ChatTabs(QWidget):
             self._version,
             self._workspace_root,
             self,
+            effort=self._effort,
         )
         panel.busy_changed.connect(lambda busy, p=panel: self._on_tab_busy(p, busy))
         panel.model_bar.selection_changed.connect(
             lambda backend, version, p=panel: self._on_selection_changed(p, backend, version))
+        panel.model_bar.effort_changed.connect(
+            lambda backend, effort, p=panel: self._on_effort_changed(p, backend, effort))
         panel.turn_finished.connect(self.turn_finished)
         panel.file_open_requested.connect(self.file_open_requested)
         if self._backend is None:
@@ -266,20 +281,40 @@ class ChatTabs(QWidget):
         if sender is not self._tabs.currentWidget():
             return
         self._backend = backend
+        settings = load_settings()
         if isinstance(version, str):
             self._version = version
             remember_model_version(backend, version)
         else:
-            self._version = load_settings()[KEY_MODEL_VERSIONS].get(backend)
+            self._version = settings[KEY_MODEL_VERSIONS].get(backend)
         update_settings({KEY_MODEL_BACKEND: backend})
         # 本标签 provider 切换（原经广播路径完成；set_model_selection 内
         # ModelBar.set_selection 全程阻断信号，不回环、不重复写盘）
         sender.set_model_selection(backend, self._version)
+        # 推理强度（2026-0806 计划）：切后台/接口/模型后按（新）接口的
+        # 记忆表解析并应用——None = 未定制，agent 默认强度生效；同接口
+        # 内换模型时记忆值不变，重应用幂等
+        self._effort = settings[KEY_MODEL_EFFORTS].get(backend)
+        sender.set_effort(self._effort)
         # 设置中心展示值跟随当前标签（载荷用 ModelBar 回退后有效值，
         # 与 UI 一致；version 为 None 时 ModelBar 已落记忆/首项）
         self.selection_changed.emit(
             sender.model_bar.current_backend(),
             sender.model_bar.current_version())
+
+    def _on_effort_changed(self, sender: ChatPanel, backend: str, effort: str) -> None:
+        """某标签底行第四级用户显式选定强度（2026-0806 计划）→ 注入值
+        更新 + 记忆表写盘 + 本标签 provider 即时生效。
+
+        不广播其余标签（各标签选择独立，D1）；sender 必须为当前活动标签
+        （与 _on_selection_changed 同款防御）。强度记忆表与模型记忆表
+        同构（model_efforts，锁内合并防多开覆盖）。
+        """
+        if sender is not self._tabs.currentWidget():
+            return
+        self._effort = effort
+        remember_model_effort(backend, effort)
+        sender.set_effort(effort)
 
     def apply_model_selection(self, backend: str, version: str | None) -> None:
         """菜单/设置中心驱动切换：注入值更新 + 写盘 + 只作用当前活动标签。
@@ -290,12 +325,15 @@ class ChatTabs(QWidget):
         入口。其余标签不动——它们已是用户显式选择的独立会话（D3）。
         """
         self._backend = backend
+        settings = load_settings()
         if isinstance(version, str):
             self._version = version
             remember_model_version(backend, version)
         else:
-            self._version = load_settings()[KEY_MODEL_VERSIONS].get(backend)
+            self._version = settings[KEY_MODEL_VERSIONS].get(backend)
         update_settings({KEY_MODEL_BACKEND: backend})
+        # 推理强度注入值随接口记忆表解析（2026-0806 计划，与 _on_selection_changed 同款）
+        self._effort = settings[KEY_MODEL_EFFORTS].get(backend)
         current = self._tabs.currentWidget()
         if not isinstance(current, ChatPanel):
             # 零标签：设置中心展示值 = 注入值
@@ -304,6 +342,7 @@ class ChatTabs(QWidget):
         # 传解析后的注入值（version=None 已查记忆表），与改造前广播路径
         # 语义一致；set_model_selection 内 UI 阻断同步不回环
         current.set_model_selection(backend, self._version)
+        current.set_effort(self._effort)  # 强度应用（None = 未定制）
         # 回退后的有效值以 ModelBar 为准（失效 backend 被静默回退时，
         # 设置中心展示真实落点而非请求值）
         self.selection_changed.emit(

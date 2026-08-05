@@ -27,11 +27,13 @@ OpenCode fork，协议级兼容）：会话生命周期、审批回环、思维�
    credential/unauthorized 关键词）宽松映射为「请先运行 kilo auth login」
    友好文案（D5：各 provider 自行翻译认证错误）。注：initialize 的
    `authMethods` 是静态能力声明（计划 §2.3），不能作未登录信号。
-4. mode/effort 不触碰（D5）：Kilo session/new 的 configOptions 多出 `mode`
+4. mode 不触碰、effort 已暴露：Kilo session/new 的 configOptions 多出 `mode`
    （ask/code/debug/orchestrator/plan，默认 ask 纯问答、禁用编辑工具——恰好
    匹配 IDE 对话场景，比 opencode 默认 build 更贴合更安全）与 `effort`
-   （high/max，默认 high 推理力度）；本 provider 均不使用
-   `session/set_config_option` 触碰，不暴露 UI（计划 §2.4）。
+   （high/max，默认 high 推理力度）；mode 本 provider 不使用
+   `session/set_config_option` 触碰、不暴露 UI（计划 §2.4，D5）；
+   effort 于 2026-0806 计划翻案暴露——经 set_effort 支撑 ModelBar
+   第四级「推理强度」（kimi 同款机制，configId 各家自持）。
 5. 别名私有语义（D6 红线 2）：`provider/model` 全名（含 `~` 别名）不透明
    透传，公共层不解析不拼接。
 
@@ -132,6 +134,8 @@ class KiloCodeAcpLLM(LanguageModel):
             归一化为绝对路径（对齐 reasonix/opencode 稳妥做法，abspath 对已绝对输入幂等）
         """
         self._model = model
+        #: 推理强度预选值（2026-0806 计划；None = 未定制，agent 默认强度生效）
+        self._effort: str | None = None
         self._cwd = os.path.abspath(workspace_root or str(PROJECT_ROOT))
         self._conn: AcpConnection | None = None
         self._session_id: str | None = None
@@ -160,6 +164,24 @@ class KiloCodeAcpLLM(LanguageModel):
                     "sessionId": self._session_id, "configId": "model", "value": alias}, timeout=10)
             except RuntimeError:
                 self._session_id = None  # 降级：下轮重建会话并应用模型
+
+    def set_effort(self, value: str) -> None:
+        """切换推理强度（2026-0806 计划；会话存在则即时生效）。
+
+        生效机制同 set_model（D6 红线 3）：session/set_config_option
+        （configId="effort"，值域 high/max、默认 high，2026-0730-2240 计划
+        §2.4 实测），强度值原样透传不解析不校验（D6 红线 2 同款不透明
+        字符串语义）。失败不丢弃会话（与 set_model 的差异）：强度是辅助
+        控制轴，拒绝不该陪葬会话上下文——`_effort` 已记，下个新会话生效。
+        """
+        self._effort = value
+        if self._conn and self._conn.is_alive and self._session_id:
+            try:
+                self._conn.request("session/set_config_option", {
+                    "sessionId": self._session_id, "configId": "effort",
+                    "value": value}, timeout=10)
+            except RuntimeError:
+                pass  # 降级：保持会话与当前强度，新会话时应用 _effort
 
     def reset_session(self) -> None:
         """清空会话，下次请求 `session/new` 开新会话（进程保留）。"""
@@ -244,6 +266,13 @@ class KiloCodeAcpLLM(LanguageModel):
                         "value": self._model}, timeout=10)
                 except RuntimeError:
                     pass  # 保持 agent 默认模型，不阻断对话
+            if self._effort:  # 新会话应用预选推理强度（2026-0806 计划）
+                try:
+                    self._conn.request("session/set_config_option", {
+                        "sessionId": self._session_id, "configId": "effort",
+                        "value": self._effort}, timeout=10)
+                except RuntimeError:
+                    pass  # 保持 agent 默认强度，不阻断对话
         return self._conn
 
     @staticmethod

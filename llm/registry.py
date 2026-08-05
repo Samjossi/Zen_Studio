@@ -53,6 +53,15 @@ class BackendSpec:
     #: （.temp/spike_image_results.json，2026-08-01）；
     #: False 的后端聊天输入区自动退化方案 D 落盘 @路径 行为（D4）
     supports_images: bool = False
+    #: 推理强度选项（2026-0806 计划，接口级静态声明——用户拍板方案一）：
+    #: 空 tuple = 该接口不支持/未实测强度轴，ModelBar 第四级禁用标注；
+    #: 非空即第四级菜单值域，协议值原样透传（不透明字符串红线同模型
+    #: 别名，不解析不校验；configId 归各 provider 的 set_effort 自持）
+    efforts: tuple[str, ...] = ()
+    #: 未定制时的 UI 勾选默认项（须为 efforts 成员；None = efforts 首项）。
+    #: 仅 UI 呈现勾选——用户未显式选择时不下发 set_config_option，
+    #: agent 默认强度生效；填值应与 agent 默认一致（防显示与实况背离）
+    default_effort: str | None = None
 
 
 # ----------------------------------------------------------------------
@@ -112,6 +121,12 @@ REGISTRY: dict[str, BackendSpec] = {
             # T0 spike：默认模型与 kimi-code/k3 均正确识图；空 text 块被拒
             # （-32603），纯图发送经 build_prompt_blocks 占位文案回退（D5）
             supports_images=True,
+            # configOptions thinking 选择器（2026-0718-1555 实测）；k3-256k
+            # 值域 low/high/max、默认 high（2026-0725-0205 实测：重登录后
+            # k3 默认亦由 max 改 high）。值域按全集声明——个别模型不支持的
+            # 档位由 agent 侧拒绝，provider 层降级不阻断对话
+            efforts=("low", "high", "max"),
+            default_effort="high",
         ),
         BackendSpec(
             name="reasonix-acp",
@@ -125,6 +140,9 @@ REGISTRY: dict[str, BackendSpec] = {
             # （疑静默丢弃或非视觉模型）——保守置 False，维持方案 D @路径
             # 退化（D4）；后续换视觉模型实测后可翻案
             supports_images=False,
+            # configOptions 存在 effort 轴（2026-0730-0150 计划 §4-D3 枚举），
+            # 但值域/默认未实测——按用户拍板「实测后填」，本期留空不暴露
+            efforts=(),
         ),
         BackendSpec(
             name="opencode-acp",
@@ -149,6 +167,10 @@ REGISTRY: dict[str, BackendSpec] = {
             factory=KiloCodeAcpLLM,
             # T0 spike：默认模型正确识图（回「红」），空 text 块接受
             supports_images=True,
+            # configOptions effort 选项 high/max、默认 high
+            # （2026-0730-2240 计划 §2.4 实测）
+            efforts=("high", "max"),
+            default_effort="high",
         ),
         BackendSpec(
             name="dream-acp",
