@@ -25,8 +25,15 @@ QStackedLayout 第三页 MediaViewer（QMediaPlayer 就地播放），open_file 
 
 Markdown 渲染预览（2026-07-29，见 文档/修改记录/2026-0729-1155_Markdown渲染预览与
 Typora打开功能实施计划）：QStackedLayout 第四页 MarkdownView（QTextBrowser
-+ setMarkdown GFM 渲染），.md/.markdown 直进渲染页（决策：不做源码↔渲染
-双模式）；查找浮层降级弱提示；页内「使用 Typora 打开」右键入口。
++ setMarkdown GFM 渲染），.md/.markdown 直进渲染页；
+查找浮层降级弱提示；页内「使用 Typora 打开」右键入口。
+
+Markdown 阅览/源码双模式开关（2026-08-06，见 work plans/2026-0806-0327_Markdown
+阅览源码双模式滑块开关计划）：推翻上节「不做源码↔渲染双模式」决策——标题行
+新增「动态标签 + ToggleSwitch」开关组（仅 Markdown 页可见，镜像图片/PDF 按钮组
+按页显隐先例），关=阅览模式（渲染页，蓝）/ 开=源码模式（复用文本页只读
+CodeViewer + Pygments 高亮，蛋黄色；仅显示源码不可编辑）；打开新 md 复位
+到阅览模式（不跨文件记忆）；源码模式下查找浮层自动恢复可用。
 
 PDF 预览（2026-07-29，见 文档/修改记录/2026-0729-1212_PDF文件预览功能实施计划）：
 QStackedLayout 第五页 PdfViewer（QPdfView 连续滚动渲染），.pdf 直进 PDF 页；
@@ -62,6 +69,7 @@ from gui.panels.viewer.image_viewer import IMAGE_EXTS, ImageViewer
 from gui.panels.viewer.markdown_view import MARKDOWN_EXTS, MarkdownView
 from gui.panels.viewer.media_viewer import AUDIO_EXTS, VIDEO_EXTS, MediaViewer
 from gui.panels.viewer.pdf_viewer import PDF_EXTS, PdfViewer
+from gui.panels.viewer.toggle_switch import ToggleSwitch
 from gui.settings import KEY_FONT_SIZE, KEY_THEME
 from gui.theme import load_settings, get_theme_palette
 
@@ -170,6 +178,7 @@ class ViewerPanel(QWidget):
         title_layout.addWidget(self._git_badge)
         title_layout.addWidget(self._build_image_buttons(title_row))
         title_layout.addWidget(self._build_pdf_buttons(title_row))
+        title_layout.addWidget(self._build_md_switch(title_row))
         title_layout.addWidget(self._hint_label)
         title_layout.setContentsMargins(4, 2, 4, 2)
         return title_row
@@ -193,6 +202,72 @@ class ViewerPanel(QWidget):
             row.addWidget(button)
         self._image_buttons.setVisible(False)
         return self._image_buttons
+
+    def _build_md_switch(self, parent: QWidget) -> QWidget:
+        """Markdown 模式开关组：动态标签 + 滑块开关（仅 Markdown 页可见）。
+
+        两态对色表达「模式差异」：关=阅览模式（GFM 渲染页，主题蓝），
+        开=源码模式（只读源码 CodeViewer，蛋黄色）。槽经 toggled 惰性化：
+        标题行构建早于页面切换逻辑，接线在 _build_pages 之后（同图片按钮先例，
+        槽内引用 self.markdown_view 等成员仅运行时触达）。
+        """
+        self._md_switch_box = QWidget(parent)
+        row = QHBoxLayout(self._md_switch_box)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(4)
+        self._md_mode_label = QLabel("阅览模式", self._md_switch_box)
+        self._md_mode_label.setObjectName("PanelHint")  # 与提示同款次要文字样式
+        self._md_switch = ToggleSwitch(self._md_switch_box,
+                                       off_color="#0765d4",   # 阅览 = 蓝
+                                       on_color="#f5b301")    # 源码 = 蛋黄色
+        self._md_switch.setToolTip("切换 Markdown 阅览/源码模式（源码只读，不可编辑）")
+        self._md_switch.toggled.connect(self._on_md_mode_toggled)
+        row.addWidget(self._md_mode_label)
+        row.addWidget(self._md_switch)
+        self._md_switch_box.setVisible(False)
+        return self._md_switch_box
+
+    def _on_md_mode_toggled(self, checked: bool) -> None:
+        """开关 toggled 槽：标签文本 + 页面切换（守卫：仅当前为 md 文件时生效）。"""
+        self._md_mode_label.setText("源码模式" if checked else "阅览模式")
+        if not self._current_path:
+            return
+        if Path(self._current_path).suffix.lower().lstrip(".") not in MARKDOWN_EXTS:
+            return  # 双保险：非 Markdown 场景信号误触不切页（0327 计划 D6）
+        if not checked:
+            # 回阅览模式：MarkdownView 文档仍在（setMarkdown 内容未丢），
+            # 仅切页不重渲染，零开销瞬时切换
+            self._stack.setCurrentWidget(self.markdown_view)
+            return
+        # 源码模式：复用文本页 CodeViewer（只读 + Pygments 高亮），
+        # 读盘走与文本页同套 1MB 截断守卫 + UTF-8 解码
+        result = self._read_text(Path(self._current_path))
+        if isinstance(result, str):
+            return self._show_hint(f"（源码读取失败：{result}）")
+        text, _truncated = result
+        self.viewer.setPlainText(text)
+        self._highlighter.set_source(Path(self._current_path).name, text)
+        self._stack.setCurrentWidget(self.viewer)
+
+    @staticmethod
+    def _read_text(p: Path) -> tuple[str, bool] | str:
+        """读盘 + 1MB 截断守卫 + UTF-8 解码：成功返回 (文本, 是否截断)，失败返回原因。
+
+        与文本页 open_file 主路径同套守卫（0327 计划 T3：提取共用，防双份守卫漂移）。
+        """
+        try:
+            raw = p.read_bytes()
+        except OSError as e:
+            return e.strerror or str(e)
+        truncated = len(raw) > MAX_BYTES
+        if truncated:
+            raw = raw[:MAX_BYTES]
+        # 截断可能切断 UTF-8 多字节字符：宽容解码丢弃尾部残缺（MarkdownView 同例）
+        try:
+            text = raw.decode("utf-8", errors="ignore" if truncated else "strict")
+        except UnicodeDecodeError:
+            return "编码非 UTF-8"
+        return text, truncated
 
     def _build_pdf_buttons(self, parent: QWidget) -> QWidget:
         """PDF 页按钮组：◀ ▶ 翻页 + 缩放/适配 + 外部打开（仅 PDF 页可见）。
@@ -280,6 +355,7 @@ class ViewerPanel(QWidget):
         self._stack.setCurrentWidget(self.viewer)
         self._image_buttons.setVisible(False)
         self._pdf_buttons.setVisible(False)
+        self._md_switch_box.setVisible(False)
         scroll = self.viewer.verticalScrollBar().value() if self._current_path == str(p) else 0
         self.viewer.setPlainText(text)
         self._highlighter.set_source(p.name, text)
@@ -314,6 +390,7 @@ class ViewerPanel(QWidget):
         self._stack.setCurrentWidget(self.image_viewer)
         self._image_buttons.setVisible(True)
         self._pdf_buttons.setVisible(False)
+        self._md_switch_box.setVisible(False)
         self._path_label.setText(self._display_path(str(p)))
         self._path_label.setToolTip(self._full_path_tooltip(str(p)))
         self._current_path = str(p)
@@ -333,6 +410,7 @@ class ViewerPanel(QWidget):
         self._stack.setCurrentWidget(self.media_viewer)
         self._image_buttons.setVisible(False)
         self._pdf_buttons.setVisible(False)
+        self._md_switch_box.setVisible(False)
         self._path_label.setText(self._display_path(str(p)))
         self._path_label.setToolTip(self._full_path_tooltip(str(p)))
         self._current_path = str(p)
@@ -354,12 +432,16 @@ class ViewerPanel(QWidget):
         self._stack.setCurrentWidget(self.markdown_view)
         self._image_buttons.setVisible(False)
         self._pdf_buttons.setVisible(False)
+        self._md_switch_box.setVisible(True)
         truncated = self.markdown_view.truncated
         self._path_label.setText(
             self._display_path(str(p)) + ("（已截断：超过 1 MB）" if truncated else ""))
         self._path_label.setToolTip(self._full_path_tooltip(str(p)))
         self._current_path = str(p)
         self.refresh_git_badge()
+        # 打开新 md 复位开关到阅览模式：toggled 触发标签自动回「阅览模式」，
+        # 无需额外同步（0327 计划 D5）；复位在上屏之后，槽内守卫防误切页
+        self._md_switch.setChecked(False)
         # 查找浮层绑定文本文档，切 Markdown 页即关闭并清残留高亮
         if self._find_bar.isVisible():
             self._hide_find()
@@ -377,6 +459,7 @@ class ViewerPanel(QWidget):
         self._stack.setCurrentWidget(self.pdf_viewer)
         self._image_buttons.setVisible(False)
         self._pdf_buttons.setVisible(True)
+        self._md_switch_box.setVisible(False)
         self._path_label.setText(self._display_path(str(p)))
         self._path_label.setToolTip(self._full_path_tooltip(str(p)))
         self._current_path = str(p)
@@ -463,7 +546,8 @@ class ViewerPanel(QWidget):
         点击目标，随标签缩小会同时缩小热区，可用性受损（2048 计划 D7）。
         """
         size = load_settings()[KEY_FONT_SIZE] + _TITLE_ROW_FONT_DELTA_PT
-        for label in (self._path_label, self._git_badge, self._hint_label):
+        for label in (self._path_label, self._git_badge, self._hint_label,
+                      self._md_mode_label):
             font = QFont(label.font())
             font.setPointSize(size)
             label.setFont(font)
@@ -563,6 +647,7 @@ class ViewerPanel(QWidget):
         self._stack.setCurrentWidget(self.viewer)  # 占位提示统一回落文本页
         self._image_buttons.setVisible(False)
         self._pdf_buttons.setVisible(False)
+        self._md_switch_box.setVisible(False)
         self.viewer.setPlainText("")
         self._highlighter.set_source("", "")
         if path:
