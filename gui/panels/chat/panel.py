@@ -559,7 +559,7 @@ class ChatPanel(QWidget):
     # 2242 计划方案 F 由输入区底行迁入状态行右侧，簿记/刷新语义不变）
     # ------------------------------------------------------------------
     def _refresh_usage_label(self) -> None:
-        """按 _usage 簿记刷新徽章：无数据空文本（常驻占位不撤）；≥50% 热态变色。
+        """按 _usage 簿记刷新徽章：无数据空文本（常驻占位不撤）；≥80% 热态变色。
 
         口径标注（1454 计划 D3/T6）：estimate 来源加 `~` 前缀并在 tooltip
         注明估算口径（transcript 文本 chars/4 粗估，非 agent 精确计量）；
@@ -583,7 +583,7 @@ class ChatPanel(QWidget):
             self._usage_label.setToolTip(
                 f"上下文已用 {stats.used:,} / 上限 {stats.size:,} tokens（{percent}%）\n"
                 f"{source_note}")
-            self._usage_label.setProperty("hot", percent >= 50)
+            self._usage_label.setProperty("hot", percent >= 80)
         # qss 动态属性（[hot="true"] 警示色）切换后强制刷新
         self._usage_label.style().unpolish(self._usage_label)
         self._usage_label.style().polish(self._usage_label)
