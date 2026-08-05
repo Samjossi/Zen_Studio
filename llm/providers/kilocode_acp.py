@@ -42,7 +42,9 @@ llm/providers/acp.py 的公共实现 map_session_update（D4 上收——原四�
 逐行一致副本同一改动改四处必然漂移）。
 """
 import atexit
+import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -121,6 +123,67 @@ def list_kilocode_models() -> list[str]:
                 and not line.strip().startswith(GATEWAY_MODEL_PREFIX)]
     except (OSError, subprocess.SubprocessError):
         return []
+
+
+#: `kilo models --verbose` id 行锚定（0455 计划 T2）：列 0 起始、
+#: `{provider}/{model}` 形态（含 `~` 别名段）；pretty JSON 块内行均有缩进，
+#: 列 0 仅 id 行与块尾 `}`（`}` 不含 `/` 天然排除）
+_VERBOSE_ID_LINE = re.compile(r"^[A-Za-z0-9~_.-]+/[A-Za-z0-9~_./-]+$")
+
+
+def list_kilocode_efforts() -> dict[str, tuple[list[str], str | None]]:
+    """spawn `kilo models --verbose` 解析各模型 variants keys（模型级强度
+    档位，0455 动态化计划 T2/G2）；失败返回空 dict（注册层回退接口级静态
+    声明 high/max，D1）。
+
+    输出为「id 行 + pretty JSON 块」混排（无 --json 旗标，2026-08-06 实测）：
+    列 0 的 `{provider}/{model}` 行起块、下一个 id 行止块，块内 json.loads
+    取 `variants` keys（保持 JSON 原序，协议原文透传不排序不映射）。
+    `capabilities.reasoning` 为 false 或 `variants` 为空的模型不产生条目
+    （该模型无强度轴，对齐 kilo 侧 ACP effort configOption 缺席语义）。
+    默认档 kilo 目录数据无字段 → 一律 None（UI 回退接口级 default_effort）。
+    R1：输出格式非稳定 API，单块解析失败仅跳过该块，整体异常返回已解析
+    部分（空 dict 时由注册层回退静态声明）。
+    """
+    bin_path = _find_bin()
+    if not bin_path:
+        return {}
+    try:
+        proc = subprocess.run(
+            [bin_path, "models", "--verbose"],
+            capture_output=True, text=True, timeout=15, check=False,
+        )
+        if proc.returncode != 0:
+            return {}
+    except (OSError, subprocess.SubprocessError):
+        return {}
+    result: dict[str, tuple[list[str], str | None]] = {}
+    alias: str | None = None
+    block: list[str] = []
+
+    def flush() -> None:
+        if alias is None or not block:
+            return
+        try:
+            entry = json.loads("\n".join(block))
+        except json.JSONDecodeError:
+            return  # 单块漂移只丢该模型（R1 兜底）
+        capabilities = entry.get("capabilities")
+        if isinstance(capabilities, dict) and capabilities.get("reasoning") is False:
+            return
+        variants = entry.get("variants")
+        if isinstance(variants, dict) and variants:
+            result[alias] = ([k for k in variants if isinstance(k, str)], None)
+
+    for line in proc.stdout.splitlines():
+        if _VERBOSE_ID_LINE.match(line):
+            flush()
+            alias = line
+            block = []
+        elif alias is not None:
+            block.append(line)
+    flush()
+    return result
 
 
 class KiloCodeAcpLLM(LanguageModel):

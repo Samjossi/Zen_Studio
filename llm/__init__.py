@@ -22,6 +22,7 @@ from llm.registry import (
     VENDOR_LABELS,
     BackendSpec,
     refresh_models,
+    resolve_efforts,
     spec_of,
     vendor_groups,
     vendor_of,
@@ -47,6 +48,7 @@ __all__ = [
     "vendor_of",
     "vendor_groups",
     "refresh_models",
+    "resolve_efforts",
     "VENDOR_LABELS",
     # Kimi 专有符号（非 Protocol 成员；探测/枚举居 kimi_common，CLI 传输层已移除）
     "KimiAcpLLM",

@@ -23,9 +23,19 @@ from dataclasses import dataclass
 
 from llm.base import LanguageModel
 from llm.providers.dream_acp import DreamAcpLLM, dream_available, list_dream_models
-from llm.providers.kilocode_acp import KiloCodeAcpLLM, kilocode_available, list_kilocode_models
+from llm.providers.kilocode_acp import (
+    KiloCodeAcpLLM,
+    kilocode_available,
+    list_kilocode_efforts,
+    list_kilocode_models,
+)
 from llm.providers.kimi_acp import KimiAcpLLM
-from llm.providers.kimi_common import kimi_available, list_kimi_models
+from llm.providers.kimi_common import (
+    efforts_from_catalog,
+    kimi_available,
+    load_kimi_provider_catalog,
+    models_from_catalog,
+)
 from llm.providers.opencode_acp import OpenCodeAcpLLM, list_opencode_models, opencode_available
 from llm.providers.reasonix_acp import ReasonixAcpLLM, list_reasonix_models, reasonix_available
 
@@ -53,15 +63,24 @@ class BackendSpec:
     #: （.temp/spike_image_results.json，2026-08-01）；
     #: False 的后端聊天输入区自动退化方案 D 落盘 @路径 行为（D4）
     supports_images: bool = False
-    #: 推理强度选项（2026-0806 计划，接口级静态声明——用户拍板方案一）：
-    #: 空 tuple = 该接口不支持/未实测强度轴，ModelBar 第四级禁用标注；
-    #: 非空即第四级菜单值域，协议值原样透传（不透明字符串红线同模型
-    #: 别名，不解析不校验；configId 归各 provider 的 set_effort 自持）
+    #: 推理强度选项（2026-0806 一期静态声明；0455 动态化计划 D2 改语义为
+    #: 「接口级兜底值」）：list_efforts 返回空 dict（无模型级数据/解析
+    #: 失败）时 UI 回退本字段；空 tuple = 该接口不支持/未实测强度轴，
+    #: ModelBar 第四级禁用标注；非空即第四级菜单值域，协议值原样透传
+    #: （不透明字符串红线同模型别名，不解析不校验；configId 归各 provider
+    #: 的 set_effort 自持）
     efforts: tuple[str, ...] = ()
     #: 未定制时的 UI 勾选默认项（须为 efforts 成员；None = efforts 首项）。
     #: 仅 UI 呈现勾选——用户未显式选择时不下发 set_config_option，
-    #: agent 默认强度生效；填值应与 agent 默认一致（防显示与实况背离）
+    #: agent 默认强度生效；填值应与 agent 默认一致（防显示与实况背离）。
+    #: 0455 计划 D2：模型级默认档缺失（如 kilo 目录无默认字段）时的兜底
     default_effort: str | None = None
+    #: 模型级强度档位枚举（0455 动态化计划 D2，惰性）：模型别名 →
+    #: (档位列表, 默认档|None)。空 dict = 无模型级数据（UI 回退接口级
+    #: efforts 兜底）；非空 dict 中查无该模型 = 该模型无强度轴（菜单禁用，
+    #: 不做静态兜底，D1）。None = 该接口无动态数据源（纯静态兜底）。
+    #: 经 _cached_list_efforts 同款进程级缓存包装，refresh_models() 同点失效
+    list_efforts: Callable[[], dict[str, tuple[list[str], str | None]]] | None = None
 
 
 # ----------------------------------------------------------------------
@@ -73,6 +92,14 @@ class BackendSpec:
 # ----------------------------------------------------------------------
 _models_cache: dict[str, tuple[str, ...]] = {}
 _models_cache_lock = threading.Lock()
+
+#: 模型级强度档位进程级缓存（0455 动态化计划 D2/R3）：与 _models_cache
+#: 同生命周期、同锁、同失效口（refresh_models）
+_efforts_cache: dict[str, dict[str, tuple[list[str], str | None]]] = {}
+
+#: 共享原始目录载荷缓存（0455 计划 T1：kimi 的 list_models 与 list_efforts
+#: 同源 `provider list --json`，缓存原始载荷一次、两路派生，防双倍子进程）
+_raw_cache: dict[str, object] = {}
 
 
 def _cached_list_models(
@@ -88,17 +115,81 @@ def _cached_list_models(
     return wrapper
 
 
-def refresh_models(name: str | None = None) -> None:
-    """清模型列表缓存（下次 list_models 惰性重新拉取）；name=None 清全部。
+def _cached_list_efforts(
+        name: str,
+        fn: Callable[[], dict[str, tuple[list[str], str | None]]],
+) -> Callable[[], dict[str, tuple[list[str], str | None]]]:
+    """把接口级 list_efforts 包成缓存版（0455 计划 D2，list_models 同款）。"""
+    def wrapper() -> dict[str, tuple[list[str], str | None]]:
+        with _models_cache_lock:
+            cached = _efforts_cache.get(name)
+            if cached is None:
+                cached = fn()
+                _efforts_cache[name] = cached
+        return dict(cached)
+    return wrapper
 
-    唯一缓存失效口（D2）：模型目录低频变化，进程内不做 TTL/文件监听；
-    设置中心「重新检测」等显式刷新场景调本函数。
+
+def _cached_raw(name: str, fn: Callable[[], object]) -> Callable[[], object]:
+    """把原始目录载荷拉取包成缓存版（0455 计划 T1 缓存层合一）。"""
+    def wrapper() -> object:
+        with _models_cache_lock:
+            cached = _raw_cache.get(name)
+            if cached is None:
+                cached = fn()
+                _raw_cache[name] = cached
+        return cached
+    return wrapper
+
+
+def refresh_models(name: str | None = None) -> None:
+    """清模型列表与强度档位缓存（下次 list_models/list_efforts 惰性重新
+    拉取）；name=None 清全部。
+
+    唯一缓存失效口（D2/R3）：模型目录低频变化，进程内不做 TTL/文件监听；
+    设置中心「重新检测」等显式刷新场景调本函数。0455 计划：模型列表、
+    强度档位、共享原始目录载荷三缓存同点失效。
     """
     with _models_cache_lock:
         if name is None:
             _models_cache.clear()
+            _efforts_cache.clear()
+            _raw_cache.clear()
         else:
             _models_cache.pop(name, None)
+            _efforts_cache.pop(name, None)
+            _raw_cache.pop(name, None)
+
+
+#: kimi 共享目录载荷（0455 计划 T1：注册段 list_models/list_efforts 均从
+#: 本缓存派生，一次子进程两路消费）
+_kimi_catalog = _cached_raw("kimi-acp", load_kimi_provider_catalog)
+
+
+def resolve_efforts(
+        spec: BackendSpec, model: str | None) -> tuple[tuple[str, ...], str | None]:
+    """模型级强度档位解析链（0455 动态化计划 D2/D4，UI 与应用层共用）：
+
+    1. spec.list_efforts 返回**非空** dict → 查模型别名：命中 = 模型级
+       (档位, 默认档)；查无 = 该模型无强度轴（空 tuple，不做静态兜底，D1）；
+    2. list_efforts 为 None 或返回**空** dict → 接口级兜底
+       (spec.efforts, spec.default_effort)；
+    3. 再空 = 该接口不支持强度轴（空 tuple）。
+
+    返回 (档位列表, 默认档)；默认档可能为 None（kilo 目录无默认字段时
+    UI 再落 spec.default_effort → 首项，见 ModelBar）。
+    """
+    if spec.list_efforts is not None:
+        model_efforts = spec.list_efforts()
+        if model_efforts:  # 非空 dict：模型级语义生效
+            entry = model_efforts.get(model or "")
+            if entry is None:
+                return (), None
+            efforts, default = entry
+            if not efforts:
+                return (), None
+            return tuple(efforts), default
+    return spec.efforts, spec.default_effort
 
 
 # ----------------------------------------------------------------------
@@ -116,17 +207,23 @@ REGISTRY: dict[str, BackendSpec] = {
             vendor="kimi",
             vendor_label="Kimi",
             available=kimi_available,
-            list_models=_cached_list_models("kimi-acp", list_kimi_models),
+            # 0455 动态化计划 T1：list_models 与 list_efforts 共享同一次
+            # `provider list --json` 调用（_kimi_catalog 缓存层合一），
+            # 模型别名与强度档位同源同载荷，防双倍子进程
+            list_models=lambda: models_from_catalog(_kimi_catalog()),
             factory=KimiAcpLLM,
             # T0 spike：默认模型与 kimi-code/k3 均正确识图；空 text 块被拒
             # （-32603），纯图发送经 build_prompt_blocks 占位文案回退（D5）
             supports_images=True,
-            # configOptions thinking 选择器（2026-0718-1555 实测）；k3-256k
-            # 值域 low/high/max、默认 high（2026-0725-0205 实测：重登录后
-            # k3 默认亦由 max 改 high）。值域按全集声明——个别模型不支持的
-            # 档位由 agent 侧拒绝，provider 层降级不阻断对话
+            # 接口级兜底值（0455 计划 D2 语义）：模型级目录整体不可得
+            # （CLI 失败返回空 dict）时回退；k3-256k 值域 low/high/max、
+            # 默认 high（2026-0725-0205 实测）
             efforts=("low", "high", "max"),
             default_effort="high",
+            # 模型级档位（0455 计划 G1）：supportEfforts/defaultEffort
+            # 服务端目录下发；条目缺字段的模型（kimi-for-coding 等）无
+            # 强度轴（D1 不做静态兜底）
+            list_efforts=lambda: efforts_from_catalog(_kimi_catalog()),
         ),
         BackendSpec(
             name="reasonix-acp",
@@ -140,9 +237,14 @@ REGISTRY: dict[str, BackendSpec] = {
             # （疑静默丢弃或非视觉模型）——保守置 False，维持方案 D @路径
             # 退化（D4）；后续换视觉模型实测后可翻案
             supports_images=False,
-            # configOptions 存在 effort 轴（2026-0730-0150 计划 §4-D3 枚举），
-            # 但值域/默认未实测——按用户拍板「实测后填」，本期留空不暴露
-            efforts=(),
+            # configOptions effort 轴（category=thought_level，configId
+            # "effort"）：值域 auto/disabled/high/max、默认 auto，两模型
+            # （deepseek-pro/deepseek-v4-pro、deepseek-flash/deepseek-v4-flash）
+            # 实测值域相同（0455 计划 T5 spike：.temp/spike_effort_axes.py /
+            # spike_reasonix_effort_models.py，2026-08-06）；无模型级动态
+            # 数据源（configOptions 需先起会话，R4 后续候选），静态声明
+            efforts=("auto", "disabled", "high", "max"),
+            default_effort="auto",
         ),
         BackendSpec(
             name="opencode-acp",
@@ -156,6 +258,10 @@ REGISTRY: dict[str, BackendSpec] = {
             # 输入」——图已送达，模型级不支持）；接口级置 True（D9），用户
             # 切换视觉模型即生效；空 text 块接受
             supports_images=True,
+            # 0455 计划 T5 spike 实测（.temp/spike_effort_axes.py，
+            # 2026-08-06）：opencode 原版 configOptions 仅 model + mode
+            # 两项，**无 effort 轴**（kilo fork 的 effort 是 kilo 自加）——
+            # 维持留空不暴露
         ),
         BackendSpec(
             name="kilocode-acp",
@@ -167,10 +273,14 @@ REGISTRY: dict[str, BackendSpec] = {
             factory=KiloCodeAcpLLM,
             # T0 spike：默认模型正确识图（回「红」），空 text 块接受
             supports_images=True,
-            # configOptions effort 选项 high/max、默认 high
-            # （2026-0730-2240 计划 §2.4 实测）
+            # 接口级兜底值（0455 计划 D2 语义）：`models --verbose` 解析
+            # 失败/超时时回退——configOptions effort 选项 high/max、默认
+            # high（2026-0730-2240 计划 §2.4 实测）
             efforts=("high", "max"),
             default_effort="high",
+            # 模型级档位（0455 计划 G2）：`kilo models --verbose` variants
+            # keys 全量枚举；解析失败返回空 dict → 回退上方静态声明（D1）
+            list_efforts=_cached_list_efforts("kilocode-acp", list_kilocode_efforts),
         ),
         BackendSpec(
             name="dream-acp",
@@ -232,6 +342,7 @@ __all__ = [
     "vendor_of",
     "vendor_groups",
     "refresh_models",
+    "resolve_efforts",
     "BACKEND_LABELS",
     "VENDOR_LABELS",
 ]

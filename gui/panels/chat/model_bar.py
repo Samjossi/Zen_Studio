@@ -58,25 +58,32 @@
   (backend, 别名)——str = 显式选定，状态层写记忆
 - 本组件边界不变：不读 settings、不管写盘（持久化写盘上移 ChatTabs）
 
-四级「推理强度」（2026-08-06，用户拍板：每接口静态声明 + 记忆表即时
-生效）：
+四级「推理强度」（2026-08-06 一期静态声明；0455 动态化计划翻案为
+**模型级云端动态化**）：
 - 三按钮扩为四按钮：「后台 → 接口 → 模型 → 推理强度」；第四级数据源
-  = BackendSpec.efforts（接口级静态声明，空 = 不支持，按钮禁用标注、
-  回退层级标签「推理强度」）；强度值协议原样透传（不透明字符串红线
-  同款语义），configId 归各 provider 的 set_effort 自持
+  = resolve_efforts(spec, 当前模型别名)——模型级 list_efforts（kimi
+  provider list --json 的 supportEfforts / kilo models --verbose 的
+  variants keys）优先，空 dict 回退接口级静态兜底 BackendSpec.efforts；
+  非空 dict 查无该模型 = 该模型无强度轴（按钮禁用标注、回退层级标签
+  「推理强度」）；强度值协议原样透传（不透明字符串红线同款语义），
+  configId 归各 provider 的 set_effort 自持
+- 重建挂**模型级**（0455 计划 D4）：切接口与切模型均触发重建
+  （_refresh_models 尾部 + _on_model_picked 联动）；切模型后勾选解析
+  优先级：记忆值（校验值域，失效静默落默认不写盘）→ 模型默认档 →
+  接口级 default_effort → 首项
 - 独立信号 effort_changed(str, str)（backend, 强度值）——只承载用户
   显式选择；记忆表解析/写盘/provider 应用归 ChatTabs（model_efforts
   记忆表与 model_versions 同构），selection_changed 签名不破
-- 未定制语义：无记忆时勾选接口 default_effort（纯 UI 呈现，与 agent
-  默认一致），不下发 set_config_option；切接口时第四级随模型菜单
-  联动重建（先清后建 + 回退默认项，D6 红线 4 同款）
+- 未定制语义：无记忆时勾选默认档（纯 UI 呈现，与 agent 默认一致），
+  不下发 set_config_option；切接口/模型时第四级联动重建（先清后建 +
+  回退默认项，D6 红线 4 同款）
 """
 from PySide6.QtCore import Signal
 from PySide6.QtGui import QAction, QActionGroup
 from PySide6.QtWidgets import QHBoxLayout, QMenu, QToolButton, QWidget
 
 from gui.popups import make_translucent_popup
-from llm import spec_of, vendor_groups, vendor_of
+from llm import resolve_efforts, spec_of, vendor_groups, vendor_of
 
 
 def short_interface_label(spec_label: str, vendor_label: str) -> str:
@@ -107,10 +114,11 @@ class ModelBar(QWidget):
 
     数据源为注册表（llm.registry）：一级菜单 = vendor_groups() 的后台
     分组，二级菜单 = 当前后台的 BackendSpec 列表，三级菜单 = 当前接口的
-    spec.list_models()，四级菜单 = 当前接口的 spec.efforts（静态声明；
-    空 = 不支持，按钮禁用标注）。某后台下全部接口 available() 为 False
-    时该后台项禁用并标「（未检测到）」（沿用 kimi 未安装态范式）；单个
-    接口不可用同理禁用标注。
+    spec.list_models()，四级菜单 = resolve_efforts(spec, 当前模型别名)
+    （0455 动态化计划：模型级 list_efforts 优先、空 dict 回退接口级
+    spec.efforts 静态兜底；无轴 = 不支持，按钮禁用标注）。某后台下全部
+    接口 available() 为 False 时该后台项禁用并标「（未检测到）」（沿用
+    kimi 未安装态范式）；单个接口不可用同理禁用标注。
     """
 
     #: 接口/模型切换（携带 registry 接口实现名 + 模型别名载荷：
@@ -143,9 +151,13 @@ class ModelBar(QWidget):
         #: 同步改写，先清后建语义不变
         self._interfaces_vendor: str | None = None
         self._models_backend: str | None = None
-        #: 第四级数据源接口名与能力位（2026-0806 计划）：_effort_supported
-        #: = False 时按钮禁用（busy 恢复不得误启用，见 set_busy）
+        #: 第四级数据源接口名/模型别名与能力位（0455 动态化计划：重建
+        #: 挂模型级——(backend, model) 二元组不变则跳过无谓重建，与
+        #: _interfaces_vendor/_models_backend 同款 D3 语义）；
+        #: _effort_supported = False 时按钮禁用（busy 恢复不得误启用，
+        #: 见 set_busy）
         self._efforts_backend: str | None = None
+        self._efforts_model: str | None = None
         self._effort_supported: bool = False
 
         # 一级菜单：后台分组（注册序即菜单序）；整组不可用 → 禁用 + 标注
@@ -328,22 +340,25 @@ class ModelBar(QWidget):
         return checked.data() if checked is not None else None
 
     def set_effort_selection(self, effort: str | None) -> None:
-        """注入强度选择（2026-0806 计划）：静默勾选，不发信号（与
-        set_selection 同款阻断语义）。
+        """注入强度选择：静默勾选，不发信号（与 set_selection 同款阻断
+        语义）。
 
-        None = 未定制 → 勾选接口默认项（spec.default_effort，缺省回落
-        efforts 首项）——纯 UI 呈现勾选，与 agent 默认强度一致，不代表
-        已下发 set_config_option；失效值静默回退默认项（红线 5：回退
-        不写盘，本组件不管写盘）。
+        None = 未定制 → 勾选默认档（0455 动态化计划 D4 解析链：模型级
+        默认档 → 接口级 default_effort → 首项）——纯 UI 呈现勾选，与
+        agent 默认强度一致，不代表已下发 set_config_option；记忆值失效
+        （∉ 当前模型档位列表，如跨模型切换后旧档位不支持）→ 静默落默认
+        档（红线 5：回退不写盘，本组件不管写盘）。
         """
         backend = self.current_backend()
-        if backend != self._efforts_backend:
-            self._refresh_efforts(backend)
+        model = self.current_version()
+        if (backend, model) != (self._efforts_backend, self._efforts_model):
+            self._refresh_efforts(backend, model)
         target = self._find_action(self._effort_group, effort) if effort else None
         if target is None and self._effort_group.actions():
             spec = spec_of(backend or "")
-            default = spec.default_effort if spec is not None else None
-            target = self._find_action(self._effort_group, default)
+            if spec is not None:
+                _efforts, default = resolve_efforts(spec, model)
+                target = self._find_action(self._effort_group, default)
         if target is None:
             target = self._first_enabled(self._effort_group)
         if target is not None:
@@ -388,10 +403,12 @@ class ModelBar(QWidget):
             mtarget = self._model_group.actions()[0]
         if mtarget is not None:
             mtarget.setChecked(True)
-        # 四级：推理强度随接口联动（2026-0806 计划；菜单未建/接口已变时
-        # 重建并勾选接口默认项——纯 UI 呈现，未定制语义见 set_effort_selection）
-        if backend_effective != self._efforts_backend:
-            self._refresh_efforts(backend_effective)
+        # 四级：推理强度随接口+模型联动（0455 动态化计划 D4：重建挂模型
+        # 级——接口或模型已变时重建并勾选默认档；纯 UI 呈现，未定制语义
+        # 见 set_effort_selection）
+        if (backend_effective, self.current_version()) != (
+                self._efforts_backend, self._efforts_model):
+            self._refresh_efforts(backend_effective, self.current_version())
         self._refresh_tooltips()
         self._refresh_button_texts()
 
@@ -438,35 +455,46 @@ class ModelBar(QWidget):
         if self._model_group.actions():
             self._model_group.actions()[0].setChecked(True)
         self._models_backend = backend
-        self._refresh_efforts(backend)  # 四级随接口联动重建（2026-0806 计划）
+        # 四级随接口+模型联动重建（0455 动态化计划 D4：重建后当前模型
+        # 已落首项，以其为数据源）
+        self._refresh_efforts(backend, self.current_version())
 
-    def _refresh_efforts(self, backend: str | None) -> None:
-        """推理强度菜单按接口重建（2026-0806 计划，先清后建）：数据源 =
-        BackendSpec.efforts 静态声明（用户拍板方案一，零运行时探测开销）。
+    def _refresh_efforts(self, backend: str | None, model: str | None) -> None:
+        """推理强度菜单按接口+模型重建（0455 动态化计划 D4，先清后建）：
+        数据源 = resolve_efforts(spec, model)——模型级 list_efforts 非空
+        dict 时查模型别名（hit = 模型级档位；miss = 该模型无强度轴，不做
+        静态兜底，D1），空 dict 回退接口级 spec.efforts 静态兜底。
 
-        空值域（接口不支持/未实测强度轴）→ 按钮禁用、无勾选项（按钮文本
-        回退层级标签「推理强度」，tooltip 标注不支持）；非空 → 重建后
-        勾选接口默认项（default_effort，缺省首项，静默）——纯 UI 呈现
-        勾选，用户未显式选择前不下发 set_config_option。
+        空值域（该模型/接口无强度轴）→ 按钮禁用、无勾选项（按钮文本回退
+        层级标签「推理强度」，tooltip 标注不支持）；非空 → 重建后勾选默认
+        档（模型级默认档 → 接口级 default_effort → 首项，静默）——纯 UI
+        呈现勾选，用户未显式选择前不下发 set_config_option。
         """
         menu = self._effort_button.menu()
         for action in list(self._effort_group.actions()):
             self._effort_group.removeAction(action)
         menu.clear()
         spec = spec_of(backend or "")
-        efforts = spec.efforts if spec is not None and spec.available() else ()
+        efforts: tuple[str, ...] = ()
+        default: str | None = None
+        if spec is not None and spec.available():
+            efforts, default = resolve_efforts(spec, model)
         for value in efforts:
             self._add_action(
                 self._effort_button, self._effort_group,
                 value, value, self._on_effort_picked)
         self._effort_supported = bool(efforts)
         self._effort_button.setEnabled(self._effort_supported)
-        if efforts and spec is not None:
-            default = spec.default_effort if spec.default_effort in efforts else efforts[0]
+        if efforts:
+            if default not in efforts:
+                # 模型级默认缺失（kilo 目录无默认字段）→ 接口级兜底 → 首项
+                default = spec.default_effort if spec is not None else None
             target = self._find_action(self._effort_group, default)
-            if target is not None:
-                target.setChecked(True)
+            if target is None:
+                target = self._effort_group.actions()[0]
+            target.setChecked(True)
         self._efforts_backend = backend
+        self._efforts_model = model
 
     def _on_vendor_picked(self, vendor: str) -> None:
         """用户勾选后台 → 接口/模型列表联动重建（各回退首项作即时显示）
@@ -486,7 +514,10 @@ class ModelBar(QWidget):
         self.selection_changed.emit(backend, None)
 
     def _on_model_picked(self, alias: str) -> None:
-        """用户勾选模型 → 发射切换（写盘与广播归 ChatTabs 单一来源）。"""
+        """用户勾选模型 → 第四级按新模型联动重建（0455 动态化计划 D4：
+        档位是模型级的，切模型即重建强度菜单）→ 发射切换（写盘与广播
+        归 ChatTabs 单一来源）。"""
+        self._refresh_efforts(self.current_backend(), alias)
         self._refresh_tooltips()
         self._refresh_button_texts()
         self.selection_changed.emit(self.current_backend(), alias)

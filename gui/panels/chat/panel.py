@@ -57,7 +57,6 @@ from pathlib import Path
 from PySide6.QtCore import Qt, QThread, QTimer, Signal
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
-    QFileDialog,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -68,7 +67,7 @@ from PySide6.QtWidgets import (
 )
 from shiboken6 import isValid
 
-from gui.panels.chat.attachments import AttachmentStrip, mime_type_of
+from gui.panels.chat.attachments import AttachmentStrip
 from gui.panels.chat.input import ChatInput
 from gui.panels.chat.model_bar import ModelBar
 from gui.panels.chat.output import ChatOutput
@@ -91,6 +90,7 @@ from llm import (
     Message,
     PermissionParams,
     UsageStats,
+    resolve_efforts,
     spec_of,
 )
 from llm.permission_policy import DECISION_ALLOW, decide_permission, select_option_id
@@ -241,20 +241,40 @@ class ChatPanel(QWidget):
         return provider
 
     def set_effort(self, effort: str | None) -> None:
-        """推理强度应用（2026-0806 计划，本标签单面板入口）：同步自身
-        ModelBar 第四级 UI + 写自身 provider 实例（鸭子类型 set_effort，
-        不支持的 provider 静默跳过）。
+        """推理强度应用（本标签单面板入口）：同步自身 ModelBar 第四级
+        UI + 写自身 provider 实例（鸭子类型 set_effort，不支持的 provider
+        静默跳过）。
 
         None = 未定制（agent 默认强度生效，不下发 set_config_option）；
         持久化与新建注入值归 ChatTabs，本方法不管。provider 未懒实例化时
         只簿记 _effort_explicit，实例建成时由 _get_provider 应用。
+        0455 动态化计划 D3/T4 值域校验：记忆值 ∉ 当前模型档位列表（跨
+        模型切换后旧档位失效，如 kimi 记忆 low 切到只支持 high/max 的
+        模型）→ 静默落未定制（agent/模型默认档生效），不写盘（记忆表
+        保持用户显式选择原值，切回支持的模型即恢复）。
         """
         self.model_bar.set_effort_selection(effort)
+        effort = self._validate_effort(effort)
         self._effort_explicit = effort
         provider = self._providers.get(self._llm_name)
         if effort and provider is not None:
             if (set_effort := getattr(provider, "set_effort", None)) is not None:
                 set_effort(effort)
+
+    def _validate_effort(self, effort: str | None) -> str | None:
+        """记忆值域校验（0455 计划 D3）：effort ∈ 当前（接口, 模型）档位
+        列表才放行下发；失效/无强度轴 → None（未定制，默认档生效）。
+
+        数据源与 ModelBar 第四级菜单同源（resolve_efforts），保证「菜单
+        可选值 = 可下发值」单一真值。
+        """
+        if not effort:
+            return None
+        spec = spec_of(self.model_bar.current_backend() or "")
+        if spec is None:
+            return None
+        efforts, _default = resolve_efforts(spec, self.model_bar.current_version())
+        return effort if effort in efforts else None
 
     def set_model_selection(self, backend: str, version: str | None) -> None:
         """模型选择应用（本标签单面板入口，2026-0803-0112 计划复用为
@@ -411,17 +431,9 @@ class ChatPanel(QWidget):
         )
         self._send_button.setFixedWidth(text_width + 26)  # qss padding 11px*2 + border
 
-        # 图片附件按钮（0340 方案 B 计划 1c）：QFileDialog 多选图片入附件行；
-        # 恒宽（2305 纪律），能力外后端禁用并 tooltip 说明（D4）
-        self._attach_button = QPushButton("📎", self)
-        self._attach_button.setObjectName("chatAttachButton")
-        self._attach_button.setFixedWidth(
-            self._attach_button.fontMetrics().horizontalAdvance("📎") + 26)
-
         button_row = QHBoxLayout()
         button_row.addWidget(self.model_bar)
         button_row.addStretch(1)
-        button_row.addWidget(self._attach_button)
         button_row.addWidget(self._send_button)
         button_row.setContentsMargins(0, 0, 0, 0)
 
@@ -441,7 +453,6 @@ class ChatPanel(QWidget):
         """跨组件信号统一接线（本面板的接线图）。"""
         self.input.send_requested.connect(self._on_send)
         self._send_button.clicked.connect(self._on_send_button)
-        self._attach_button.clicked.connect(self._on_attach_files)
         # 空闲态按钮 enabled 跟随输入文本非空（T3/D6）；busy 态恒可用
         self.input.textChanged.connect(self._refresh_send_button)
         # 图片附件化（0340 方案 B）：入口信号 → 附件行；附件行变化 →
@@ -500,7 +511,7 @@ class ChatPanel(QWidget):
             bool(self.input.toPlainText().strip()) or self.attachments.count() > 0)
 
     # ------------------------------------------------------------------
-    # 图片附件（0340 方案 B 计划 T3：能力位注入 / 附件按钮 / 附件行变化）
+    # 图片附件（0340 方案 B 计划 T3：能力位注入 / 附件行变化）
     # ------------------------------------------------------------------
     def _supports_images(self) -> bool:
         """当前后端图片附件能力（注册表 BackendSpec.supports_images，
@@ -511,15 +522,11 @@ class ChatPanel(QWidget):
     def _apply_image_capability(self) -> None:
         """按当前后端能力位刷新图片入口语义（初始化与后端切换共用单点）。
 
-        能力内：粘贴/拖入图片走附件化信号，📎 按钮可用；
-        能力外：退化方案 D @路径 透传（D4），📎 按钮禁用。
+        能力内：粘贴/拖入图片走附件化信号；
+        能力外：退化方案 D @路径 透传（D4）。
         """
         enabled = self._supports_images()
         self.input.set_image_attachments_enabled(enabled)
-        self._attach_button.setEnabled(enabled)
-        self._attach_button.setToolTip(
-            "添加图片附件" if enabled
-            else "当前后端不支持图片附件（粘贴/拖入图片将按 @路径 引用发送）")
         if not enabled and self.attachments.count() > 0:
             # 切到能力外后端时残留附件：保留在附件行但发送时不再携带
             # （_on_send 能力守卫），用户可 × 删
@@ -541,15 +548,6 @@ class ChatPanel(QWidget):
             "系统",
             f"当前后端（{label}）不支持图片附件，已按 @路径 引用发送；"
             f"切换至 Kimi / Kilo Code 后端可使用图片缩略图附件")
-
-    def _on_attach_files(self) -> None:
-        """📎 附件按钮（1c）：QFileDialog 多选图片入附件行（引用原路径不复制）。"""
-        paths, _ = QFileDialog.getOpenFileNames(
-            self, "选择图片附件", "",
-            "图片文件 (*.png *.jpg *.jpeg *.gif *.webp *.bmp)")
-        for path in paths:
-            if mime := mime_type_of(path):
-                self.attachments.add(path, mime, False)
 
     def _on_attachments_changed(self) -> None:
         """附件行变化 → 空文本发送开关（D5）与发送键使能。"""

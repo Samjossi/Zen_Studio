@@ -188,6 +188,9 @@ class ReasonixAcpLLM(LanguageModel):
             （-32602，2026-07-30 实测；kimi 无此要求），abspath 对已绝对输入幂等
         """
         self._model = model
+        #: 推理强度预选值（0455 动态化计划 T5 spike 后回填；None = 未定制，
+        #: agent 默认强度生效）
+        self._effort: str | None = None
         self._cwd = os.path.abspath(workspace_root or str(PROJECT_ROOT))
         self._conn: AcpConnection | None = None
         self._session_id: str | None = None
@@ -215,6 +218,27 @@ class ReasonixAcpLLM(LanguageModel):
                     "sessionId": self._session_id, "configId": "model", "value": alias}, timeout=10)
             except RuntimeError:
                 self._session_id = None  # 降级：下轮重建会话并应用模型
+
+    def set_effort(self, value: str) -> None:
+        """切换推理强度（0455 动态化计划 T5 spike 后回填；会话存在则即时
+        生效）。
+
+        生效机制同 set_model（D6 红线 3）：session/set_config_option
+        （configId="effort"，值域 auto/disabled/high/max、默认 auto，
+        两模型实测值域相同——.temp/spike_effort_axes.py 与
+        spike_reasonix_effort_models.py，2026-08-06），强度值原样透传
+        不解析不校验（D6 红线 2 同款不透明字符串语义）。失败不丢弃会话
+        （与 set_model 的差异）：强度是辅助控制轴，拒绝不该陪葬会话上下文
+        ——`_effort` 已记，下个新会话生效。
+        """
+        self._effort = value
+        if self._conn and self._conn.is_alive and self._session_id:
+            try:
+                self._conn.request("session/set_config_option", {
+                    "sessionId": self._session_id, "configId": "effort",
+                    "value": value}, timeout=10)
+            except RuntimeError:
+                pass  # 降级：保持会话与当前强度，新会话时应用 _effort
 
     def reset_session(self) -> None:
         """清空会话，下次请求 `session/new` 开新会话（进程保留）。"""
@@ -299,6 +323,13 @@ class ReasonixAcpLLM(LanguageModel):
                         "value": self._model}, timeout=10)
                 except RuntimeError:
                     pass  # 保持 agent 默认模型，不阻断对话
+            if self._effort:  # 新会话应用预选推理强度（0455 计划 T5）
+                try:
+                    self._conn.request("session/set_config_option", {
+                        "sessionId": self._session_id, "configId": "effort",
+                        "value": self._effort}, timeout=10)
+                except RuntimeError:
+                    pass  # 保持 agent 默认强度，不阻断对话
         return self._conn
 
     @staticmethod
