@@ -74,6 +74,12 @@ class ChatTabs(QWidget):
     #: 标签数上限（用户决策 D1：约束长驻 kimi acp 进程数与 token 消耗）
     MAX_TABS = 4
 
+    #: 左栏最小宽度（px，2026-0806-0401 计划 D4/T4 单一来源）：
+    #: 取 2026-0724-2354 计划 T6 实证链数值（默认 320 ≥ 底行双下拉 +
+    #: 附件/发送按钮静态下限 315）；MainWindow 构造处 setMinimumWidth +
+    #: splitter setCollapsible(0, False) 双闸，用户拖到 320 即触底
+    MIN_WIDTH = 320
+
     def __init__(self, workspace_root: str, parent: QWidget | None = None) -> None:
         """
         :param workspace_root: 工作区根（透传每个标签的 provider 与 @相对路径）

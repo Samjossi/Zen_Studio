@@ -18,6 +18,11 @@ set_workspace_root / anchorClicked / set_*_colors），panel 路由层按
 
 跨块文本选择丢失（widget 路线固有代价，0640 §9）以块内选择 + 卡片
 复制按钮（T11）补偿；旧轨双轨开关为回退通道。
+
+横向滚动根治（2026-08-06，work plans/2026-0806-0401 计划 T3）：
+横向滚动条 ScrollBarAlwaysOff 硬关闭——治本在 cards.py _ElidedLabel
+（单行 QLabel 长文本撑宽容器的病根截断 + 最小宽归零）与 Body 块
+WidgetWidth 换行，本策略兜底任何未来块类型异常撑宽只裁边不滚动。
 """
 from html import escape as _html_escape
 from pathlib import Path
@@ -180,6 +185,10 @@ class ChatTranscriptView(QScrollArea):
         self._workspace_root: Path | None = None
 
         self.setWidgetResizable(True)
+        # 横向滚动硬关闭（0401 计划 D3/T3）：内容自适应由 _ElidedLabel
+        # 截断 + Body 块 WidgetWidth 换行治本，此处兜底——任何块异常撑宽
+        # 只裁边，永不出现横向滚动条
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setFrameShape(QFrame.Shape.NoFrame)
         self.setObjectName("ChatTranscript")
         self.setStyleSheet("#ChatTranscript { background: transparent; border: none; }")

@@ -16,11 +16,19 @@
 
 主题色经 CardColors 注入（ChatPack 键直引，单一来源纪律）；主题切换
 语义与旧轨一致——仅影响此后新建的卡（0640 继承 1836 取舍）。
+
+横向滚动根治（2026-08-06，work plans/2026-0806-0401 计划 T1/T2）：
+- _ElidedLabel 单行省略标签：卡片标题/副标题/todo 条目的长文本按可用宽
+  ElideRight 截断 + tooltip 全文兜底；minimumSizeHint 归零 + Ignored
+  水平策略，根治 QLabel 长文本 minimumSizeHint=全文像素宽沿布局链把
+  ChatTranscriptView 容器撑出横向滚动条的病根（§2.1 探针实证）。
 """
+import re
 from collections import OrderedDict
 from html import escape as _html_escape
+from html import unescape as _html_unescape
 
-from PySide6.QtCore import Qt, QTimer, QUrl, Signal
+from PySide6.QtCore import QSize, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QFrame,
@@ -117,6 +125,68 @@ class OpenStateMap:
         self._states.move_to_end(key)
         while len(self._states) > self._capacity:
             self._states.popitem(last=False)
+
+
+# ----------------------------------------------------------------------
+# 单行省略标签（0401 计划 D1/T1）
+# ----------------------------------------------------------------------
+_TAG_RE = re.compile(r"<[^>]*>")
+
+
+def _plain_of(text: str) -> str:
+    """富文本 → 纯文本（宽度测量 / tooltip 用）：去标签 + HTML 实体反转。"""
+    if "<" not in text:
+        return text
+    return _html_unescape(_TAG_RE.sub("", text))
+
+
+class _ElidedLabel(QLabel):
+    """单行省略标签：长文本按可用宽 ElideRight 截断上屏，tooltip 落全文。
+
+    病根（0401 计划 §2.1 探针实证）：QLabel 长文本 minimumSizeHint =
+    全文像素宽且不换行，沿布局链一路上推（卡片 header → CollapsibleCard
+    → ChatTranscriptView._container → QScrollArea），把对话区容器撑出
+    横向滚动条。本类 minimumSizeHint 归零（默认 Preferred 策略不变），
+    布局可任意收缩；resizeEvent 随 splitter 拖动实时重算省略。
+    """
+
+    def __init__(self, text: str = "", parent=None) -> None:
+        super().__init__(parent)
+        self._full_text = ""
+        if text:
+            self.setText(text)
+
+    def minimumSizeHint(self) -> QSize:
+        """最小宽贡献归零（行高保留）：卡片可随左栏收缩到任意窄。"""
+        return QSize(0, self.fontMetrics().height())
+
+    def setText(self, text: str) -> None:  # Qt 覆写（驼峰命名随 Qt）
+        self._full_text = text or ""
+        self._refresh_text()
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._refresh_text()
+
+    def _refresh_text(self) -> None:
+        """按当前可用宽重算上屏文本。
+
+        富文本（DiffCard 两段式双色副标题）：够宽原样上屏保双色，
+        不够宽退化为纯文本省略（截断态弃样式保可读，tooltip 同纯文本）。
+        """
+        full = self._full_text
+        width = self.width()
+        plain = _plain_of(full)
+        self.setToolTip(plain)
+        if not full or width <= 0:
+            super().setText(full)
+            return
+        if _TAG_RE.search(full) \
+                and self.fontMetrics().horizontalAdvance(plain) <= width:
+            super().setText(full)  # 够宽：富文本原样（双色不丢）
+        else:
+            super().setText(self.fontMetrics().elidedText(
+                plain, Qt.TextElideMode.ElideRight, width))
 
 
 # ----------------------------------------------------------------------
@@ -264,11 +334,11 @@ class CollapsibleCard(QFrame):
         self._icon_label.setFixedWidth(20)
         self._icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._icon_label.setStyleSheet(f"color: {colors.tool_fg};")
-        self._title_label = QLabel(title, self)
+        self._title_label = _ElidedLabel(title, self)
         title_font = self._title_label.font()
         title_font.setBold(True)
         self._title_label.setFont(title_font)
-        self._subtitle_label = QLabel(subtitle, self)
+        self._subtitle_label = _ElidedLabel(subtitle, self)
         self._subtitle_label.setStyleSheet(f"color: {colors.tool_fg};")
         self._status_label = QLabel(self)
         self._copy_button = QToolButton(self)
@@ -291,9 +361,12 @@ class CollapsibleCard(QFrame):
         header.setSpacing(5)
         header.addWidget(self._chevron)
         header.addWidget(self._icon_label)
-        header.addWidget(self._title_label)
-        header.addWidget(self._subtitle_label)
-        header.addStretch(1)
+        # 标题/副标题拉伸因子 3:2 分享剩余空间（0401 计划实施修正）：
+        # 取代原 addStretch 弹性间隔——零拉伸因子时缺口分配顺序会把长
+        # 标题压到近 0 宽；拉伸因子保证两标签按 3:2 确定性分割可用宽，
+        # 短文本时标签左对齐延展，视觉与原弹性间隔方案一致（状态列仍居右）
+        header.addWidget(self._title_label, 3)
+        header.addWidget(self._subtitle_label, 2)
         header.addWidget(self._copy_button)
         header.addWidget(self._status_label)
         self._header_layout = header
@@ -819,7 +892,9 @@ class TodoCard(QFrame):
         for entry in entries:
             status = entry.get("status") or "pending"
             total += 1
-            label = QLabel(self)
+            # 0401 计划 T2：条目长文本省略截断（todo 内容可达数百字，
+            # QLabel 直挂会把容器撑出横向滚动条）
+            label = _ElidedLabel(parent=self)
             if status in ("completed", "cancelled"):
                 done += 1
                 label.setText(f"☑ {entry.get('content') or ''}")

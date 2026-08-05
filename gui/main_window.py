@@ -98,7 +98,8 @@ from gui.window_state import (
 
 class MainWindow(QMainWindow):
     #: 默认布局尺寸（px）：__init__ 初排与 reset_layout 共用单点来源。
-    #: 左栏 320 ≥ ChatTabs 实测静态下限 315（2026-0724-2354 计划 T6 回摆：
+    #: 左栏 320 = ChatTabs.MIN_WIDTH（0401 计划 D4 起为最小宽单一来源；
+    #: 320 ≥ ChatTabs 实测静态下限 315，2026-0724-2354 计划 T6 回摆：
     #: 模型选择下移底行 + 下拉瘦身 N=3 后，320 从「永远不可达」恢复为
     #: 「可达且正确」，总和 1200 对齐默认窗口宽）
     DEFAULT_SIZES_MAIN = [320, 630, 250]    # 外层水平：聊天 / 中栏 / 右栏
@@ -184,6 +185,9 @@ class MainWindow(QMainWindow):
         workspace_root = self._workspace_root
         # 左栏：AI 会话标签容器（选择状态层 + 多标签 ChatPanel，上限 4）
         self.chat_tabs = ChatTabs(workspace_root=workspace_root)
+        # 左栏最小宽度显式下限（0401 计划 D4/T5）：配合下方
+        # setCollapsible(0, False) 双闸——拖到 MIN_WIDTH 即触底且不可塌缩
+        self.chat_tabs.setMinimumWidth(ChatTabs.MIN_WIDTH)
         self._splitter_main.addWidget(self.chat_tabs)
         self._splitter_main.addWidget(self._splitter_editor)
 
@@ -203,6 +207,10 @@ class MainWindow(QMainWindow):
         self._splitter_main.addWidget(self._splitter_sidebar)
 
         self._splitter_main.setSizes(self.DEFAULT_SIZES_MAIN)
+        # 防折叠：左栏聊天区最小宽度由 ChatTabs.MIN_WIDTH 约束（0401 计划
+        # D4/T5——collapsible 默认 True 允许拖塌到 0，无硬性下限的缺口
+        # 在此堵上；与右栏同构）
+        self._splitter_main.setCollapsible(0, False)
         # 防折叠：右栏文件树最小宽度由 FileExplorer.MIN_WIDTH 约束
         self._splitter_main.setCollapsible(2, False)
 
