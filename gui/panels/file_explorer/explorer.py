@@ -96,6 +96,7 @@ class FileExplorer(QWidget):
             selected_paths=self._selected_paths,
             anchor_dir=self._anchor_dir,
             open_file=self.file_opened.emit,
+            workspace_root=self.root_dir,
         )
         self.tree.customContextMenuRequested.connect(self._actions.open_context_menu)
 
