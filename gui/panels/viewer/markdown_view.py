@@ -21,7 +21,7 @@ VS_Code_Python（MIT）仅证实其 PySide6 可用性，无代码移植。
 """
 from pathlib import Path
 
-from PySide6.QtCore import QUrl, Signal
+from PySide6.QtCore import Qt, QUrl, Signal
 from PySide6.QtGui import QColor, QDesktopServices, QFont, QPalette, QTextDocument
 from PySide6.QtWidgets import QApplication, QFrame, QTextBrowser, QWidget
 
@@ -132,6 +132,13 @@ class MarkdownView(QTextBrowser):
         # 尾随斜杠：base 末段须为目录语义，resolved 才能正确拼接相对路径
         base = QUrl.fromLocalFile(str(self._current_path.parent) + "/")
         return Path(base.resolved(url).toLocalFile())
+
+    def wheelEvent(self, event) -> None:
+        """禁用 Qt 内建 Ctrl+滚轮缩放字体：Ctrl 按下时吞掉事件，其余走基类滚动。"""
+        if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+            event.accept()
+            return
+        super().wheelEvent(event)
 
     # ------------------------------------------------------------------
     # 右键菜单（标准菜单透明化 + 追加「使用 Typora 打开」）

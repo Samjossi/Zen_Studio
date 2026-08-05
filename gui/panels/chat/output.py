@@ -48,7 +48,7 @@ import re
 from html import escape as _html_escape
 from pathlib import Path
 
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QColor, QFont, QPalette, QTextCharFormat, QTextCursor
 from PySide6.QtWidgets import QApplication, QTextBrowser
 
@@ -151,6 +151,13 @@ class ChatOutput(QTextBrowser):
         self._user_bubble_bg = QColor(user_bubble_bg)
         self._tool_output_bg = QColor(tool_output_bg)
         self._link_color = QColor(link_fg)
+
+    def wheelEvent(self, event) -> None:
+        """禁用 Qt 内建 Ctrl+滚轮缩放字体：Ctrl 按下时吞掉事件，其余走基类滚动。"""
+        if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+            event.accept()
+            return
+        super().wheelEvent(event)
 
     def contextMenuEvent(self, event) -> None:
         """标准编辑菜单透明化（见 gui/popups.py 与 0751 计划 §3.1）。"""

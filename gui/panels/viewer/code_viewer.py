@@ -54,6 +54,13 @@ class CodeViewer(QPlainTextEdit):
         self._update_area_width()
         self._highlight_current_line()
 
+    def wheelEvent(self, event) -> None:
+        """禁用 Qt 内建 Ctrl+滚轮缩放字体：Ctrl 按下时吞掉事件，其余走基类滚动。"""
+        if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+            event.accept()
+            return
+        super().wheelEvent(event)
+
     def contextMenuEvent(self, event) -> None:
         """标准编辑菜单透明化（见 gui/popups.py 与 0751 计划 §3.1）。"""
         exec_standard_context_menu(self, event)

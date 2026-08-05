@@ -86,7 +86,7 @@
 
 ## 5. 聊天面板（左栏）
 
-`ChatTabs` 标签容器（上限 4）：持有模型选择状态层（当前 backend/version 单一来源、统一写盘、阻断广播同步），下方每标签一个独立 `ChatPanel`。`ChatPanel` 上输出（QTextBrowser）下输入（QTextEdit）垂直分栏，输入区底行左端为模型选择三按钮（`ModelBar` 纯视图实例：后台 → 接口 → 模型三级下拉，按钮直显当前值短文本——接口剥后台前缀、模型别名取 `/` 末段，点击弹勾选菜单，全部标签共享同一选择，任一标签切换经 ChatTabs 广播到其余标签 UI 与全部 provider），右端为**发送/停止双态按钮**（空闲=发送且空文本禁用，busy=■ 停止直停本标签，Esc 同效）；Enter 发送 / Shift+Enter 换行；流式调用放 `ChatWorker(QThread)` 后台线程，逐块信号上屏，UI 不冻结。每标签**自持 provider 实例**（独立 `kimi acp` 连接，标签间完全隔离可并行）。对话统一经本机 agent CLI（kimi / reasonix / OpenCode / Kilo Code 四后台 ACP 可选），代码库零 API KEY。从文件树或系统文件管理器**拖入文件 → 落点插入 `@工作区相对路径 ` 引用**（纯文本透传，由后端 agent CLI 解析）；模型选择持久化到 `config/settings.json`。多标签审批经全局 `PermissionQueue` 串行弹窗；任一标签响应中即禁用全部标签选择按钮与设置中心模型页。
+`ChatTabs` 标签容器（上限 4）：持有模型选择状态层（当前 backend/version 单一来源、统一写盘、阻断广播同步），下方每标签一个独立 `ChatPanel`。`ChatPanel` 上输出（QTextBrowser）下输入（QTextEdit）垂直分栏，输出/输入两区 Qt 内建 Ctrl+滚轮缩放字体均已禁用（2026-0806-0223，wheelEvent 守卫吞掉 Ctrl 滚轮事件，字号唯设置中心全局字号链管控）。输入区底行左端为模型选择三按钮（`ModelBar` 纯视图实例：后台 → 接口 → 模型三级下拉，按钮直显当前值短文本——接口剥后台前缀、模型别名取 `/` 末段，点击弹勾选菜单，全部标签共享同一选择，任一标签切换经 ChatTabs 广播到其余标签 UI 与全部 provider），右端为**发送/停止双态按钮**（空闲=发送且空文本禁用，busy=■ 停止直停本标签，Esc 同效）；Enter 发送 / Shift+Enter 换行；流式调用放 `ChatWorker(QThread)` 后台线程，逐块信号上屏，UI 不冻结。每标签**自持 provider 实例**（独立 `kimi acp` 连接，标签间完全隔离可并行）。对话统一经本机 agent CLI（kimi / reasonix / OpenCode / Kilo Code 四后台 ACP 可选），代码库零 API KEY。从文件树或系统文件管理器**拖入文件 → 落点插入 `@工作区相对路径 ` 引用**（纯文本透传，由后端 agent CLI 解析）；模型选择持久化到 `config/settings.json`。多标签审批经全局 `PermissionQueue` 串行弹窗；任一标签响应中即禁用全部标签选择按钮与设置中心模型页。
 
 **标签全关与关闭异步化**（2026-07-22，文档/修改记录/2026-0722-1117）：标签可全部关闭——零标签时 `QStackedWidget` 切到占位页（提示 + 「新建会话」按钮），选择状态在 ChatTabs 状态层不随标签消失（新建标签注入恢复）；序号非全关不复用（防指代漂移），全关即重置回「会话 1」。关闭路径两段式：GUI 段毫秒级（`request_stop` + 断信号 + 起 daemon 清理线程），线程段先 `terminate`（杀 acp 进程并幂等注入死讯/错误帧，主动解封 worker 的 `next_update()`/`request()` 阻塞点）后 `worker.wait(3000)`，结束经 `QTimer.singleShot` 回 GUI 线程 `deleteLater`——关闭标签 GUI 零冻结，且不销毁运行中的 QThread。
 
@@ -108,12 +108,12 @@
 | 文本页 | 代码与纯文本 | `CodeViewer(QPlainTextEdit)` + Pygments 高亮 + 行号栏 |
 | 图片页 | 位图 / SVG / GIF | `ImageViewer(QGraphicsView)`：fit/实际像素、滚轮缩放、拖拽平移、同目录循环翻页、GIF 动画、棋盘格透明底 |
 | PDF 页 | `.pdf` | `PdfViewer`（QPdfView，QtPdf 内核）：MultiPage 连续滚动、缩放三件套、翻页 |
-| Markdown 页 | `.md` / `.markdown` | `MarkdownView(QTextBrowser.setMarkdown)` GFM 渲染；右键「使用 Typora 打开」（`core/external_apps.py`） |
+| Markdown 页 | `.md` / `.markdown` | `MarkdownView(QTextBrowser.setMarkdown)` GFM 渲染；右键「使用 Typora 打开」（`core/external_apps.py`）；Qt 内建 Ctrl+滚轮缩放已禁用 |
 | 音视频页 | 常见音视频格式 | `MediaViewer`（QtMultimedia）：就地播放，双击即播（播放状态机移植自 PyGPT） |
 
 | 组件 | 说明 |
 |:---|:---|
-| `CodeViewer` | 只读、等宽字体、行号栏（lineNumberArea 经典模式）+ 当前行高亮（行号为人与 AI 的对话坐标系）、软换行（超出宽度的长行按单词边界折行、无空格长串硬断，行号保持逻辑行号） |
+| `CodeViewer` | 只读、等宽字体、行号栏（lineNumberArea 经典模式）+ 当前行高亮（行号为人与 AI 的对话坐标系）、软换行（超出宽度的长行按单词边界折行、无空格长串硬断，行号保持逻辑行号）；Qt 内建 Ctrl+滚轮缩放字体已禁用（2026-0806-0223，与聊天区/Markdown 页同款 wheelEvent 守卫，字号唯全局字号链管控） |
 | `PygmentsHighlighter` | 整文档一次 lexing → 区间缓存，`highlightBlock` 按块二分取格式；`get_lexer_for_filename` 探测语言、未知回退纯文本；多行 token（块注释/多行字符串）天然正确；明暗双配色表随主题切换重建 |
 | 外部修改自动重载 | `QFileSystemWatcher` 监视当前文件（**AI 写盘为主修改路径**），150ms 防抖重载、保留滚动位置、标题行提示"已重新加载"；文件被删显示占位 |
 | Git 差异徽标 | `set_git_service` 注入 `GitStatusService` 后，`open_file` 查询 numstat，标题行路径后追加 `+a -b` 徽标（无改动/非仓库不显示）；外部重载时发射 `externally_reloaded` 供主窗口联动刷新 Git 状态 |

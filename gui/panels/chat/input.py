@@ -133,6 +133,13 @@ class ChatInput(QTextEdit):
             QPalette.ColorRole.Highlight)
         paint_selection_band(self, color)
 
+    def wheelEvent(self, event) -> None:
+        """禁用 Qt 内建 Ctrl+滚轮缩放字体：Ctrl 按下时吞掉事件，其余走基类滚动。"""
+        if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+            event.accept()
+            return
+        super().wheelEvent(event)
+
     # ------------------------------------------------------------------
     # 工作区根路径（拖入文件时据此计算 @相对路径）
     # ------------------------------------------------------------------
