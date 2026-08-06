@@ -181,6 +181,13 @@ todo list..."）不应作为出参发送——客户端有白名单过滤，会�
 列表并存），供问答卡交互侧渲染选项；多选题经 ACP `request_permission`
 降级为单选语义（响应模型只能回一个 optionId）。
 
+入参图片路径载荷（0807-0158 修订）：`rawInput.path`/`rawInput.filePath`
+指向图片扩展名（`.png .jpg .jpeg .gif .bmp .webp`）时，客户端协议层
+提取为 `media_path` 载荷字段（首帧空壳时随 `in_progress` 帧与入参
+回填同频补发），供 MediaReadCard 渲染入参略缩图——**仅供人类查看，
+不回传 AI、不改协议语义**；路径原样下传（相对路径不解析），渲染层
+按工作区根解析，文件不存在或超 10MB 静默降级。
+
 未识别的 `sessionUpdate` 类型与 `_meta` 厂商扩展会被客户端**静默忽略**
 （不崩），但不得依赖此行为传递关键信息（见「变更纪律」）。
 

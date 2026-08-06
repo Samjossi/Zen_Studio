@@ -98,6 +98,10 @@ class ToolCallPayload(TypedDict, total=False):
     #: multi_select}，rawInput.questions 原样提取——多选字段名实证为
     #: multi_select 蛇形，见 .temp/frame_archive/askuser_*.json）
     question_options: list[dict]
+    #: 入参图片本地路径（0158 计划 T1：MediaReadCard 略缩图数据源，
+    #: 仅供人类查看，不回传 AI；rawInput.path/filePath 原值，
+    #: 扩展名白名单过滤，相对路径由渲染层按工作区根解析）
+    media_path: str
 
 
 class ToolUpdatePayload(TypedDict, total=False):
@@ -145,6 +149,10 @@ class ToolUpdatePayload(TypedDict, total=False):
     #: AskUserQuestion 选项结构载荷迟到回填（0807-0148 计划 T3；与
     #: ToolCallPayload.question_options 同源同构）
     question_options: list[dict]
+    #: 入参图片本地路径迟到回填（0158 计划 T1：kimi 系首帧空壳时随
+    #: update 帧与 input_detail 同频补发，同一 _input_detail_seen 账本；
+    #: 与 ToolCallPayload.media_path 同源同构）
+    media_path: str
 
 
 class TodoEntry(TypedDict, total=False):

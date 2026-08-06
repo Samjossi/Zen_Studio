@@ -28,6 +28,7 @@ import re
 from collections import OrderedDict
 from html import escape as _html_escape
 from html import unescape as _html_unescape
+from pathlib import Path
 
 from PySide6.QtCore import QSize, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QFont
@@ -45,6 +46,7 @@ from PySide6.QtWidgets import (
 
 from gui.theme import get_mono_family
 from gui.panels.chat.permission_dialog import OTHER_HINT_TEXT
+from core.paths import PROJECT_ROOT
 
 #: body 限高内滚动上限（0645 §2.4：固定最大高度 + 块内滚动条，
 #: 卡片自身高度有界，不撑爆 QScrollArea 布局）
@@ -464,12 +466,17 @@ class ToolCard(CollapsibleCard):
     #: False 标题恒定工具名，路径改走副标题两段式）
     _accept_title_update = True
 
-    def __init__(self, colors: CardColors, open_state: OpenStateMap, payload: dict) -> None:
-        self._kind = payload.get("tool_kind") or "other"
+    def __init__(self, colors: CardColors, open_state: OpenStateMap,
+                 payload: dict,
+                 workspace_root: Path | None = None) -> None:
         self._tid = payload.get("tool_call_id") or ""
+        self._kind = payload.get("tool_kind") or "other"
         self._open_state = open_state
         self._user_toggled = False
         self._input_detail_attached = False  # T1 入参回填去重（首帧优先）
+        #: 略缩图相对路径解析基准（0158 计划 T2，transcript 经工厂注入；
+        #: None 时降级 PROJECT_ROOT——agent 工作目录与 IDE 项目根通常一致）
+        self._workspace_root = workspace_root
         super().__init__(
             colors,
             _KIND_ICONS.get(self._kind, "🧩"),
@@ -525,6 +532,10 @@ class ToolCard(CollapsibleCard):
         # in_progress 帧补发；首帧优先不覆盖，走既有 GUI 线程通道）
         if detail := payload.get("input_detail"):
             self._set_input_detail(detail)
+        # 0158 计划 T1：入参图片路径同频分发（MediaReadCard 略缩图补渲；
+        # 基类 no-op，专卡覆写）
+        if media_path := payload.get("media_path"):
+            self._set_media_path(media_path)
         if status == "completed":
             self.set_status("✔", self._colors.tool_fg)
             self._on_completed(payload)
@@ -555,6 +566,10 @@ class ToolCard(CollapsibleCard):
         补挂；已挂不覆盖（首帧优先）。McpCard 覆写（其入参区常驻）。"""
         if self._attach_input_detail and not self._input_detail_attached:
             self._add_input_detail(detail)
+
+    def _set_media_path(self, path: str) -> None:
+        """入参图片路径钩子（0158 计划 T1）：基类 no-op，
+        MediaReadCard 覆写渲染略缩图（幂等，首帧优先）。"""
 
     def _add_input_detail(self, detail: str) -> None:
         """通用入参区（D3）：body 末弱化灰小块，「尽可能全」的兜底保证。"""
@@ -1035,6 +1050,60 @@ class McpCard(ToolCard):
         return "".join(parts)
 
 
+#: 入参略缩图 width 硬限（0158 计划 T2：320px = 出参图 480px 的 2/3——
+#: 略缩图定位是「辨认」不是「细读」）
+_MEDIA_THUMB_WIDTH = 320
+#: 略缩图文件大小护栏（QTextBrowser 内嵌为全量解码，width 只限显示
+#: 不限加载——大图拖慢滚动，超限不内嵌留占位行）
+_MEDIA_THUMB_MAX_BYTES = 10 * 1024 * 1024
+
+
+class MediaReadCard(McpCard):
+    """ReadMediaFile 专用卡（0158 计划 T2）：McpCard 入参/出参两节之上，
+    入参区 path 文本下方内嵌入参图片略缩图（阅读顺序：路径 → 缩略图 →
+    出参）。仅人类查看，不回传 AI、不改协议语义。
+
+    降级纪律（path 文本始终在场，略缩图静默缺失不破坏卡片）：
+    - 文件不存在 → 不渲染；
+    - 文件 >10MB → 不内嵌，留一行占位说明；
+    - 略缩图（320px 辨认用）与出参图（480px 结果用）并存是刻意的：
+      入参图回答「AI 要读什么」，出参图回答「AI 读到了什么」。
+    """
+
+    def _build_body(self, payload: dict) -> None:
+        super()._build_body(payload)
+        self._thumb: BodyHtml | None = None
+        self._thumb_rendered = False  # 幂等簿记（首帧优先不覆盖）
+        if media_path := payload.get("media_path"):
+            self._set_media_path(media_path)
+
+    def _set_media_path(self, path: str) -> None:
+        """略缩图渲染（幂等）：解析 → 组装 → 插入入参与出参之间。"""
+        if self._thumb_rendered:
+            return
+        html = self._thumb_html(path)
+        if html is None:
+            return  # 文件不存在/解析失败：静默降级（path 文本仍在）
+        self._thumb = BodyHtml(html)
+        idx = self._body_layout.indexOf(self._out_label)
+        self._body_layout.insertWidget(idx, self._thumb)
+        self._thumb_rendered = True
+
+    def _thumb_html(self, path: str) -> str | None:
+        """media_path → 略缩图 HTML：相对路径按工作区根解析为绝对再拼
+        file://（kimi 下发 .tmp/... 相对路径，基准为 agent 工作目录——
+        与 IDE 项目根通常一致，不一致时静默缺失，降级方向安全）。"""
+        p = Path(path)
+        if not p.is_absolute():
+            p = (self._workspace_root or PROJECT_ROOT) / p
+        if not p.is_file():
+            return None
+        if p.stat().st_size > _MEDIA_THUMB_MAX_BYTES:
+            return "<i>（图片过大，未生成略缩图）</i>"
+        return (f'<img src="{_html_escape(p.as_uri())}" '
+                f'width="{_MEDIA_THUMB_WIDTH}">')
+
+
 def _diff_soft_limit_note() -> int:
     """截断尾注行数（与协议层 _BODY_SOFT_LIMIT_LINES 同源表述；
     渲染层不引协议层私有常量，尾注数值硬编与协议层同步——改一处须同步）。
@@ -1044,11 +1113,13 @@ def _diff_soft_limit_note() -> int:
 
 #: 工具名 → 卡片类二级分派表（0806 计划 T5，对标 kilocode ToolRegistry：
 #: 字典注册式、未命中回退 tool_kind 分派，后续扩充只加表项；键为归一化
-#: 后小写工具名。ReadMediaFile 无需专用卡——T4 后 McpCard 已支持图片出参）
+#: 后小写工具名。0158 计划 T2 增补 readmediafile——0806「无需专用卡」
+#: 裁决随入参略缩图需求撤销）
 _TOOL_NAME_CARDS: dict[str, type] = {
     "askuserquestion": QuestionCard,
     "agent": SubagentCard,
     "task": SubagentCard,
+    "readmediafile": MediaReadCard,
 }
 
 
@@ -1061,22 +1132,25 @@ def _normalize_tool_name(title: str) -> str:
     return name.lower()
 
 
-def make_tool_card(colors: CardColors, open_state: OpenStateMap, payload: dict) -> ToolCard:
+def make_tool_card(colors: CardColors, open_state: OpenStateMap,
+                   payload: dict,
+                   workspace_root: Path | None = None) -> ToolCard:
     """工具卡工厂：工具名二级分派优先（T5），未命中按 tool_kind 分派
-    专类（0645 §2.1 规格表）。"""
+    专类（0645 §2.1 规格表）。workspace_root 透传卡片作略缩图相对路径
+    解析基准（0158 计划 T2，仅 MediaReadCard 消费）。"""
     if title := payload.get("title"):
         if card_cls := _TOOL_NAME_CARDS.get(_normalize_tool_name(title)):
-            return card_cls(colors, open_state, payload)
+            return card_cls(colors, open_state, payload, workspace_root)
     kind = payload.get("tool_kind") or "other"
     if kind == "execute":
-        return BashCard(colors, open_state, payload)
+        return BashCard(colors, open_state, payload, workspace_root)
     if kind == "edit":
-        return DiffCard(colors, open_state, payload)
+        return DiffCard(colors, open_state, payload, workspace_root)
     if kind in ("read", "search", "fetch"):
-        return TextOutputCard(colors, open_state, payload)
+        return TextOutputCard(colors, open_state, payload, workspace_root)
     if kind == "think":
-        return SubagentCard(colors, open_state, payload)
-    return McpCard(colors, open_state, payload)
+        return SubagentCard(colors, open_state, payload, workspace_root)
+    return McpCard(colors, open_state, payload, workspace_root)
 
 
 # ----------------------------------------------------------------------

@@ -107,6 +107,11 @@ def _scenarios() -> list[tuple[str, list[dict], str, object]]:
     """
     img_b64 = _make_png_b64("#3a7bd5")
     asset_path = _make_asset_png("readmedia_sample.png", "#c06014")
+    # 0158 计划 T3：略缩图场景专用资产；相对路径形态（相对项目根）
+    # 验证渲染层工作区根解析
+    rel_thumb_path = Path(
+        _make_asset_png("readmedia_thumb.png", "#2a9d8f")
+    ).relative_to(PROJECT_ROOT).as_posix()
     long_json = json.dumps(
         {"files": [{"path": f"src/module_{i:02d}/handler.py",
                     "summary": "处理请求分发与错误兜底逻辑" * 3}
@@ -243,6 +248,41 @@ def _scenarios() -> list[tuple[str, list[dict], str, object]]:
                                       "answering."}, ensure_ascii=False)}),
         ], "dismissed（answers 空 + note）completed 渲染为 ⏭ + note 原文，"
            "不再裸露裸 JSON", None),
+        # 0158 计划 T3：MediaReadCard 入参略缩图四场景（media_path 载荷
+        # 经真实 map_session_update 协议链路产出；相对路径形态验证
+        # 渲染层工作区根解析——mock 未注入 workspace_root，走 PROJECT_ROOT
+        # 降级，与真机 agent 工作目录≈IDE 项目根的常态同构）
+        ("12_readmedia_入参略缩图", [
+            _tool_call("tc-thumb", "ReadMediaFile", "other",
+                       {"path": rel_thumb_path}),
+            _tool_update("tc-thumb", "completed", title="ReadMediaFile",
+                         raw_output={"output": "图片读取完成"}),
+        ], "MediaReadCard：入参区 path 文本下方显示 320px 略缩图"
+           "（相对路径经 PROJECT_ROOT 解析渲染成功）", None),
+        ("13_readmedia_迟到回填略缩图", [
+            # kimi 系时序（场景 01 帧序蓝本）：首帧空壳无 rawInput →
+            # in_progress 帧补齐入参（media_path 与 input_detail 同频回填）
+            _tool_call("tc-thumb2", "ReadMediaFile", "other"),
+            _tool_update("tc-thumb2", "in_progress",
+                         raw_input={"path": rel_thumb_path}),
+            _tool_update("tc-thumb2", "completed", title="ReadMediaFile",
+                         raw_output={"output": "图片读取完成"}),
+        ], "首帧空壳：略缩图随 in_progress 帧迟到载荷补渲出现，不重复"
+           "不缺失（幂等，首帧优先）", None),
+        ("14_readmedia_非图片入参", [
+            _tool_call("tc-thumb3", "ReadMediaFile", "other",
+                       {"path": ".temp/notes.txt"}),
+            _tool_update("tc-thumb3", "completed", title="ReadMediaFile",
+                         raw_output={"output": "文件内容：……"}),
+        ], "非图片扩展名：协议层不装填 media_path，无略缩图，path 文本"
+           "正常（与 McpCard 现状一致）", None),
+        ("15_readmedia_路径不存在", [
+            _tool_call("tc-thumb4", "ReadMediaFile", "other",
+                       {"path": ".temp/card_shots/_assets/ghost_deleted.png"}),
+            _tool_update("tc-thumb4", "completed", title="ReadMediaFile",
+                         raw_output={"output": "读取失败：文件不存在"}),
+        ], "media_path 装填但文件不存在：静默降级无破图占位，path 文本"
+           "仍在", None),
     ]
 
 

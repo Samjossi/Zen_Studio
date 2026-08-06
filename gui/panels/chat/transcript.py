@@ -375,7 +375,8 @@ class ChatTranscriptView(QScrollArea):
     def append_tool_call(self, payload: dict) -> None:
         """工具卡上屏：工厂分派专类；toolCallId 簿记供状态流转寻卡。"""
         self._flush_stream()
-        card = make_tool_card(self._colors, self._open_state, payload)
+        card = make_tool_card(self._colors, self._open_state, payload,
+                              workspace_root=self._workspace_root)
         self._add_block(card)
         if tid := payload.get("tool_call_id"):
             self._tool_cards[tid] = card
@@ -387,7 +388,8 @@ class ChatTranscriptView(QScrollArea):
         card = self._tool_cards.get(tid)
         if card is None:
             # 容错：tool_call 帧缺失（部分更新直达）——按 update 载荷补建卡
-            card = make_tool_card(self._colors, self._open_state, payload)
+            card = make_tool_card(self._colors, self._open_state, payload,
+                                  workspace_root=self._workspace_root)
             self._add_block(card)
             if tid:
                 self._tool_cards[tid] = card

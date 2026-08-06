@@ -557,6 +557,40 @@ def _record_input_detail(payload: dict, detail: str | None) -> None:
             _input_detail_seen.add(tid)
 
 
+#: 入参图片扩展名白名单（0158 计划 T1：media_path 装填判定——非图片
+#: 路径不装填，ReadMediaFile 也可读非图片，无图可缩）
+_MEDIA_IMAGE_EXTS = frozenset(
+    {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp"})
+
+
+def _extract_media_path(update: dict) -> str | None:
+    """rawInput.path/filePath → 入参图片本地路径（0158 计划 T1：
+    MediaReadCard 略缩图数据源，仅供人类查看，不回传 AI）。
+
+    判定口径：扩展名白名单命中即装填（工具名不可得的 update 迟到帧
+    兜底——kimi 系 in_progress 帧常缺 title）；扩展名缺失时要求工具名
+    归一化后为 readmediafile（无扩展名图片试探装填，GUI 侧解码失败
+    静默降级）；有非图扩展名（.txt 等）不装填。
+    纪律不变：路径原样下传（相对路径不解析），GUI 不碰 rawInput。
+    """
+    raw = update.get("rawInput")
+    if not isinstance(raw, dict):
+        return None
+    path = raw.get("path") or raw.get("filePath")
+    if not isinstance(path, str) or not path:
+        return None
+    ext = Path(path).suffix.lower()
+    if ext in _MEDIA_IMAGE_EXTS:
+        return path
+    if ext:
+        return None  # 非图扩展名：无图可缩
+    title = update.get("title")
+    if isinstance(title, str) and \
+            title.strip().split("__")[-1].lower() == "readmediafile":
+        return path
+    return None
+
+
 def _extract_questions(update: dict) -> list[str] | None:
     """rawInput.questions → 问题文本列表（0806 计划 T5：AskUserQuestion
     结构化载荷，QuestionCard 问答对渲染数据源）。"""
@@ -734,6 +768,9 @@ def _map_tool_call(update: dict) -> Chunk:
     # 0807-0148 计划 T3：选项结构载荷（QuestionCard 卡片内交互数据源）
     if question_options := _extract_question_options(update):
         payload["question_options"] = question_options
+    # 0158 计划 T1：入参图片路径载荷（MediaReadCard 略缩图数据源）
+    if media_path := _extract_media_path(update):
+        payload["media_path"] = media_path
     return Chunk("tool_call", _tool_call_fallback(payload), payload=payload)
 
 
@@ -764,6 +801,9 @@ def _map_tool_call_update(update: dict) -> Chunk | None:
     # 在 in_progress 帧才补发；簿记去重（首帧优先，后续帧不重复回填）
     if (tid := payload.get("tool_call_id")) and tid not in _input_detail_seen:
         _record_input_detail(payload, _format_input_detail(update))
+        # 0158 计划 T1：media_path 与 input_detail 同频回填、同一账本
+        if media_path := _extract_media_path(update):
+            payload["media_path"] = media_path
     # 0806 计划 T5：questions 同随 update 帧迟到（首帧空壳场景），同频回填
     if questions := _extract_questions(update):
         payload["questions"] = questions
