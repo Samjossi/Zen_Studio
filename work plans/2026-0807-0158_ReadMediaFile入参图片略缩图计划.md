@@ -69,14 +69,16 @@ payload["media_path"] = <rawInput.path 或 rawInput.filePath 原值>
 
 ### T3：mock 验证场景扩充（`scripts/shot_tool_cards.py`）
 
-新增场景：
+既有基建复用：`_make_asset_png`（`.temp/` 落盘真实 PNG，场景 01 已用）、
+首帧空壳 → update 帧迟到回填的帧序形态（场景 01 蓝本）。新场景沿用
+现有 `NN_` 数字前缀命名风格：
 
 | 场景 | 构造 | 截图看点 |
 |:---|:---|:---|
-| `readmedia_入参略缩图` | 真实 PNG 落盘 `.temp/`，首帧带 `media_path` | 入参 path 文本下方显示略缩图 |
-| `readmedia_迟到回填略缩图` | 首帧空壳 → in_progress 帧带 media_path 回填 | 略缩图随后到载荷补渲，不重复不缺失 |
-| `readmedia_非图片入参` | media_path 指向 `.txt` | 无略缩图，path 文本正常 |
-| `readmedia_路径不存在` | media_path 指向已删除文件 | 静默降级，无破图占位 |
+| `NN_readmedia_入参略缩图` | `_make_asset_png` 落盘，首帧带 `media_path` | 入参 path 文本下方显示略缩图 |
+| `NN_readmedia_迟到回填略缩图` | 首帧空壳 → in_progress 帧带 media_path 回填（场景 01 帧序复用） | 略缩图随后到载荷补渲，不重复不缺失 |
+| `NN_readmedia_非图片入参` | media_path 指向 `.txt` | 无略缩图，path 文本正常 |
+| `NN_readmedia_路径不存在` | media_path 指向已删除文件 | 静默降级，无破图占位 |
 
 闭环纪律同 0806 计划 §5：`.venv/bin/python scripts/shot_tool_cards.py` → 查看 `.temp/card_shots/*.png` → 对照打勾。
 
@@ -99,7 +101,7 @@ payload["media_path"] = <rawInput.path 或 rawInput.filePath 原值>
 | 符号 | 项 | 说明 |
 |:---:|:---|:---|
 | ⚠️ | **相对路径基准目录** | kimi 下发相对路径（`.tmp/...`）的基准是 agent 工作目录还是 IDE 项目根需实证；两目录通常一致，不一致时略缩图静默缺失（降级方向安全），真机 A1 验证时确认 |
-| ⚠️ | **截图中出参 base64 裸漏** | 本次截图实证：出参区仍显示 `{"type":"image_url","imageUrl":{...}}` 原文——kimi 实际帧是 **camelCase `imageUrl`**，0806 计划 T2 的类型识别矩阵按 `image_url` 键名实现，**疑似键名失配导致分发落空**。不在本计划范围，建议单独立项核查（或并入本计划 T3 增补一个 camelCase 形态的 mock 场景顺带实证） |
+| ⚠️ | ~~**截图中出参 base64 裸漏**~~（已澄清，2026-08-07 复核） | 疑点不成立：`acp.py:241-242` 出参识别为 `block.get("image_url") or block.get("imageUrl")` 双键名兼容，camelCase `imageUrl` 已覆盖；mock 场景 `01_readmedia_kimi_首帧空壳` 即以 camelCase 构造并实证"无 base64 原文裸露"。截图中裸漏若为真机现象，需另案核查（非键名失配方向） |
 | ⚠️ | **大图加载性能** | QTextBrowser 内嵌为全量解码，width 属性只限显示；10MB 护栏 + 多卡堆叠场景需真机观察滚动流畅度 |
 | 🟡 | **略缩图与出参图并存** | ReadMediaFile 出参（T4 修好后）也会渲染同一张图——入参略缩图（320px 辨认用）与出参图（480px 结果用）并存是刻意的：入参图回答"AI 要读什么"，出参图回答"AI 读到了什么"，两者语义不同不去重 |
 | 🟡 | **其他读图类工具** | 后续若出现别的按路径读图的工具（MCP 形态），扩展名白名单 + 工具名表集中维护即可纳入，不新增机制 |
@@ -111,6 +113,6 @@ payload["media_path"] = <rawInput.path 或 rawInput.filePath 原值>
 
 1. **T1**（载荷）——协议层提取 + 契约，无 UI 依赖。
 2. **T2**（MediaReadCard）——承接 T1 载荷落地渲染。
-3. **T3**（mock 场景）——四场景截图闭环，顺带实证 §5 的 camelCase 疑点。
+3. **T3**（mock 场景）——四场景截图闭环（camelCase 疑点已在 §5 澄清，无需顺带实证）。
 
 T1+T2 完成后即可真机跑 A1/A4（截图场景复现），T3 作回归基建固化。
