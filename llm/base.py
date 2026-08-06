@@ -90,6 +90,9 @@ class ToolCallPayload(TypedDict, total=False):
     #: 通用入参区（0645 计划 D3）：rawInput 关键字段按 kind 预格式化多行
     #: 文本（已知键 + JSON pretty 兜底），GUI 直渲不解析 rawInput
     input_detail: str
+    #: AskUserQuestion 结构化问题列表（0806 计划 T5：QuestionCard 问答对
+    #: 渲染数据源；rawInput.questions 提取，GUI 不解析 rawInput）
+    questions: list[str]
 
 
 class ToolUpdatePayload(TypedDict, total=False):
@@ -124,6 +127,16 @@ class ToolUpdatePayload(TypedDict, total=False):
     #: 的后端——kimi 系——在 in_progress update 帧补齐 rawInput.path，
     #: 协议层复用 _tool_call_summary 预格式化，GUI 不碰 rawInput）
     summary: str
+    #: update 帧迟到入参回填（0806 计划 T1：kimi 系首帧空壳、rawInput 在
+    #: in_progress 帧才补发；与 ToolCallPayload.input_detail 同源同构，
+    #: 协议层簿记去重，渲染层「首帧优先」不覆盖既有入参区）
+    input_detail: str
+    #: 出参图片通道（0806 计划 T2：content 数组中 image/image_url/resource
+    #: 块独立下传，元素为 data-URI 或 file:// 路径；渲染层内嵌 <img>）
+    images: list[str]
+    #: AskUserQuestion 结构化问题列表迟到回填（0806 计划 T5；与
+    #: ToolCallPayload.questions 同源，首帧空壳时随 update 帧补发）
+    questions: list[str]
 
 
 class TodoEntry(TypedDict, total=False):

@@ -160,10 +160,19 @@
 |:---|:---|:---|
 | `agent_message_chunk` | 正文流式增量 | `content.text` 非空才上屏 |
 | `agent_thought_chunk` | 思维链增量（客户端灰字显示） | 同上 |
-| `tool_call` | 工具调用开始 | 带 `toolCallId`、`title`、`kind`、`rawInput`、`locations` |
-| `tool_call_update` | 工具状态流转 | `status`: `in_progress`/`completed`/`failed`；failed 带错误详情 |
+| `tool_call` | 工具调用开始 | 带 `toolCallId`、`title`、`kind`、`rawInput`、`locations`；`rawInput.todos` 检出即转 todo 清单卡 |
+| `tool_call_update` | 工具状态流转 | `status`: `in_progress`/`completed`/`failed`；failed 带错误详情。首帧空壳时 `rawInput` 可在 `in_progress` 帧补发（客户端回填入参区，首帧优先不覆盖）；`rawInput.questions` 同频回填（问答卡数据源） |
 | `usage_update` | 上下文用量 | 见 §2.3 |
 | `plan` | todo 清单（可选） | `entries`: `[{content, status, priority}]` |
+
+工具出参的图片通道（0806 修订）：`rawOutput.output` 为字符串形态的
+content 数组（如 `[{"type":"text",...},{"type":"image_url",...}]`）或
+`content` 帧内 `image`（`data`+`mimeType`）/ `image_url`（`imageUrl.url`
+为 `data:`/`file:` 开头）/ `resource`（`blob` 且 mime 为 `image/*`）
+块时，客户端提取为图片内嵌渲染，不再以文本裸露；`http(s)` 图片链接
+不联网拉取，仅留占位文本。字符串出参为合法 JSON 时客户端 pretty 化
+展示。系统指令性回执文本（如 "Ensure that you continue to use the
+todo list..."）不应作为出参发送——客户端有白名单过滤，会被剔除。
 
 未识别的 `sessionUpdate` 类型与 `_meta` 厂商扩展会被客户端**静默忽略**
 （不崩），但不得依赖此行为传递关键信息（见「变更纪律」）。

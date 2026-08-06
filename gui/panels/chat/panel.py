@@ -930,9 +930,14 @@ class ChatPanel(QWidget):
         帧，同 tid 200ms 节流（丢弃中间帧，终态帧不经本分支不受节流
         影响）。0919 计划 T3：带 diff/摘要的迟到信息帧（kimi 系 edit 的
         diff content 与 rawInput.path 在 in_progress 帧才发）不限工具
-        放行，DiffCard 补挂徽标/body/副标题。
+        放行，DiffCard 补挂徽标/body/副标题。0806 计划 T1/T2：带
+        input_detail（迟到入参回填）或 images（出参图片通道）的帧同样
+        放行——否则协议层回填的入参永远到不了卡片（kimi 系 ReadMediaFile
+        首帧空壳场景）。
         """
         if payload.get("diff_hunks") or payload.get("summary"):
+            return True
+        if payload.get("input_detail") or payload.get("images"):
             return True
         if tid not in self._tool_commands or not payload.get("output"):
             return False

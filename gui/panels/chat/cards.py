@@ -23,6 +23,7 @@
   水平策略，根治 QLabel 长文本 minimumSizeHint=全文像素宽沿布局链把
   ChatTranscriptView 容器撑出横向滚动条的病根（§2.1 探针实证）。
 """
+import json
 import re
 from collections import OrderedDict
 from html import escape as _html_escape
@@ -466,6 +467,7 @@ class ToolCard(CollapsibleCard):
         self._tid = payload.get("tool_call_id") or ""
         self._open_state = open_state
         self._user_toggled = False
+        self._input_detail_attached = False  # T1 入参回填去重（首帧优先）
         super().__init__(
             colors,
             _KIND_ICONS.get(self._kind, "🧩"),
@@ -517,6 +519,10 @@ class ToolCard(CollapsibleCard):
         # 的后端——kimi 系；其余卡无 summary 键，no-op 无害）
         if summary := payload.get("summary"):
             self.set_subtitle(summary)
+        # 0806 计划 T1：入参迟到回填（kimi 系首帧空壳、rawInput 随
+        # in_progress 帧补发；首帧优先不覆盖，走既有 GUI 线程通道）
+        if detail := payload.get("input_detail"):
+            self._set_input_detail(detail)
         if status == "completed":
             self.set_status("✔", self._colors.tool_fg)
             self._on_completed(payload)
@@ -542,8 +548,15 @@ class ToolCard(CollapsibleCard):
         self.set_open(saved if saved is not None
                       else _DEFAULT_OPEN.get(self._kind, False))
 
+    def _set_input_detail(self, detail: str) -> None:
+        """update 帧迟到入参回填钩子（0806 计划 T1）：首帧未挂入参区时
+        补挂；已挂不覆盖（首帧优先）。McpCard 覆写（其入参区常驻）。"""
+        if self._attach_input_detail and not self._input_detail_attached:
+            self._add_input_detail(detail)
+
     def _add_input_detail(self, detail: str) -> None:
         """通用入参区（D3）：body 末弱化灰小块，「尽可能全」的兜底保证。"""
+        self._input_detail_attached = True
         label = QLabel("入参", self)
         label.setStyleSheet(f"color: {self._colors.tool_fg}; font-size: 90%;")
         text = BodyText(detail, mono=True)
@@ -740,6 +753,10 @@ class SubagentCard(ToolCard):
     """子代理卡（P8）：运行中展开、完成自动折叠（用户手动折叠记忆优先）；
     body = 成果摘要全量（F2 协议永久边界：子会话内部活动不可得，
     成果摘要是唯一可得产出）。
+
+    0806 计划 T5 增强：Agent/Task 工具名分派复用本卡——出参在
+    result_summary（think kind）缺省时回退 output 正文（kind=other 的
+    Agent 调用协议层不产 result_summary，结果全文在 output 通道）。
     """
 
     def _build_body(self, payload: dict) -> None:
@@ -748,7 +765,8 @@ class SubagentCard(ToolCard):
         self.add_body_widget(self._summary)
 
     def _on_completed(self, payload: dict) -> None:
-        if summary := payload.get("result_summary"):
+        summary = payload.get("result_summary") or payload.get("output")
+        if summary:
             self._summary.set_text(summary)
             self._summary.setVisible(True)
             self.enable_copy(self._summary.toPlainText)
@@ -756,9 +774,121 @@ class SubagentCard(ToolCard):
             self.set_open(False)
 
 
+class QuestionCard(ToolCard):
+    """AskUserQuestion 问答卡（0806 计划 T5）：body 为问答对列表——
+    每个问题一行粗体 + 所选答案普通行；pending 显示「等待用户回答…」；
+    completed 帧出参 `{"answers": {...}}` 解析后按问答对展示（不显示
+    裸 JSON）。questions 可随 update 帧迟到回填（首帧空壳场景，
+    _ensure_rows 幂等建行）。
+    """
+
+    def _build_body(self, payload: dict) -> None:
+        self._qa_rows: list[tuple[str, QLabel]] = []
+        self._fallback: BodyText | None = None
+        self._pending: QLabel | None = None
+        self._ensure_rows(payload.get("questions") or [])
+        if not self._qa_rows:
+            self._pending = QLabel("等待用户回答…", self)
+            self._pending.setStyleSheet(f"color: {self._colors.tool_fg};")
+            self.add_body_widget(self._pending)
+
+    def _ensure_rows(self, questions: list) -> None:
+        """问答行幂等补建（首帧空壳时 questions 随 update 帧迟到）。"""
+        for question in questions:
+            if any(q == question for q, _ in self._qa_rows):
+                continue
+            q_label = QLabel(f"❓ {question}", self)
+            q_label.setWordWrap(True)
+            font = q_label.font()
+            font.setBold(True)
+            q_label.setFont(font)
+            a_label = QLabel("等待用户回答…", self)
+            a_label.setWordWrap(True)
+            a_label.setStyleSheet(f"color: {self._colors.tool_fg};")
+            self.add_body_widget(q_label)
+            self.add_body_widget(a_label)
+            self._qa_rows.append((question, a_label))
+        if self._qa_rows and self._pending is not None:
+            self._pending.setVisible(False)
+
+    def _on_progress(self, payload: dict) -> None:
+        self._ensure_rows(payload.get("questions") or [])
+
+    def _on_completed(self, payload: dict) -> None:
+        self._ensure_rows(payload.get("questions") or [])
+        output = payload.get("output") or ""
+        answers = None
+        try:
+            obj = json.loads(output.strip()) if output.strip() else None
+            if isinstance(obj, dict):
+                candidate = obj.get("answers") if isinstance(obj.get("answers"), dict) else obj
+                answers = candidate
+        except ValueError:
+            pass
+        if answers and self._qa_rows:
+            self._fill_answers(answers)
+        elif answers:
+            self._show_fallback(json.dumps(answers, ensure_ascii=False, indent=2))
+        elif output:
+            # 非 JSON 出参（用户自由文本回答等）：原文兜底展示
+            self._show_fallback(output)
+
+    def _fill_answers(self, answers: dict) -> None:
+        """答案按问题文本精确匹配落行；匹配不上按声明顺序分配剩余值。"""
+        used: set[str] = set()
+        for question, a_label in self._qa_rows:
+            answer = answers.get(question)
+            if answer is not None:
+                used.add(question)
+            else:  # 键非问题原文（后端自定义键）：按序取未消费值
+                for key, value in answers.items():
+                    if key not in used:
+                        answer, used = value, used | {key}
+                        break
+            if answer is not None:
+                if not isinstance(answer, str):
+                    answer = json.dumps(answer, ensure_ascii=False)
+                a_label.setText(f"✅ {answer}")
+                a_label.setStyleSheet("")
+
+    def _show_fallback(self, text: str) -> None:
+        """无结构化问答对时的出参兜底文本块（懒建）。"""
+        if self._pending is not None:
+            self._pending.setVisible(False)
+        if self._fallback is None:
+            self._fallback = BodyText(mono=True)
+            self.add_body_widget(self._fallback)
+        self._fallback.set_text(text)
+        self._fallback.setVisible(True)
+
+
+#: MCP 卡出参图片显示限宽（0806 计划 T4：QTextBrowser 不支持 max-width，
+#: 用 width 属性硬限，防 base64 大图撑破卡片布局）
+_MCP_IMAGE_WIDTH = 480
+
+
+def _pretty_json_fallback(text: str) -> str:
+    """出参 JSON pretty 化兜底（0806 计划 T4：协议层漏网场景——如旧会话
+    历史重放——渲染层 set 前再探测一次；非 JSON 原样返回）。"""
+    stripped = text.strip()
+    if not stripped.startswith(("[", "{")):
+        return text
+    try:
+        return json.dumps(json.loads(stripped), ensure_ascii=False, indent=2)
+    except ValueError:
+        return text
+
+
 class McpCard(ToolCard):
     """MCP/未知工具卡：body = 入参 + 出参两节（对标 kilocode McpTool；
     通用入参区不重复附，§2.2）。
+
+    0806 计划 T4 升级：
+    - 入参区常驻可回填（_set_input_detail：「（无）」时替换、已有内容
+      不覆盖——首帧优先）；
+    - 出参区载体 BodyText → BodyHtml（QTextBrowser）：text 经 `<pre>`
+      保持等宽纯文本观感；images 通道（data-URI / file://）内嵌 `<img>`
+      渲染（同 transcript 用户气泡模式），width 硬限防撑破布局。
     """
 
     _attach_input_detail = False
@@ -773,15 +903,37 @@ class McpCard(ToolCard):
         self._out_label.setStyleSheet(f"color: {self._colors.tool_fg}; font-size: 90%;")
         self._out_label.setVisible(False)
         self.add_body_widget(self._out_label)
-        self._output = BodyText(mono=True)
+        self._output = BodyHtml(mono=True)
         self._output.setVisible(False)
         self.add_body_widget(self._output)
 
+    def _set_input_detail(self, detail: str) -> None:
+        """迟到入参回填：当前为「（无）」占位时替换；已有内容不覆盖（首帧优先）。"""
+        if self._input.toPlainText() == "（无）":
+            self._input.set_text(detail)
+
     def _on_completed(self, payload: dict) -> None:
-        if output := payload.get("output"):
-            self._out_label.setVisible(True)
-            self._output.set_text(output)
-            self._output.setVisible(True)
+        output = payload.get("output") or ""
+        images = payload.get("images") or []
+        if not output and not images:
+            return
+        self._out_label.setVisible(True)
+        self._output.setHtml(self._compose_output_html(output, images))
+        self._output.setVisible(True)
+
+    def _compose_output_html(self, output: str, images: list) -> str:
+        """出参 HTML 组装：text 转义逐行 `<br>` 连接（等宽字体 + WidgetWidth
+        折行——不用 `<pre>`：其不折行会把卡片撑出横向滚动条，0401 计划
+        横向根治纪律；DiffCard 同款手法）+ images 逐个 `<img>`（width 硬限）。"""
+        parts = []
+        if output:
+            mono = get_mono_family()
+            escaped = _html_escape(_pretty_json_fallback(output))
+            parts.append(
+                f'<font face="{mono}">' + "<br>".join(escaped.split("\n")) + "</font>")
+        for src in images:
+            parts.append(f'<img src="{_html_escape(src)}" width="{_MCP_IMAGE_WIDTH}">')
+        return "".join(parts)
 
 
 def _diff_soft_limit_note() -> int:
@@ -791,8 +943,31 @@ def _diff_soft_limit_note() -> int:
     return 1000
 
 
+#: 工具名 → 卡片类二级分派表（0806 计划 T5，对标 kilocode ToolRegistry：
+#: 字典注册式、未命中回退 tool_kind 分派，后续扩充只加表项；键为归一化
+#: 后小写工具名。ReadMediaFile 无需专用卡——T4 后 McpCard 已支持图片出参）
+_TOOL_NAME_CARDS: dict[str, type] = {
+    "askuserquestion": QuestionCard,
+    "agent": SubagentCard,
+    "task": SubagentCard,
+}
+
+
+def _normalize_tool_name(title: str) -> str:
+    """工具名归一化（0806 计划 T5）：去 `mcp__server__` 命名空间前缀取末段，
+    小写化——防真实工具名与分派表项失配回退 McpCard。"""
+    name = title.strip()
+    if "__" in name:
+        name = name.split("__")[-1]
+    return name.lower()
+
+
 def make_tool_card(colors: CardColors, open_state: OpenStateMap, payload: dict) -> ToolCard:
-    """工具卡工厂：按 tool_kind 分派专类（0645 §2.1 规格表）。"""
+    """工具卡工厂：工具名二级分派优先（T5），未命中按 tool_kind 分派
+    专类（0645 §2.1 规格表）。"""
+    if title := payload.get("title"):
+        if card_cls := _TOOL_NAME_CARDS.get(_normalize_tool_name(title)):
+            return card_cls(colors, open_state, payload)
     kind = payload.get("tool_kind") or "other"
     if kind == "execute":
         return BashCard(colors, open_state, payload)

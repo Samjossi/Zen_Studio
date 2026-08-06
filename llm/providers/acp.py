@@ -177,12 +177,115 @@ _TAIL_WINDOW_LINES = 5         # in_progress 尾窗行数（0645 计划 §2.1 Ba
                                # 运行中实时帧规格，同 0619-T6）
 
 
-def _extract_raw_output(update: dict) -> str | None:
-    """tool_call_update 原始输出全文提取（0645 计划 T1 重构）：
-    rawOutput.output → content 文本项兜底拼接；净化（ANSI/`\\r`）+ 单行截断，
-    **不做行数截断**（截断档位与方向归调用方按 kind/status 决定，§2.3-1）。
+# ----------------------------------------------------------------------
+# 系统回执过滤（0806 计划 T2：工具出参夹带的系统指令性文本剔除，
+# 白名单模式保守起步——只过滤已确证的系统提示，宁漏勿错）
+# ----------------------------------------------------------------------
+_RECEIPT_PATTERNS = [
+    re.compile(r"(?ms)^Todo list updated\.\s*$"),
+    re.compile(r"(?ms)^Ensure that you continue to use the todo list.*$"),
+    # 后续确证的模式在此追加，集中维护
+]
 
-    无有效输出返回 None。数据装载不分工具 kind（update 帧常缺 kind，F3）。
+#: text 块内 `<image path="...">` 本地路径标签（ReadMediaFile 出参形态）
+_IMAGE_PATH_RE = re.compile(r"<image\s+path=[\"']?([^\"'>\s]+)[\"']?\s*/?>")
+
+
+def _filter_tool_receipt(text: str) -> str:
+    """剔除工具出参中夹带的系统指令性回执文本（白名单模式，保守起步）。"""
+    for pattern in _RECEIPT_PATTERNS:
+        text = pattern.sub("", text)
+    return text
+
+
+def _collect_content_block(block: dict, texts: list[str], images: list[str]) -> None:
+    """单个 MCP/ACP content 块按 type 分发（0806 计划 T2 识别矩阵）：
+
+    text 拼入 texts（`<image path>` 标签提取为 file:// 图片并剔除标签）；
+    image / image_url / resource 图片形态入 images（data-URI 或 file://）；
+    http(s) 图片链接不联网拉取，留一行占位文本。
+    """
+    btype = block.get("type")
+    if btype == "text" or btype is None:
+        text = block.get("text")
+        if not isinstance(text, str):
+            return
+
+        def _pick_image(match: re.Match) -> str:
+            images.append(f"file://{match.group(1)}")
+            return ""
+
+        text = _IMAGE_PATH_RE.sub(_pick_image, text).strip()
+        if text:
+            texts.append(text)
+        return
+    if btype == "image":  # ACP 原生：data + mimeType
+        data = block.get("data")
+        if isinstance(data, str) and data:
+            images.append(f"data:{block.get('mimeType') or 'image/png'};base64,{data}")
+        return
+    if btype == "image_url":  # OpenAI 形态：image_url/imageUrl.url
+        url_obj = block.get("image_url") or block.get("imageUrl") or {}
+        url = url_obj.get("url") if isinstance(url_obj, dict) else None
+        if isinstance(url, str) and url:
+            if url.startswith(("data:", "file:")):
+                images.append(url)
+            else:
+                texts.append(f"[image: {url}]")
+        return
+    if btype == "resource":
+        res = block.get("resource") or {}
+        if not isinstance(res, dict):
+            return
+        if isinstance(res.get("text"), str):
+            texts.append(res["text"])
+        elif isinstance(res.get("blob"), str):
+            mime = res.get("mimeType") or ""
+            if mime.startswith("image/"):
+                images.append(f"data:{mime};base64,{res['blob']}")
+            else:
+                texts.append(f"[resource: {res.get('uri') or '?'}]")
+
+
+def _dispatch_output_string(output: str, texts: list[str], images: list[str]) -> bool:
+    """字符串出参 JSON 探测分发（0806 计划 T2，对标 kilocode McpTool.formattedOutput）。
+
+    try-parse 成功：解析结果为 content 数组（各项含 "type"）则再走一遍
+    按 type 分发（ReadMediaFile 出参即此形态——序列化为字符串的 content
+    数组）；其余 JSON pretty 化拼入 texts。解析失败原样拼入。
+    返回 True 表示整段为合法 JSON（调用方据此豁免单行字符截断）。
+    """
+    stripped = output.strip()
+    if stripped.startswith(("[", "{")):
+        obj = None
+        try:
+            obj = json.loads(stripped)
+        except (json.JSONDecodeError, ValueError):
+            pass
+        if isinstance(obj, list) and obj and all(
+                isinstance(item, dict) and "type" in item for item in obj):
+            for item in obj:
+                _collect_content_block(item, texts, images)
+            return True
+        if obj is not None:
+            texts.append(json.dumps(obj, ensure_ascii=False, indent=2))
+            return True
+    texts.append(output)
+    return False
+
+
+def _extract_raw_output(update: dict) -> tuple[str, list[str]] | None:
+    """tool_call_update 原始输出提取（0806 计划 T2 重构：双通道产出）。
+
+    返回 (text, images)：text 为 text 块拼接 + 字符串出参 JSON try-parse
+    pretty 化（净化 ANSI/`\\r`、系统回执过滤；**不做行数截断**——截断档位
+    与方向归调用方按 kind/status 决定，§2.3-1）；images 为 content 数组中
+    image/image_url/resource 块的 data-URI 或 `file://` 路径列表（独立
+    载荷字段下传，渲染层内嵌 `<img>`）。
+
+    合法 JSON 出参豁免 `_OUTPUT_LINE_MAX` 单行字符截断（minified JSON
+    pretty 化后行短，截断只会破坏结构；0806 计划 T2 改动点 3）。
+    无有效输出（text 与 images 均空）返回 None。
     """
     raw = update.get("rawOutput")
     # rawOutput 三态分流：dict 走 .output；str 为中止/失败场景的纯文本
@@ -193,21 +296,27 @@ def _extract_raw_output(update: dict) -> str | None:
         output = raw
     else:
         output = None
-    if not isinstance(output, str):
-        parts = []
+    texts: list[str] = []
+    images: list[str] = []
+    json_parsed = False
+    if isinstance(output, str):
+        output = _filter_tool_receipt(_clean_terminal_text(output))
+        json_parsed = _dispatch_output_string(output, texts, images)
+    else:
         for item in update.get("content") or []:
             if isinstance(item, dict):
                 content = item.get("content")
-                if isinstance(content, dict) and isinstance(content.get("text"), str):
-                    parts.append(content["text"])
-        output = "\n".join(parts)
-    output = _clean_terminal_text(output).strip("\n")
-    if not output.strip():
+                if isinstance(content, dict):
+                    _collect_content_block(content, texts, images)
+    text = _filter_tool_receipt("\n".join(texts)).strip("\n")
+    if not text.strip() and not images:
         return None
-    return "\n".join(
-        line if len(line) <= _OUTPUT_LINE_MAX
-        else line[: _OUTPUT_LINE_MAX - 1] + "…"
-        for line in output.split("\n"))
+    if not json_parsed:
+        text = "\n".join(
+            line if len(line) <= _OUTPUT_LINE_MAX
+            else line[: _OUTPUT_LINE_MAX - 1] + "…"
+            for line in text.split("\n"))
+    return text, images
 
 
 def _truncate_lines(text: str, keep_lines: int, keep_tail: bool) -> tuple[str, int]:
@@ -227,15 +336,22 @@ def _extract_tool_output(
     update: dict,
     keep_lines: int = _BODY_SOFT_LIMIT_LINES,
     keep_tail: bool = True,
-) -> tuple[str, int] | None:
+) -> tuple[str, int, list[str]] | None:
     """tool_call_update 输出正文提取：全文提取（_extract_raw_output）+
     参数化截断（0645 计划 §2.3-1：行数档位与截断方向双参数）。
 
-    返回 (截断正文, 原始行数)；无有效输出返回 None。
+    返回 (截断正文, 原始行数, images 图片列表)；无有效输出返回 None。
+    正文为空但 images 非空时仍返回（正文 ""、原始行数 0）——图片是
+    独立信息通道，不因无文本而丢弃（0806 计划 T2）。
     """
-    if (raw_text := _extract_raw_output(update)) is None:
+    if (extracted := _extract_raw_output(update)) is None:
         return None
-    return _truncate_lines(raw_text, keep_lines, keep_tail)
+    raw_text, images = extracted
+    if raw_text:
+        body, total = _truncate_lines(raw_text, keep_lines, keep_tail)
+    else:
+        body, total = "", 0
+    return body, total, images
 
 
 # ----------------------------------------------------------------------
@@ -360,8 +476,17 @@ _INPUT_DETAIL_KEYS: dict[str, tuple[str, ...]] = {
     "search": ("pattern", "query", "path", "include"),
     "fetch": ("url",),
     "think": ("description", "prompt", "subagent_type"),
+    # 0806 计划 T1：ReadMediaFile/AskUserQuestion/Agent/TodoList 等
+    # ACP kind 恒为 "other"，无白名单则已知键提取必然落空
+    "other": ("path", "filePath", "url", "query", "command", "prompt",
+              "description", "questions", "todos", "name"),
 }
 _INPUT_DETAIL_VALUE_MAX = 2000  # 单字段值字符上限（入参区是兜底非主渲染）
+_INPUT_DETAIL_BRIEF_VALUE_MAX = 200  # 长文本键摘要上限（0806 计划 T1：
+                                     # prompt/questions 完整值留给出参/展开区，
+                                     # 对齐 kilocode McpTool.inputArgs 克制策略）
+#: 长文本键集（值超 _INPUT_DETAIL_BRIEF_VALUE_MAX 即摘要化）
+_INPUT_DETAIL_BRIEF_KEYS = frozenset({"prompt", "questions", "description"})
 
 
 def _format_input_detail(update: dict) -> str | None:
@@ -376,22 +501,57 @@ def _format_input_detail(update: dict) -> str | None:
     if not isinstance(raw, dict) or not raw:
         return None
     kind = update.get("kind")
+    keys = _INPUT_DETAIL_KEYS.get(kind if isinstance(kind, str) else "")
+    if keys is None:
+        # kind 缺失/未识别（update 帧常缺 kind，F3——kimi 系迟到入参帧
+        # 即无 kind）：全白名单并集按序探测，命中任一已知键即免于 JSON
+        # 兜底（0806 计划 T1 修订：mock 场景 01 实证）
+        keys = tuple(dict.fromkeys(
+            key for group in _INPUT_DETAIL_KEYS.values() for key in group))
     lines = []
-    for key in _INPUT_DETAIL_KEYS.get(kind if isinstance(kind, str) else "", ()):
+    for key in keys:
         if key not in raw or raw[key] is None:
             continue
         value = raw[key]
         if isinstance(value, (dict, list)):
             value = json.dumps(value, ensure_ascii=False)
         value = str(value)
-        if len(value) > _INPUT_DETAIL_VALUE_MAX:
-            value = value[: _INPUT_DETAIL_VALUE_MAX - 1] + "…"
+        value_max = (_INPUT_DETAIL_BRIEF_VALUE_MAX
+                     if key in _INPUT_DETAIL_BRIEF_KEYS
+                     else _INPUT_DETAIL_VALUE_MAX)
+        if len(value) > value_max:
+            value = value[: value_max - 1] + "…"
         lines.append(f"{key}: {value}")
     if lines:
         return "\n".join(lines)
     pretty = json.dumps(raw, ensure_ascii=False, indent=2)
     text, _ = _truncate_lines(pretty, _BODY_SOFT_LIMIT_LINES, keep_tail=False)
     return text
+
+
+#: 入参已提取簿记（0806 计划 T1：update 帧迟到入参回填的去重账本）。
+#: 首帧 `_map_tool_call` 提取成功即登记；update 帧仅对未登记者回填；
+#: completed/failed 终态帧到达后惰性清理（toolCallId 跨轮不复用）。
+_input_detail_seen: set[str] = set()
+
+
+def _record_input_detail(payload: dict, detail: str | None) -> None:
+    """入参详情装填 + 簿记登记（首帧与 update 帧回填共用）。"""
+    if detail:
+        payload["input_detail"] = detail
+        if tid := payload.get("tool_call_id"):
+            _input_detail_seen.add(tid)
+
+
+def _extract_questions(update: dict) -> list[str] | None:
+    """rawInput.questions → 问题文本列表（0806 计划 T5：AskUserQuestion
+    结构化载荷，QuestionCard 问答对渲染数据源）。"""
+    raw = update.get("rawInput")
+    if not isinstance(raw, dict) or not isinstance(raw.get("questions"), list):
+        return None
+    questions = [q["question"] for q in raw["questions"]
+                 if isinstance(q, dict) and isinstance(q.get("question"), str)]
+    return questions or None
 
 
 def _tool_call_fallback(payload: ToolCallPayload) -> str:
@@ -521,8 +681,10 @@ def _map_tool_call(update: dict) -> Chunk:
     if summary := _tool_call_summary(update):
         payload["summary"] = summary
     # 0645 计划 D3：通用入参区（已知键 + JSON 兜底；MCP/未知工具亦受益）
-    if detail := _format_input_detail(update):
-        payload["input_detail"] = detail
+    _record_input_detail(payload, _format_input_detail(update))
+    # 0806 计划 T5：AskUserQuestion 结构化问题列表（QuestionCard 数据源）
+    if questions := _extract_questions(update):
+        payload["questions"] = questions
     return Chunk("tool_call", _tool_call_fallback(payload), payload=payload)
 
 
@@ -549,6 +711,13 @@ def _map_tool_call_update(update: dict) -> Chunk | None:
     if isinstance(update.get("title"), str):
         payload["title"] = update["title"]
     kind = update.get("kind")
+    # 0806 计划 T1：update 帧迟到入参回填——kimi 系首帧为空壳、rawInput
+    # 在 in_progress 帧才补发；簿记去重（首帧优先，后续帧不重复回填）
+    if (tid := payload.get("tool_call_id")) and tid not in _input_detail_seen:
+        _record_input_detail(payload, _format_input_detail(update))
+    # 0806 计划 T5：questions 同随 update 帧迟到（首帧空壳场景），同频回填
+    if questions := _extract_questions(update):
+        payload["questions"] = questions
     if status == "in_progress":
         extracted = _extract_tool_output(
             update, keep_lines=_TAIL_WINDOW_LINES, keep_tail=True)
@@ -556,7 +725,15 @@ def _map_tool_call_update(update: dict) -> Chunk | None:
         extracted = _extract_tool_output(
             update, keep_tail=(kind == "execute"))
     if extracted:
-        payload["output"], payload["output_total_lines"] = extracted
+        output, total_lines, images = extracted
+        if output:
+            payload["output"] = output
+        payload["output_total_lines"] = total_lines
+        if images:  # 0806 计划 T2：content 图片通道独立载荷字段
+            payload["images"] = images
+    # 终态帧惰性清理入参簿记（工具调用生命周期结束）
+    if status in ("completed", "failed") and payload.get("tool_call_id"):
+        _input_detail_seen.discard(payload["tool_call_id"])
     # 0919 计划 T2：update 帧 diff 提取——kimi 系 edit 的 diff content 在
     # in_progress 帧才发（首帧 content 为空壳、completed 帧只剩结果文本），
     # 故不限 status 盲提；_extract_diff 对非 diff 项返回 None，天然安全
@@ -580,9 +757,9 @@ def _map_tool_call_update(update: dict) -> Chunk | None:
     if status == "completed" and kind == "think":
         # D5 成果摘要：从全文提取（先于 output 截断，防 task_result 被
         # 保头截断切掉）；软上限保头由 _truncate_lines 统一执行
-        if raw_text := _extract_raw_output(update):
+        if extracted_raw := _extract_raw_output(update):
             summary, _ = _truncate_lines(
-                _extract_result_summary(raw_text),
+                _extract_result_summary(extracted_raw[0]),
                 _BODY_SOFT_LIMIT_LINES, keep_tail=False)
             if summary.strip():
                 payload["result_summary"] = summary
@@ -607,8 +784,8 @@ def _map_tool_call_update(update: dict) -> Chunk | None:
         detail_source = None
         if isinstance(error, str) and error.strip():
             detail_source = error
-        elif raw_text := _extract_raw_output(update):
-            detail_source = raw_text
+        elif extracted_raw := _extract_raw_output(update):
+            detail_source = extracted_raw[0]
         if detail_source:
             detail, _ = _truncate_lines(
                 _clean_terminal_text(detail_source).strip("\n"),
