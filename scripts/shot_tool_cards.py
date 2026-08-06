@@ -31,8 +31,10 @@ from gui.panels.chat.cards import (  # noqa: E402
     OpenStateMap,
     TodoCard,
     ToolCard,
+    find_question_card,
     make_tool_card,
 )
+from gui.panels.chat.permission_dialog import QuestionDialog  # noqa: E402
 from gui.panels.chat.panel import ChatPanel  # noqa: E402
 from gui.theme import CHAT_PACK, DEFAULT_THEME, get_theme_palette  # noqa: E402
 from llm.providers.acp import map_session_update  # noqa: E402
@@ -97,8 +99,12 @@ def _tool_update(tid: str, status: str, title: str | None = None,
     return frame
 
 
-def _scenarios() -> list[tuple[str, list[dict], str]]:
-    """(场景名, ACP update 帧序列, 预期看点) 清单。"""
+def _scenarios() -> list[tuple[str, list[dict], str, object]]:
+    """(场景名, ACP update 帧序列, 预期看点, 后置钩子|None) 清单。
+
+    后置钩子签名：hook(card_map: dict) —— 帧回放完、截图前调用
+    （0807-0148 计划 T5：pending 态按钮激活/点击定格等交互态 mock）。
+    """
     img_b64 = _make_png_b64("#3a7bd5")
     asset_path = _make_asset_png("readmedia_sample.png", "#c06014")
     long_json = json.dumps(
@@ -178,8 +184,62 @@ def _scenarios() -> list[tuple[str, list[dict], str]]:
             _tool_update("tc-long", "completed",
                          title="mcp__search__codebase",
                          raw_output={"output": long_json}),
-        ], "超 300 字符单行 minified JSON 完整 pretty 展示，不被「…」截断"),
+        ], "超 300 字符单行 minified JSON 完整 pretty 展示，不被「…」截断", None),
+        # 0807-0148 计划 T5：AskUserQuestion 交互侧场景（蓝本为真实帧
+        # .temp/frame_archive/askuser_*.json 的 options 编码）
+        ("07_askuser_pending_选项按钮", [
+            _tool_call("tc-askbtn", "AskUserQuestion", "other",
+                       {"questions": [
+                           {"question": "你希望我把问候语写成哪种颜色？",
+                            "options": [{"label": "红色"}, {"label": "蓝色"},
+                                        {"label": "绿色"}],
+                            "header": "颜色"}]}),
+        ], "pending 态 QuestionCard 自动展开：问题粗体行 + 「请选择：」+ "
+           "选项按钮组（红色/蓝色/绿色/Skip——真实帧 options 含 reject_once "
+           "的 Skip），状态图标 ◐，无自动选答",
+           lambda cards: find_question_card("tc-askbtn").activate_options(
+               [{"optionId": "q0_opt_0", "name": "红色", "kind": "allow_once"},
+                {"optionId": "q0_opt_1", "name": "蓝色", "kind": "allow_once"},
+                {"optionId": "q0_opt_2", "name": "绿色", "kind": "allow_once"},
+                {"optionId": "q0_skip", "name": "Skip", "kind": "reject_once"}],
+               lambda oid: None)),
+        ("08_askuser_已点击_定格", [
+            _tool_call("tc-askclick", "AskUserQuestion", "other",
+                       {"questions": [
+                           {"question": "你希望我把问候语写成哪种颜色？",
+                            "options": [{"label": "红色"}, {"label": "蓝色"},
+                                        {"label": "绿色"}],
+                            "header": "颜色"}]}),
+        ], "点击「蓝色」后：全组按钮禁点，蓝色项打 ✅ 即时反馈，状态仍 ◐ "
+           "（等 completed 帧定格问答对）",
+           lambda cards: _activate_and_click("tc-askclick", 1)),
+        ("09_askuser_multiselect", [
+            _tool_call("tc-askmulti", "AskUserQuestion", "other",
+                       {"questions": [
+                           {"question": "你想在问候卡片上放哪些元素？（可多选）",
+                            "options": [{"label": "佛像"}, {"label": "莲花"},
+                                        {"label": "经文"}, {"label": "香炉"}],
+                            "multi_select": True}]}),
+            _tool_update("tc-askmulti", "completed", title="AskUserQuestion",
+                         raw_output={"output": json.dumps(
+                             {"answers": {"你想在问候卡片上放哪些元素？（可多选）":
+                                          "香炉"}}, ensure_ascii=False)}),
+        ], "multi_select（蛇形字段名，真实帧实证）问题 completed 问答对正常"
+           "渲染；question_options 载荷提取不破坏现行渲染", None),
     ]
+
+
+def _activate_and_click(tid: str, index: int) -> None:
+    """激活选项按钮组并程序化点击第 index 个按钮（点击定格态 mock）。"""
+    card = find_question_card(tid)
+    card.activate_options(
+        [{"optionId": "q0_opt_0", "name": "红色", "kind": "allow_once"},
+         {"optionId": "q0_opt_1", "name": "蓝色", "kind": "allow_once"},
+         {"optionId": "q0_opt_2", "name": "绿色", "kind": "allow_once"},
+         {"optionId": "q0_skip", "name": "Skip", "kind": "reject_once"}],
+        lambda oid: None)
+    from PySide6.QtWidgets import QPushButton
+    card._options_box.findChildren(QPushButton)[index].click()
 
 
 class _MiniRouter:
@@ -198,8 +258,8 @@ class _MiniRouter:
         return ChatPanel._allow_progress_frame(self._fake_panel, payload, tid)
 
 
-def _run_scenario(frames: list[dict]) -> QWidget:
-    """单场景全链路回放：帧 → Chunk → 路由 → 建卡/更新 → 容器 widget。"""
+def _run_scenario(frames: list[dict]) -> tuple[QWidget, dict]:
+    """单场景全链路回放：帧 → Chunk → 路由 → 建卡/更新 → (容器 widget, 卡表)。"""
     router = _MiniRouter()
     open_state = OpenStateMap()
     card_map: dict[str, ToolCard] = {}
@@ -246,15 +306,20 @@ def _run_scenario(frames: list[dict]) -> QWidget:
     container.setFixedWidth(CARD_WIDTH)
     container.adjustSize()
     container.resize(CARD_WIDTH, container.sizeHint().height())
-    return container
+    return container, card_map
 
 
 def main() -> int:
     app = QApplication(sys.argv)
     SHOT_DIR.mkdir(parents=True, exist_ok=True)
     manifest_lines = ["# 工具卡片 mock 截图清单（shot_tool_cards.py 产物）", ""]
-    for name, frames, notes in _scenarios():
-        container = _run_scenario(frames)
+    for entry in _scenarios():
+        name, frames, notes, hook = (*entry, None)[:4]  # 旧 3 元组兼容
+        container, card_map = _run_scenario(frames)
+        if hook is not None:
+            hook(card_map)  # 交互态后置钩子（激活按钮/点击定格）
+            container.adjustSize()
+            container.resize(CARD_WIDTH, container.sizeHint().height())
         png = SHOT_DIR / f"{name}.png"
         if not container.grab().save(str(png)):
             print(f"[shot_tool_cards] 错误：截图失败 {png}", file=sys.stderr)
@@ -265,6 +330,30 @@ def main() -> int:
         manifest_lines.append("")
         print(f"[shot_tool_cards] {png.relative_to(PROJECT_ROOT)}")
     manifest = SHOT_DIR / "manifest.md"
+    # QuestionDialog 弹窗截图（0807-0148 计划 T2 止血载体；蓝本为真实
+    # request_permission 载荷——含 reject_once 的 Skip 项）
+    dialog = QuestionDialog({
+        "sessionId": "session-mock",
+        "toolCall": {"toolCallId": "0:tool_mock", "title": "AskUserQuestion",
+                     "content": [{"type": "content", "content": {
+                         "type": "text",
+                         "text": "你希望我把问候语写成哪种颜色？"}}]},
+        "options": [{"optionId": "q0_opt_0", "name": "红色", "kind": "allow_once"},
+                    {"optionId": "q0_opt_1", "name": "蓝色", "kind": "allow_once"},
+                    {"optionId": "q0_opt_2", "name": "绿色", "kind": "allow_once"},
+                    {"optionId": "q0_skip", "name": "Skip", "kind": "reject_once"}],
+    })
+    dialog.adjustSize()
+    png = SHOT_DIR / "10_questiondialog_弹窗.png"
+    if not dialog.grab().save(str(png)):
+        print(f"[shot_tool_cards] 错误：截图失败 {png}", file=sys.stderr)
+        return 1
+    manifest_lines.append("## 10_questiondialog_弹窗")
+    manifest_lines.append(f"- 截图：`{png.relative_to(PROJECT_ROOT)}`")
+    manifest_lines.append("- 预期看点：标题「AI 提问」+ 问题粗体行 + 选项按钮"
+                          "（红色/蓝色/绿色/Skip 原文，无「允许一次」审批语义映射）")
+    manifest_lines.append("")
+    print(f"[shot_tool_cards] {png.relative_to(PROJECT_ROOT)}")
     manifest.write_text("\n".join(manifest_lines), encoding="utf-8")
     print(f"[shot_tool_cards] {manifest.relative_to(PROJECT_ROOT)}")
     app.quit()

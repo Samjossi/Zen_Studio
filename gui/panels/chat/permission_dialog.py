@@ -1,4 +1,10 @@
-"""ACP 工具审批对话框：工具名/参数摘要 + 选项按钮（允许一次/始终允许/拒绝）。"""
+"""ACP 工具审批对话框：工具名/参数摘要 + 选项按钮（允许一次/始终允许/拒绝）。
+
+QuestionDialog（0807-0148 计划 T2）：AskUserQuestion 类交互请求的专用
+对话框——「提问-选项」语义（选项是答案不是审批动作），与 PermissionDialog
+的工具审批语义分野：选项文案用 agent 提供的 name 原文，不走 KIND_LABELS
+审批语义映射。
+"""
 import json
 
 from PySide6.QtWidgets import (
@@ -112,3 +118,76 @@ class PermissionDialog(QDialog):
                 line = f":{loc['line']}" if loc.get("line") else ""
                 parts.append(f"位置：{loc['path']}{line}")
         return "\n".join(parts) or "（无参数摘要）"
+
+
+class QuestionDialog(QDialog):
+    """AskUserQuestion 类交互请求对话框（0807-0148 计划 T2，止血交互载体）。
+
+    语义：agent 提问 → 用户勾选 → optionId 原样回传。选项按钮文案用 agent
+    提供的 name 原文（答案选项，禁走 KIND_LABELS 审批语义映射）；agent 附
+    带的 Skip（reject_once）选项照常展示，用户显式跳过。
+
+    multi_select 说明（实证结论，.temp/frame_archive/askuser_20260807_023820.json）：
+    kimi 多选题（rawInput.questions[].multi_select=true）经 ACP 降级为单选
+    ——request_permission 响应模型只能回一个 optionId，选项逐题单个编码。
+    故本对话框统一单选按钮组；若未来后端出现多选组合编码，再升级复选框
+    形态（TODO，须先抓帧证实回传协议）。
+    """
+
+    def __init__(self, params: PermissionParams, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("AI 提问")
+        self.setModal(True)
+        self._option_id: str | None = None
+
+        layout = QVBoxLayout(self)
+        questions = self._extract_questions(params)
+        if questions:
+            for question in questions:
+                q_label = QLabel(f"❓ {question}", self)
+                q_label.setWordWrap(True)
+                q_font = q_label.font()
+                q_font.setBold(True)
+                q_label.setFont(q_font)
+                layout.addWidget(q_label)
+        else:
+            hint = QLabel("AI 请求你作出选择：", self)
+            hint.setWordWrap(True)
+            layout.addWidget(hint)
+
+        buttons = QDialogButtonBox(self)
+        for opt in params.get("options") or []:
+            # 选项是答案不是审批动作：文案用 agent 提供 name 原文（不映射
+            # KIND_LABELS——「允许一次」贴在「牛肉面」上是语义错乱）
+            label = opt.get("name") or opt.get("optionId", "?")
+            button = buttons.addButton(label, QDialogButtonBox.ButtonRole.ActionRole)
+            button.clicked.connect(lambda _checked=False, oid=opt.get("optionId"): self._choose(oid))
+        layout.addWidget(buttons)
+
+    def _choose(self, option_id: str | None) -> None:
+        self._option_id = option_id
+        self.accept()
+
+    def selected_option_id(self) -> str | None:
+        """用户选中的 optionId（agent 提供原值）；关闭/ESC 返回 None（上层按拒绝兜底）。"""
+        return self._option_id
+
+    @staticmethod
+    def _extract_questions(params: PermissionParams) -> list[str]:
+        """问题文本提取：rawInput.questions 优先（结构化路径），
+        toolCall.content 文本块兜底（kimi 实证：request_permission 的
+        toolCall 不带 rawInput，问题文本在 content 块——
+        .temp/frame_archive/askuser_*.json）。"""
+        tool_call = params.get("toolCall") or {}
+        raw = tool_call.get("rawInput")
+        if isinstance(raw, dict) and isinstance(raw.get("questions"), list):
+            questions = [q["question"] for q in raw["questions"]
+                         if isinstance(q, dict) and isinstance(q.get("question"), str)]
+            if questions:
+                return questions
+        texts: list[str] = []
+        for block in tool_call.get("content") or []:
+            text = ((block or {}).get("content") or {}).get("text")
+            if isinstance(text, str) and text.strip():
+                texts.append(text.strip())
+        return texts

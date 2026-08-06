@@ -93,6 +93,11 @@ class ToolCallPayload(TypedDict, total=False):
     #: AskUserQuestion 结构化问题列表（0806 计划 T5：QuestionCard 问答对
     #: 渲染数据源；rawInput.questions 提取，GUI 不解析 rawInput）
     questions: list[str]
+    #: AskUserQuestion 选项结构载荷（0807-0148 计划 T3：QuestionCard 卡片
+    #: 内交互数据源；每问 {question, header?, options: [{label, description?}],
+    #: multi_select}，rawInput.questions 原样提取——多选字段名实证为
+    #: multi_select 蛇形，见 .temp/frame_archive/askuser_*.json）
+    question_options: list[dict]
 
 
 class ToolUpdatePayload(TypedDict, total=False):
@@ -137,6 +142,9 @@ class ToolUpdatePayload(TypedDict, total=False):
     #: AskUserQuestion 结构化问题列表迟到回填（0806 计划 T5；与
     #: ToolCallPayload.questions 同源，首帧空壳时随 update 帧补发）
     questions: list[str]
+    #: AskUserQuestion 选项结构载荷迟到回填（0807-0148 计划 T3；与
+    #: ToolCallPayload.question_options 同源同构）
+    question_options: list[dict]
 
 
 class TodoEntry(TypedDict, total=False):

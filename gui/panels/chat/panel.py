@@ -85,6 +85,7 @@ from gui.panels.chat.input import ChatInput
 from gui.panels.chat.model_bar import ModelBar
 from gui.panels.chat.output import ChatOutput
 from gui.panels.chat.permission_queue import PERMISSION_QUEUE
+from gui.panels.chat.question_bridge import QUESTION_BRIDGE
 from gui.panels.chat.timeline import ActivityTimeline
 from gui.panels.chat.transcript import ChatTranscriptView
 from gui.panels.chat.worker import ChatWorker
@@ -106,7 +107,12 @@ from llm import (
     resolve_efforts,
     spec_of,
 )
-from llm.permission_policy import DECISION_ALLOW, decide_permission, select_option_id
+from llm.permission_policy import (
+    DECISION_ALLOW,
+    decide_permission,
+    is_question_request,
+    select_option_id,
+)
 
 
 class ChatPanel(QWidget):
@@ -687,6 +693,11 @@ class ChatPanel(QWidget):
         decide_permission 按当前 permission_mode 四态前置决策——allow 直接
         同步返回 optionId（零 GUI、零阻塞，不触碰队列/QTimer）；ask 提交
         全局审批队列弹窗（黑名单命中附原因）。返回 None 由上层按拒绝兜底。
+
+        question 特判（0807-0148 计划 T4）：AskUserQuestion 类交互请求
+        走 QUESTION_BRIDGE 卡片内交互（按钮组激活）；decide_permission
+        对 question 恒返回 ask（T1），select_option_id 自动选答路径对
+        question 请求不可达。
         """
         decision, reason = decide_permission(params, load_settings()[KEY_PERMISSION_MODE])
         if decision == DECISION_ALLOW:
@@ -696,6 +707,9 @@ class ChatPanel(QWidget):
             # 决策为 allow 但 agent 未提供 allow 类选项：不静默拒绝
             # （None 会被上层兜底为 reject），降级普通弹窗交还用户裁决
             return PERMISSION_QUEUE.ask(params, self)
+        if is_question_request(params):
+            tool_call_id = (params.get("toolCall") or {}).get("toolCallId") or ""
+            return QUESTION_BRIDGE.ask(params, tool_call_id, self)
         return PERMISSION_QUEUE.ask(params, self, danger_reason=reason)
 
     # ------------------------------------------------------------------

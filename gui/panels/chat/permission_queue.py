@@ -13,8 +13,9 @@ from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QWidget
 from shiboken6 import isValid
 
-from gui.panels.chat.permission_dialog import PermissionDialog
+from gui.panels.chat.permission_dialog import PermissionDialog, QuestionDialog
 from llm import PermissionParams
+from llm.permission_policy import is_question_request
 
 #: 审批等待超时（秒）；超时按拒绝兜底，防 agent 永久阻塞
 PERMISSION_TIMEOUT_S = 180
@@ -84,11 +85,19 @@ class PermissionQueue:
 
     @staticmethod
     def _ask_one(entry: _Entry) -> None:
-        """单条弹框：父对象失效/弹框异常均不阻断后续 drain，done 必置位。"""
+        """单条弹框：父对象失效/弹框异常均不阻断后续 drain，done 必置位。
+
+        对话框二选一分派（0807-0148 计划 T2）：question 类交互请求弹
+        QuestionDialog（提问-选项语义），其余弹 PermissionDialog（工具审批
+        语义）；队列串行化机制（防互冻/超时兜底/stale 标记）原样复用。
+        """
         try:
             if not isValid(entry[1]):  # parent 标签排队期间被关闭销毁
                 return
-            dialog = PermissionDialog(entry[0], entry[1], danger_reason=entry[6])
+            if is_question_request(entry[0]):
+                dialog = QuestionDialog(entry[0], entry[1])
+            else:
+                dialog = PermissionDialog(entry[0], entry[1], danger_reason=entry[6])
             dialog.exec()
             entry[2] = dialog.selected_option_id()
         except Exception:  # noqa: BLE001 — isValid 后销毁竞态/构造失败：按拒绝兜底

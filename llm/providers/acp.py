@@ -568,6 +568,38 @@ def _extract_questions(update: dict) -> list[str] | None:
     return questions or None
 
 
+def _extract_question_options(update: dict) -> list[dict] | None:
+    """rawInput.questions → 结构化选项载荷（0807-0148 计划 T3：
+    QuestionCard 卡片内交互数据源；与 questions 字段并存，GUI 不碰 rawInput）。
+
+    每问 `{question, header?, options: [{label, description?}], multi_select}`。
+    实证蓝本（.temp/frame_archive/askuser_*.json）：多选字段名为
+    `multi_select`（snake_case，非臆测的 multiSelect）；header 为可选短标题。
+    """
+    raw = update.get("rawInput")
+    if not isinstance(raw, dict) or not isinstance(raw.get("questions"), list):
+        return None
+    items: list[dict] = []
+    for q in raw["questions"]:
+        if not isinstance(q, dict) or not isinstance(q.get("question"), str):
+            continue
+        item: dict = {"question": q["question"],
+                      "multi_select": bool(q.get("multi_select"))}
+        if isinstance(q.get("header"), str):
+            item["header"] = q["header"]
+        options: list[dict] = []
+        for opt in q.get("options") or []:
+            if not isinstance(opt, dict) or not isinstance(opt.get("label"), str):
+                continue
+            entry: dict = {"label": opt["label"]}
+            if isinstance(opt.get("description"), str):
+                entry["description"] = opt["description"]
+            options.append(entry)
+        item["options"] = options
+        items.append(item)
+    return items or None
+
+
 def _tool_call_fallback(payload: ToolCallPayload) -> str:
     """tool_call 兜底显示行（与 output.append_tool_call 渲染格式保持一致）。"""
     icon = "⧉" if payload.get("is_subagent") else "▸"
@@ -699,6 +731,9 @@ def _map_tool_call(update: dict) -> Chunk:
     # 0806 计划 T5：AskUserQuestion 结构化问题列表（QuestionCard 数据源）
     if questions := _extract_questions(update):
         payload["questions"] = questions
+    # 0807-0148 计划 T3：选项结构载荷（QuestionCard 卡片内交互数据源）
+    if question_options := _extract_question_options(update):
+        payload["question_options"] = question_options
     return Chunk("tool_call", _tool_call_fallback(payload), payload=payload)
 
 
@@ -732,6 +767,9 @@ def _map_tool_call_update(update: dict) -> Chunk | None:
     # 0806 计划 T5：questions 同随 update 帧迟到（首帧空壳场景），同频回填
     if questions := _extract_questions(update):
         payload["questions"] = questions
+    # 0807-0148 计划 T3：选项结构载荷同频回填
+    if question_options := _extract_question_options(update):
+        payload["question_options"] = question_options
     if status == "in_progress":
         extracted = _extract_tool_output(
             update, keep_lines=_TAIL_WINDOW_LINES, keep_tail=True)

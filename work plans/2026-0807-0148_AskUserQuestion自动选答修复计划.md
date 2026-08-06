@@ -1,6 +1,7 @@
 # AskUserQuestion 自动选答修复计划
 
-> **状态**：草稿
+> **状态**：已实施（T1-T4 + T5 抓帧，2026-08-07 02:40；验证全绿：单元测试 /
+> mock 截图 10 场景 / 真实 kimi E2E 桥交互 / 降级弹窗路径）
 > **范围**：`llm/permission_policy.py`（决策层）、`llm/providers/acp.py`（协议层）、`llm/base.py`（载荷契约）、`gui/panels/chat/panel.py`（审批路由）、`gui/panels/chat/permission_queue.py`（交互串行化）、`gui/panels/chat/permission_dialog.py`（弹窗面）、`gui/panels/chat/cards.py`（QuestionCard）、`scripts/`（验证脚本）
 > **时间**：2026-08-07 01:48（设计，UTC+8）
 > **优先级**：高（功能性缺陷：用户选择权被静默剥夺）

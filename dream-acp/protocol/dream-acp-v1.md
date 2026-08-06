@@ -174,6 +174,13 @@ content 数组（如 `[{"type":"text",...},{"type":"image_url",...}]`）或
 展示。系统指令性回执文本（如 "Ensure that you continue to use the
 todo list..."）不应作为出参发送——客户端有白名单过滤，会被剔除。
 
+问答卡选项结构载荷（0807-0148 修订）：`rawInput.questions` 每项为
+`{question, header?, options: [{label, description?}], multi_select}`
+（kimi 实证：多选字段名为 `multi_select` 蛇形；`header` 为可选短标题）。
+客户端协议层提取为 `question_options` 载荷字段（与 `questions` 文本
+列表并存），供问答卡交互侧渲染选项；多选题经 ACP `request_permission`
+降级为单选语义（响应模型只能回一个 optionId）。
+
 未识别的 `sessionUpdate` 类型与 `_meta` 厂商扩展会被客户端**静默忽略**
 （不崩），但不得依赖此行为传递关键信息（见「变更纪律」）。
 

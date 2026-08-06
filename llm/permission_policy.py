@@ -52,6 +52,27 @@ PERMISSION_MODE_LABELS: dict[str, tuple[str, str]] = {
 #: allow_always 优于 allow_once——等价"始终允许"语义，避免每轮重复决策）
 ALLOW_KIND_PREFERENCE = ("allow_always", "allow_once")
 
+#: question 类交互工具名归一化小写名集（0807-0148 计划 T1）：
+#: AskUserQuestion 的 ACP 语义是"agent 提问 → 用户作答"，答案选项以
+#: allow_once kind 编码（实证：.temp/frame_archive/askuser_*.json），
+#: 无特判会被决策链当普通工具审批自动放行并秒选第一个选项。
+#: 其他后端同类工具名按实证补入，集中维护。
+_QUESTION_TOOL_NAMES = frozenset({"askuserquestion"})
+
+
+def is_question_request(params: PermissionParams) -> bool:
+    """question 类交互请求识别（0807-0148 计划 T1）。
+
+    只做 title 判定（纯逻辑纪律：不碰载荷深层结构）；归一化与
+    cards.py `_normalize_tool_name` 同纪律：去 `mcp__server__` 前缀取末段、
+    小写化。
+    """
+    tool_call = params.get("toolCall") or {}
+    title = (tool_call.get("title") or "").strip()
+    if "__" in title:
+        title = title.split("__")[-1]
+    return title.lower() in _QUESTION_TOOL_NAMES
+
 #: 危险命令黑名单（编译后正则, 命中原因）；命令文本归一化（压缩空白 + 小写）后粗匹配。
 #: 每条注明"为什么危险"（AFCP 3.4 常量化；条目按使用反馈增补，见计划 §7 备案 4）
 DANGEROUS_COMMAND_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = tuple(
@@ -107,7 +128,14 @@ def decide_permission(params: PermissionParams, mode: str = DEFAULT_PERMISSION_M
     - auto_guarded：非 Bash 放行；Bash 仅黑名单命中弹窗（附原因）；
       提取不到命令文本按放手语义放行（风险已记录在案，见 0757 计划 §6）
     - auto_all：一律放行（护栏关闭，高危档）
+
+    question 特判（0807-0148 计划 T1，置于四态分支之前）：AskUserQuestion
+    类交互请求四态一律 DECISION_ASK——权限模式管的是"危险操作放不放行"，
+    管不到"替用户回答问题"；即使 auto_all（护栏关闭档）也不自动选答。
+    这是语义边界，不是配置项。
     """
+    if is_question_request(params):
+        return DECISION_ASK, None
     if mode not in PERMISSION_MODES:
         mode = DEFAULT_PERMISSION_MODE
     if mode == MODE_AUTO_ALL:

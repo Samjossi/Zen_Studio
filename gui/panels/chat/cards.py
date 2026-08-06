@@ -36,6 +36,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPlainTextEdit,
+    QPushButton,
     QTextBrowser,
     QToolButton,
     QVBoxLayout,
@@ -780,17 +781,79 @@ class QuestionCard(ToolCard):
     completed 帧出参 `{"answers": {...}}` 解析后按问答对展示（不显示
     裸 JSON）。questions 可随 update 帧迟到回填（首帧空壳场景，
     _ensure_rows 幂等建行）。
+
+    0807-0148 计划 T4 交互侧：pending 态经 activate_options 在 body 尾部
+    激活选项按钮组（QUESTION_BRIDGE 串行调度），用户点击即回调回传
+    optionId；completed 帧到达后按既有 _fill_answers 渲染问答对。
+    终态（已作答/已 completed）卡片拒活（activate_options 返回 False），
+    旧会话重放不复活交互按钮。
     """
 
     def _build_body(self, payload: dict) -> None:
         self._qa_rows: list[tuple[str, QLabel]] = []
         self._fallback: BodyText | None = None
         self._pending: QLabel | None = None
+        self._answered = False            # 终态标记（completed 拒活交互）
+        self._options_box: QWidget | None = None  # 激活中的选项按钮组
         self._ensure_rows(payload.get("questions") or [])
         if not self._qa_rows:
             self._pending = QLabel("等待用户回答…", self)
             self._pending.setStyleSheet(f"color: {self._colors.tool_fg};")
             self.add_body_widget(self._pending)
+        # 卡片内交互注册（T4：QUESTION_BRIDGE 按 tool_call_id 定位本卡）；
+        # 销毁自动注销，防野指针
+        if self._tid:
+            _QUESTION_CARD_REGISTRY[self._tid] = self
+            self.destroyed.connect(
+                lambda _obj=None, tid=self._tid: _QUESTION_CARD_REGISTRY.pop(tid, None))
+
+    # ------------------------------------------------------------------
+    # 交互侧（0807-0148 计划 T4）
+    # ------------------------------------------------------------------
+    def activate_options(self, options: list, on_chosen) -> bool:
+        """pending 态激活选项按钮组；已终态/已激活/无选项返回 False
+        （调用方降级 QuestionDialog 弹窗兜底）。
+
+        按钮文案用 agent 提供的 name 原文（答案是选项不是审批动作，
+        与 QuestionDialog 同纪律）；点击后全组禁点、选中项打 ✅ 即时反馈，
+        completed 帧到达后由 _fill_answers 定格问答对。
+        """
+        if self._answered or self._options_box is not None or not options:
+            return False
+        box = QWidget(self)
+        box_layout = QVBoxLayout(box)
+        box_layout.setContentsMargins(0, 2, 0, 0)
+        box_layout.setSpacing(4)
+        hint = QLabel("请选择：", box)
+        hint.setStyleSheet(f"color: {self._colors.tool_fg};")
+        box_layout.addWidget(hint)
+        buttons: list[QPushButton] = []
+        for opt in options:
+            button = QPushButton(opt.get("name") or opt.get("optionId", "?"), box)
+            button.clicked.connect(
+                lambda _checked=False, oid=opt.get("optionId"), b=button, bs=buttons:
+                self._on_option_clicked(oid, b, bs, on_chosen))
+            buttons.append(button)
+            box_layout.addWidget(button)
+        self._options_box = box
+        self.add_body_widget(box)
+        self.set_open(True)  # 激活必见（默认开合 other 为折，不展开用户看不见按钮）
+        return True
+
+    def deactivate_options(self) -> None:
+        """撤销选项按钮组（超时_abort 路径：reader 已按拒绝兜底）。"""
+        if self._options_box is not None:
+            self._options_box.setVisible(False)
+            self._options_box.deleteLater()
+            self._options_box = None
+
+    def _on_option_clicked(self, option_id, button, buttons, on_chosen) -> None:
+        """选项点击：全组禁点 + 选中项 ✅ 即时反馈（定格等 completed 帧），
+        回调回传 optionId（agent 提供原值，不臆造）。"""
+        for b in buttons:
+            b.setEnabled(False)
+        button.setText(f"✅ {button.text()}")
+        on_chosen(option_id)
 
     def _ensure_rows(self, questions: list) -> None:
         """问答行幂等补建（首帧空壳时 questions 随 update 帧迟到）。"""
@@ -815,6 +878,9 @@ class QuestionCard(ToolCard):
         self._ensure_rows(payload.get("questions") or [])
 
     def _on_completed(self, payload: dict) -> None:
+        # 终态拒活交互（T4：旧会话重放不复活按钮；激活中的按钮组随定格撤除）
+        self._answered = True
+        self.deactivate_options()
         self._ensure_rows(payload.get("questions") or [])
         output = payload.get("output") or ""
         answers = None
@@ -860,6 +926,25 @@ class QuestionCard(ToolCard):
             self.add_body_widget(self._fallback)
         self._fallback.set_text(text)
         self._fallback.setVisible(True)
+
+
+#: 待答 QuestionCard 注册表（0807-0148 计划 T4）：tool_call_id → 卡片；
+#: 卡片构造时登记、销毁时注销。QUESTION_BRIDGE 按 tool_call_id 定位
+#: 待答卡激活选项按钮组；未命中（旧轨渲染/重放）由桥降级弹窗兜底。
+_QUESTION_CARD_REGISTRY: dict[str, "QuestionCard"] = {}
+
+
+def find_question_card(tool_call_id: str) -> "QuestionCard | None":
+    """按 tool_call_id 查待答 QuestionCard；已销毁条目惰性清理后返回 None。"""
+    card = _QUESTION_CARD_REGISTRY.get(tool_call_id)
+    if card is None:
+        return None
+    try:
+        card.isVisible()  # 探活：已销毁的 QWidget 访问抛 RuntimeError
+    except RuntimeError:
+        _QUESTION_CARD_REGISTRY.pop(tool_call_id, None)
+        return None
+    return card
 
 
 #: MCP 卡出参图片显示限宽（0806 计划 T4：QTextBrowser 不支持 max-width，
