@@ -44,6 +44,7 @@ from PySide6.QtWidgets import (
 )
 
 from gui.theme import get_mono_family
+from gui.panels.chat.permission_dialog import OTHER_HINT_TEXT
 
 #: body 限高内滚动上限（0645 §2.4：固定最大高度 + 块内滚动条，
 #: 卡片自身高度有界，不撑爆 QScrollArea 布局）
@@ -835,6 +836,12 @@ class QuestionCard(ToolCard):
                 self._on_option_clicked(oid, b, bs, on_chosen))
             buttons.append(button)
             box_layout.addWidget(button)
+        # 自由作答引导（0807-0445 方案 B，与 QuestionDialog 同一文案来源）：
+        # ACP 通道回传不了自由文本，引导用户 Skip 后走正文输入
+        other_hint = QLabel(OTHER_HINT_TEXT, box)
+        other_hint.setWordWrap(True)
+        other_hint.setStyleSheet(f"color: {self._colors.tool_fg};")
+        box_layout.addWidget(other_hint)
         self._options_box = box
         self.add_body_widget(box)
         self.set_open(True)  # 激活必见（默认开合 other 为折，不展开用户看不见按钮）
@@ -884,17 +891,24 @@ class QuestionCard(ToolCard):
         self._ensure_rows(payload.get("questions") or [])
         output = payload.get("output") or ""
         answers = None
+        dismissed_note = None
         try:
             obj = json.loads(output.strip()) if output.strip() else None
             if isinstance(obj, dict):
                 candidate = obj.get("answers") if isinstance(obj.get("answers"), dict) else obj
                 answers = candidate
+                # 用户 Skip/dismiss（0807-0445 方案 B 引导路径的常态终态）：
+                # answers 空 + note 说明，取 note 渲染而非裸 JSON
+                if not obj.get("answers") and isinstance(obj.get("note"), str):
+                    dismissed_note = obj["note"]
         except ValueError:
             pass
         if answers and self._qa_rows:
             self._fill_answers(answers)
         elif answers:
             self._show_fallback(json.dumps(answers, ensure_ascii=False, indent=2))
+        elif dismissed_note:
+            self._show_fallback(f"⏭ {dismissed_note}")
         elif output:
             # 非 JSON 出参（用户自由文本回答等）：原文兜底展示
             self._show_fallback(output)

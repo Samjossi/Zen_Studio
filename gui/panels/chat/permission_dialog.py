@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
 )
 
 from gui.popups import TranslucentMenuPlainTextEdit
-from gui.theme import WARNING_COLOR
+from gui.theme import CHAT_PACK, WARNING_COLOR
 from llm import PermissionParams
 
 #: 选项 kind → 中文按钮文案（agent 提供英文 name 时兜底）
@@ -27,6 +27,13 @@ KIND_LABELS = {
     "reject_once": "拒绝",
     "reject_always": "始终拒绝",
 }
+
+#: 自由作答引导文案（0807-0445 计划，方案 B；QuestionDialog 与 QuestionCard
+#: 共用单一来源）。背景：T0 spike 实证 kimi ACP request_permission 通道无法
+#: 回传自由文本（H1 文本原文/H2 约定前缀/H3 _meta 全部失效——未知 optionId
+#: 被静默视为 dismiss，.temp/frame_archive/askuser_other_*.json），客户端
+#: 无法附加可回传文本的 Other 输入项，故降级为引导提示：Skip 后正文作答。
+OTHER_HINT_TEXT = "💡 选项都不合适？点「Skip」后在聊天输入框直接回复，即可自由作答"
 
 
 class PermissionDialog(QDialog):
@@ -132,6 +139,11 @@ class QuestionDialog(QDialog):
     ——request_permission 响应模型只能回一个 optionId，选项逐题单个编码。
     故本对话框统一单选按钮组；若未来后端出现多选组合编码，再升级复选框
     形态（TODO，须先抓帧证实回传协议）。
+
+    自由作答（0807-0445 计划，方案 B）：按钮组上方展示 OTHER_HINT_TEXT
+    引导提示——T0 spike 实证 ACP request_permission 通道无法回传自由文本
+    （H1/H2/H3 全灭），无法附加可回传文本的 Other 输入项，故引导用户
+    Skip 后在聊天输入框正文作答。
     """
 
     def __init__(self, params: PermissionParams, parent: QWidget | None = None) -> None:
@@ -162,6 +174,12 @@ class QuestionDialog(QDialog):
             label = opt.get("name") or opt.get("optionId", "?")
             button = buttons.addButton(label, QDialogButtonBox.ButtonRole.ActionRole)
             button.clicked.connect(lambda _checked=False, oid=opt.get("optionId"): self._choose(oid))
+        # 自由作答引导（0807-0445 方案 B）：ACP 通道回传不了自由文本，
+        # 引导用户 Skip 后走正文输入（弱化色，单一来源 CHAT_PACK tool_fg）
+        other_hint = QLabel(OTHER_HINT_TEXT, self)
+        other_hint.setWordWrap(True)
+        other_hint.setStyleSheet(f"color: {CHAT_PACK['tool_fg']};")
+        layout.addWidget(other_hint)
         layout.addWidget(buttons)
 
     def _choose(self, option_id: str | None) -> None:

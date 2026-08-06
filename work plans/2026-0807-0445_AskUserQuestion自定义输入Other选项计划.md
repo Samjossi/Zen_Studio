@@ -1,6 +1,6 @@
 # AskUserQuestion 自定义输入（Other 选项）计划
 
-> **状态**：草稿（仅计划，暂不实施）
+> **状态**：已实施（方案 B 引导提示，2026-08-07；原计划 T1/T2 的「Other 输入经 selected 通道回传」被 T0 spike 证伪，见 §8）
 > **范围**：`gui/panels/chat/permission_dialog.py`（QuestionDialog）、`gui/panels/chat/cards.py`（QuestionCard 按钮组）、`llm/permission_policy.py`（如需识别自定义回传）、`.temp/`（spike 脚本）、`scripts/`（验证）
 > **时间**：2026-08-07 04:45（设计，UTC+8）
 > **优先级**：中（体验性缺陷：用户只能二选一/多选一，无法自由作答）
@@ -130,3 +130,48 @@ kimi agent 侧实证说明（2026-08-07 会话截图）：按 AskUserQuestion �
 ## 7. 与 0148 计划的关系
 
 0148 计划归还了用户的**选项选择权**（不自动选答）；本计划归还用户的**自由作答权**（不被固定选项禁锢）。两者合流后 AskUserQuestion 交互才完整覆盖 kimi 侧接口规范：固定选项 + Skip + Other 自定义输入。
+
+---
+
+## 8. 实施记录（2026-08-07，T0 spike → 方案 B 降级）
+
+### 8.1 T0 spike 结论：回传通道证伪（H1-H3 全灭）
+
+spike 脚本 `.temp/spike_askuser_other.py`，对真实 `kimi acp` 逐一实证四种编码
+（抓帧存档 `.temp/frame_archive/askuser_other_{h1,h2,h3a,h3b}_*.json`）：
+
+| 候选 | 编码 | 实测结果 |
+|:---:|:---|:---|
+| H1 | optionId = 文本原文（`"紫色渐变"`） | ❌ completed `answers:{}`，note "User dismissed"——未知 optionId 被**静默视为 dismiss** |
+| H2 | optionId = `custom:紫色渐变` | ❌ 同上 |
+| H3a | 无效 optionId + outcome/result 双位 `_meta.customText` | ❌ 同上 |
+| H3b | 合法 optionId（q0_opt_2）+ `_meta.customText` | ❌ answers 落选项名「绿色渐变」，`_meta` 被完全忽略 |
+
+补证链：
+- kimi 官方文档（tools.html）确证「系统自动附加"其他"选项」——但那是 kimi **自家 TUI/web 客户端**的内部通道，ACP 适配层不外露；
+- changelog 0.23.0：「AskUserQuestion 的回答以问题文本与选项标签回传给模型……现有客户端仍以选项 id 作答」——ACP 侧只有 optionId 一个槽位，适配层校验 optionId ∈ 请求选项集，表外值静默丢弃；
+- kilocode 先例（`question.shared.ts`：custom 文本原文直接进 answers 槽位）成立，但那是 kilocode 自家 question 协议，非 ACP request_permission；
+- 本机 kimi 0.29.1 → 升级 0.34.0（当日最新）复测 H1，结论不变；
+- kimi acp 文档：不稳定面 19 个方法仅接入 `session/set_model`，elicitation 未接——协议层确无第二通道。
+
+**结论**：kimi ACP（≤0.34.0）的 request_permission 通道无法回传自由文本。原计划 T1/T2 的「Other 输入经 selected_option_id 通道回传」不成立；若强行附加输入框，用户答案将静默丢失（比 0148 自动选答更隐蔽）。🔴 风险实证兑现。
+
+### 8.2 降级方案 B（用户拍板）：仅加引导提示
+
+- `permission_dialog.py`：新增模块级常量 `OTHER_HINT_TEXT`（单一文案来源）；QuestionDialog 按钮组上方加弱化色引导行（`CHAT_PACK["tool_fg"]`）；
+- `cards.py`：QuestionCard `activate_options` 按钮组末尾加同款引导行（`self._colors.tool_fg`），文案复用 `OTHER_HINT_TEXT`；
+- 引导语义与既有机制对齐：「Skip」（reject_once 选项，弹窗/卡片均有）→ agent 收到 skip/dismiss 后正文追问（spike 实测行为）→ 用户聊天输入框正文作答；
+- T3 顺带修复：`QuestionCard._on_completed` 对 dismissed 终态（`answers:{}` + `note`）渲染 `⏭ + note` 原文，替代裸 JSON——方案 B 引导后 dismissed 成为常态终态，此渲染缺口必修。
+
+### 8.3 验证结果
+
+| 验证 | 结果 |
+|:---|:---|
+| `scripts/test_question_permission.py` | 全部断言通过（回归无损） |
+| mock 截图 07（pending 卡）/ 10（弹窗） | 引导行形态视觉确认 ✅（`.temp/card_shots/`） |
+| mock 截图 11（新增 dismissed 场景） | `⏭ User dismissed…` 渲染确认 ✅ |
+| 真实 E2E `.temp/e2e_askuser_bridge.py` | PASS：固定选项路径回归无损 |
+
+### 8.4 遗留（另立项候选）
+
+- 方案 A（取消 + 自动把自定义文本补发为下一条用户消息）功能上可实现答案必达，但改变轮次语义、completed 卡仍显示 dismissed，本次未采纳；若未来 kimi ACP 接入 elicitation 不稳定面或开放自定义回传编码，应重启 T1/T2 原始设计（本计划 §3 蓝本仍有效）。

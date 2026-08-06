@@ -196,7 +196,8 @@ def _scenarios() -> list[tuple[str, list[dict], str, object]]:
                             "header": "颜色"}]}),
         ], "pending 态 QuestionCard 自动展开：问题粗体行 + 「请选择：」+ "
            "选项按钮组（红色/蓝色/绿色/Skip——真实帧 options 含 reject_once "
-           "的 Skip），状态图标 ◐，无自动选答",
+           "的 Skip）+ 按钮组末尾自由作答引导提示（0807-0445 方案 B），"
+           "状态图标 ◐，无自动选答",
            lambda cards: find_question_card("tc-askbtn").activate_options(
                [{"optionId": "q0_opt_0", "name": "红色", "kind": "allow_once"},
                 {"optionId": "q0_opt_1", "name": "蓝色", "kind": "allow_once"},
@@ -226,6 +227,22 @@ def _scenarios() -> list[tuple[str, list[dict], str, object]]:
                                           "香炉"}}, ensure_ascii=False)}),
         ], "multi_select（蛇形字段名，真实帧实证）问题 completed 问答对正常"
            "渲染；question_options 载荷提取不破坏现行渲染", None),
+        # 0807-0445 计划（方案 B）：dismissed 终态渲染——用户按引导 Skip 后
+        # 自由作答的常态终态（蓝本 .temp/frame_archive/askuser_other_*.json）
+        ("11_askuser_已跳过_dismissed", [
+            _tool_call("tc-askskip", "AskUserQuestion", "other",
+                       {"questions": [
+                           {"question": "你希望问候语的渐变色是哪种？",
+                            "options": [{"label": "红色渐变"}, {"label": "蓝色渐变"},
+                                        {"label": "绿色渐变"}],
+                            "header": "颜色"}]}),
+            _tool_update("tc-askskip", "completed", title="AskUserQuestion",
+                         raw_output={"output": json.dumps(
+                             {"answers": {},
+                              "note": "User dismissed the question without "
+                                      "answering."}, ensure_ascii=False)}),
+        ], "dismissed（answers 空 + note）completed 渲染为 ⏭ + note 原文，"
+           "不再裸露裸 JSON", None),
     ]
 
 
@@ -350,7 +367,8 @@ def main() -> int:
         return 1
     manifest_lines.append("## 10_questiondialog_弹窗")
     manifest_lines.append(f"- 截图：`{png.relative_to(PROJECT_ROOT)}`")
-    manifest_lines.append("- 预期看点：标题「AI 提问」+ 问题粗体行 + 选项按钮"
+    manifest_lines.append("- 预期看点：标题「AI 提问」+ 问题粗体行 + 自由作答"
+                          "引导提示行（0807-0445 方案 B）+ 选项按钮"
                           "（红色/蓝色/绿色/Skip 原文，无「允许一次」审批语义映射）")
     manifest_lines.append("")
     print(f"[shot_tool_cards] {png.relative_to(PROJECT_ROOT)}")
