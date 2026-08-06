@@ -24,7 +24,7 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import QApplication, QTextEdit
 
-from core.paths import IS_FROZEN, PROJECT_ROOT, USER_CONFIG_DIR
+from core.paths import IS_FROZEN, PROJECT_ROOT, USER_CONFIG_DIR, workspace_display_path
 from gui.panels.chat.attachments import mime_type_of
 from gui.popups import exec_standard_context_menu
 from gui.selection_band import SUPPRESSION_QSS, paint_selection_band
@@ -261,13 +261,13 @@ class ChatInput(QTextEdit):
                 self.image_fallback.emit()
 
     def _mention_text(self, path: str) -> str:
-        """本地路径 → '@相对路径 '（目录带尾 '/'，工作区外用绝对路径）。"""
+        """本地路径 → '@相对路径 '（目录带尾 '/'，工作区外用绝对路径）。
+
+        换算规则经 workspace_display_path 单一来源（2026-0806-1908 计划
+        T1 改动点 2），与 ACP 图片附件路径透传共用防漂移。
+        """
         p = Path(path).resolve()
-        try:
-            text = p.relative_to(self._workspace_root).as_posix()
-        except ValueError:
-            # 工作区外路径：插入绝对路径，后端 CLI 同样可解析
-            text = p.as_posix()
+        text = workspace_display_path(path, self._workspace_root)
         if p.is_dir() and not text.endswith("/"):
             text += "/"
         return f"@{text} "

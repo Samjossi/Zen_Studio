@@ -258,7 +258,7 @@ class DreamAcpLLM(LanguageModel):
             conn.purge_updates()
             conn.begin_turn("session/prompt", {
                 "sessionId": self._session_id,
-                "prompt": build_prompt_blocks(message),
+                "prompt": build_prompt_blocks(message, workspace_root=self._cwd),
             })
             try:
                 yield from self._iter_turn_chunks(conn)

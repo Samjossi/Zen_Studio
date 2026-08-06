@@ -53,3 +53,20 @@ def _user_config_dir() -> Path:
 
 
 USER_CONFIG_DIR = _user_config_dir()
+
+
+def workspace_display_path(path: str | Path, workspace_root: str | Path | None) -> str:
+    """本地绝对路径 → 展示路径：工作区内转相对（posix），区外保留绝对（posix）。
+
+    单一换算来源（2026-0806-1908 计划 T1 改动点 2）：输入框 @mention
+    （gui/panels/chat/input.py _mention_text）与 ACP 图片附件路径透传
+    （llm/providers/acp.py build_prompt_blocks）共用，防两处漂移。
+    root 为 None（未知工作区）时退化为绝对路径。
+    """
+    p = Path(path).resolve()
+    if workspace_root is not None:
+        try:
+            return p.relative_to(Path(workspace_root).resolve()).as_posix()
+        except ValueError:
+            pass  # 工作区外路径：保留绝对路径，agent CLI 同样可解析
+    return p.as_posix()
