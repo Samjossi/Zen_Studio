@@ -72,6 +72,21 @@ class Chunk:
     payload: dict | None = None
 
 
+class TodoEntry(TypedDict, total=False):
+    """todo 清单条目（plan 快照与 todowrite rawInput 两通道同构，1425 封存款 F1）。"""
+    content: str
+    status: str         # pending / in_progress / completed / cancelled
+    priority: str       # high / medium / low（渲染层本期不消费，载荷留存）
+    #: 相对上次快照的变更标记（0808-0627 计划 T1：协议层跨调用 diff 产物，
+    #: 渲染层高亮数据源；仅供人类查看，不回传 AI、不改协议语义）
+    changed: bool
+
+
+class TodoPayload(TypedDict):
+    """kind="todo" 的载荷：entries 为全量快照。"""
+    entries: list[TodoEntry]
+
+
 class ToolCallPayload(TypedDict, total=False):
     """tool_call Chunk 的结构化载荷（路由层直递 output.append_tool_call）。"""
     tool_call_id: str   # 状态更新的锚点键（1425 封存款 F3）
@@ -102,6 +117,10 @@ class ToolCallPayload(TypedDict, total=False):
     #: 仅供人类查看，不回传 AI；rawInput.path/filePath 原值，
     #: 扩展名白名单过滤，相对路径由渲染层按工作区根解析）
     media_path: str
+    #: todowrite/TodoList 清单快照（0808-0627 计划 T1：rawInput.todos
+    #: 提取 + 跨调用 diff changed 标记，TodoListCard 清单区数据源；
+    #: 仅供人类查看，不回传 AI、不改协议语义）
+    todos: list[TodoEntry]
 
 
 class ToolUpdatePayload(TypedDict, total=False):
@@ -153,18 +172,11 @@ class ToolUpdatePayload(TypedDict, total=False):
     #: update 帧与 input_detail 同频补发，同一 _input_detail_seen 账本；
     #: 与 ToolCallPayload.media_path 同源同构）
     media_path: str
-
-
-class TodoEntry(TypedDict, total=False):
-    """todo 清单条目（plan 快照与 todowrite rawInput 两通道同构，1425 封存款 F1）。"""
-    content: str
-    status: str         # pending / in_progress / completed / cancelled
-    priority: str       # high / medium / low（渲染层本期不消费，载荷留存）
-
-
-class TodoPayload(TypedDict):
-    """kind="todo" 的载荷：entries 为全量快照。"""
-    entries: list[TodoEntry]
+    #: todowrite/TodoList 清单快照迟到回填（0808-0627 计划 T1：kimi 系
+    #: 首帧空壳时随 update 帧补发；每帧都提不设去重账本——todo 语义是
+    #: 快照推进，与 input_detail/media_path「首帧优先」语义不同；
+    #: 与 ToolCallPayload.todos 同源同构，同走跨调用 diff 管线）
+    todos: list[TodoEntry]
 
 
 class LanguageModel(Protocol):

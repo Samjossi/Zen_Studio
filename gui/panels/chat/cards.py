@@ -1104,6 +1104,135 @@ class MediaReadCard(McpCard):
                 f'width="{_MEDIA_THUMB_WIDTH}">')
 
 
+# ----------------------------------------------------------------------
+# TodoListCard（0808-0627 计划 T2）与 todo 条目共享绘制
+# ----------------------------------------------------------------------
+def _make_todo_row(entry: dict, colors: CardColors, parent: QWidget,
+                   highlight_active: bool = False) -> "_ElidedLabel":
+    """todo 条目行（0808-0627 计划 T2 提取共享：TodoListCard 与 TodoCard
+    共用，无双写）：☑/▶/☐ + 完成/取消项灰化删除线 + 长文本省略。
+
+    highlight_active=True（TodoListCard 专用）：changed 项以 tool_fg
+    醒目（协议层跨调用 diff 产物，渲染层不自行比对）；in_progress 项
+    恒醒目（对齐 kilocode TUI 警告色语义）。False（plan 通道 TodoCard）
+    维持原视觉零变化。
+    """
+    status = entry.get("status") or "pending"
+    changed = highlight_active and bool(entry.get("changed"))
+    label = _ElidedLabel(parent=parent)
+    if status in ("completed", "cancelled"):
+        label.setText(f"☑ {entry.get('content') or ''}")
+        font = label.font()
+        font.setStrikeOut(True)
+        label.setFont(font)
+        # 刚完成的变更项仍醒目（删除线保留，灰色让位 tool_fg）
+        label.setStyleSheet(
+            f"color: {colors.tool_fg if changed else colors.reasoning_fg};")
+    elif status == "in_progress":
+        label.setText(f"▶ {entry.get('content') or ''}")
+        if highlight_active:
+            label.setStyleSheet(f"color: {colors.tool_fg};")
+    else:
+        label.setText(f"☐ {entry.get('content') or ''}")
+        if changed:
+            label.setStyleSheet(f"color: {colors.tool_fg};")
+    return label
+
+
+def _fill_todo_list(layout: QVBoxLayout, entries: list,
+                    colors: CardColors, parent: QWidget,
+                    highlight_active: bool = False) -> tuple[int, int]:
+    """清空 layout 并整刷条目（快照语义，幂等）；返回 (done, total)。"""
+    while layout.count():
+        item = layout.takeAt(0)
+        if widget := item.widget():
+            widget.deleteLater()
+    done = 0
+    for entry in entries:
+        if (entry.get("status") or "pending") in ("completed", "cancelled"):
+            done += 1
+        layout.addWidget(
+            _make_todo_row(entry, colors, parent, highlight_active))
+    return done, len(entries)
+
+
+def _strip_todos_line(detail: str) -> str:
+    """入参区预格式化文本剔除 todos: JSON 行（清单区已渲染时信息重复；
+    协议层 _format_input_detail 将 list 值紧凑化为单行，行首键名锚定）。
+    """
+    lines = [line for line in detail.split("\n")
+             if not line.startswith("todos:")]
+    return "\n".join(lines).strip("\n")
+
+
+class TodoListCard(McpCard):
+    """todowrite/TodoList 专用卡（0808-0627 计划 T2）：McpCard 入参/出参
+    两节之间插清单区（阅读顺序：调用 → 清单 → 回执）。
+
+    - 每次调用一张新卡由工具卡机制天然承担（append_tool_call 每
+      toolCallId 建一卡），历史快照逐卡留痕、最新快照恒在对话流底部；
+    - changed 高亮消费协议层跨调用 diff 产物（渲染层不自行比对），
+      in_progress 项恒醒目（对齐 kilocode TUI 警告色语义）；
+    - 清单区在场时入参区 todos: JSON 行抑制（信息重复）；
+      todos 为空/残缺 → 清单区不建、入参 JSON 保留（静默降级兜底）；
+    - 首帧空壳场景（kimi 系）：清单随迟到 update 帧载荷出现
+      （apply_update 整刷，幂等）。
+    """
+
+    def _build_body(self, payload: dict) -> None:
+        entries = payload.get("todos") or []
+        self._todo_label: QLabel | None = None
+        self._todo_host: QWidget | None = None
+        self._todo_layout: QVBoxLayout | None = None
+        if entries:
+            # 入参区 todos JSON 行抑制（无可视化时保留原文兜底）
+            payload = {**payload, "input_detail": _strip_todos_line(
+                payload.get("input_detail") or "")}
+        super()._build_body(payload)
+        if entries:
+            self._ensure_todo_section()
+            self._set_todos(entries)
+
+    def _ensure_todo_section(self) -> None:
+        """清单区构建（入参与出参之间；迟到回填场景首次调用）。"""
+        if self._todo_layout is not None:
+            return
+        self._todo_label = QLabel("清单", self)
+        self._todo_label.setStyleSheet(
+            f"color: {self._colors.tool_fg}; font-size: 90%;")
+        self._todo_host = QWidget(self)
+        self._todo_layout = QVBoxLayout(self._todo_host)
+        self._todo_layout.setContentsMargins(0, 0, 0, 0)
+        self._todo_layout.setSpacing(2)
+        idx = self._body_layout.indexOf(self._out_label)
+        self._body_layout.insertWidget(idx, self._todo_host)
+        self._body_layout.insertWidget(idx, self._todo_label)
+
+    def _set_todos(self, entries: list) -> None:
+        """清单区整刷 + 副标题 x/y 项完成（快照语义，幂等）。"""
+        assert self._todo_layout is not None
+        done, total = _fill_todo_list(
+            self._todo_layout, entries, self._colors, self,
+            highlight_active=True)
+        self.set_subtitle(f"— {done}/{total} 项完成" if total else "")
+
+    def apply_update(self, payload: dict) -> None:
+        # 清单区先行：保证同帧 input_detail 回填经 _set_input_detail
+        # 走 todos JSON 行抑制路径（否则 JSON 原文先入区、清单后建）
+        if payload.get("todos"):
+            self._ensure_todo_section()
+        super().apply_update(payload)
+        if payload.get("todos"):
+            self._set_todos(payload["todos"])
+
+    def _set_input_detail(self, detail: str) -> None:
+        """迟到入参回填：清单区在场时 todos JSON 行抑制（同首帧口径）。"""
+        if self._todo_layout is not None:
+            detail = _strip_todos_line(detail)
+        if detail:
+            super()._set_input_detail(detail)
+
+
 def _diff_soft_limit_note() -> int:
     """截断尾注行数（与协议层 _BODY_SOFT_LIMIT_LINES 同源表述；
     渲染层不引协议层私有常量，尾注数值硬编与协议层同步——改一处须同步）。
@@ -1114,12 +1243,15 @@ def _diff_soft_limit_note() -> int:
 #: 工具名 → 卡片类二级分派表（0806 计划 T5，对标 kilocode ToolRegistry：
 #: 字典注册式、未命中回退 tool_kind 分派，后续扩充只加表项；键为归一化
 #: 后小写工具名。0158 计划 T2 增补 readmediafile——0806「无需专用卡」
-#: 裁决随入参略缩图需求撤销）
+#: 裁决随入参略缩图需求撤销；0808-0627 计划 T2 增补 todolist/todowrite
+#: ——首帧特判合并会话级单卡的旧路线撤销，每次调用一张 TodoListCard）
 _TOOL_NAME_CARDS: dict[str, type] = {
     "askuserquestion": QuestionCard,
     "agent": SubagentCard,
     "task": SubagentCard,
     "readmediafile": MediaReadCard,
+    "todolist": TodoListCard,
+    "todowrite": TodoListCard,
 }
 
 
@@ -1231,28 +1363,8 @@ class TodoCard(QFrame):
         layout.addLayout(self._list)
 
     def set_entries(self, entries: list) -> None:
-        """快照整刷（双通道 todo 同源，F1）；完成/取消项灰 + 删除线。"""
-        while self._list.count():
-            item = self._list.takeAt(0)
-            if widget := item.widget():
-                widget.deleteLater()
-        done = total = 0
-        for entry in entries:
-            status = entry.get("status") or "pending"
-            total += 1
-            # 0401 计划 T2：条目长文本省略截断（todo 内容可达数百字，
-            # QLabel 直挂会把容器撑出横向滚动条）
-            label = _ElidedLabel(parent=self)
-            if status in ("completed", "cancelled"):
-                done += 1
-                label.setText(f"☑ {entry.get('content') or ''}")
-                font = label.font()
-                font.setStrikeOut(True)
-                label.setFont(font)
-                label.setStyleSheet(f"color: {self._colors.reasoning_fg};")
-            elif status == "in_progress":
-                label.setText(f"▶ {entry.get('content') or ''}")
-            else:
-                label.setText(f"☐ {entry.get('content') or ''}")
-            self._list.addWidget(label)
+        """快照整刷（双通道 todo 同源，F1）；完成/取消项灰 + 删除线。
+        0808-0627 计划 T2：条目绘制收敛共享函数（与 TodoListCard 共用），
+        plan 通道不高亮（highlight_active=False，视觉零变化）。"""
+        done, total = _fill_todo_list(self._list, entries, self._colors, self)
         self._subtitle.setText(f"— {done}/{total} 项完成" if total else "")

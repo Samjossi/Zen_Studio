@@ -950,11 +950,15 @@ class ChatPanel(QWidget):
         放行，DiffCard 补挂徽标/body/副标题。0806 计划 T1/T2：带
         input_detail（迟到入参回填）或 images（出参图片通道）的帧同样
         放行——否则协议层回填的入参永远到不了卡片（kimi 系 ReadMediaFile
-        首帧空壳场景）。
+        首帧空壳场景）。0808-0627 计划 T1：带 todos（清单快照迟到回填）
+        的帧同位放行（kimi 系 TodoList 首帧空壳场景，与 input_detail/
+        images 同范式）。
         """
         if payload.get("diff_hunks") or payload.get("summary"):
             return True
         if payload.get("input_detail") or payload.get("images"):
+            return True
+        if payload.get("todos"):
             return True
         if tid not in self._tool_commands or not payload.get("output"):
             return False

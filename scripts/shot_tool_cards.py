@@ -161,7 +161,10 @@ def _scenarios() -> list[tuple[str, list[dict], str, object]]:
                                      "修复方案为协议层双通道拆分 + 渲染层 BodyHtml 内嵌 <img>。"}),
         ], "SubagentCard：副标题/入参区显示 description 与 prompt 摘要"
            "（截断 200 字符），出参提取结果正文"),
-        ("04_todolist_回执过滤", [
+        ("04_todowrite_首帧清单卡", [
+            # 0808-0627 计划 T3 改写（行为已改道，原断言失效）：todowrite
+            # 首帧带 rawInput.todos（kilocode/opencode 系形态）→ 直接落
+            # TodoListCard，不再产会话级 TodoCard
             _tool_call("tc-todo", "todowrite", "other",
                        {"todos": [{"content": "协议层出参管线改造", "status": "completed"},
                                   {"content": "渲染层 McpCard 升级", "status": "in_progress"},
@@ -172,8 +175,9 @@ def _scenarios() -> list[tuple[str, list[dict], str, object]]:
                                      "Ensure that you continue to use the todo list "
                                      "to track your progress. Please proceed with "
                                      "the current tasks if applicable."}),
-        ], "TodoCard 清单正常渲染；补建卡的出参区无「Ensure that you "
-           "continue...」系统文本（已被过滤为空）"),
+        ], "TodoListCard 清单区渲染 ☑/▶/☐ + 完成项删除线 + 副标题 x/y；"
+           "入参区无 todos JSON 原文；出参区无「Todo list updated./"
+           "Ensure that you...」回执文本；不再出现会话级 TodoCard"),
         ("05_mcp_裸JSON出参", [
             _tool_call("tc-json", "mcp__fs__list_directory", "other",
                        {"path": "~/project"}),
@@ -283,6 +287,63 @@ def _scenarios() -> list[tuple[str, list[dict], str, object]]:
                          raw_output={"output": "读取失败：文件不存在"}),
         ], "media_path 装填但文件不存在：静默降级无破图占位，path 文本"
            "仍在", None),
+        # 0808-0627 计划 T3：TodoListCard 四场景（todos 载荷经真实
+        # map_session_update 协议链路产出，含跨调用 diff changed 标记）
+        ("16_todolist_首帧空壳迟到清单", [
+            # kimi 系时序（场景 01/13 帧序蓝本）：首帧空壳无 rawInput →
+            # in_progress 帧补齐 todos（快照语义，每帧都提不设去重账本）
+            _tool_call("tc-todolate", "TodoList", "other"),
+            _tool_update("tc-todolate", "in_progress",
+                         raw_input={"todos": [
+                             {"content": "协议层 todos 载荷 + diff",
+                              "status": "completed"},
+                             {"content": "渲染层 TodoListCard",
+                              "status": "in_progress"},
+                             {"content": "mock 截图闭环",
+                              "status": "pending"}]}),
+            _tool_update("tc-todolate", "completed", title="TodoList",
+                         raw_output={"output": "清单已更新"}),
+        ], "首帧空壳：TodoListCard 清单区随 in_progress 帧迟到载荷出现，"
+           "入参区保持「（无）」无 todos JSON 重复，副标题 1/3", None),
+        ("17_todolist_跨调用变更高亮", [
+            # 两次调用（两 toolCallId）：首卡快照 → 次卡快照（状态迁移
+            # completed/in_progress + 新增一项），跨调用 diff changed 标记
+            _tool_call("tc-todo1", "TodoList", "other",
+                       {"todos": [{"content": "协议层载荷", "status": "in_progress"},
+                                  {"content": "渲染层专用卡", "status": "pending"},
+                                  {"content": "mock 验证", "status": "pending"}]}),
+            _tool_update("tc-todo1", "completed", title="TodoList",
+                         raw_output={"output": "ok"}),
+            _tool_call("tc-todo2", "TodoList", "other",
+                       {"todos": [{"content": "协议层载荷", "status": "completed"},
+                                  {"content": "渲染层专用卡", "status": "in_progress"},
+                                  {"content": "mock 验证", "status": "pending"},
+                                  {"content": "截图闭环", "status": "pending"}]}),
+            _tool_update("tc-todo2", "completed", title="TodoList",
+                         raw_output={"output": "ok"}),
+        ], "两张 TodoListCard 各自定格（历史留痕）；次卡变更项（1/2/4 项）"
+           "醒目色、未变更第 3 项常规色，副标题 1/4；首卡全项醒目"
+           "（before 为空首卡全量高亮语义正确）", None),
+        ("18_todolist_回执过滤_kimi", [
+            _tool_call("tc-todoreceipt", "TodoList", "other"),
+            _tool_update("tc-todoreceipt", "in_progress",
+                         raw_input={"todos": [
+                             {"content": "回执过滤验证", "status": "in_progress"}]}),
+            _tool_update("tc-todoreceipt", "completed", title="TodoList",
+                         raw_output={"output":
+                                     "Current todo list:\n"
+                                     "[in_progress] 回执过滤验证\n"
+                                     "[pending] 另一项待办"}),
+        ], "出参区无「Current todo list:」块及其后连续 [status] 行"
+           "（kimi 模板回执整块剔除），清单区正常渲染", None),
+        ("19_plan_通道回归", [
+            # plan 通道不动产：无 toolCallId 的会话级快照流仍走
+            # 单卡 TodoCard 整刷（0808-0627 计划 D1 改道范围外）
+            {"sessionUpdate": "plan",
+             "entries": [{"content": "plan 通道条目一", "status": "completed"},
+                         {"content": "plan 通道条目二", "status": "in_progress"}]},
+        ], "会话级 TodoCard 通道行为零变化：📋 任务清单 + 1/2 副标题 + "
+           "完成项灰化删除线，in_progress 不着色（非高亮口径）", None),
     ]
 
 
@@ -315,14 +376,21 @@ class _MiniRouter:
         return ChatPanel._allow_progress_frame(self._fake_panel, payload, tid)
 
 
-def _run_scenario(frames: list[dict]) -> tuple[QWidget, dict]:
-    """单场景全链路回放：帧 → Chunk → 路由 → 建卡/更新 → (容器 widget, 卡表)。"""
+def _run_scenario(frames: list[dict],
+                  session_id: str = "mock") -> tuple[QWidget, dict]:
+    """单场景全链路回放：帧 → Chunk → 路由 → 建卡/更新 → (容器 widget, 卡表)。
+
+    session_id 按场景注入（0808-0627 计划 T3：todo 跨调用 diff 簿记
+    _last_todo_snapshots 为协议层模块级状态、sessionId 键控——场景间
+    隔离防快照串联误标，同场景内多次调用共享一键以实证跨调用 diff）。
+    """
     router = _MiniRouter()
     open_state = OpenStateMap()
     card_map: dict[str, ToolCard] = {}
     cards: list[QWidget] = []
     for frame in frames:
-        chunk = map_session_update({"params": {"update": frame}})
+        chunk = map_session_update(
+            {"params": {"update": frame, "sessionId": session_id}})
         if chunk is None:
             continue
         if chunk.kind == "tool_call":
@@ -372,7 +440,7 @@ def main() -> int:
     manifest_lines = ["# 工具卡片 mock 截图清单（shot_tool_cards.py 产物）", ""]
     for entry in _scenarios():
         name, frames, notes, hook = (*entry, None)[:4]  # 旧 3 元组兼容
-        container, card_map = _run_scenario(frames)
+        container, card_map = _run_scenario(frames, session_id=name)
         if hook is not None:
             hook(card_map)  # 交互态后置钩子（激活按钮/点击定格）
             container.adjustSize()

@@ -160,7 +160,7 @@
 |:---|:---|:---|
 | `agent_message_chunk` | 正文流式增量 | `content.text` 非空才上屏 |
 | `agent_thought_chunk` | 思维链增量（客户端灰字显示） | 同上 |
-| `tool_call` | 工具调用开始 | 带 `toolCallId`、`title`、`kind`、`rawInput`、`locations`；`rawInput.todos` 检出即转 todo 清单卡 |
+| `tool_call` | 工具调用开始 | 带 `toolCallId`、`title`、`kind`、`rawInput`、`locations`；`rawInput.todos` 检出即提取为 `todos` 载荷（todowrite/TodoList 清单卡数据源，见下方修订） |
 | `tool_call_update` | 工具状态流转 | `status`: `in_progress`/`completed`/`failed`；failed 带错误详情。首帧空壳时 `rawInput` 可在 `in_progress` 帧补发（客户端回填入参区，首帧优先不覆盖）；`rawInput.questions` 同频回填（问答卡数据源） |
 | `usage_update` | 上下文用量 | 见 §2.3 |
 | `plan` | todo 清单（可选） | `entries`: `[{content, status, priority}]` |
@@ -187,6 +187,17 @@ todo list..."）不应作为出参发送——客户端有白名单过滤，会�
 回填同频补发），供 MediaReadCard 渲染入参略缩图——**仅供人类查看，
 不回传 AI、不改协议语义**；路径原样下传（相对路径不解析），渲染层
 按工作区根解析，文件不存在或超 10MB 静默降级。
+
+todo 清单载荷（0808-0627 修订）：`rawInput.todos` 为 list 时客户端
+协议层提取为 `todos` 载荷字段（首帧与 `in_progress` 帧均检出——
+todo 语义是快照推进，每帧都提不设去重账本），供 TodoListCard 渲染
+结构化清单（每次调用一张独立卡，历史快照逐卡留痕）；条目附带
+`changed` 布尔标记——客户端协议层跨调用 diff 产物（与上次快照逐项
+比对 content+status+priority 全等口径，sessionId 键控簿记），渲染层
+据以高亮变更项——**仅供人类查看，不回传 AI、不改协议语义**。
+todowrite/TodoList 回执文本（"Todo list updated."/"Ensure that you
+continue..."/"Current todo list:" 块）不应作为出参发送——客户端有
+白名单过滤，会被剔除。
 
 未识别的 `sessionUpdate` 类型与 `_meta` 厂商扩展会被客户端**静默忽略**
 （不崩），但不得依赖此行为传递关键信息（见「变更纪律」）。

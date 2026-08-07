@@ -198,6 +198,11 @@ _TAIL_WINDOW_LINES = 5         # in_progress 尾窗行数（0645 计划 §2.1 Ba
 _RECEIPT_PATTERNS = [
     re.compile(r"(?ms)^Todo list updated\.\s*$"),
     re.compile(r"(?ms)^Ensure that you continue to use the todo list.*$"),
+    # 0808-0627 计划 T1：kimi 模板「Current todo list」多行块——该行及
+    # 其后连续 [status] 行整体剔除（清单区渲染后回执与清单信息完全重复；
+    # 锚定行首 + 连续短括号状态行结构防宽泛匹配误伤正常输出）
+    re.compile(r"(?ms)^[ \t]*Current todo list:?[ \t]*\r?\n"
+               r"(?:^[ \t]*\[[^\]\n]{1,20}\][^\n]*(?:\r?\n|$))+"),
     # 后续确证的模式在此追加，集中维护
 ]
 
@@ -690,6 +695,36 @@ def _extract_todo_entries(items: object) -> list[TodoEntry]:
     return entries
 
 
+#: 跨调用 todo 快照簿记（0808-0627 计划 T1：kilocode TodoView.calculate
+#: 复刻——before 口径为「会话当前 todo 状态」的跨调用 diff，非调用内帧间；
+#: sessionId 键控防跨会话/跨标签快照串联误标。快照跨轮连续不按帧清理
+#: （会话级单值，惰性增长量级极小，同 _input_detail_seen 簿记先例）。
+#: changed 只是高亮标记，错标无害（降级方向安全）。
+_last_todo_snapshots: dict[str, list[TodoEntry]] = {}
+
+
+def _apply_todo_diff(session_id: str,
+                     entries: list[TodoEntry]) -> list[TodoEntry]:
+    """跨调用 diff：与上次快照逐项比对，不一致项标 changed=True
+    （渲染层 TodoListCard 高亮数据源，仅供人类查看，不回传 AI）。
+
+    比对口径抄 kilocode todo-view.ts `same()`：content+status+priority
+    全等（按位逐项）；同次调用的多帧快照幂等（内容相同则 changed 全
+    False 自然消退）；before 为空的首卡全量高亮语义正确（一切皆新态）。
+    """
+    before = _last_todo_snapshots.get(session_id) or []
+    result: list[TodoEntry] = []
+    for index, entry in enumerate(entries):
+        prev = before[index] if index < len(before) else None
+        if prev is None or any(
+                entry.get(key) != prev.get(key)
+                for key in ("content", "status", "priority")):
+            entry = {**entry, "changed": True}
+        result.append(entry)
+    _last_todo_snapshots[session_id] = result
+    return result
+
+
 def _tool_call_summary(update: dict) -> str | None:
     """参数摘要（协议层单点格式化，GUI 不碰 rawInput 各家差异）。
 
@@ -719,18 +754,16 @@ def _tool_call_summary(update: dict) -> str | None:
     return None
 
 
-def _map_tool_call(update: dict) -> Chunk:
-    """tool_call → 结构化 Chunk；todowrite 特判改产 todo Chunk（F1 第二通道）。
+def _map_tool_call(update: dict, session_id: str = "") -> Chunk:
+    """tool_call → 结构化 Chunk。
 
-    kilocode/opencode 系后端不发 plan，todo 走 todowrite 普通工具调用，
-    载荷在 rawInput.todos——检出即与 plan 通道归一为同一 todo Chunk
-    （1425 封存款 F1/HIDDEN_TOOLS 同范式：todo 块与工具块分流）。
+    0808-0627 计划 T1：todowrite/TodoList 首帧特判（改产 kind="todo"
+    会话级单卡）撤销——每次调用回归普通工具卡流程，由渲染层
+    TodoListCard 承担清单可视化（每次调用一张新卡，历史留痕）；
+    kind="todo" 仅余 plan 通道。首帧即带 rawInput.todos 时
+    （kilocode/opencode 系形态）提取装入载荷，走跨调用 diff 管线。
     """
     raw = update.get("rawInput") or {}
-    if isinstance(raw.get("todos"), list):
-        entries = _extract_todo_entries(raw["todos"])
-        return Chunk("todo", _todo_fallback_text(entries),
-                     payload=TodoPayload(entries=entries))
     payload = ToolCallPayload()
     if isinstance(update.get("toolCallId"), str):
         payload["tool_call_id"] = update["toolCallId"]
@@ -771,10 +804,17 @@ def _map_tool_call(update: dict) -> Chunk:
     # 0158 计划 T1：入参图片路径载荷（MediaReadCard 略缩图数据源）
     if media_path := _extract_media_path(update):
         payload["media_path"] = media_path
+    # 0808-0627 计划 T1：todowrite/TodoList 清单快照载荷（首帧齐备形态，
+    # kilocode/opencode 系；kimi 系首帧空壳由 update 帧检出通道承接），
+    # 走跨调用 diff 管线附 changed 高亮标记
+    if isinstance(raw.get("todos"), list):
+        if entries := _apply_todo_diff(
+                session_id, _extract_todo_entries(raw["todos"])):
+            payload["todos"] = entries
     return Chunk("tool_call", _tool_call_fallback(payload), payload=payload)
 
 
-def _map_tool_call_update(update: dict) -> Chunk | None:
+def _map_tool_call_update(update: dict, session_id: str = "") -> Chunk | None:
     """tool_call_update → 状态流转 Chunk；status 缺省（纯 content 快照帧）返回 None。
 
     0645 融合计划 T1 信息全量化（§2.3）：
@@ -810,6 +850,16 @@ def _map_tool_call_update(update: dict) -> Chunk | None:
     # 0807-0148 计划 T3：选项结构载荷同频回填
     if question_options := _extract_question_options(update):
         payload["question_options"] = question_options
+    # 0808-0627 计划 T1：todowrite/TodoList 清单快照检出（kimi 系首帧
+    # 空壳，rawInput.todos 随 in_progress 帧迟到）。每帧都提、不设去重
+    # 账本——todo 语义是快照推进（与 input_detail/media_path「首帧
+    # 优先」语义不同）；同走跨调用 diff 管线，同帧重复快照 changed 自然
+    # 消退（幂等）
+    raw_input = update.get("rawInput")
+    if isinstance(raw_input, dict) and isinstance(raw_input.get("todos"), list):
+        if entries := _apply_todo_diff(
+                session_id, _extract_todo_entries(raw_input["todos"])):
+            payload["todos"] = entries
     if status == "in_progress":
         extracted = _extract_tool_output(
             update, keep_lines=_TAIL_WINDOW_LINES, keep_tail=True)
@@ -898,6 +948,9 @@ def map_session_update(obj: dict) -> Chunk | None:
     不臆造协议）。
     """
     update = (obj.get("params") or {}).get("update") or {}
+    # 0808-0627 计划 T1：todo 跨调用 diff 簿记的会话键（params 层
+    # sessionId；缺省空串——mock/异常帧防御，单值兜底不臆造）
+    session_id = (obj.get("params") or {}).get("sessionId") or ""
     kind = update.get("sessionUpdate")
     if kind == "agent_message_chunk":
         text = (update.get("content") or {}).get("text")
@@ -906,9 +959,9 @@ def map_session_update(obj: dict) -> Chunk | None:
         text = (update.get("content") or {}).get("text")
         return Chunk("reasoning", text) if text else None
     if kind == "tool_call":
-        return _map_tool_call(update)
+        return _map_tool_call(update, session_id)
     if kind == "tool_call_update":
-        return _map_tool_call_update(update)
+        return _map_tool_call_update(update, session_id)
     if kind == "plan":
         entries = _extract_todo_entries(update.get("entries"))
         return Chunk("todo", _todo_fallback_text(entries),
