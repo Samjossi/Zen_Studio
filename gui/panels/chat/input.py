@@ -111,6 +111,9 @@ class ChatInput(QTextEdit):
 
     def __init__(self, band_color: str | None = None, parent=None) -> None:
         super().__init__(parent)
+        #: base.qss `#chatInput[pending="true"]` 待发态虚线描边的挂点
+        #: （0807-2305 计划 D4/T6；panel 经动态属性驱动）
+        self.setObjectName("chatInput")
         self.setPlaceholderText("输入消息，Enter 发送 / Shift+Enter 换行")
         self.setAcceptRichText(False)
         # 选区带自绘：抑原生带（控件级 qss 优先于 base.qss 继承规则）

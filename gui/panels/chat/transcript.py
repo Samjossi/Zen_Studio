@@ -6,9 +6,10 @@
 （append_message / append_user_message / begin_stream / append_stream_chunk /
 append_reasoning_chunk / end_reasoning / end_stream / append_tool_call /
 append_tool_update / upsert_todo_block / reset_activity_anchors /
-append_queued_user_message / promote_queued / discard_queued（0634 计划 D4
-排队气泡三方法）/ set_workspace_root / anchorClicked / set_*_colors），
+set_workspace_root / anchorClicked / set_*_colors），
 panel 路由层按设置项选轨后零分支复用同一代码路径。
+（0634 计划 D4 排队气泡三方法已随 0807-2305 计划 c1 拍板整轨拆除——
+排队发送改为单条待发驻留输入框，不再上屏排队气泡）
 
 块组件（0640 §4 架构图落地）：
 - UserBubbleBlock  用户气泡（L2-1 形态平移：灰底直角卡 + 链接化 + 图片回显）
@@ -32,10 +33,7 @@ from PySide6.QtCore import Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QTextCharFormat, QTextCursor
 from PySide6.QtWidgets import (
     QFrame,
-    QHBoxLayout,
-    QLabel,
     QScrollArea,
-    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -124,17 +122,12 @@ class TextStreamBlock(BodyHtml):
 class UserBubbleBlock(QFrame):
     """用户气泡块（L2-1 形态平移）：灰底直角卡 + 链接化 + 图片缩略回显。
 
-    排队形态（0634 计划 D4）：queued=True 时卡内顶部加「排队中」灰徽标
-    + 右上角 ×删钮（语义对齐 kilocode Queued 徽标，可删不可编辑）；
-    出队发送时 promote() 摘除徽标行转正式气泡（同一控件改写不重复
-    append），删除×经 remove_requested 外抛由 panel 剔除队列项。
+    （0634 计划 D4 排队形态——queued 徽标行 + ×删 + promote——已随
+    0807-2305 计划 c1 拍板拆除：排队发送改为单条待发驻留输入框）
     """
 
     #: 锚点点击外抛（QUrl，transcript 转发）
     link_clicked = Signal(QUrl)
-
-    #: 排队气泡 ×删（仅排队态连接；promote 后徽标行销毁不再发射）
-    remove_requested = Signal()
 
     def __init__(
         self,
@@ -143,8 +136,6 @@ class UserBubbleBlock(QFrame):
         colors: CardColors,
         mention_exists,
         parent=None,
-        *,
-        queued: bool = False,
     ) -> None:
         super().__init__(parent)
         self.setObjectName("ChatUserBubble")
@@ -161,41 +152,7 @@ class UserBubbleBlock(QFrame):
         text.anchorClicked.connect(self.link_clicked)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 6, 8, 6)
-        #: 排队徽标行（queued 才建；promote 摘除后归 None）
-        self._queued_header: QWidget | None = None
-        if queued:
-            self._queued_header = self._build_queued_header(colors)
-            layout.addWidget(self._queued_header)
         layout.addWidget(text)
-
-    def _build_queued_header(self, colors: CardColors) -> QWidget:
-        """排队徽标行：左「排队中」灰徽标 + 右 ×删钮（徽标灰复用 tool_fg，
-        不新增主题键）。"""
-        header = QWidget(self)
-        row = QHBoxLayout(header)
-        row.setContentsMargins(0, 0, 0, 0)
-        badge = QLabel("排队中", header)
-        badge.setStyleSheet(f"color: {colors.tool_fg};")
-        row.addWidget(badge)
-        row.addStretch(1)
-        remove = QToolButton(header)
-        remove.setText("×")
-        remove.setFixedSize(16, 16)
-        remove.setToolTip("删除排队消息")
-        remove.setCursor(Qt.CursorShape.ArrowCursor)
-        remove.setStyleSheet(
-            f"QToolButton {{ border: none; font-weight: 600; padding: 0;"
-            f" color: {colors.tool_fg}; }}")
-        remove.clicked.connect(self.remove_requested)
-        row.addWidget(remove)
-        return header
-
-    def promote(self) -> None:
-        """出队发送：摘除徽标行转正式气泡（0634 计划 D4）。"""
-        if self._queued_header is not None:
-            self.layout().removeWidget(self._queued_header)
-            self._queued_header.deleteLater()
-            self._queued_header = None
 
 
 class SystemBlock(BodyHtml):
@@ -302,34 +259,8 @@ class ChatTranscriptView(QScrollArea):
         self._add_block(block)
         self._add_turn_gap()  # 用户消息后回合间距（2000 计划 Part 2）
 
-    # ------------------------------------------------------------------
-    # 排队气泡三方法（0634 计划 D4，旧轨 ChatOutput 同构接口）
-    # ------------------------------------------------------------------
-    def append_queued_user_message(self, content: str, images: list | None = None):
-        """排队气泡上屏：用户气泡 + 「排队中」徽标 + ×；返回句柄（块本身）。
-
-        不入回合间距（转正后紧随新轮 AI 流，间距归 end_stream 回合末）；
-        ×删经块 remove_requested 信号由 panel 路由剔除队列项。
-        """
-        self._flush_stream()
-        block = UserBubbleBlock(
-            content, images, self._colors, self._mention_checker(),
-            self._container, queued=True)
-        block.link_clicked.connect(self.anchorClicked)
-        self._add_block(block)
-        return block
-
-    def promote_queued(self, handle) -> None:
-        """出队发送：句柄块徽标摘除转正式气泡（同一控件改写不重复 append）。"""
-        if handle is not None:
-            handle.promote()
-            self._scroll_to_bottom()
-
-    def discard_queued(self, handle) -> None:
-        """×删/停止清空：句柄块从布局移除并销毁。"""
-        if handle is not None:
-            self._blocks.removeWidget(handle)
-            handle.deleteLater()
+    # （0634 计划 D4 排队气泡三方法已随 0807-2305 计划 c1 拍板整轨
+    #  拆除——与旧轨 output.py 同步）
 
     def begin_stream(self, role: str) -> None:
         """开始一条流式消息：懒建——只簿记角色，首个正文帧才建块写前缀。

@@ -330,12 +330,20 @@ QToolButton:disabled {
     width: 0px;
 }
 
+/* 聊天输入框排队待发态（2026-0807-2305 计划 D4/T6）：登记排队待发送后
+ * 描边转 accent 虚线（实线 accent 已被 :focus 占用，虚线区分「待发」
+ * 与「聚焦」）；panel 经 pending 动态属性驱动，控件级 SUPPRESSION_QSS
+ * 只管选区色不冲突 */
+#chatInput[pending="true"] {
+    border: 1px dashed $accent;
+}
+
 /* 聊天输入区底行按钮（2026-0724-2305 计划 T6；2026-0806-0634 计划 D3 改
- * 双常驻钮）：「发送/插话」双态钮沿用全局实体化范式；「■ 停止」常驻钮
- * 以 accent 描边 + accent 文字表达「可中断」激活态（色板无警示红键，
- * 不引新色值），禁用时回落全局 disabled 范式；代码侧两钮均
- * setFixedWidth 恒宽，任何状态下 sizeHint 不变（QSplitter 撑宽左栏
- * 病根纪律） */
+ * 双常驻钮）：「发送/排队/等待发送…」三态钮沿用全局实体化范式；
+ * 「■ 停止」常驻钮以 accent 描边 + accent 文字表达「可中断」激活态
+ * （色板无警示红键，不引新色值），禁用时回落全局 disabled 范式；
+ * 代码侧两钮均 setFixedWidth 恒宽，任何状态下 sizeHint 不变
+ * （QSplitter 撑宽左栏病根纪律） */
 #chatStopButton {
     color: $accent;
     border-color: $accent;
