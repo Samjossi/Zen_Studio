@@ -2,8 +2,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
   <!-- 无描边纯填充版本 - VSCode_Blue -->
   <g fill="#007ACC">
-    <!-- 圆弧 -->
-    <path d="M128 26 A102 102 0 1 1 60 54" fill="none" stroke="#007ACC" stroke-width="14" stroke-linecap="round"/>
+    <!-- 圆弧（占画面约85%：半径108.8，外缘243.8/256） -->
+    <path d="M128 19.2 A108.8 108.8 0 1 1 55.47 49.04" fill="none" stroke="#007ACC" stroke-width="14" stroke-linecap="round"/>
     <!-- 人形 (缩放62%并下移) -->
     <g transform="translate(128 130) scale(0.62) translate(-128 -128)">
       <circle cx="128" cy="62" r="20"/>
