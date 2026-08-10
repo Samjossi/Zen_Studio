@@ -165,6 +165,7 @@ Zen Studio 站在巨人的肩膀上。感谢以下开源项目，它们的设计
 | PyGPT | 界面视觉风格、部分控件实现（移植片段已在代码内标注来源） |
 | Multi_Cli_Studio | 多 CLI 后台接入形态 |
 | kilocode | ACP 协议接入参考 |
+| markdown-it-py / mdurl | Markdown 阅览模式渲染内核（CommonMark + GFM 表格/删除线，源码 vendor 融合，MIT） |
 
 本项目仅作设计层面的阅读借鉴后重写，运行时依赖与移植片段的完整致谢见根目录 `NOTICE`。
 

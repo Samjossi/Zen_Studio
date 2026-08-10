@@ -703,7 +703,8 @@ class MainWindow(QMainWindow):
             "（LanguageModel 协议与面板装配范式）、Visual Studio Code"
             "（workspaceStorage 窗口状态语义、SCM 变更面板形态）、PyGPT"
             "（界面视觉风格与部分控件实现）、Multi_Cli_Studio（多 CLI 后台接入形态）、"
-            "kilocode（ACP 协议接入参考）。</p>"
+            "kilocode（ACP 协议接入参考）；Markdown 阅览模式渲染内核采用"
+            " markdown-it-py / mdurl（MIT，源码 vendor 融合）。</p>"
             "<p>以 MIT 协议发布，致谢详见 NOTICE。</p>"
         )
         logo = LOGO_DIR / "logo_64.png"

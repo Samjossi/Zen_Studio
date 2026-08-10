@@ -33,6 +33,11 @@ Zen Studio 站在巨人的肩膀上。本文件列出项目在设计、代码与
 - Pygments（BSD-2-Clause）— 语法高亮
 - ptyprocess（ISC）— 伪终端
 - pyte（LGPL-3.0）— 终端 VT 语义层
+- markdown-it-py（MIT）— Markdown 阅览模式渲染内核（CommonMark 参考
+  实现的 Python 移植版），源码 vendor 融合于项目根 `markdown_it/`，
+  LICENSE 与 LICENSE.markdown-it 随包
+- mdurl（MIT）— markdown-it-py 的运行依赖（URL 规范化），源码 vendor
+  融合于项目根 `mdurl/`，LICENSE 随包
 
 ==================================================
 三、字体资产（assets/fonts/，SIL OFL-1.1）
