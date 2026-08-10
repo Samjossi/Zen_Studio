@@ -1,16 +1,20 @@
-"""Markdown 渲染预览：QTextBrowser + setMarkdown（GitHub 方言）。
+"""Markdown 渲染预览：QTextBrowser + markdown-it-py（gfm-like）渲染内核。
 
-（2026-07-29，见 文档/修改记录/2026-0729-1155_Markdown渲染预览与Typora打开功能实施计划 T2–T4）
+（2026-07-29，见 文档/修改记录/2026-0729-1155_Markdown渲染预览与Typora打开功能实施计划 T2–T4；
+2026-08-11 渲染内核由 Qt 内建 setMarkdown 替换为 vendor 版 markdown-it-py，
+见 文档/修改记录/2026-0811-0402_Markdown阅览模式渲染内核替换markdown-it计划 T2/T3）
 形态：内嵌 ViewerPanel Markdown 页（QStackedLayout 第四页，.md/.markdown
 经 open_file 分流直进渲染页——原决策不做源码↔渲染双模式，已于 2026-08-06
 被 0327 计划推翻：标题行开关可切源码模式，本页为「阅览模式」默认态）。
 中栏不设「使用 Typora 打开」入口（2026-08-06 用户拍板翻案 0659 计划
 D3/D4：右栏文件树右键有同款入口，中栏整体移除、右栏保留）。
 
-能力：GFM 渲染（表格/任务列表/删除线/围栏代码块）、相对图片/链接以 md
-所在目录为基准解析（searchPaths + baseUrl）、链接三分发（http→系统浏览器、
-工作区内文件→file_link_clicked 信号、#锚点→页内跳转）、主题样式表重建、
-全局字号跟随、大文件 1MB 截断守卫、选区带自绘（2026-0731-2055 方案 A）。
+能力：GFM 渲染（表格/任务列表☑☐/删除线/围栏代码块——内核 markdown-it-py
+gfm-like 预设，vendor 于项目根 markdown_it/ + mdurl/，不经 uv/pip；
+linkify 禁用免第二依赖链）、相对图片/链接以 md 所在目录为基准解析
+（searchPaths + baseUrl）、链接三分发（http→系统浏览器、工作区内文件
+→file_link_clicked 信号、#锚点→页内跳转）、主题样式表重建、全局字号
+跟随、大文件 1MB 截断守卫、选区带自绘（2026-0731-2055 方案 A）。
 
 选区带自绘（方案 A）：原生选区带 = QTextLine 整行高（含 leading），而
 Qt 排版把 leading 全部垫在行框底部——思源黑体 lineGap 6.5px@10pt 导致
@@ -18,13 +22,16 @@ Qt 排版把 leading 全部垫在行框底部——思源黑体 lineGap 6.5px@10
 paintEvent 基类绘制后按行 ascent+descent 墨盒上下对称加留白自绘
 半透明圆角带（色取主题 accent，文字保持原色可读）。
 
-协议合规：theia-zen（EPL-2.0）零接触；setMarkdown 为 Qt 内建 API，
-VS_Code_Python（MIT）仅证实其 PySide6 可用性，无代码移植。
+协议合规：theia-zen（EPL-2.0）零接触；markdown-it-py / mdurl 均 MIT
+许可纯 Python（LICENSE 随 vendor 包目录），选区带方案 A 为自研。
 """
+import re
 from pathlib import Path
 
+from markdown_it import MarkdownIt
+from markdown_it.token import Token
 from PySide6.QtCore import Qt, QUrl, Signal
-from PySide6.QtGui import QColor, QDesktopServices, QFont, QPalette, QTextDocument
+from PySide6.QtGui import QColor, QDesktopServices, QFont, QPalette
 from PySide6.QtWidgets import QApplication, QFrame, QMenu, QTextBrowser, QWidget
 
 from gui.popups import make_translucent_popup
@@ -35,6 +42,46 @@ MARKDOWN_EXTS: frozenset[str] = frozenset({"md", "markdown"})
 
 #: 大文件守卫：超过 1 MB 截断渲染（与 ViewerPanel 文本页 MAX_BYTES 一致）
 MAX_BYTES = 1_048_576
+
+#: GFM 任务列表标记：列表项行内文本开头的 [ ] / [x]（大小写兼容）
+_TASK_MARK_RE = re.compile(r"^\[([ xX])\]\s+")
+
+
+def _task_list_check_rule(state) -> bool:
+    """core ruler 极简规则：列表项开头的 [ ]/[x] 渲染为 Unicode ☐/☑。
+
+    不引 mdit-py-plugins（保持轻型）：QTextBrowser 不支持 <input> 复选框，
+    Unicode 字符是唯一轻量可行形态；边角形态（标记后多空格等）降级为
+    原文显示 [ ]，可接受（2026-0811-0402 计划 D2 / 风险 R2）。
+    """
+    in_item = False
+    for token in state.tokens:
+        if token.type == "list_item_open":
+            in_item = True
+        elif token.type == "list_item_close":
+            in_item = False
+        elif in_item and token.type == "inline" and token.children:
+            first = token.children[0]
+            if first.type != "text":
+                continue
+            m = _TASK_MARK_RE.match(first.content)
+            if not m:
+                continue
+            first.content = first.content[m.end():]
+            check = Token("html_inline", "", 0)
+            symbol = "☑" if m.group(1).lower() == "x" else "☐"
+            check.content = f'<span class="task-check">{symbol}</span> '
+            token.children.insert(0, check)
+    return False
+
+
+def _build_renderer() -> MarkdownIt:
+    """装配阅览模式渲染内核：gfm-like 预设（CommonMark 全量 + 表格 + 删除线），
+    linkify 禁用（免 linkify-it-py/uc-micro-py 第二依赖链），
+    追加任务列表 ☑/☐ 规则。"""
+    md = MarkdownIt("gfm-like").disable("linkify")
+    md.core.ruler.push("task_list_check", _task_list_check_rule)
+    return md
 
 
 class MarkdownView(QTextBrowser):
@@ -63,6 +110,7 @@ class MarkdownView(QTextBrowser):
         self._current_path: Path | None = None
         self._truncated = False
         self._selection_color: QColor | None = None  # apply_theme 注入 accent
+        self._renderer = _build_renderer()  # markdown-it-py gfm-like 内核
 
         self.refresh_font()
         self.apply_theme(palette)
@@ -100,9 +148,10 @@ class MarkdownView(QTextBrowser):
         # 目录名当文件段替换掉）
         self.setSearchPaths([str(path.parent)])
         self.document().setBaseUrl(QUrl.fromLocalFile(str(path.parent) + "/"))
-        # QTextBrowser.setMarkdown 绑定仅单参；文档级 setMarkdown 支持方言特性集
-        self.document().setMarkdown(
-            text, QTextDocument.MarkdownFeature.MarkdownDialectGitHub)
+        # QTextBrowser.setMarkdown 绑定仅单参且方言特性集受内建转换器制约；
+        # 2026-0811-0402 计划 T2：改走 markdown-it-py 渲染 HTML 后 setHtml
+        # （setHtml 同样走 loadResource + searchPaths + baseUrl，相对图片解析不变）
+        self.setHtml(self._renderer.render(text))
         return None
 
     # ------------------------------------------------------------------
@@ -168,7 +217,11 @@ class MarkdownView(QTextBrowser):
 
     @staticmethod
     def _build_stylesheet(palette: dict) -> str:
-        """md 各元素配色：Qt 富文本 CSS 子集内重建（h 系/code/blockquote/table/hr）。"""
+        """md 各元素排版样式：Qt 富文本 CSS 子集内重建（2026-0811-0402 计划 D4）。
+
+        标题字号阶梯用相对关键字（不做动态 pt 计算）；表格/代码块/引用着色
+        全部沿用现有调色板令牌派生，不新增令牌；代码块不做语法着色。
+        """
         text = palette["text"]
         muted = palette["muted_text"]
         accent = palette["accent"]
@@ -177,10 +230,23 @@ class MarkdownView(QTextBrowser):
         return f"""
             body {{ color: {text}; }}
             a {{ color: {accent}; text-decoration: none; }}
+            h1 {{ font-size: xx-large; }}
+            h2 {{ font-size: x-large; }}
+            h3 {{ font-size: large; }}
+            h1, h2 {{ border-bottom: 1px solid {border}; padding-bottom: 4px; }}
             code, pre {{ background-color: {code_bg}; }}
-            blockquote {{ color: {muted}; margin-left: 16px; }}
-            table td, table th {{ border: 1px solid {border}; padding: 4px; }}
+            pre {{ padding: 8px; }}
+            pre code {{ background-color: transparent; }}
+            blockquote {{
+                color: {muted};
+                margin-left: 16px;
+                border-left: 3px solid {border};
+                padding-left: 8px;
+            }}
+            table td, table th {{ border: 1px solid {border}; padding: 4px 8px; }}
+            table th {{ background-color: {code_bg}; }}
             hr {{ color: {border}; background-color: {border}; }}
+            .task-check {{ color: {accent}; }}
         """
 
     def refresh_font(self) -> None:
