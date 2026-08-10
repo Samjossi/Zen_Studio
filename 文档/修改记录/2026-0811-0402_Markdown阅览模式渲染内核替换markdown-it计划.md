@@ -3,9 +3,9 @@
 > **⚠️ 归档状态**：本文档撰写于 2026-0811-0402，记录当时的实施状态。
 > 文档中提及的"已知问题"和"待办项"可能已在后续修复，请勿以本文档推断当前代码。
 
-> **状态**：草稿
+> **状态**：已实施（2026-08-11 04:35 收尾归档）
 > **范围**：`gui/panels/viewer/markdown_view.py`（ViewerPanel Markdown 阅览页）、项目根 vendor 包 `markdown_it/` / `mdurl/`
-> **时间**：2026-08-11 04:02（UTC+8，设计）；2026-08-11 04:08（按用户拍板「轻型简洁」精简）；2026-08-11 04:10（依赖路线改源码 vendor 融合）
+> **时间**：2026-08-11 04:02（UTC+8，设计）；2026-08-11 04:08（按用户拍板「轻型简洁」精简）；2026-08-11 04:10（依赖路线改源码 vendor 融合）；2026-08-11 04:35（T1–T6 全部落地）
 > **优先级**：中
 
 ## 一、需求
@@ -144,3 +144,35 @@ self.setHtml(html)
   markdown-it-py / mdurl 源码已备份至 `参考代码/markdown-it-py-master/`、
   `参考代码/mdurl-master/`，实施时从快照拷贝包目录入项目根，
   不经 uv/pip。
+
+## 八、实施记录（2026-08-11 04:35）
+
+- **T1 vendor 融合**：`markdown_it/`（附 LICENSE + LICENSE.markdown-it）、
+  `mdurl/`（附 LICENSE）拷入项目根；离屏 import 冒烟通过。
+  发现并处置：gfm-like 预设默认启用 linkify 规则（缺 linkify-it-py 即抛
+  ModuleNotFoundError），按计划 `.disable("linkify")` 处置。
+- **T2 渲染内核替换**：`open_markdown()` 解码后改走
+  `self._renderer.render(text)` + `setHtml()`；新增 `_build_renderer()`
+  （gfm-like + 禁 linkify + 任务列表规则）与 core ruler 规则
+  `_task_list_check_rule`（列表项开头 `[ ]`/`[x]` → `<span class=
+  "task-check">☐/☑</span>`；Token 自 `markdown_it.token` 导入——
+  StateCore 无 Token 属性）。对外接口签名零变化，panel.py 零改动。
+- **T3 样式表扩展**：`_build_stylesheet()` 增补 h1–h3 相对关键字字号阶梯
+  （xx-large/x-large/large）、h1/h2 下边线、pre 内边距与 pre code 透明底、
+  blockquote 左边线、表头底色、`.task-check` accent 着色；色值全部沿用
+  现有令牌，未新增。
+- **T4 冒烟探针** `.temp/probe_md_it.py`（offscreen）四项全绿：
+  ①渲染断言（双层口径——内核原始 HTML 断言标签结构，Qt toHtml 规范化后
+  断言可视语义：☑/☐、line-through、代码块内容）；②相对图片 loadResource
+  命中（C++ 虚函数须探针侧子类覆写拦截）；③链接三分发（http/文件/锚点）；
+  ④1MB 截断守卫 + 渲染计时 0.94s 级（断言上限放宽 2s 防机器差异脆断）。
+  0327 开关回归探针 `probe_md_switch.py` 复跑全绿。
+- **T5 视觉验证** `.temp/shot_md_it.py` 三帧截图（同脚本前后对照）：
+  before（旧 setMarkdown）标题阶梯扁平/图片破图/表格无表头底色；
+  after（cloud）标题阶梯分明、表格边框+表头底色、代码块整宽底块、
+  ☑/☐ accent 着色、相对图片正常渲染；after_wheat 主题令牌派生正常。
+- **T6 文档收尾**：模块 docstring 已注明本计划与 vendor 路线；
+  本文档补实施记录、状态转「已实施」并移回 `文档/修改记录/`。
+- 已知接受项：任务列表项保留列表圆点（Qt CSS 子集无法按内容隐藏 li
+  标记，观感可接受）；h1/h2 border-bottom 在 Qt 富文本子集下不生效
+  （静默忽略，无报错）；锚点跳转维持现状水平（无标题 id 增强）。
