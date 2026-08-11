@@ -8,6 +8,7 @@
     uv run main.py [folder]
 """
 import argparse
+import os
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -16,6 +17,7 @@ from PySide6.QtCore import QTimer
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
 
+from core.child_env import sanitize_environ
 from core.paths import IS_FROZEN, LOGO_DIR, PROJECT_ROOT, USER_CONFIG_DIR
 from gui import MainWindow
 from gui.recent_projects import RecentProjectsStore
@@ -110,6 +112,10 @@ def setup_screenshot(window: MainWindow, interval: int, on_start: bool) -> QTime
 
 
 def main() -> None:
+    # 启动时一次性净化 LD_LIBRARY_PATH 的 IDE 私有条目（bootloader 前插的
+    # _internal）：此后一切用户子进程（终端/ACP/Typora/新窗）自然继承干净
+    # 环境；glibc 启动时已缓存链接搜索路径，运行期改写不影响自身 dlopen
+    sanitize_environ(os.environ)
     args = parse_args(sys.argv[1:])
     workspace_root = resolve_workspace_root(args.folder)
     app = QApplication(sys.argv)

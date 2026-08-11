@@ -23,7 +23,46 @@ TOOL_URL="https://github.com/AppImage/appimagetool/releases/download/continuous/
 TOOL_SHA256="a6d71e2b6cd66f8e8d16c37ad164658985e0cf5fcaa950c90a482890cb9d13e0"
 
 echo "==> [1/5] 前置自查"
+# AppImage 挂载点环境清洗（2026-08-11）：在 Zen Studio AppImage 的集成终端
+# 内构建时，LD_LIBRARY_PATH/QT_PLUGIN_PATH 会混入宿主 AppImage 的
+# /tmp/.mount_* 私有库路径（见 2026-0811-0841 污染问题报告）。污染下
+# PyInstaller Qt 钩子把插件依赖解析到挂载点、判定「解析出界」，静默剔除
+# 全部 Qt 插件 → 产物缺 libqxcb.so 等，直到冒烟验证才暴雷。此处逐段过滤
+# 含 /.mount_ 的路径项（保留用户其余合法设置），使构建对环境免疫。
+_clean_mount_paths() {
+    local var_name="$1" value="${!1:-}" item stripped=0
+    [[ -z "$value" ]] && return 0
+    local -a parts kept=()
+    IFS=':' read -ra parts <<< "$value"
+    for item in "${parts[@]}"; do
+        if [[ "$item" == */.mount_* ]]; then
+            stripped=1
+        else
+            kept+=("$item")
+        fi
+    done
+    (( stripped )) || return 0
+    if ((${#kept[@]})); then
+        export "$var_name=$(IFS=:; echo "${kept[*]}")"
+        echo "    ⚠️ 已清洗 $var_name：剔除 AppImage 挂载点路径（/.mount_*）"
+    else
+        unset "$var_name"
+        echo "    ⚠️ 已清除 $var_name：全部为 AppImage 挂载点路径（/.mount_*）"
+    fi
+}
+_clean_mount_paths LD_LIBRARY_PATH
+_clean_mount_paths QT_PLUGIN_PATH
 [[ -f building/zen-studio.spec ]] || { echo "❌ spec 缺失：building/zen-studio.spec"; exit 1; }
+# fcitx5 输入法插件 venv 部署断言（2026-08-11：插件系手动编译后 cp 进 venv，
+# venv 重建/uv sync 会将其抹掉；缺失时 PyInstaller 不报错、产物静默缺中文
+# 输入法支持，直到冒烟验证才暴雷——前置断言改快速失败并给出恢复路径）
+VENV_PLUGIN_DIR="$(find .venv/lib -type d -path '*PySide6/Qt/plugins/platforminputcontexts' -print -quit)"
+[[ -n "$VENV_PLUGIN_DIR" && -f "$VENV_PLUGIN_DIR/libfcitx5platforminputcontextplugin.so" ]] || {
+    echo "❌ fcitx5 输入法插件未部署进 venv：${VENV_PLUGIN_DIR:-（platforminputcontexts 目录不存在）}"
+    echo "   恢复（归档件）：cp .build-tools/dist/libfcitx5platforminputcontextplugin.so 到该目录"
+    echo "   重编（PySide6 升级后必须）：bash building/build-fcitx5-qt6-plugin.sh"
+    exit 1
+}
 # api_key/ 严禁入包：断言 spec datas 不收编（仅防明文意外，不防变体——
 # 产物层另有 find 全深度扫描兜底）
 grep -q "api_key" building/zen-studio.spec \

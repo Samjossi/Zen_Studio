@@ -39,6 +39,8 @@ building/dist/zen-studio/zen-studio
 ## 4. 纪律
 
 - ❌ 禁止裸跑 `pyinstaller`（不带 `--distpath`/`--workpath`）——根级 `build/`、`dist/` 已 gitignore 防产物外溢（审计 W8）；
+- 🧹 构建脚本前置自查自动清洗 `LD_LIBRARY_PATH`/`QT_PLUGIN_PATH` 中的 AppImage 挂载点路径（`/.mount_*`）——在本 IDE AppImage 集成终端内直接构建是受支持的（背景见根目录 `2026-0811-0841_集成终端环境变量污染问题报告_ZenStudio.md`：污染曾致 PyInstaller 静默剔除全部 Qt 插件）；
+- 🛡️ 前置自查含 fcitx5 插件 venv 部署断言：插件系手动编译后部署进 `.venv`，venv 重建会丢失，缺失即快速失败并提示恢复路径（归档件 `.build-tools/dist/` 或重编脚本），不再等到冒烟验证才暴露；
 - ⚠️ **升级 PySide6 必须同步重编 fcitx5 输入法插件**（插件绑定 Qt 私有 ABI，不跨版本兼容）：`bash building/build-fcitx5-qt6-plugin.sh`，脚本内置 venv 版本校验，不一致会拒绝编译；
 - 新增需要打包的运行时资产时，必须同时在 `building/zen-studio.spec` 的 `datas` 补收编记录（联动纪律见 `assets/README.md`）；
 - 打包态路径行为（`sys._MEIPASS` 检测、XDG 用户数据目录）收口于 `core/paths.py`，本目录不做路径推导。

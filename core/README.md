@@ -18,6 +18,7 @@
 | `core/version.py` | **版本加载器**：单一来源本体为 `config/version.json`（发版人工 +0.1，数据文件承载不硬编码），本模块导入时读取并导出 `APP_VERSION`（缺失/损坏回退兜底并告警）；`pyproject.toml` 的 version 为其副本，发版同步手改；消费方一律 import，禁止散落写死、禁止自行读文件 |
 | `core/paths.py` | **项目级路径常量唯一推导点**：全库其余模块一律 import，禁止手写 `parents[N]` 推导；PyInstaller frozen 兼容（`sys._MEIPASS` 检测），打包态用户数据写 XDG 配置目录（`${XDG_CONFIG_HOME:-~/.config}/zen-studio/`），开发态维持项目内 `config/` |
 | `core/external_apps.py` | 外部应用程序调起：「使用 Typora 打开」的探测与启动共享逻辑（OOP 封装 + 依赖注入，探针/进程创建构造注入可假依赖单测；`subprocess.Popen` 非阻塞，禁止 `os.system` 阻塞 UI） |
+| `core/child_env.py` | **子进程环境净化唯一收口**：`main.py` 启动时一次性剔除 `LD_LIBRARY_PATH`/`QT_PLUGIN_PATH`/`QML2_IMPORT_PATH` 的 IDE 私有条目（bootloader 前插的 `_internal` / PySide6 运行时钩子写入的解包根路径 / AppImage 历史挂载点），防污染泄漏进集成终端/ACP/外部应用；按条目过滤，用户自设条目保留 |
 | `core/git/` | Git 数据层子包（见 §3） |
 
 ## 3. Git 数据层（`core/git/`）
