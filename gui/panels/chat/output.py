@@ -160,8 +160,9 @@ class ChatOutput(QTextBrowser):
         super().wheelEvent(event)
 
     def contextMenuEvent(self, event) -> None:
-        """标准编辑菜单透明化（见 gui/popups.py 与 0751 计划 §3.1）。"""
-        exec_standard_context_menu(self, event)
+        """标准编辑菜单透明化（见 gui/popups.py 与 0751 计划 §3.1）
+        + 精简（2026-08-11 左栏会话区：去图标/快捷键/Copy Link Location）。"""
+        exec_standard_context_menu(self, event, simplify=True)
 
     def paintEvent(self, event) -> None:
         """基类绘制（原生选区带已透明化）后，叠绘半透明对称选区带。

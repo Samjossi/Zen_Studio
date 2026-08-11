@@ -241,7 +241,12 @@ class BodyText(_HugHeightMixin, QPlainTextEdit):
         self.setReadOnly(True)
         self.setFrameShape(QFrame.Shape.NoFrame)
         # 透明融入卡片底色（卡片 QFrame 已带 bg）
-        self.setStyleSheet("background: transparent; border: none;")
+        self.setObjectName("CardBodyText")
+        # ID 选择器作用域（0811 左栏右键菜单透明修复）：无选择器的
+        # background 声明会沿父子链级联进 Qt 以本控件为父即时创建的
+        # 标准右键菜单，覆盖主题底色致菜单全透明——禁无选择器写法
+        self.setStyleSheet(
+            "#CardBodyText { background: transparent; border: none; }")
         if mono:
             self.setFont(QFont(get_mono_family()))
         if text:
@@ -288,7 +293,11 @@ class BodyHtml(_HugHeightMixin, QTextBrowser):
         self.setOpenExternalLinks(False)
         self.setOpenLinks(False)
         self.setFrameShape(QFrame.Shape.NoFrame)
-        self.setStyleSheet("background: transparent; border: none;")
+        # 同 BodyText：ID 选择器作用域，防无选择器 background 级联进
+        # 右键菜单（0811 左栏右键菜单透明修复实证根因）
+        self.setObjectName("CardBodyHtml")
+        self.setStyleSheet(
+            "#CardBodyHtml { background: transparent; border: none; }")
         if mono:
             self.setFont(QFont(get_mono_family()))
         self.anchorClicked.connect(self.link_clicked)
@@ -513,7 +522,8 @@ class ToolCard(CollapsibleCard):
         """failed 错误全文块（红色等宽，自动展开由 apply_update 统一）。"""
         body = BodyText(text, mono=True)
         body.setStyleSheet(
-            f"background: transparent; border: none; color: {self._colors.tool_error_fg};")
+            f"#CardBodyText {{ background: transparent; border: none;"
+            f" color: {self._colors.tool_error_fg}; }}")
         self.add_body_widget(body)
         self.enable_copy(lambda body=body: body.toPlainText())
 
@@ -578,7 +588,8 @@ class ToolCard(CollapsibleCard):
         label.setStyleSheet(f"color: {self._colors.tool_fg}; font-size: 90%;")
         text = BodyText(detail, mono=True)
         text.setStyleSheet(
-            f"background: transparent; border: none; color: {self._colors.tool_fg};")
+            f"#CardBodyText {{ background: transparent; border: none;"
+            f" color: {self._colors.tool_fg}; }}")
         self.add_body_widget(label)
         self.add_body_widget(text)
 
@@ -626,8 +637,8 @@ class BashCard(ToolCard):
         detail = payload.get("error_detail") or payload.get("error")
         if detail:
             self._output.setStyleSheet(
-                f"background: transparent; border: none;"
-                f" color: {self._colors.tool_error_fg};")
+                f"#CardBodyText {{ background: transparent; border: none;"
+                f" color: {self._colors.tool_error_fg}; }}")
             self._output.set_text(detail)
         elif payload.get("output"):
             self._render_final(payload["output"], payload.get("output_total_lines"))
@@ -1302,8 +1313,8 @@ class ThinkingCard(CollapsibleCard):
         self._user_toggled = False
         self._text = BodyText()
         self._text.setStyleSheet(
-            f"background: transparent; border: none;"
-            f" color: {colors.reasoning_fg}; font-style: italic;")
+            f"#CardBodyText {{ background: transparent; border: none;"
+            f" color: {colors.reasoning_fg}; font-style: italic; }}")
         self.add_body_widget(self._text)
         self.enable_copy(lambda: self._buffer)
         self.set_open(True)  # 流式展开

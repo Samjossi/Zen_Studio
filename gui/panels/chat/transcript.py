@@ -115,8 +115,8 @@ class TextStreamBlock(BodyHtml):
             link_cursor.setCharFormat(fmt)
 
     def contextMenuEvent(self, event) -> None:
-        """标准编辑菜单透明化（与旧轨同，gui/popups.py 先例）。"""
-        exec_standard_context_menu(self, event)
+        """标准编辑菜单透明化 + 精简（左栏会话区：去图标/快捷键/link-copy）。"""
+        exec_standard_context_menu(self, event, simplify=True)
 
 
 class UserBubbleBlock(QFrame):
@@ -199,7 +199,11 @@ class ChatTranscriptView(QScrollArea):
         self.setObjectName("ChatTranscript")
         self.setStyleSheet("#ChatTranscript { background: transparent; border: none; }")
         self._container = QWidget(self)
-        self._container.setStyleSheet("background: transparent;")
+        # ID 选择器作用域（0811 左栏右键菜单透明修复）：容器是全块的
+        # 祖先，无选择器 background 会沿容器→块→菜单链级联进右键菜单
+        self._container.setObjectName("ChatTranscriptContainer")
+        self._container.setStyleSheet(
+            "#ChatTranscriptContainer { background: transparent; }")
         self._blocks = QVBoxLayout(self._container)
         self._blocks.setContentsMargins(8, 6, 8, 8)
         self._blocks.setSpacing(6)

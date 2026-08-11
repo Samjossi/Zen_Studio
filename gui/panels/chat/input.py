@@ -164,9 +164,10 @@ class ChatInput(QTextEdit):
     # ------------------------------------------------------------------
     # 右键菜单：标准编辑菜单透明化（Qt 内部创建的 QMenu 不经修复点，
     # 须替代默认 contextMenuEvent——见 gui/popups.py 与 0751 计划 §3.1）
+    # + 精简（2026-08-11 左栏会话区：去图标/快捷键/Copy Link Location）
     # ------------------------------------------------------------------
     def contextMenuEvent(self, event) -> None:
-        exec_standard_context_menu(self, event)
+        exec_standard_context_menu(self, event, simplify=True)
 
     # ------------------------------------------------------------------
     # 发送公共入口（Enter 键与底行发送按钮共用，T2）

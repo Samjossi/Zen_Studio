@@ -26,10 +26,24 @@ autoFillBackground(False) + Window/Base 角色全透明；容器面板
 QPlainTextEdit/QLineEdit）右键弹出的标准编辑菜单由 Qt 内部即时创建，
 不经过显式 new QMenu 的任何修复点，须用 exec_standard_context_menu()
 替代控件默认 contextMenuEvent（见 0751 第二轮修复计划 §2.1/§3.1）。
+
+控件级 qss 规约（2026-08-11，左栏右键菜单透明修复）：文本类控件挂
+控件级 setStyleSheet 必须带选择器（#对象名 / 类选择器），禁止无选择器
+的 background 声明——标准右键菜单由 Qt 以控件为父即时创建，控件级
+样式表沿父子链级联，无选择器声明等价通配，会把 background: transparent
+灌进子代 QMenu、覆盖应用级主题底色致菜单全透明（cards.py
+BodyText/BodyHtml 实证根因）。静态守卫：scripts/check_qss_selector_guard.py。
 """
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor
-from PySide6.QtWidgets import QComboBox, QFrame, QLineEdit, QPlainTextEdit, QWidget
+from PySide6.QtGui import QColor, QIcon
+from PySide6.QtWidgets import (
+    QComboBox,
+    QFrame,
+    QLineEdit,
+    QMenu,
+    QPlainTextEdit,
+    QWidget,
+)
 
 
 def make_translucent_popup(widget: QWidget) -> QWidget:
@@ -61,11 +75,55 @@ def make_translucent_combo_popup(combo: QComboBox) -> QComboBox:
     return combo
 
 
-def exec_standard_context_menu(widget: QWidget, event) -> None:
+#: Qt 标准编辑菜单 action（objectName 稳定）→ 中文文案（应用未装载
+#: QTranslator，标准菜单恒为英文；左栏精简菜单按此表汉化）
+_STANDARD_MENU_LABELS = {
+    "edit-undo": "撤销",
+    "edit-redo": "重做",
+    "edit-cut": "剪切",
+    "edit-copy": "复制",
+    "edit-paste": "粘贴",
+    "edit-delete": "删除",
+    "select-all": "全选",
+}
+
+
+def simplify_standard_menu(menu: QMenu) -> QMenu:
+    """标准编辑菜单精简（2026-08-11 左栏会话区拍板）：纯文字命令名。
+
+    - 去图标：edit-copy/select-all 等主题图标无信息量，置空；
+    - 去快捷键提示：Qt 把快捷键以 \\t 后缀拼在 action.text() 里
+      （"&Copy\\tCtrl+C"），截断即不显示（控件自身按键处理不受影响，
+      Ctrl+C 等快捷键照常用）；
+    - 删 Copy Link Location（objectName "link-copy"，QTextBrowser 标准
+      菜单自带的小众项，左栏无使用场景）；
+    - 文案中文化：应用未装载 QTranslator，Qt 标准菜单恒为英文，
+      按 objectName 精确映射为中文（_STANDARD_MENU_LABELS）。
+
+    原样返回传入菜单，便于链式使用。
+    """
+    for action in menu.actions():
+        name = action.objectName()
+        if name == "link-copy":
+            menu.removeAction(action)
+            continue
+        if name in _STANDARD_MENU_LABELS:
+            action.setText(_STANDARD_MENU_LABELS[name])
+        else:
+            text = action.text()
+            if "\t" in text:
+                action.setText(text.split("\t")[0])
+        if not action.icon().isNull():
+            action.setIcon(QIcon())
+    return menu
+
+
+def exec_standard_context_menu(widget: QWidget, event, simplify: bool = False) -> None:
     """标准编辑菜单透明化弹出：替代控件默认 contextMenuEvent。
 
     菜单项一律取自控件内建 createStandardContextMenu()（不重建、不丢项），
-    仅经 make_translucent_popup() 透明化后 exec。
+    仅经 make_translucent_popup() 透明化后 exec；simplify=True 时再经
+    simplify_standard_menu() 精简（左栏会话区专用，其余调用方默认不动）。
     （QLineEdit 版签名无 pos 参数，isinstance 分支兼容。）
     """
     if isinstance(widget, QLineEdit):
@@ -73,6 +131,8 @@ def exec_standard_context_menu(widget: QWidget, event) -> None:
     else:
         menu = widget.createStandardContextMenu(event.pos())
     make_translucent_popup(menu)
+    if simplify:
+        simplify_standard_menu(menu)
     menu.exec(event.globalPos())
     menu.deleteLater()
 
