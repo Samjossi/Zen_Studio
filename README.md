@@ -66,7 +66,7 @@ Zen Studio 的设计哲学是 **Agent 驱动**：代码修改一律经 AI agent 
 
 - **依赖方向单向**：`gui/`（前端）→ `llm/`（后端），`core/` 为零 Qt 依赖底层；包内不反向 import；
 - **版本单一来源**：`config/version.json` 的 `version` 字段（发版人工 +0.1，数据文件承载不硬编码），代码侧一律经 `core/version.py` 的 `APP_VERSION` 读取，`pyproject.toml` 版本为其副本；
-- **AI 友好代码协议**：全库遵循 `AI 友好代码协议-v1.2.0.md`（方法级拆分、docstring 决策留痕、禁止上帝对象）。
+- **AI 友好代码协议**：全库遵循 `维护手册/AI 友好代码协议-v1.2.0.md`（方法级拆分、docstring 决策留痕、禁止上帝对象）。
 
 ## 5. 目录结构
 
@@ -80,6 +80,7 @@ Zen Studio 的设计哲学是 **Agent 驱动**：代码修改一律经 AI agent 
 | `assets/` | 主题 qss、自带字体（OFL）、Logo 成套件与候选池 |
 | `building/` | PyInstaller spec、AppImage 构建脚本与产物 |
 | `config/` | 版本单一来源（`version.json`）与运行时配置（settings / 最近项目 / 窗口状态，gitignored 数据） |
+| `维护手册/` | 开发维护手册：AI 友好代码协议 / 视觉验证闭环开发指南 / 工具箱说明 / 虚拟环境创建约定 / 后端CLI工具维护说明手册 |
 | `scripts/` | 工具脚本（Logo 渲染等） |
 | `work charter/` `work plans/` `work options/` | 章程 / 计划 / 选型三级工作文档（当前批次已归档至 `文档/`） |
 | `文档/` | 归档文档库：修改记录 / 选型记录 / 审计报告 / 理论依据 / 提示语句 |
@@ -90,7 +91,7 @@ Zen Studio 的设计哲学是 **Agent 驱动**：代码修改一律经 AI agent 
 ### 6.1 环境准备
 
 ```bash
-# 需要 Python ≥ 3.12 与 uv；虚拟环境创建约定见 ai创建虚拟环境.md
+# 需要 Python ≥ 3.12 与 uv；虚拟环境创建约定见 维护手册/ai创建虚拟环境.md
 uv sync
 ```
 
@@ -149,7 +150,7 @@ building/dist/zen-studio/zen-studio
 |:---|:---|
 | `AGENTS.md` | AI / 工程师操作约束（仅操作项目目录、强制 `.venv`、中文响应等） |
 | `文档编写规范.md` | 文档命名、头部元信息、文件引用、符号约定（v3.1 强制约束型） |
-| `AI 友好代码协议-v1.2.0.md` | 代码编写强制协议 |
+| `维护手册/AI 友好代码协议-v1.2.0.md` | 代码编写强制协议 |
 | `gui/README.md` `llm/README.md` | 两大核心包的详细机制说明 |
 | `文档/修改记录/` | 全部实施计划与诊断报告归档（时间戳命名） |
 | `文档/选型记录/` | 技术选型论证归档 |
