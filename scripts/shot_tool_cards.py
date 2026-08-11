@@ -287,23 +287,29 @@ def _scenarios() -> list[tuple[str, list[dict], str, object]]:
                          raw_output={"output": "读取失败：文件不存在"}),
         ], "media_path 装填但文件不存在：静默降级无破图占位，path 文本"
            "仍在", None),
-        # 0808-0627 计划 T3：TodoListCard 四场景（todos 载荷经真实
-        # map_session_update 协议链路产出，含跨调用 diff changed 标记）
+        # 0808-0627 计划 T3：TodoListCard 场景组（todos 载荷经真实
+        # map_session_update 协议链路产出，含跨调用 diff changed 标记）；
+        # 0812-0336 计划 T2：16/18/20 为 kimi title 形态，04/17/19 保留
+        # kilocode/opencode content 形态与 plan 通道回归
         ("16_todolist_首帧空壳迟到清单", [
             # kimi 系时序（场景 01/13 帧序蓝本）：首帧空壳无 rawInput →
             # in_progress 帧补齐 todos（快照语义，每帧都提不设去重账本）
+            # 0812-0336 计划 T2：改 kimi 形态（title 键、无 priority），
+            # 混入一条脏条目（两键均缺）覆盖防御语义（B7）
             _tool_call("tc-todolate", "TodoList", "other"),
             _tool_update("tc-todolate", "in_progress",
                          raw_input={"todos": [
-                             {"content": "协议层 todos 载荷 + diff",
+                             {"title": "协议层 todos 载荷 + diff",
                               "status": "completed"},
-                             {"content": "渲染层 TodoListCard",
+                             {"title": "渲染层 TodoListCard",
                               "status": "in_progress"},
-                             {"content": "mock 截图闭环",
-                              "status": "pending"}]}),
+                             {"title": "mock 截图闭环",
+                              "status": "pending"},
+                             {"status": "pending"}]}),
             _tool_update("tc-todolate", "completed", title="TodoList",
                          raw_output={"output": "清单已更新"}),
         ], "首帧空壳：TodoListCard 清单区随 in_progress 帧迟到载荷出现，"
+           "条目文本与 title 值一致（kimi 形态归一取证）；脏条目静默跳过；"
            "入参区保持「（无）」无 todos JSON 重复，副标题 1/3", None),
         ("17_todolist_跨调用变更高亮", [
             # 两次调用（两 toolCallId）：首卡快照 → 次卡快照（状态迁移
@@ -325,17 +331,39 @@ def _scenarios() -> list[tuple[str, list[dict], str, object]]:
            "醒目色、未变更第 3 项常规色，副标题 1/4；首卡全项醒目"
            "（before 为空首卡全量高亮语义正确）", None),
         ("18_todolist_回执过滤_kimi", [
+            # 0812-0336 计划 T2：改 kimi 形态（title 键），名实相符
             _tool_call("tc-todoreceipt", "TodoList", "other"),
             _tool_update("tc-todoreceipt", "in_progress",
                          raw_input={"todos": [
-                             {"content": "回执过滤验证", "status": "in_progress"}]}),
+                             {"title": "回执过滤验证", "status": "in_progress"}]}),
             _tool_update("tc-todoreceipt", "completed", title="TodoList",
                          raw_output={"output":
                                      "Current todo list:\n"
                                      "[in_progress] 回执过滤验证\n"
                                      "[pending] 另一项待办"}),
         ], "出参区无「Current todo list:」块及其后连续 [status] 行"
-           "（kimi 模板回执整块剔除），清单区正常渲染", None),
+           "（kimi 模板回执整块剔除），清单区正常渲染、条目文本与 title"
+           "值一致", None),
+        ("20_todolist_kimi跨调用变更高亮", [
+            # 0812-0336 计划 T2 新增：场景 17 的 kimi 形态变体——两次调用
+            # 两 toolCallId，title 键、状态迁移 + 新增一项，跨调用 diff
+            _tool_call("tc-todokimi1", "TodoList", "other",
+                       {"todos": [{"title": "kimi 协议层载荷", "status": "in_progress"},
+                                  {"title": "kimi 渲染层专用卡", "status": "pending"},
+                                  {"title": "kimi mock 验证", "status": "pending"}]}),
+            _tool_update("tc-todokimi1", "completed", title="TodoList",
+                         raw_output={"output": "ok"}),
+            _tool_call("tc-todokimi2", "TodoList", "other",
+                       {"todos": [{"title": "kimi 协议层载荷", "status": "completed"},
+                                  {"title": "kimi 渲染层专用卡", "status": "in_progress"},
+                                  {"title": "kimi mock 验证", "status": "pending"},
+                                  {"title": "kimi 截图闭环", "status": "pending"}]}),
+            _tool_update("tc-todokimi2", "completed", title="TodoList",
+                         raw_output={"output": "ok"}),
+        ], "两张 TodoListCard 各自定格（历史留痕），条目文本与 title 值"
+           "一致；次卡变更项（1/2/4 项）醒目色、未变更第 3 项常规色，"
+           "副标题 1/4；首卡全项醒目（before 为空首卡全量高亮语义正确）",
+           None),
         ("19_plan_通道回归", [
             # plan 通道不动产：无 toolCallId 的会话级快照流仍走
             # 单卡 TodoCard 整刷（0808-0627 计划 D1 改道范围外）

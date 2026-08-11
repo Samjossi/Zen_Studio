@@ -677,16 +677,25 @@ def _todo_fallback_text(entries: list[TodoEntry]) -> str:
 def _extract_todo_entries(items: object) -> list[TodoEntry]:
     """plan.entries / rawInput.todos → TodoEntry 列表（两通道同构，F1）。
 
-    仅收录 content 为字符串的条目；status/priority 为字符串才保留
-    （渲染层按缺省 pending 容错），结构不符的条目静默跳过。
+    条目文本键两系归一：kimi 系为 title，kilocode/opencode 系为
+    content——content 或 title 任一字符串即收录（content 优先），
+    内部统一 content 存储；status/priority 为字符串才保留（渲染层
+    按缺省 pending 容错），结构不符的条目静默跳过。
     """
     entries: list[TodoEntry] = []
     if not isinstance(items, list):
         return entries
     for item in items:
-        if not isinstance(item, dict) or not isinstance(item.get("content"), str):
+        if not isinstance(item, dict):
             continue
-        entry = TodoEntry(content=item["content"])
+        # kimi 系 TodoList 条目文本键为 title；kilocode/opencode 系
+        # todowrite 为 content——两形归一，内部统一 content 存储
+        text = item.get("content")
+        if not isinstance(text, str):
+            text = item.get("title")
+        if not isinstance(text, str):
+            continue
+        entry = TodoEntry(content=text)
         if isinstance(item.get("status"), str):
             entry["status"] = item["status"]
         if isinstance(item.get("priority"), str):

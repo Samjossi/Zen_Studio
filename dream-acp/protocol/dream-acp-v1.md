@@ -195,6 +195,9 @@ todo 语义是快照推进，每帧都提不设去重账本），供 TodoListCar
 `changed` 布尔标记——客户端协议层跨调用 diff 产物（与上次快照逐项
 比对 content+status+priority 全等口径，sessionId 键控簿记），渲染层
 据以高亮变更项——**仅供人类查看，不回传 AI、不改协议语义**。
+条目文本键两系归一（0812-0336 修订）：kimi 系为 `title`，
+kilocode/opencode 系为 `content`，客户端协议层统一归一为 `content`
+存储（`content` 优先，两键均缺的条目静默跳过）。
 todowrite/TodoList 回执文本（"Todo list updated."/"Ensure that you
 continue..."/"Current todo list:" 块）不应作为出参发送——客户端有
 白名单过滤，会被剔除。
