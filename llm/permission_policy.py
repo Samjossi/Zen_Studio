@@ -52,22 +52,39 @@ PERMISSION_MODE_LABELS: dict[str, tuple[str, str]] = {
 #: allow_always 优于 allow_once——等价"始终允许"语义，避免每轮重复决策）
 ALLOW_KIND_PREFERENCE = ("allow_always", "allow_once")
 
-#: question 类交互工具名归一化小写名集（0807-0148 计划 T1）：
+#: question 类交互工具名归一化小写名集（白名单通道，辅助防线）：
 #: AskUserQuestion 的 ACP 语义是"agent 提问 → 用户作答"，答案选项以
 #: allow_once kind 编码（实证：.temp/frame_archive/askuser_*.json），
 #: 无特判会被决策链当普通工具审批自动放行并秒选第一个选项。
-#: 其他后端同类工具名按实证补入，集中维护。
-_QUESTION_TOOL_NAMES = frozenset({"askuserquestion"})
+#: 白名单服务于"request_permission 的 toolCall.title 恰为工具名且
+#: rawInput 不带问题载荷"的异构形态；reasonix 决策帧 title 是问题原文
+#: （实证：.temp/frame_archive/ask_reasonix_*.json），白名单管不到，
+#: 由结构通道覆盖。其他后端同类工具名按实证补入，集中维护。
+_QUESTION_TOOL_NAMES = frozenset({"askuserquestion", "ask"})
 
 
 def is_question_request(params: PermissionParams) -> bool:
-    """question 类交互请求识别（0807-0148 计划 T1）。
+    """question 类交互请求识别（0807-0148 计划 T1；0812-0952 计划 T1 双通道化）。
 
-    只做 title 判定（纯逻辑纪律：不碰载荷深层结构）；归一化与
-    cards.py `_normalize_tool_name` 同纪律：去 `mcp__server__` 前缀取末段、
-    小写化。
+    结构通道（主防线——ACP v1 无提问语义标识、工具名各自为政的现实下
+    与工具名解耦）：rawInput 携带提问载荷签名任一即命中——
+    - `questions` 列表（kimi 系 / reasonix session/update 帧形态）；
+    - `question` 字符串 + `options` 列表（reasonix request_permission
+      决策帧形态，实证 .temp/frame_archive/ask_reasonix_*.json：该帧
+      title 是问题原文而非工具名，白名单永远命中不了）。
+    只看字段存在性，不解析内容（误伤面收敛：普通工具 rawInput 无此二签名）。
+
+    白名单通道（辅助）：title 归一化（去 `mcp__server__` 前缀取末段、
+    小写化，与 cards.py `_normalize_tool_name` 同纪律）命中已知工具名，
+    兜底"rawInput 不带问题载荷"的异构形态。
     """
     tool_call = params.get("toolCall") or {}
+    raw = tool_call.get("rawInput")
+    if isinstance(raw, dict):
+        if isinstance(raw.get("questions"), list):
+            return True
+        if isinstance(raw.get("question"), str) and isinstance(raw.get("options"), list):
+            return True
     title = (tool_call.get("title") or "").strip()
     if "__" in title:
         title = title.split("__")[-1]

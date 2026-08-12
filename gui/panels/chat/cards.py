@@ -820,6 +820,29 @@ class SubagentCard(ToolCard):
             self.set_open(False)
 
 
+def _parse_answered_text(output: str) -> dict | None:
+    """reasonix ask 出参文本形态 → answers 字典（0812-0952 计划 T3）。
+
+    实证蓝本（.temp/frame_archive/ask_reasonix_*.json）：reasonix completed
+    帧出参非 JSON，而是 `The user answered:` 起头、逐行 `- 键: 答案` 的
+    纯文本（kimi 为 `{"answers": {...}}` JSON）。键是问题短标题（header）
+    而非问题原文，与 _fill_answers「精确匹配失败按声明顺序分配」兜底衔接。
+    """
+    lines = output.strip().splitlines()
+    if not lines or not lines[0].strip().startswith("The user answered"):
+        return None
+    answers: dict[str, str] = {}
+    for line in lines[1:]:
+        body = line.strip()
+        if not body.startswith("-") or ":" not in body:
+            continue
+        key, _, value = body[1:].partition(":")
+        key, value = key.strip(), value.strip()
+        if key and value:
+            answers[key] = value
+    return answers or None
+
+
 class QuestionCard(ToolCard):
     """AskUserQuestion 问答卡（0806 计划 T5）：body 为问答对列表——
     每个问题一行粗体 + 所选答案普通行；pending 显示「等待用户回答…」；
@@ -947,6 +970,9 @@ class QuestionCard(ToolCard):
                     dismissed_note = obj["note"]
         except ValueError:
             pass
+        if answers is None:
+            # reasonix ask 出参文本形态（0812-0952 计划 T3，非 JSON）
+            answers = _parse_answered_text(output)
         if answers and self._qa_rows:
             self._fill_answers(answers)
         elif answers:
@@ -1003,6 +1029,33 @@ def find_question_card(tool_call_id: str) -> "QuestionCard | None":
         _QUESTION_CARD_REGISTRY.pop(tool_call_id, None)
         return None
     return card
+
+
+def find_pending_question_card(questions: list[str]) -> "QuestionCard | None":
+    """按问题文本匹配待答 QuestionCard（0812-0952 计划 ⚠️3 E6 修订）。
+
+    背景：reasonix 的 request_permission 与 session/update 帧 toolCallId
+    **双轨不一致**（`ask-1-q1` vs `call_00_…`，实证
+    .temp/frame_archive/ask_reasonix_*.json），id 定位必然 miss 降级弹窗。
+    改按问题文本精确匹配兜底：决策帧 rawInput.question 与渲染帧
+    rawInput.questions[].question 同文（同一次提问的两条帧路），
+    命中唯一即返回。多卡同文命中取注册最早者（同窗口 question 请求
+    串行激活，常态至多一张待答卡在场）；已终态卡跳过。
+    """
+    want = {q.strip() for q in questions if isinstance(q, str) and q.strip()}
+    if not want:
+        return None
+    for tid, card in list(_QUESTION_CARD_REGISTRY.items()):
+        try:
+            card.isVisible()  # 探活（同 find_question_card 惰性清理纪律）
+        except RuntimeError:
+            _QUESTION_CARD_REGISTRY.pop(tid, None)
+            continue
+        if card._answered:
+            continue
+        if {q for q, _ in card._qa_rows} & want:
+            return card
+    return None
 
 
 #: MCP 卡出参图片显示限宽（0806 计划 T4：QTextBrowser 不支持 max-width，
@@ -1273,9 +1326,13 @@ def _diff_soft_limit_note() -> int:
 #: 字典注册式、未命中回退 tool_kind 分派，后续扩充只加表项；键为归一化
 #: 后小写工具名。0158 计划 T2 增补 readmediafile——0806「无需专用卡」
 #: 裁决随入参略缩图需求撤销；0808-0627 计划 T2 增补 todolist/todowrite
-#: ——首帧特判合并会话级单卡的旧路线撤销，每次调用一张 TodoListCard）
+#: ——首帧特判合并会话级单卡的旧路线撤销，每次调用一张 TodoListCard；
+#: 0812-0952 计划 T3 增补 ask——reasonix 提问工具（实证：update 帧
+#: title="ask"、rawInput.questions 与 kimi 同构，
+#: .temp/frame_archive/ask_reasonix_*.json）
 _TOOL_NAME_CARDS: dict[str, type] = {
     "askuserquestion": QuestionCard,
+    "ask": QuestionCard,
     "agent": SubagentCard,
     "task": SubagentCard,
     "readmediafile": MediaReadCard,

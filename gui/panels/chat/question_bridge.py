@@ -18,7 +18,7 @@ from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QWidget
 from shiboken6 import isValid
 
-from gui.panels.chat.cards import find_question_card
+from gui.panels.chat.cards import find_pending_question_card, find_question_card
 from gui.panels.chat.permission_dialog import QuestionDialog
 from gui.panels.chat.permission_queue import PERMISSION_TIMEOUT_S
 from llm import PermissionParams
@@ -82,13 +82,21 @@ class QuestionBridge:
 
     def _activate_one(self, entry: _Entry) -> None:
         """单条激活：优先卡内按钮（异步等点击），卡片缺失/已终态降级
-        QuestionDialog 模态弹窗（嵌套事件流，与 PERMISSION_QUEUE 同手法）。"""
+        QuestionDialog 模态弹窗（嵌套事件流，与 PERMISSION_QUEUE 同手法）。
+
+        id 定位 miss 时按问题文本匹配兜底（0812-0952 计划 ⚠️3 E6 修订）：
+        reasonix 的 request_permission 与 update 帧 toolCallId 双轨不一致，
+        id 定位必然 miss——决策帧与渲染帧的问题文本同文，可精确匹配
+        待答卡，避免无意义降级为巨大弹窗。"""
         params, tool_call_id, parent = entry[0], entry[1], entry[2]
         try:
             if not isValid(parent):  # parent 标签排队期间被关闭销毁
                 self._finish(entry, None)
                 return
             card = find_question_card(tool_call_id) if tool_call_id else None
+            if card is None:
+                card = find_pending_question_card(
+                    QuestionDialog._extract_questions(params))
             if card is not None and card.activate_options(
                     params.get("options") or [],
                     lambda oid: self._finish(entry, oid)):

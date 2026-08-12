@@ -192,7 +192,10 @@ class QuestionDialog(QDialog):
 
     @staticmethod
     def _extract_questions(params: PermissionParams) -> list[str]:
-        """问题文本提取：rawInput.questions 优先（结构化路径），
+        """问题文本提取：rawInput.questions 优先（结构化路径）；
+        rawInput.question 单问题字符串次之（reasonix 实证：
+        request_permission 的 rawInput 为 `{question, options, multi}`
+        单问题形态——.temp/frame_archive/ask_reasonix_*.json）；
         toolCall.content 文本块兜底（kimi 实证：request_permission 的
         toolCall 不带 rawInput，问题文本在 content 块——
         .temp/frame_archive/askuser_*.json）。"""
@@ -203,6 +206,9 @@ class QuestionDialog(QDialog):
                          if isinstance(q, dict) and isinstance(q.get("question"), str)]
             if questions:
                 return questions
+        if isinstance(raw, dict) and isinstance(raw.get("question"), str) \
+                and raw["question"].strip():
+            return [raw["question"].strip()]
         texts: list[str] = []
         for block in tool_call.get("content") or []:
             text = ((block or {}).get("content") or {}).get("text")

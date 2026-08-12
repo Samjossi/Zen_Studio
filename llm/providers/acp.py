@@ -616,8 +616,9 @@ def _extract_question_options(update: dict) -> list[dict] | None:
     QuestionCard 卡片内交互数据源；与 questions 字段并存，GUI 不碰 rawInput）。
 
     每问 `{question, header?, options: [{label, description?}], multi_select}`。
-    实证蓝本（.temp/frame_archive/askuser_*.json）：多选字段名为
-    `multi_select`（snake_case，非臆测的 multiSelect）；header 为可选短标题。
+    实证蓝本：kimi 帧（.temp/frame_archive/askuser_*.json）多选字段名为
+    `multi_select`（蛇形）；reasonix 帧（.temp/frame_archive/ask_reasonix_*.json）
+    为 `multiSelect`（驼峰，0812-0952 计划 T2 兼容补入）；header 为可选短标题。
     """
     raw = update.get("rawInput")
     if not isinstance(raw, dict) or not isinstance(raw.get("questions"), list):
@@ -627,7 +628,7 @@ def _extract_question_options(update: dict) -> list[dict] | None:
         if not isinstance(q, dict) or not isinstance(q.get("question"), str):
             continue
         item: dict = {"question": q["question"],
-                      "multi_select": bool(q.get("multi_select"))}
+                      "multi_select": bool(q.get("multi_select") or q.get("multiSelect"))}
         if isinstance(q.get("header"), str):
             item["header"] = q["header"]
         options: list[dict] = []

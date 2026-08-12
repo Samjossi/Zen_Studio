@@ -31,6 +31,7 @@ from gui.panels.chat.cards import (  # noqa: E402
     OpenStateMap,
     TodoCard,
     ToolCard,
+    find_pending_question_card,
     find_question_card,
     make_tool_card,
 )
@@ -583,6 +584,68 @@ def _scenarios() -> list[tuple[str, list[dict], str, object]]:
            "帧放行（_tool_commands 闸门）；入参区迟到回填显示「command: "
            "echo capture_execute_probe」；输出定格「capture_execute_probe」"
            "；✔", None),
+        # 0812-0952 计划 T5：reasonix ask 两场景（蓝本 T0 取证帧
+        # .temp/frame_archive/ask_reasonix_*_20260812_100424.json）
+        ("31_ask_reasonix_问答对", [
+            # 实证形态：update 帧 title="ask"、kind="other"、
+            # rawInput.questions 与 kimi 同构（label/description 小写，
+            # header 可选）；completed 帧无 rawOutput，出参为 content
+            # 文本块「The user answered:\n- 键: 答案」（非 JSON）
+            _tool_call("tc-askrx", "ask", "other",
+                       {"questions": [
+                           {"header": "今晚吃啥",
+                            "question": "今天晚上吃什么？",
+                            "options": [{"label": "火锅", "description": "热闹又暖和，适合聚餐"},
+                                        {"label": "麻辣烫", "description": "快捷方便，单人友好"},
+                                        {"label": "饺子", "description": "传统美味，家的味道"},
+                                        {"label": "沙拉轻食", "description": "健康低卡，清爽无负担"}]}]}),
+            _tool_update("tc-askrx", "completed",
+                         content=[{"type": "content",
+                                   "content": {"type": "text",
+                                               "text": "The user answered:\n- 今晚吃啥: 火锅"}}]),
+        ], "reasonix ask 走 QuestionCard（_TOOL_NAME_CARDS 注册实证名）："
+           "问题粗体行 + ✅ 答案行——The user answered 文本形态经 "
+           "_parse_answered_text 解析落行，不再裸露原文兜底", None),
+        ("32_ask_reasonix_multiSelect", [
+            # 实证形态：多选字段名为 multiSelect 驼峰（kimi 为
+            # multi_select 蛇形，0812-0952 计划 T2 兼容补入）
+            _tool_call("tc-askrxm", "ask", "other",
+                       {"questions": [
+                           {"header": "周末活动",
+                            "question": "周末想做的活动有哪些？",
+                            "multiSelect": True,
+                            "options": [{"label": "去户外徒步", "description": "亲近大自然"},
+                                        {"label": "约朋友聚餐", "description": "和好友吃饭聊天"}]}]}),
+            _tool_update("tc-askrxm", "completed",
+                         content=[{"type": "content",
+                                   "content": {"type": "text",
+                                               "text": "The user answered:\n- 周末活动: 去户外徒步"}}]),
+        ], "multiSelect 驼峰字段（reasonix 实证）问题 completed 问答对"
+           "正常渲染；question_options 载荷提取兼容不破坏现行渲染", None),
+        ("33_ask_reasonix_文本匹配激活", [
+            # 0812-0952 计划 ⚠️3 E6 修订：reasonix 的 request_permission
+            # toolCallId（ask-1-q1 系）与 update 帧（call_00_ 系）双轨
+            # 不一致，QUESTION_BRIDGE id 定位必然 miss——按问题文本匹配
+            # 待答卡激活按钮组（question_bridge._activate_one 兜底路径）
+            _tool_call("tc-askrxt", "ask", "other",
+                       {"questions": [
+                           {"header": "今晚吃啥",
+                            "question": "今天晚上吃什么？",
+                            "options": [{"label": "火锅", "description": "热闹又暖和"},
+                                        {"label": "麻辣烫", "description": "快捷方便"},
+                                        {"label": "饺子", "description": "家的味道"},
+                                        {"label": "沙拉轻食", "description": "清爽低卡"}]}]}),
+        ], "id 定位 miss 后按问题文本匹配激活：pending 卡自动展开 + "
+           "「请选择：」+ reasonix 实证形态选项按钮（name=Label - "
+           "Description 原文 + Cancel）+ 自由作答引导，不再降级巨大弹窗",
+           lambda cards: find_pending_question_card(
+               ["今天晚上吃什么？"]).activate_options(
+               [{"optionId": "q1:1", "name": "火锅 - 热闹又暖和", "kind": "allow_once"},
+                {"optionId": "q1:2", "name": "麻辣烫 - 快捷方便", "kind": "allow_once"},
+                {"optionId": "q1:3", "name": "饺子 - 家的味道", "kind": "allow_once"},
+                {"optionId": "q1:4", "name": "沙拉轻食 - 清爽低卡", "kind": "allow_once"},
+                {"optionId": "q1:cancel", "name": "Cancel", "kind": "reject_once"}],
+               lambda oid: None)),
     ]
 
 

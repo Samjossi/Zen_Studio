@@ -1,11 +1,17 @@
-"""AskUserQuestion 决策特判与选项提取单元测试（0807-0148 计划 §5.1）。
+"""AskUserQuestion/ask 决策特判与选项提取单元测试（0807-0148 计划 §5.1；
+0812-0952 计划 T5 扩展）。
 
 覆盖：
 - is_question_request title 形态（归一化：mcp__ 前缀/大小写混写）；
-- decide_permission 四态 × question 一律 DECISION_ASK（含 auto_all）；
+- is_question_request 结构通道（0812-0952 T1）：rawInput.questions 列表 /
+  reasonix 签名（rawInput.question+options，决策帧 title 是问题原文）命中，
+  Bash/Edit 等普通工具 rawInput 不命中；
+- decide_permission 四态 × question（kimi/reasonix 双形态）一律 DECISION_ASK
+  （含 auto_all）；
 - 非 question 请求四态行为回归不变；
 - _extract_question_options 结构化载荷提取（真实帧蓝本：
-  .temp/frame_archive/askuser_*.json——multi_select 蛇形字段名）。
+  .temp/frame_archive/askuser_*.json——multi_select 蛇形字段名；
+  .temp/frame_archive/ask_reasonix_*.json——multiSelect 驼峰兼容）。
 
 运行（项目根）：.venv/bin/python scripts/test_question_permission.py
 """
@@ -47,14 +53,39 @@ def q_params(title: str, kind: str = "other") -> dict:
 check("AskUserQuestion 命中", is_question_request(q_params("AskUserQuestion")))
 check("mcp__xxx__AskUserQuestion 命中", is_question_request(q_params("mcp__xxx__AskUserQuestion")))
 check("小写混写 askUSERquestion 命中", is_question_request(q_params("askUSERquestion")))
+check("reasonix 工具名 ask 命中（白名单辅助）", is_question_request(q_params("ask")))
 check("Agent 不命中", not is_question_request(q_params("Agent")))
 check("空 title 不命中", not is_question_request(q_params("")))
 check("缺 toolCall 不命中", not is_question_request({}))
+
+# 1b. 结构通道（0812-0952 计划 T1，实证 .temp/frame_archive/ask_reasonix_*.json）
+# reasonix 决策帧：title 是问题原文而非工具名，白名单管不到
+reasonix_params = {
+    "toolCall": {"title": "今天晚上吃什么？", "kind": "other",
+                 "rawInput": {"id": "q1", "multi": False, "question": "今天晚上吃什么？",
+                              "options": [{"Label": "火锅", "Description": "热闹又暖和"}]}},
+    "options": [{"optionId": "q1:1", "name": "火锅 - 热闹又暖和", "kind": "allow_once"},
+                {"optionId": "q1:cancel", "name": "Cancel", "kind": "reject_once"}]}
+check("reasonix 签名（question+options）命中", is_question_request(reasonix_params))
+check("rawInput.questions 非白名单 title 命中",
+      is_question_request({"toolCall": {"title": "未来某新名", "kind": "other",
+                                        "rawInput": {"questions": []}}}))
+check("Bash rawInput（command）不命中",
+      not is_question_request({"toolCall": {"title": "Bash", "kind": "execute",
+                                            "rawInput": {"command": "ls"}}}))
+check("Edit rawInput 不命中",
+      not is_question_request({"toolCall": {"title": "Edit", "kind": "edit",
+                                            "rawInput": {"file_path": "a.md",
+                                                         "old_string": "x", "new_string": "y"}}}))
+check("仅 question 无 options 不命中（签名需成对）",
+      not is_question_request({"toolCall": {"title": "X", "rawInput": {"question": "q"}}}))
 
 # 2. decide_permission 四态 × question 一律 ASK
 for mode in FOUR_MODES:
     decision, reason = decide_permission(q_params("AskUserQuestion"), mode)
     check(f"{mode} × question → ASK", decision == DECISION_ASK and reason is None)
+    d2, r2 = decide_permission(reasonix_params, mode)
+    check(f"{mode} × reasonix ask → ASK", d2 == DECISION_ASK and r2 is None)
 
 # 3. 非 question 请求回归（原四态行为不变）
 bash_safe = {"toolCall": {"title": "Bash", "kind": "execute",
@@ -92,6 +123,18 @@ check("次问 multi_select 缺省 False", items[1]["multi_select"] is False)
 check("选项 label 提取", items[0]["options"] == [{"label": "佛像"},
                                                 {"label": "莲花", "description": "金色莲花"}])
 check("description 可选保留", items[0]["options"][1]["description"] == "金色莲花")
+# 4b. reasonix 帧形态（0812-0952 计划 T2，实证蓝本
+#     .temp/frame_archive/ask_reasonix_multi_*.json）：multiSelect 驼峰字段名
+update_reasonix = {"rawInput": {"questions": [
+    {"header": "周末活动", "question": "周末想做的活动有哪些？", "multiSelect": True,
+     "options": [{"label": "去户外徒步", "description": "亲近大自然"}]},
+]}}
+items_rx = _extract_question_options(update_reasonix)
+check("reasonix 驼峰 multiSelect 提取为 True",
+      items_rx is not None and items_rx[0]["multi_select"] is True)
+check("reasonix header/label 同构提取",
+      items_rx[0]["header"] == "周末活动"
+      and items_rx[0]["options"] == [{"label": "去户外徒步", "description": "亲近大自然"}])
 check("无 rawInput 返回 None", _extract_question_options({}) is None)
 check("questions 非列表返回 None",
       _extract_question_options({"rawInput": {"questions": "x"}}) is None)
