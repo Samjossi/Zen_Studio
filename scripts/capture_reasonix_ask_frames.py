@@ -8,7 +8,7 @@
 3. rawInput.questions 结构是否与 kimi 同构（options/multiSelect 字段名）；
 4. 是否支持多选及其编码形态。
 
-产物：.temp/frame_archive/ask_reasonix_<时间戳>.json
+产物：帧存档/ask_reasonix_<时间戳>.json
 （全序列 session/update 帧 + 审批载荷 + 轮次响应）。
 
 运行（项目根）：
@@ -25,7 +25,7 @@ from core.paths import PROJECT_ROOT
 from llm.providers.acp import AcpConnection
 from llm.providers.reasonix_acp import _find_bin
 
-ARCHIVE_DIR = PROJECT_ROOT / ".temp" / "frame_archive"
+ARCHIVE_DIR = PROJECT_ROOT / "帧存档"
 
 #: 单选场景：诱导一次 ask 提问调用（四选项，对齐 0812 复发截图形态）
 PROMPT_ASK = (

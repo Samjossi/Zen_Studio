@@ -1,0 +1,1807 @@
+{
+  "purpose": "0812-0952 计划 T4：kilocode 提问工具排查取证（question 工具不发 request_permission，挂起形态实录）",
+  "stop_reason": null,
+  "permission_requests": [],
+  "reverse_requests": [],
+  "frames": [
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "available_commands_update",
+          "availableCommands": [
+            {
+              "name": "init",
+              "description": "guided AGENTS.md setup"
+            },
+            {
+              "name": "kilo-config",
+              "description": "Guide for Kilo configuration: config paths, kilo.json fields, commands, agents, skills, permissions, MCPs, providers, TUI settings, plus Agent Manager worktree setup/run scripts, workflows, and state. Use for Kilo config questions, locating loaded config, changing settings, or Agent Manager questions about run/setup scripts, worktree setup/workflows, apply/merge/PR/conflicts, missing sessions/worktrees, and agent-manager.json recovery."
+            },
+            {
+              "name": "local-review",
+              "description": "deprecated; use /review branch"
+            },
+            {
+              "name": "local-review-uncommitted",
+              "description": "deprecated; use /review uncommitted"
+            },
+            {
+              "name": "review",
+              "description": "review changes [uncommitted|commit|branch|pr]"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "用户"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "要求"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "使用"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "提问"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "工具"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "问"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "一个问题"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "，"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "给"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "恰好"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "四个"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "选项"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "。"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "得到"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "回答"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "后直接"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "结束"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "本轮"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "，"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "不要"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "执行"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "任何"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "其他"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "工具"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "。"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "需要用"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "中文"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "。"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "调用"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "question"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "。"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "确保"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "四个"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "选项"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "，"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "不多"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "不少"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "。"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "问题"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "："
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "今天晚上"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "吃什么"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "？"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "选项"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "四个"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "。"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "header"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "<="
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "30"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "字符"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "。"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "调用"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "后"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "等待"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "回答"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "，"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "最终"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "直接"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "结束"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "，"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "不"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "执行"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "其他"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "工具"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "。"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "由于"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "工具"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "会"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "返"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "回答"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "案"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "，"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "然后我"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "应"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "简短"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "结束"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "？"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "用户"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "说"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "得到"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "回答"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "后直接"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "结束"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "本轮"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "，"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "不要"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "执行"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "任何"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "其他"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "工具"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "。"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "意味着"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "调用"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "question"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "后"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "根据"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "返回"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "不需要"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "再多"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "说"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "？"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "但最终"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "需要"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "给"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "出一个"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "结束"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "性"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "消息"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "。"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "先"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "调用"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "question"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": "。"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "messageId": "msg_ff3d9498e001JzccWdaC0t9Cbx",
+          "content": {
+            "type": "text",
+            "text": ""
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "tool_call",
+          "toolCallId": "tool_KD0A1CZrD4AQE0HXl2LxprvN",
+          "title": "question",
+          "kind": "other",
+          "status": "pending",
+          "locations": [],
+          "rawInput": {}
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "ses_00c26b721ffedRA1PuNQ8eiWOt",
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "tool_KD0A1CZrD4AQE0HXl2LxprvN",
+          "status": "in_progress",
+          "kind": "other",
+          "title": "question",
+          "locations": [],
+          "rawInput": {
+            "questions": [
+              {
+                "header": "今晚吃什么",
+                "options": [
+                  {
+                    "description": "家常热菜配米饭，省事稳妥",
+                    "label": "米饭炒菜"
+                  },
+                  {
+                    "description": "来一碗热乎的面，快速解决",
+                    "label": "面条"
+                  },
+                  {
+                    "description": "涮菜涮肉，丰盛一点",
+                    "label": "火锅"
+                  },
+                  {
+                    "description": "不想做饭，直接点一份",
+                    "label": "外卖"
+                  }
+                ],
+                "question": "今天晚上吃什么？"
+              }
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

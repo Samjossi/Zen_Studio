@@ -1,0 +1,919 @@
+{
+  "purpose": "0812-0952 计划 T0：reasonix ask 提问工具全序列帧存档（ask_reasonix 场景）",
+  "prompt": "请使用 ask 工具问我一个问题：今天晚上吃什么？给我恰好四个选项让我选择。得到我的回答后直接结束本轮，不要执行任何其他工具，不要写文件。",
+  "handler_strategy": "记录完整审批载荷后回第一个选项放行（仅取证帧结构）",
+  "stop_reason": "end_turn",
+  "permission_requests": [
+    {
+      "sessionId": "a2acfe39-213d-47d5-87bd-7fd9189d5995",
+      "toolCall": {
+        "toolCallId": "ask-1-q1",
+        "title": "今天晚上吃什么？",
+        "kind": "other",
+        "status": "pending",
+        "content": [
+          {
+            "type": "content",
+            "content": {
+              "type": "text",
+              "text": "今晚吃啥"
+            }
+          }
+        ],
+        "rawInput": {
+          "id": "q1",
+          "multi": false,
+          "options": [
+            {
+              "Label": "火锅",
+              "Description": "热闹又暖和，适合聚餐"
+            },
+            {
+              "Label": "麻辣烫",
+              "Description": "快捷方便，单人友好"
+            },
+            {
+              "Label": "饺子",
+              "Description": "传统美味，家的味道"
+            },
+            {
+              "Label": "沙拉轻食",
+              "Description": "健康低卡，清爽无负担"
+            }
+          ],
+          "question": "今天晚上吃什么？"
+        }
+      },
+      "options": [
+        {
+          "optionId": "q1:1",
+          "name": "火锅 - 热闹又暖和，适合聚餐",
+          "kind": "allow_once"
+        },
+        {
+          "optionId": "q1:2",
+          "name": "麻辣烫 - 快捷方便，单人友好",
+          "kind": "allow_once"
+        },
+        {
+          "optionId": "q1:3",
+          "name": "饺子 - 传统美味，家的味道",
+          "kind": "allow_once"
+        },
+        {
+          "optionId": "q1:4",
+          "name": "沙拉轻食 - 健康低卡，清爽无负担",
+          "kind": "allow_once"
+        },
+        {
+          "optionId": "q1:cancel",
+          "name": "Cancel",
+          "kind": "reject_once"
+        }
+      ]
+    }
+  ],
+  "frames": [
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "a2acfe39-213d-47d5-87bd-7fd9189d5995",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "content": {
+            "type": "text",
+            "text": "用户"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "a2acfe39-213d-47d5-87bd-7fd9189d5995",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "content": {
+            "type": "text",
+            "text": "让我"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "a2acfe39-213d-47d5-87bd-7fd9189d5995",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "content": {
+            "type": "text",
+            "text": "用"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "a2acfe39-213d-47d5-87bd-7fd9189d5995",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "content": {
+            "type": "text",
+            "text": " ask"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "a2acfe39-213d-47d5-87bd-7fd9189d5995",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "content": {
+            "type": "text",
+            "text": " "
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "a2acfe39-213d-47d5-87bd-7fd9189d5995",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "content": {
+            "type": "text",
+            "text": "工具"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "a2acfe39-213d-47d5-87bd-7fd9189d5995",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "content": {
+            "type": "text",
+            "text": "问他"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "a2acfe39-213d-47d5-87bd-7fd9189d5995",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "content": {
+            "type": "text",
+            "text": "一个问题"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "a2acfe39-213d-47d5-87bd-7fd9189d5995",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "content": {
+            "type": "text",
+            "text": "："
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "a2acfe39-213d-47d5-87bd-7fd9189d5995",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "content": {
+            "type": "text",
+            "text": "今天晚上"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "a2acfe39-213d-47d5-87bd-7fd9189d5995",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "content": {
+            "type": "text",
+            "text": "吃什么"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "a2acfe39-213d-47d5-87bd-7fd9189d5995",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "content": {
+            "type": "text",
+            "text": "？"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "a2acfe39-213d-47d5-87bd-7fd9189d5995",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "content": {
+            "type": "text",
+            "text": "给"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "a2acfe39-213d-47d5-87bd-7fd9189d5995",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "content": {
+            "type": "text",
+            "text": "恰好"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "a2acfe39-213d-47d5-87bd-7fd9189d5995",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "content": {
+            "type": "text",
+            "text": "四个"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "a2acfe39-213d-47d5-87bd-7fd9189d5995",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "content": {
+            "type": "text",
+            "text": "选项"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "a2acfe39-213d-47d5-87bd-7fd9189d5995",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "content": {
+            "type": "text",
+            "text": "。"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "a2acfe39-213d-47d5-87bd-7fd9189d5995",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "content": {
+            "type": "text",
+            "text": "得到"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "a2acfe39-213d-47d5-87bd-7fd9189d5995",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "content": {
+            "type": "text",
+            "text": "回答"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "a2acfe39-213d-47d5-87bd-7fd9189d5995",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "content": {
+            "type": "text",
+            "text": "后"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "a2acfe39-213d-47d5-87bd-7fd9189d5995",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "content": {
+            "type": "text",
+            "text": "直接"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "a2acfe39-213d-47d5-87bd-7fd9189d5995",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "content": {
+            "type": "text",
+            "text": "结束"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "a2acfe39-213d-47d5-87bd-7fd9189d5995",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "content": {
+            "type": "text",
+            "text": "。"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "a2acfe39-213d-47d5-87bd-7fd9189d5995",
+        "update": {
+          "sessionUpdate": "tool_call",
+          "toolCallId": "call_00_eq6hbVkUIc8O5GM4C5IC4925",
+          "title": "ask",
+          "kind": "other",
+          "status": "pending",
+          "rawInput": {
+            "questions": [
+              {
+                "header": "今晚吃啥",
+                "question": "今天晚上吃什么？",
+                "options": [
+                  {
+                    "label": "火锅",
+                    "description": "热闹又暖和，适合聚餐"
+                  },
+                  {
+                    "label": "麻辣烫",
+                    "description": "快捷方便，单人友好"
+                  },
+                  {
+                    "label": "饺子",
+                    "description": "传统美味，家的味道"
+                  },
+                  {
+                    "label": "沙拉轻食",
+                    "description": "健康低卡，清爽无负担"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "a2acfe39-213d-47d5-87bd-7fd9189d5995",
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "call_00_eq6hbVkUIc8O5GM4C5IC4925",
+          "status": "completed",
+          "content": [
+            {
+              "type": "content",
+              "content": {
+                "type": "text",
+                "text": "The user answered:\n- 今晚吃啥: 火锅"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "a2acfe39-213d-47d5-87bd-7fd9189d5995",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "content": {
+            "type": "text",
+            "text": "用户"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "a2acfe39-213d-47d5-87bd-7fd9189d5995",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "content": {
+            "type": "text",
+            "text": "选择了"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "a2acfe39-213d-47d5-87bd-7fd9189d5995",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "content": {
+            "type": "text",
+            "text": "\""
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "a2acfe39-213d-47d5-87bd-7fd9189d5995",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "content": {
+            "type": "text",
+            "text": "火锅"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "a2acfe39-213d-47d5-87bd-7fd9189d5995",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "content": {
+            "type": "text",
+            "text": "\"。"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "a2acfe39-213d-47d5-87bd-7fd9189d5995",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "content": {
+            "type": "text",
+            "text": "按照"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "a2acfe39-213d-47d5-87bd-7fd9189d5995",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "content": {
+            "type": "text",
+            "text": "指令"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "a2acfe39-213d-47d5-87bd-7fd9189d5995",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "content": {
+            "type": "text",
+            "text": "，"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "a2acfe39-213d-47d5-87bd-7fd9189d5995",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "content": {
+            "type": "text",
+            "text": "得到"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "a2acfe39-213d-47d5-87bd-7fd9189d5995",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "content": {
+            "type": "text",
+            "text": "回答"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "a2acfe39-213d-47d5-87bd-7fd9189d5995",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "content": {
+            "type": "text",
+            "text": "后"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "a2acfe39-213d-47d5-87bd-7fd9189d5995",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "content": {
+            "type": "text",
+            "text": "直接"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "a2acfe39-213d-47d5-87bd-7fd9189d5995",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "content": {
+            "type": "text",
+            "text": "结束"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "a2acfe39-213d-47d5-87bd-7fd9189d5995",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "content": {
+            "type": "text",
+            "text": "本轮"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "a2acfe39-213d-47d5-87bd-7fd9189d5995",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "content": {
+            "type": "text",
+            "text": "，"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "a2acfe39-213d-47d5-87bd-7fd9189d5995",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "content": {
+            "type": "text",
+            "text": "不"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "a2acfe39-213d-47d5-87bd-7fd9189d5995",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "content": {
+            "type": "text",
+            "text": "执行"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "a2acfe39-213d-47d5-87bd-7fd9189d5995",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "content": {
+            "type": "text",
+            "text": "任何"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "a2acfe39-213d-47d5-87bd-7fd9189d5995",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "content": {
+            "type": "text",
+            "text": "其他"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "a2acfe39-213d-47d5-87bd-7fd9189d5995",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "content": {
+            "type": "text",
+            "text": "工具"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "a2acfe39-213d-47d5-87bd-7fd9189d5995",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "content": {
+            "type": "text",
+            "text": "。"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "a2acfe39-213d-47d5-87bd-7fd9189d5995",
+        "update": {
+          "sessionUpdate": "agent_message_chunk",
+          "content": {
+            "type": "text",
+            "text": "好的"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "a2acfe39-213d-47d5-87bd-7fd9189d5995",
+        "update": {
+          "sessionUpdate": "agent_message_chunk",
+          "content": {
+            "type": "text",
+            "text": "，"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "a2acfe39-213d-47d5-87bd-7fd9189d5995",
+        "update": {
+          "sessionUpdate": "agent_message_chunk",
+          "content": {
+            "type": "text",
+            "text": "今晚"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "a2acfe39-213d-47d5-87bd-7fd9189d5995",
+        "update": {
+          "sessionUpdate": "agent_message_chunk",
+          "content": {
+            "type": "text",
+            "text": "吃"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "a2acfe39-213d-47d5-87bd-7fd9189d5995",
+        "update": {
+          "sessionUpdate": "agent_message_chunk",
+          "content": {
+            "type": "text",
+            "text": "火锅"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "a2acfe39-213d-47d5-87bd-7fd9189d5995",
+        "update": {
+          "sessionUpdate": "agent_message_chunk",
+          "content": {
+            "type": "text",
+            "text": "！"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "a2acfe39-213d-47d5-87bd-7fd9189d5995",
+        "update": {
+          "sessionUpdate": "agent_message_chunk",
+          "content": {
+            "type": "text",
+            "text": "🍲"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "a2acfe39-213d-47d5-87bd-7fd9189d5995",
+        "update": {
+          "sessionUpdate": "agent_message_chunk",
+          "content": {
+            "type": "text",
+            "text": " "
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "a2acfe39-213d-47d5-87bd-7fd9189d5995",
+        "update": {
+          "sessionUpdate": "agent_message_chunk",
+          "content": {
+            "type": "text",
+            "text": "结束"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "a2acfe39-213d-47d5-87bd-7fd9189d5995",
+        "update": {
+          "sessionUpdate": "agent_message_chunk",
+          "content": {
+            "type": "text",
+            "text": "本轮"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "a2acfe39-213d-47d5-87bd-7fd9189d5995",
+        "update": {
+          "sessionUpdate": "agent_message_chunk",
+          "content": {
+            "type": "text",
+            "text": "。"
+          }
+        }
+      }
+    },
+    {
+      "_turn_response": {
+        "jsonrpc": "2.0",
+        "id": 3,
+        "result": {
+          "stopReason": "end_turn",
+          "transcriptPath": "~/.reasonix/sessions/a2acfe39-213d-47d5-87bd-7fd9189d5995.jsonl"
+        }
+      }
+    }
+  ]
+}

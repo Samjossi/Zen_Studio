@@ -1,0 +1,1759 @@
+{
+  "purpose": "0807-0148 计划 T5：kimi AskUserQuestion 全序列帧存档",
+  "prompt": "请使用 AskUserQuestion 工具向我提问。问题：「你希望我把问候语写成哪种颜色？」，提供三个选项：红色、蓝色、绿色。必须等我回答后再继续，然后直接结束本轮。不要执行任何其他工具。",
+  "handler_strategy": "回传最后一个选项 optionId（验证 optionId↔答案映射）",
+  "stop_reason": "end_turn",
+  "permission_requests": [
+    {
+      "sessionId": "session_6679607a-be34-41ad-855c-5bb0c51fafe9",
+      "options": [
+        {
+          "optionId": "q0_opt_0",
+          "name": "红色",
+          "kind": "allow_once"
+        },
+        {
+          "optionId": "q0_opt_1",
+          "name": "蓝色",
+          "kind": "allow_once"
+        },
+        {
+          "optionId": "q0_opt_2",
+          "name": "绿色",
+          "kind": "allow_once"
+        },
+        {
+          "optionId": "q0_skip",
+          "name": "Skip",
+          "kind": "reject_once"
+        }
+      ],
+      "toolCall": {
+        "toolCallId": "0:tool_xKqeZ7uIHK7uNSpX25ybVxjG",
+        "title": "AskUserQuestion",
+        "content": [
+          {
+            "type": "content",
+            "content": {
+              "type": "text",
+              "text": "你希望我把问候语写成哪种颜色？"
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "frames": [
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_6679607a-be34-41ad-855c-5bb0c51fafe9",
+        "update": {
+          "sessionUpdate": "available_commands_update",
+          "availableCommands": [
+            {
+              "name": "compact",
+              "description": "Compact the conversation context",
+              "input": {
+                "hint": "<optional custom summarization instructions>"
+              }
+            },
+            {
+              "name": "status",
+              "description": "Show current session status"
+            },
+            {
+              "name": "usage",
+              "description": "Show session token usage"
+            },
+            {
+              "name": "mcp",
+              "description": "Show MCP server status"
+            },
+            {
+              "name": "tasks",
+              "description": "List background tasks"
+            },
+            {
+              "name": "help",
+              "description": "Show available ACP commands"
+            },
+            {
+              "name": "check-kimi-code-docs",
+              "description": "Answer questions about the Kimi Code product using the official documentation — CLI usage, configuration, slash commands, features, membership and quota, API onboarding, third-party tool setup, and error codes. Use when the user asks how Kimi Code works, how to set something up, or what a Kimi Code error message means."
+            },
+            {
+              "name": "custom-theme",
+              "description": "Create or edit a kimi-code custom color theme — a JSON file under the resolved KIMI_CODE_HOME data directory that recolors the TUI. Use when the user wants their own theme, asks for a specific palette or mood, or wants to tweak an existing custom theme's colors."
+            },
+            {
+              "name": "import-from-cc-codex",
+              "description": "Import Claude Code and Codex instructions, skills, and MCP settings into Kimi Code."
+            },
+            {
+              "name": "mcp-config",
+              "description": "Configure MCP servers and handle MCP OAuth login."
+            },
+            {
+              "name": "sub-skill",
+              "description": "Discover and reorganize the skill inventory into hierarchical sub-skill bundles. Use when the user asks to review, group, or consolidate skills into a parent bundle."
+            },
+            {
+              "name": "sub-skill.consolidate",
+              "description": "Apply an approved sub-skill grouping by moving user-specified skills into a parent bundle, with timestamped backups of every modified directory."
+            },
+            {
+              "name": "sub-skill.review",
+              "description": "Analyze the available skill set and recommend candidate groups that could be consolidated into sub-skill bundles. Read-only — proposes a plan, does not move files."
+            },
+            {
+              "name": "update-config",
+              "description": "Inspect or edit kimi-code's own config — `config.toml` (model, provider, permission, hooks) and `tui.toml` (theme, editor, notifications, auto-update). Use when the user asks what a setting does or wants to change one."
+            },
+            {
+              "name": "write-goal",
+              "description": "Help the user craft a well-specified `/goal` objective for goal mode — turn a rough intention into a completion contract with a clear finish line, proof, boundaries, and stop rule. Use when the user asks for help writing, refining, or improving a goal."
+            }
+          ]
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_6679607a-be34-41ad-855c-5bb0c51fafe9",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "content": {
+            "type": "text",
+            "text": "Just"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_6679607a-be34-41ad-855c-5bb0c51fafe9",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "content": {
+            "type": "text",
+            "text": " call"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_6679607a-be34-41ad-855c-5bb0c51fafe9",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "content": {
+            "type": "text",
+            "text": " Ask"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_6679607a-be34-41ad-855c-5bb0c51fafe9",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "content": {
+            "type": "text",
+            "text": "User"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_6679607a-be34-41ad-855c-5bb0c51fafe9",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "content": {
+            "type": "text",
+            "text": "Question"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_6679607a-be34-41ad-855c-5bb0c51fafe9",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "content": {
+            "type": "text",
+            "text": "."
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_6679607a-be34-41ad-855c-5bb0c51fafe9",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "content": {
+            "type": "text",
+            "text": ""
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_6679607a-be34-41ad-855c-5bb0c51fafe9",
+        "update": {
+          "sessionUpdate": "tool_call",
+          "toolCallId": "0:tool_xKqeZ7uIHK7uNSpX25ybVxjG",
+          "title": "AskUserQuestion",
+          "kind": "other",
+          "status": "pending",
+          "content": [
+            {
+              "type": "content",
+              "content": {
+                "type": "text",
+                "text": ""
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_6679607a-be34-41ad-855c-5bb0c51fafe9",
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "0:tool_xKqeZ7uIHK7uNSpX25ybVxjG",
+          "status": "in_progress",
+          "content": [
+            {
+              "type": "content",
+              "content": {
+                "type": "text",
+                "text": "{\"questions\":"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_6679607a-be34-41ad-855c-5bb0c51fafe9",
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "0:tool_xKqeZ7uIHK7uNSpX25ybVxjG",
+          "status": "in_progress",
+          "content": [
+            {
+              "type": "content",
+              "content": {
+                "type": "text",
+                "text": "{\"questions\":[{\""
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_6679607a-be34-41ad-855c-5bb0c51fafe9",
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "0:tool_xKqeZ7uIHK7uNSpX25ybVxjG",
+          "status": "in_progress",
+          "content": [
+            {
+              "type": "content",
+              "content": {
+                "type": "text",
+                "text": "{\"questions\":[{\"question"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_6679607a-be34-41ad-855c-5bb0c51fafe9",
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "0:tool_xKqeZ7uIHK7uNSpX25ybVxjG",
+          "status": "in_progress",
+          "content": [
+            {
+              "type": "content",
+              "content": {
+                "type": "text",
+                "text": "{\"questions\":[{\"question\":"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_6679607a-be34-41ad-855c-5bb0c51fafe9",
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "0:tool_xKqeZ7uIHK7uNSpX25ybVxjG",
+          "status": "in_progress",
+          "content": [
+            {
+              "type": "content",
+              "content": {
+                "type": "text",
+                "text": "{\"questions\":[{\"question\": \""
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_6679607a-be34-41ad-855c-5bb0c51fafe9",
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "0:tool_xKqeZ7uIHK7uNSpX25ybVxjG",
+          "status": "in_progress",
+          "content": [
+            {
+              "type": "content",
+              "content": {
+                "type": "text",
+                "text": "{\"questions\":[{\"question\": \"你希望"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_6679607a-be34-41ad-855c-5bb0c51fafe9",
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "0:tool_xKqeZ7uIHK7uNSpX25ybVxjG",
+          "status": "in_progress",
+          "content": [
+            {
+              "type": "content",
+              "content": {
+                "type": "text",
+                "text": "{\"questions\":[{\"question\": \"你希望我把"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_6679607a-be34-41ad-855c-5bb0c51fafe9",
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "0:tool_xKqeZ7uIHK7uNSpX25ybVxjG",
+          "status": "in_progress",
+          "content": [
+            {
+              "type": "content",
+              "content": {
+                "type": "text",
+                "text": "{\"questions\":[{\"question\": \"你希望我把问候"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_6679607a-be34-41ad-855c-5bb0c51fafe9",
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "0:tool_xKqeZ7uIHK7uNSpX25ybVxjG",
+          "status": "in_progress",
+          "content": [
+            {
+              "type": "content",
+              "content": {
+                "type": "text",
+                "text": "{\"questions\":[{\"question\": \"你希望我把问候语"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_6679607a-be34-41ad-855c-5bb0c51fafe9",
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "0:tool_xKqeZ7uIHK7uNSpX25ybVxjG",
+          "status": "in_progress",
+          "content": [
+            {
+              "type": "content",
+              "content": {
+                "type": "text",
+                "text": "{\"questions\":[{\"question\": \"你希望我把问候语写成"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_6679607a-be34-41ad-855c-5bb0c51fafe9",
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "0:tool_xKqeZ7uIHK7uNSpX25ybVxjG",
+          "status": "in_progress",
+          "content": [
+            {
+              "type": "content",
+              "content": {
+                "type": "text",
+                "text": "{\"questions\":[{\"question\": \"你希望我把问候语写成哪种"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_6679607a-be34-41ad-855c-5bb0c51fafe9",
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "0:tool_xKqeZ7uIHK7uNSpX25ybVxjG",
+          "status": "in_progress",
+          "content": [
+            {
+              "type": "content",
+              "content": {
+                "type": "text",
+                "text": "{\"questions\":[{\"question\": \"你希望我把问候语写成哪种颜色"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_6679607a-be34-41ad-855c-5bb0c51fafe9",
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "0:tool_xKqeZ7uIHK7uNSpX25ybVxjG",
+          "status": "in_progress",
+          "content": [
+            {
+              "type": "content",
+              "content": {
+                "type": "text",
+                "text": "{\"questions\":[{\"question\": \"你希望我把问候语写成哪种颜色？\","
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_6679607a-be34-41ad-855c-5bb0c51fafe9",
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "0:tool_xKqeZ7uIHK7uNSpX25ybVxjG",
+          "status": "in_progress",
+          "content": [
+            {
+              "type": "content",
+              "content": {
+                "type": "text",
+                "text": "{\"questions\":[{\"question\": \"你希望我把问候语写成哪种颜色？\", \""
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_6679607a-be34-41ad-855c-5bb0c51fafe9",
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "0:tool_xKqeZ7uIHK7uNSpX25ybVxjG",
+          "status": "in_progress",
+          "content": [
+            {
+              "type": "content",
+              "content": {
+                "type": "text",
+                "text": "{\"questions\":[{\"question\": \"你希望我把问候语写成哪种颜色？\", \"options"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_6679607a-be34-41ad-855c-5bb0c51fafe9",
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "0:tool_xKqeZ7uIHK7uNSpX25ybVxjG",
+          "status": "in_progress",
+          "content": [
+            {
+              "type": "content",
+              "content": {
+                "type": "text",
+                "text": "{\"questions\":[{\"question\": \"你希望我把问候语写成哪种颜色？\", \"options\":"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_6679607a-be34-41ad-855c-5bb0c51fafe9",
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "0:tool_xKqeZ7uIHK7uNSpX25ybVxjG",
+          "status": "in_progress",
+          "content": [
+            {
+              "type": "content",
+              "content": {
+                "type": "text",
+                "text": "{\"questions\":[{\"question\": \"你希望我把问候语写成哪种颜色？\", \"options\": [{\""
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_6679607a-be34-41ad-855c-5bb0c51fafe9",
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "0:tool_xKqeZ7uIHK7uNSpX25ybVxjG",
+          "status": "in_progress",
+          "content": [
+            {
+              "type": "content",
+              "content": {
+                "type": "text",
+                "text": "{\"questions\":[{\"question\": \"你希望我把问候语写成哪种颜色？\", \"options\": [{\"label"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_6679607a-be34-41ad-855c-5bb0c51fafe9",
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "0:tool_xKqeZ7uIHK7uNSpX25ybVxjG",
+          "status": "in_progress",
+          "content": [
+            {
+              "type": "content",
+              "content": {
+                "type": "text",
+                "text": "{\"questions\":[{\"question\": \"你希望我把问候语写成哪种颜色？\", \"options\": [{\"label\":"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_6679607a-be34-41ad-855c-5bb0c51fafe9",
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "0:tool_xKqeZ7uIHK7uNSpX25ybVxjG",
+          "status": "in_progress",
+          "content": [
+            {
+              "type": "content",
+              "content": {
+                "type": "text",
+                "text": "{\"questions\":[{\"question\": \"你希望我把问候语写成哪种颜色？\", \"options\": [{\"label\": \""
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_6679607a-be34-41ad-855c-5bb0c51fafe9",
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "0:tool_xKqeZ7uIHK7uNSpX25ybVxjG",
+          "status": "in_progress",
+          "content": [
+            {
+              "type": "content",
+              "content": {
+                "type": "text",
+                "text": "{\"questions\":[{\"question\": \"你希望我把问候语写成哪种颜色？\", \"options\": [{\"label\": \"红色"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_6679607a-be34-41ad-855c-5bb0c51fafe9",
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "0:tool_xKqeZ7uIHK7uNSpX25ybVxjG",
+          "status": "in_progress",
+          "content": [
+            {
+              "type": "content",
+              "content": {
+                "type": "text",
+                "text": "{\"questions\":[{\"question\": \"你希望我把问候语写成哪种颜色？\", \"options\": [{\"label\": \"红色\"},"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_6679607a-be34-41ad-855c-5bb0c51fafe9",
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "0:tool_xKqeZ7uIHK7uNSpX25ybVxjG",
+          "status": "in_progress",
+          "content": [
+            {
+              "type": "content",
+              "content": {
+                "type": "text",
+                "text": "{\"questions\":[{\"question\": \"你希望我把问候语写成哪种颜色？\", \"options\": [{\"label\": \"红色\"}, {\""
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_6679607a-be34-41ad-855c-5bb0c51fafe9",
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "0:tool_xKqeZ7uIHK7uNSpX25ybVxjG",
+          "status": "in_progress",
+          "content": [
+            {
+              "type": "content",
+              "content": {
+                "type": "text",
+                "text": "{\"questions\":[{\"question\": \"你希望我把问候语写成哪种颜色？\", \"options\": [{\"label\": \"红色\"}, {\"label"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_6679607a-be34-41ad-855c-5bb0c51fafe9",
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "0:tool_xKqeZ7uIHK7uNSpX25ybVxjG",
+          "status": "in_progress",
+          "content": [
+            {
+              "type": "content",
+              "content": {
+                "type": "text",
+                "text": "{\"questions\":[{\"question\": \"你希望我把问候语写成哪种颜色？\", \"options\": [{\"label\": \"红色\"}, {\"label\":"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_6679607a-be34-41ad-855c-5bb0c51fafe9",
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "0:tool_xKqeZ7uIHK7uNSpX25ybVxjG",
+          "status": "in_progress",
+          "content": [
+            {
+              "type": "content",
+              "content": {
+                "type": "text",
+                "text": "{\"questions\":[{\"question\": \"你希望我把问候语写成哪种颜色？\", \"options\": [{\"label\": \"红色\"}, {\"label\": \""
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_6679607a-be34-41ad-855c-5bb0c51fafe9",
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "0:tool_xKqeZ7uIHK7uNSpX25ybVxjG",
+          "status": "in_progress",
+          "content": [
+            {
+              "type": "content",
+              "content": {
+                "type": "text",
+                "text": "{\"questions\":[{\"question\": \"你希望我把问候语写成哪种颜色？\", \"options\": [{\"label\": \"红色\"}, {\"label\": \"蓝色"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_6679607a-be34-41ad-855c-5bb0c51fafe9",
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "0:tool_xKqeZ7uIHK7uNSpX25ybVxjG",
+          "status": "in_progress",
+          "content": [
+            {
+              "type": "content",
+              "content": {
+                "type": "text",
+                "text": "{\"questions\":[{\"question\": \"你希望我把问候语写成哪种颜色？\", \"options\": [{\"label\": \"红色\"}, {\"label\": \"蓝色\"},"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_6679607a-be34-41ad-855c-5bb0c51fafe9",
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "0:tool_xKqeZ7uIHK7uNSpX25ybVxjG",
+          "status": "in_progress",
+          "content": [
+            {
+              "type": "content",
+              "content": {
+                "type": "text",
+                "text": "{\"questions\":[{\"question\": \"你希望我把问候语写成哪种颜色？\", \"options\": [{\"label\": \"红色\"}, {\"label\": \"蓝色\"}, {\""
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_6679607a-be34-41ad-855c-5bb0c51fafe9",
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "0:tool_xKqeZ7uIHK7uNSpX25ybVxjG",
+          "status": "in_progress",
+          "content": [
+            {
+              "type": "content",
+              "content": {
+                "type": "text",
+                "text": "{\"questions\":[{\"question\": \"你希望我把问候语写成哪种颜色？\", \"options\": [{\"label\": \"红色\"}, {\"label\": \"蓝色\"}, {\"label"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_6679607a-be34-41ad-855c-5bb0c51fafe9",
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "0:tool_xKqeZ7uIHK7uNSpX25ybVxjG",
+          "status": "in_progress",
+          "content": [
+            {
+              "type": "content",
+              "content": {
+                "type": "text",
+                "text": "{\"questions\":[{\"question\": \"你希望我把问候语写成哪种颜色？\", \"options\": [{\"label\": \"红色\"}, {\"label\": \"蓝色\"}, {\"label\":"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_6679607a-be34-41ad-855c-5bb0c51fafe9",
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "0:tool_xKqeZ7uIHK7uNSpX25ybVxjG",
+          "status": "in_progress",
+          "content": [
+            {
+              "type": "content",
+              "content": {
+                "type": "text",
+                "text": "{\"questions\":[{\"question\": \"你希望我把问候语写成哪种颜色？\", \"options\": [{\"label\": \"红色\"}, {\"label\": \"蓝色\"}, {\"label\": \""
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_6679607a-be34-41ad-855c-5bb0c51fafe9",
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "0:tool_xKqeZ7uIHK7uNSpX25ybVxjG",
+          "status": "in_progress",
+          "content": [
+            {
+              "type": "content",
+              "content": {
+                "type": "text",
+                "text": "{\"questions\":[{\"question\": \"你希望我把问候语写成哪种颜色？\", \"options\": [{\"label\": \"红色\"}, {\"label\": \"蓝色\"}, {\"label\": \"绿色"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_6679607a-be34-41ad-855c-5bb0c51fafe9",
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "0:tool_xKqeZ7uIHK7uNSpX25ybVxjG",
+          "status": "in_progress",
+          "content": [
+            {
+              "type": "content",
+              "content": {
+                "type": "text",
+                "text": "{\"questions\":[{\"question\": \"你希望我把问候语写成哪种颜色？\", \"options\": [{\"label\": \"红色\"}, {\"label\": \"蓝色\"}, {\"label\": \"绿色\"}],"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_6679607a-be34-41ad-855c-5bb0c51fafe9",
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "0:tool_xKqeZ7uIHK7uNSpX25ybVxjG",
+          "status": "in_progress",
+          "content": [
+            {
+              "type": "content",
+              "content": {
+                "type": "text",
+                "text": "{\"questions\":[{\"question\": \"你希望我把问候语写成哪种颜色？\", \"options\": [{\"label\": \"红色\"}, {\"label\": \"蓝色\"}, {\"label\": \"绿色\"}], \""
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_6679607a-be34-41ad-855c-5bb0c51fafe9",
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "0:tool_xKqeZ7uIHK7uNSpX25ybVxjG",
+          "status": "in_progress",
+          "content": [
+            {
+              "type": "content",
+              "content": {
+                "type": "text",
+                "text": "{\"questions\":[{\"question\": \"你希望我把问候语写成哪种颜色？\", \"options\": [{\"label\": \"红色\"}, {\"label\": \"蓝色\"}, {\"label\": \"绿色\"}], \"header"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_6679607a-be34-41ad-855c-5bb0c51fafe9",
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "0:tool_xKqeZ7uIHK7uNSpX25ybVxjG",
+          "status": "in_progress",
+          "content": [
+            {
+              "type": "content",
+              "content": {
+                "type": "text",
+                "text": "{\"questions\":[{\"question\": \"你希望我把问候语写成哪种颜色？\", \"options\": [{\"label\": \"红色\"}, {\"label\": \"蓝色\"}, {\"label\": \"绿色\"}], \"header\":"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_6679607a-be34-41ad-855c-5bb0c51fafe9",
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "0:tool_xKqeZ7uIHK7uNSpX25ybVxjG",
+          "status": "in_progress",
+          "content": [
+            {
+              "type": "content",
+              "content": {
+                "type": "text",
+                "text": "{\"questions\":[{\"question\": \"你希望我把问候语写成哪种颜色？\", \"options\": [{\"label\": \"红色\"}, {\"label\": \"蓝色\"}, {\"label\": \"绿色\"}], \"header\": \""
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_6679607a-be34-41ad-855c-5bb0c51fafe9",
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "0:tool_xKqeZ7uIHK7uNSpX25ybVxjG",
+          "status": "in_progress",
+          "content": [
+            {
+              "type": "content",
+              "content": {
+                "type": "text",
+                "text": "{\"questions\":[{\"question\": \"你希望我把问候语写成哪种颜色？\", \"options\": [{\"label\": \"红色\"}, {\"label\": \"蓝色\"}, {\"label\": \"绿色\"}], \"header\": \"颜色"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_6679607a-be34-41ad-855c-5bb0c51fafe9",
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "0:tool_xKqeZ7uIHK7uNSpX25ybVxjG",
+          "status": "in_progress",
+          "content": [
+            {
+              "type": "content",
+              "content": {
+                "type": "text",
+                "text": "{\"questions\":[{\"question\": \"你希望我把问候语写成哪种颜色？\", \"options\": [{\"label\": \"红色\"}, {\"label\": \"蓝色\"}, {\"label\": \"绿色\"}], \"header\": \"颜色\"}"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_6679607a-be34-41ad-855c-5bb0c51fafe9",
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "0:tool_xKqeZ7uIHK7uNSpX25ybVxjG",
+          "status": "in_progress",
+          "content": [
+            {
+              "type": "content",
+              "content": {
+                "type": "text",
+                "text": "{\"questions\":[{\"question\": \"你希望我把问候语写成哪种颜色？\", \"options\": [{\"label\": \"红色\"}, {\"label\": \"蓝色\"}, {\"label\": \"绿色\"}], \"header\": \"颜色\"}]"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_6679607a-be34-41ad-855c-5bb0c51fafe9",
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "0:tool_xKqeZ7uIHK7uNSpX25ybVxjG",
+          "status": "in_progress",
+          "content": [
+            {
+              "type": "content",
+              "content": {
+                "type": "text",
+                "text": "{\"questions\":[{\"question\": \"你希望我把问候语写成哪种颜色？\", \"options\": [{\"label\": \"红色\"}, {\"label\": \"蓝色\"}, {\"label\": \"绿色\"}], \"header\": \"颜色\"}]}"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_6679607a-be34-41ad-855c-5bb0c51fafe9",
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "0:tool_xKqeZ7uIHK7uNSpX25ybVxjG",
+          "title": "Asking user questions",
+          "kind": "other",
+          "status": "in_progress",
+          "rawInput": {
+            "questions": [
+              {
+                "question": "你希望我把问候语写成哪种颜色？",
+                "options": [
+                  {
+                    "label": "红色"
+                  },
+                  {
+                    "label": "蓝色"
+                  },
+                  {
+                    "label": "绿色"
+                  }
+                ],
+                "header": "颜色"
+              }
+            ]
+          },
+          "content": [
+            {
+              "type": "content",
+              "content": {
+                "type": "text",
+                "text": "{\"questions\":[{\"question\":\"你希望我把问候语写成哪种颜色？\",\"options\":[{\"label\":\"红色\"},{\"label\":\"蓝色\"},{\"label\":\"绿色\"}],\"header\":\"颜色\"}]}"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_6679607a-be34-41ad-855c-5bb0c51fafe9",
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "0:tool_xKqeZ7uIHK7uNSpX25ybVxjG",
+          "status": "completed",
+          "content": [
+            {
+              "type": "content",
+              "content": {
+                "type": "text",
+                "text": "{\"answers\":{},\"note\":\"User dismissed the question without answering.\"}"
+              }
+            }
+          ],
+          "rawOutput": "{\"answers\":{},\"note\":\"User dismissed the question without answering.\"}"
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_6679607a-be34-41ad-855c-5bb0c51fafe9",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "content": {
+            "type": "text",
+            "text": "User"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_6679607a-be34-41ad-855c-5bb0c51fafe9",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "content": {
+            "type": "text",
+            "text": " dismissed"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_6679607a-be34-41ad-855c-5bb0c51fafe9",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "content": {
+            "type": "text",
+            "text": "."
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_6679607a-be34-41ad-855c-5bb0c51fafe9",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "content": {
+            "type": "text",
+            "text": " Per"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_6679607a-be34-41ad-855c-5bb0c51fafe9",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "content": {
+            "type": "text",
+            "text": " instructions"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_6679607a-be34-41ad-855c-5bb0c51fafe9",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "content": {
+            "type": "text",
+            "text": ","
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_6679607a-be34-41ad-855c-5bb0c51fafe9",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "content": {
+            "type": "text",
+            "text": " don't"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_6679607a-be34-41ad-855c-5bb0c51fafe9",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "content": {
+            "type": "text",
+            "text": " treat"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_6679607a-be34-41ad-855c-5bb0c51fafe9",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "content": {
+            "type": "text",
+            "text": " as"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_6679607a-be34-41ad-855c-5bb0c51fafe9",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "content": {
+            "type": "text",
+            "text": " recommended"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_6679607a-be34-41ad-855c-5bb0c51fafe9",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "content": {
+            "type": "text",
+            "text": " option"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_6679607a-be34-41ad-855c-5bb0c51fafe9",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "content": {
+            "type": "text",
+            "text": ";"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_6679607a-be34-41ad-855c-5bb0c51fafe9",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "content": {
+            "type": "text",
+            "text": " end"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_6679607a-be34-41ad-855c-5bb0c51fafe9",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "content": {
+            "type": "text",
+            "text": " the"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_6679607a-be34-41ad-855c-5bb0c51fafe9",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "content": {
+            "type": "text",
+            "text": " turn"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_6679607a-be34-41ad-855c-5bb0c51fafe9",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "content": {
+            "type": "text",
+            "text": " as"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_6679607a-be34-41ad-855c-5bb0c51fafe9",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "content": {
+            "type": "text",
+            "text": " requested"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_6679607a-be34-41ad-855c-5bb0c51fafe9",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "content": {
+            "type": "text",
+            "text": "."
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_6679607a-be34-41ad-855c-5bb0c51fafe9",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "content": {
+            "type": "text",
+            "text": ""
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_6679607a-be34-41ad-855c-5bb0c51fafe9",
+        "update": {
+          "sessionUpdate": "agent_message_chunk",
+          "content": {
+            "type": "text",
+            "text": "你"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_6679607a-be34-41ad-855c-5bb0c51fafe9",
+        "update": {
+          "sessionUpdate": "agent_message_chunk",
+          "content": {
+            "type": "text",
+            "text": "取消了"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_6679607a-be34-41ad-855c-5bb0c51fafe9",
+        "update": {
+          "sessionUpdate": "agent_message_chunk",
+          "content": {
+            "type": "text",
+            "text": "回答"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_6679607a-be34-41ad-855c-5bb0c51fafe9",
+        "update": {
+          "sessionUpdate": "agent_message_chunk",
+          "content": {
+            "type": "text",
+            "text": "，"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_6679607a-be34-41ad-855c-5bb0c51fafe9",
+        "update": {
+          "sessionUpdate": "agent_message_chunk",
+          "content": {
+            "type": "text",
+            "text": "没有"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_6679607a-be34-41ad-855c-5bb0c51fafe9",
+        "update": {
+          "sessionUpdate": "agent_message_chunk",
+          "content": {
+            "type": "text",
+            "text": "做出"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_6679607a-be34-41ad-855c-5bb0c51fafe9",
+        "update": {
+          "sessionUpdate": "agent_message_chunk",
+          "content": {
+            "type": "text",
+            "text": "选择"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_6679607a-be34-41ad-855c-5bb0c51fafe9",
+        "update": {
+          "sessionUpdate": "agent_message_chunk",
+          "content": {
+            "type": "text",
+            "text": "。"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_6679607a-be34-41ad-855c-5bb0c51fafe9",
+        "update": {
+          "sessionUpdate": "agent_message_chunk",
+          "content": {
+            "type": "text",
+            "text": "本轮"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_6679607a-be34-41ad-855c-5bb0c51fafe9",
+        "update": {
+          "sessionUpdate": "agent_message_chunk",
+          "content": {
+            "type": "text",
+            "text": "到此"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_6679607a-be34-41ad-855c-5bb0c51fafe9",
+        "update": {
+          "sessionUpdate": "agent_message_chunk",
+          "content": {
+            "type": "text",
+            "text": "结束"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_6679607a-be34-41ad-855c-5bb0c51fafe9",
+        "update": {
+          "sessionUpdate": "agent_message_chunk",
+          "content": {
+            "type": "text",
+            "text": "——"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_6679607a-be34-41ad-855c-5bb0c51fafe9",
+        "update": {
+          "sessionUpdate": "agent_message_chunk",
+          "content": {
+            "type": "text",
+            "text": "如需"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_6679607a-be34-41ad-855c-5bb0c51fafe9",
+        "update": {
+          "sessionUpdate": "agent_message_chunk",
+          "content": {
+            "type": "text",
+            "text": "继续"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_6679607a-be34-41ad-855c-5bb0c51fafe9",
+        "update": {
+          "sessionUpdate": "agent_message_chunk",
+          "content": {
+            "type": "text",
+            "text": "，"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_6679607a-be34-41ad-855c-5bb0c51fafe9",
+        "update": {
+          "sessionUpdate": "agent_message_chunk",
+          "content": {
+            "type": "text",
+            "text": "请"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_6679607a-be34-41ad-855c-5bb0c51fafe9",
+        "update": {
+          "sessionUpdate": "agent_message_chunk",
+          "content": {
+            "type": "text",
+            "text": "告诉我"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_6679607a-be34-41ad-855c-5bb0c51fafe9",
+        "update": {
+          "sessionUpdate": "agent_message_chunk",
+          "content": {
+            "type": "text",
+            "text": "你想"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_6679607a-be34-41ad-855c-5bb0c51fafe9",
+        "update": {
+          "sessionUpdate": "agent_message_chunk",
+          "content": {
+            "type": "text",
+            "text": "选"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_6679607a-be34-41ad-855c-5bb0c51fafe9",
+        "update": {
+          "sessionUpdate": "agent_message_chunk",
+          "content": {
+            "type": "text",
+            "text": "的颜色"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_6679607a-be34-41ad-855c-5bb0c51fafe9",
+        "update": {
+          "sessionUpdate": "agent_message_chunk",
+          "content": {
+            "type": "text",
+            "text": "。"
+          }
+        }
+      }
+    },
+    {
+      "_turn_response": {
+        "jsonrpc": "2.0",
+        "id": 3,
+        "result": {
+          "stopReason": "end_turn"
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,1229 @@
+{
+  "purpose": "0812-0735 计划 T3：kimi 工具调用全序列帧存档（write 场景）",
+  "prompt": "请使用 Write 工具在项目内新建文件 .temp/capture_write_probe.txt，内容为恰好三行短文本：第一行、第二行、第三行（每行各一行）。写完直接结束本轮，不要执行任何其他工具。",
+  "handler_strategy": "自动放行第一个 allow_once/allow_always 选项",
+  "stop_reason": "end_turn",
+  "permission_requests": [],
+  "frames": [
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_292d8bc8-062c-4e44-905e-f135160c1dd9",
+        "update": {
+          "sessionUpdate": "available_commands_update",
+          "availableCommands": [
+            {
+              "name": "compact",
+              "description": "Compact the conversation context",
+              "input": {
+                "hint": "<optional custom summarization instructions>"
+              }
+            },
+            {
+              "name": "status",
+              "description": "Show current session status"
+            },
+            {
+              "name": "usage",
+              "description": "Show session token usage"
+            },
+            {
+              "name": "mcp",
+              "description": "Show MCP server status"
+            },
+            {
+              "name": "tasks",
+              "description": "List background tasks"
+            },
+            {
+              "name": "help",
+              "description": "Show available ACP commands"
+            },
+            {
+              "name": "check-kimi-code-docs",
+              "description": "Answer questions about the Kimi Code product using the official documentation — CLI usage, configuration, slash commands, features, membership and quota, API onboarding, third-party tool setup, and error codes. Use when the user asks how Kimi Code works, how to set something up, or what a Kimi Code error message means."
+            },
+            {
+              "name": "custom-theme",
+              "description": "Create or edit a kimi-code custom color theme — a JSON file under the resolved KIMI_CODE_HOME data directory that recolors the TUI. Use when the user wants their own theme, asks for a specific palette or mood, or wants to tweak an existing custom theme's colors."
+            },
+            {
+              "name": "import-from-cc-codex",
+              "description": "Import Claude Code and Codex instructions, skills, and MCP settings into Kimi Code."
+            },
+            {
+              "name": "mcp-config",
+              "description": "Configure MCP servers and handle MCP OAuth login."
+            },
+            {
+              "name": "sub-skill",
+              "description": "Discover and reorganize the skill inventory into hierarchical sub-skill bundles. Use when the user asks to review, group, or consolidate skills into a parent bundle."
+            },
+            {
+              "name": "sub-skill.consolidate",
+              "description": "Apply an approved sub-skill grouping by moving user-specified skills into a parent bundle, with timestamped backups of every modified directory."
+            },
+            {
+              "name": "sub-skill.review",
+              "description": "Analyze the available skill set and recommend candidate groups that could be consolidated into sub-skill bundles. Read-only — proposes a plan, does not move files."
+            },
+            {
+              "name": "update-config",
+              "description": "Inspect or edit kimi-code's own config — `config.toml` (model, provider, permission, hooks) and `tui.toml` (theme, editor, notifications, auto-update). Use when the user asks what a setting does, wants to change one, or needs to fix a deprecated config key / environment variable warning."
+            },
+            {
+              "name": "write-goal",
+              "description": "Help the user craft a well-specified `/goal` objective for goal mode — turn a rough intention into a completion contract with a clear finish line, proof, boundaries, and stop rule. Use when the user asks for help writing, refining, or improving a goal."
+            }
+          ]
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_292d8bc8-062c-4e44-905e-f135160c1dd9",
+        "update": {
+          "sessionUpdate": "session_info_update",
+          "title": "请使用 Write 工具在项目内新建文件 .temp/capture_write_probe.txt，内容为恰好三行短文本：第一行、第二行、第三行（每行各一行）。写完直接结束本轮，不要执行任何其他工具。"
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_292d8bc8-062c-4e44-905e-f135160c1dd9",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "content": {
+            "type": "text",
+            "text": "The"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_292d8bc8-062c-4e44-905e-f135160c1dd9",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "content": {
+            "type": "text",
+            "text": " user"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_292d8bc8-062c-4e44-905e-f135160c1dd9",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "content": {
+            "type": "text",
+            "text": " asks"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_292d8bc8-062c-4e44-905e-f135160c1dd9",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "content": {
+            "type": "text",
+            "text": " to"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_292d8bc8-062c-4e44-905e-f135160c1dd9",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "content": {
+            "type": "text",
+            "text": " use"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_292d8bc8-062c-4e44-905e-f135160c1dd9",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "content": {
+            "type": "text",
+            "text": " Write"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_292d8bc8-062c-4e44-905e-f135160c1dd9",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "content": {
+            "type": "text",
+            "text": " tool"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_292d8bc8-062c-4e44-905e-f135160c1dd9",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "content": {
+            "type": "text",
+            "text": " to"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_292d8bc8-062c-4e44-905e-f135160c1dd9",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "content": {
+            "type": "text",
+            "text": " create"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_292d8bc8-062c-4e44-905e-f135160c1dd9",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "content": {
+            "type": "text",
+            "text": " a"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_292d8bc8-062c-4e44-905e-f135160c1dd9",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "content": {
+            "type": "text",
+            "text": " file"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_292d8bc8-062c-4e44-905e-f135160c1dd9",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "content": {
+            "type": "text",
+            "text": " with"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_292d8bc8-062c-4e44-905e-f135160c1dd9",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "content": {
+            "type": "text",
+            "text": " exactly"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_292d8bc8-062c-4e44-905e-f135160c1dd9",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "content": {
+            "type": "text",
+            "text": " three"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_292d8bc8-062c-4e44-905e-f135160c1dd9",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "content": {
+            "type": "text",
+            "text": " lines"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_292d8bc8-062c-4e44-905e-f135160c1dd9",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "content": {
+            "type": "text",
+            "text": "."
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_292d8bc8-062c-4e44-905e-f135160c1dd9",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "content": {
+            "type": "text",
+            "text": " Simple"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_292d8bc8-062c-4e44-905e-f135160c1dd9",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "content": {
+            "type": "text",
+            "text": " task"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_292d8bc8-062c-4e44-905e-f135160c1dd9",
+        "update": {
+          "sessionUpdate": "agent_thought_chunk",
+          "content": {
+            "type": "text",
+            "text": "."
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_292d8bc8-062c-4e44-905e-f135160c1dd9",
+        "update": {
+          "sessionUpdate": "tool_call",
+          "toolCallId": "0:tool_Tg1x3AgQyxr2KDKDULry86b7",
+          "title": "Write",
+          "kind": "edit",
+          "status": "pending",
+          "content": [
+            {
+              "type": "content",
+              "content": {
+                "type": "text",
+                "text": ""
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_292d8bc8-062c-4e44-905e-f135160c1dd9",
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "0:tool_Tg1x3AgQyxr2KDKDULry86b7",
+          "status": "in_progress",
+          "content": [
+            {
+              "type": "content",
+              "content": {
+                "type": "text",
+                "text": "{"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_292d8bc8-062c-4e44-905e-f135160c1dd9",
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "0:tool_Tg1x3AgQyxr2KDKDULry86b7",
+          "status": "in_progress",
+          "content": [
+            {
+              "type": "content",
+              "content": {
+                "type": "text",
+                "text": "{\"path\": \""
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_292d8bc8-062c-4e44-905e-f135160c1dd9",
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "0:tool_Tg1x3AgQyxr2KDKDULry86b7",
+          "status": "in_progress",
+          "content": [
+            {
+              "type": "content",
+              "content": {
+                "type": "text",
+                "text": "{\"path\": \".temp"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_292d8bc8-062c-4e44-905e-f135160c1dd9",
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "0:tool_Tg1x3AgQyxr2KDKDULry86b7",
+          "status": "in_progress",
+          "content": [
+            {
+              "type": "content",
+              "content": {
+                "type": "text",
+                "text": "{\"path\": \".temp/c"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_292d8bc8-062c-4e44-905e-f135160c1dd9",
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "0:tool_Tg1x3AgQyxr2KDKDULry86b7",
+          "status": "in_progress",
+          "content": [
+            {
+              "type": "content",
+              "content": {
+                "type": "text",
+                "text": "{\"path\": \".temp/capture"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_292d8bc8-062c-4e44-905e-f135160c1dd9",
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "0:tool_Tg1x3AgQyxr2KDKDULry86b7",
+          "status": "in_progress",
+          "content": [
+            {
+              "type": "content",
+              "content": {
+                "type": "text",
+                "text": "{\"path\": \".temp/capture_write"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_292d8bc8-062c-4e44-905e-f135160c1dd9",
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "0:tool_Tg1x3AgQyxr2KDKDULry86b7",
+          "status": "in_progress",
+          "content": [
+            {
+              "type": "content",
+              "content": {
+                "type": "text",
+                "text": "{\"path\": \".temp/capture_write_probe"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_292d8bc8-062c-4e44-905e-f135160c1dd9",
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "0:tool_Tg1x3AgQyxr2KDKDULry86b7",
+          "status": "in_progress",
+          "content": [
+            {
+              "type": "content",
+              "content": {
+                "type": "text",
+                "text": "{\"path\": \".temp/capture_write_probe.txt"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_292d8bc8-062c-4e44-905e-f135160c1dd9",
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "0:tool_Tg1x3AgQyxr2KDKDULry86b7",
+          "status": "in_progress",
+          "content": [
+            {
+              "type": "content",
+              "content": {
+                "type": "text",
+                "text": "{\"path\": \".temp/capture_write_probe.txt\""
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_292d8bc8-062c-4e44-905e-f135160c1dd9",
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "0:tool_Tg1x3AgQyxr2KDKDULry86b7",
+          "status": "in_progress",
+          "content": [
+            {
+              "type": "content",
+              "content": {
+                "type": "text",
+                "text": "{\"path\": \".temp/capture_write_probe.txt\", \"content\": \""
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_292d8bc8-062c-4e44-905e-f135160c1dd9",
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "0:tool_Tg1x3AgQyxr2KDKDULry86b7",
+          "status": "in_progress",
+          "content": [
+            {
+              "type": "content",
+              "content": {
+                "type": "text",
+                "text": "{\"path\": \".temp/capture_write_probe.txt\", \"content\": \"第一"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_292d8bc8-062c-4e44-905e-f135160c1dd9",
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "0:tool_Tg1x3AgQyxr2KDKDULry86b7",
+          "status": "in_progress",
+          "content": [
+            {
+              "type": "content",
+              "content": {
+                "type": "text",
+                "text": "{\"path\": \".temp/capture_write_probe.txt\", \"content\": \"第一行"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_292d8bc8-062c-4e44-905e-f135160c1dd9",
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "0:tool_Tg1x3AgQyxr2KDKDULry86b7",
+          "status": "in_progress",
+          "content": [
+            {
+              "type": "content",
+              "content": {
+                "type": "text",
+                "text": "{\"path\": \".temp/capture_write_probe.txt\", \"content\": \"第一行\\n"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_292d8bc8-062c-4e44-905e-f135160c1dd9",
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "0:tool_Tg1x3AgQyxr2KDKDULry86b7",
+          "status": "in_progress",
+          "content": [
+            {
+              "type": "content",
+              "content": {
+                "type": "text",
+                "text": "{\"path\": \".temp/capture_write_probe.txt\", \"content\": \"第一行\\n第二"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_292d8bc8-062c-4e44-905e-f135160c1dd9",
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "0:tool_Tg1x3AgQyxr2KDKDULry86b7",
+          "status": "in_progress",
+          "content": [
+            {
+              "type": "content",
+              "content": {
+                "type": "text",
+                "text": "{\"path\": \".temp/capture_write_probe.txt\", \"content\": \"第一行\\n第二行"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_292d8bc8-062c-4e44-905e-f135160c1dd9",
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "0:tool_Tg1x3AgQyxr2KDKDULry86b7",
+          "status": "in_progress",
+          "content": [
+            {
+              "type": "content",
+              "content": {
+                "type": "text",
+                "text": "{\"path\": \".temp/capture_write_probe.txt\", \"content\": \"第一行\\n第二行\\n"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_292d8bc8-062c-4e44-905e-f135160c1dd9",
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "0:tool_Tg1x3AgQyxr2KDKDULry86b7",
+          "status": "in_progress",
+          "content": [
+            {
+              "type": "content",
+              "content": {
+                "type": "text",
+                "text": "{\"path\": \".temp/capture_write_probe.txt\", \"content\": \"第一行\\n第二行\\n第三"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_292d8bc8-062c-4e44-905e-f135160c1dd9",
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "0:tool_Tg1x3AgQyxr2KDKDULry86b7",
+          "status": "in_progress",
+          "content": [
+            {
+              "type": "content",
+              "content": {
+                "type": "text",
+                "text": "{\"path\": \".temp/capture_write_probe.txt\", \"content\": \"第一行\\n第二行\\n第三行"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_292d8bc8-062c-4e44-905e-f135160c1dd9",
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "0:tool_Tg1x3AgQyxr2KDKDULry86b7",
+          "status": "in_progress",
+          "content": [
+            {
+              "type": "content",
+              "content": {
+                "type": "text",
+                "text": "{\"path\": \".temp/capture_write_probe.txt\", \"content\": \"第一行\\n第二行\\n第三行\\n"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_292d8bc8-062c-4e44-905e-f135160c1dd9",
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "0:tool_Tg1x3AgQyxr2KDKDULry86b7",
+          "status": "in_progress",
+          "content": [
+            {
+              "type": "content",
+              "content": {
+                "type": "text",
+                "text": "{\"path\": \".temp/capture_write_probe.txt\", \"content\": \"第一行\\n第二行\\n第三行\\n\""
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_292d8bc8-062c-4e44-905e-f135160c1dd9",
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "0:tool_Tg1x3AgQyxr2KDKDULry86b7",
+          "status": "in_progress",
+          "content": [
+            {
+              "type": "content",
+              "content": {
+                "type": "text",
+                "text": "{\"path\": \".temp/capture_write_probe.txt\", \"content\": \"第一行\\n第二行\\n第三行\\n\"}"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_292d8bc8-062c-4e44-905e-f135160c1dd9",
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "0:tool_Tg1x3AgQyxr2KDKDULry86b7",
+          "title": "Writing .temp/capture_write_probe.txt",
+          "kind": "edit",
+          "status": "in_progress",
+          "rawInput": {
+            "path": ".temp/capture_write_probe.txt",
+            "content": "第一行\n第二行\n第三行\n"
+          },
+          "locations": [
+            {
+              "path": "~/zen/software/Zen_Studio/.temp/capture_write_probe.txt"
+            }
+          ],
+          "content": [
+            {
+              "type": "content",
+              "content": {
+                "type": "text",
+                "text": "{\"path\":\".temp/capture_write_probe.txt\",\"content\":\"第一行\\n第二行\\n第三行\\n\"}"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_292d8bc8-062c-4e44-905e-f135160c1dd9",
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "0:tool_Tg1x3AgQyxr2KDKDULry86b7",
+          "status": "completed",
+          "content": [
+            {
+              "type": "content",
+              "content": {
+                "type": "text",
+                "text": "Wrote 30 bytes to .temp/capture_write_probe.txt"
+              }
+            }
+          ],
+          "rawOutput": "Wrote 30 bytes to .temp/capture_write_probe.txt",
+          "locations": [
+            {
+              "path": "~/zen/software/Zen_Studio/.temp/capture_write_probe.txt"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_292d8bc8-062c-4e44-905e-f135160c1dd9",
+        "update": {
+          "sessionUpdate": "agent_message_chunk",
+          "content": {
+            "type": "text",
+            "text": "已"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_292d8bc8-062c-4e44-905e-f135160c1dd9",
+        "update": {
+          "sessionUpdate": "agent_message_chunk",
+          "content": {
+            "type": "text",
+            "text": "写入"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_292d8bc8-062c-4e44-905e-f135160c1dd9",
+        "update": {
+          "sessionUpdate": "agent_message_chunk",
+          "content": {
+            "type": "text",
+            "text": " `."
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_292d8bc8-062c-4e44-905e-f135160c1dd9",
+        "update": {
+          "sessionUpdate": "agent_message_chunk",
+          "content": {
+            "type": "text",
+            "text": "temp"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_292d8bc8-062c-4e44-905e-f135160c1dd9",
+        "update": {
+          "sessionUpdate": "agent_message_chunk",
+          "content": {
+            "type": "text",
+            "text": "/c"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_292d8bc8-062c-4e44-905e-f135160c1dd9",
+        "update": {
+          "sessionUpdate": "agent_message_chunk",
+          "content": {
+            "type": "text",
+            "text": "apture"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_292d8bc8-062c-4e44-905e-f135160c1dd9",
+        "update": {
+          "sessionUpdate": "agent_message_chunk",
+          "content": {
+            "type": "text",
+            "text": "_write"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_292d8bc8-062c-4e44-905e-f135160c1dd9",
+        "update": {
+          "sessionUpdate": "agent_message_chunk",
+          "content": {
+            "type": "text",
+            "text": "_probe"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_292d8bc8-062c-4e44-905e-f135160c1dd9",
+        "update": {
+          "sessionUpdate": "agent_message_chunk",
+          "content": {
+            "type": "text",
+            "text": ".txt"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_292d8bc8-062c-4e44-905e-f135160c1dd9",
+        "update": {
+          "sessionUpdate": "agent_message_chunk",
+          "content": {
+            "type": "text",
+            "text": "`，"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_292d8bc8-062c-4e44-905e-f135160c1dd9",
+        "update": {
+          "sessionUpdate": "agent_message_chunk",
+          "content": {
+            "type": "text",
+            "text": "内容为"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_292d8bc8-062c-4e44-905e-f135160c1dd9",
+        "update": {
+          "sessionUpdate": "agent_message_chunk",
+          "content": {
+            "type": "text",
+            "text": "恰好"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_292d8bc8-062c-4e44-905e-f135160c1dd9",
+        "update": {
+          "sessionUpdate": "agent_message_chunk",
+          "content": {
+            "type": "text",
+            "text": "三"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_292d8bc8-062c-4e44-905e-f135160c1dd9",
+        "update": {
+          "sessionUpdate": "agent_message_chunk",
+          "content": {
+            "type": "text",
+            "text": "行"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_292d8bc8-062c-4e44-905e-f135160c1dd9",
+        "update": {
+          "sessionUpdate": "agent_message_chunk",
+          "content": {
+            "type": "text",
+            "text": "："
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_292d8bc8-062c-4e44-905e-f135160c1dd9",
+        "update": {
+          "sessionUpdate": "agent_message_chunk",
+          "content": {
+            "type": "text",
+            "text": "第一"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_292d8bc8-062c-4e44-905e-f135160c1dd9",
+        "update": {
+          "sessionUpdate": "agent_message_chunk",
+          "content": {
+            "type": "text",
+            "text": "行"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_292d8bc8-062c-4e44-905e-f135160c1dd9",
+        "update": {
+          "sessionUpdate": "agent_message_chunk",
+          "content": {
+            "type": "text",
+            "text": "、"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_292d8bc8-062c-4e44-905e-f135160c1dd9",
+        "update": {
+          "sessionUpdate": "agent_message_chunk",
+          "content": {
+            "type": "text",
+            "text": "第二"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_292d8bc8-062c-4e44-905e-f135160c1dd9",
+        "update": {
+          "sessionUpdate": "agent_message_chunk",
+          "content": {
+            "type": "text",
+            "text": "行"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_292d8bc8-062c-4e44-905e-f135160c1dd9",
+        "update": {
+          "sessionUpdate": "agent_message_chunk",
+          "content": {
+            "type": "text",
+            "text": "、"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_292d8bc8-062c-4e44-905e-f135160c1dd9",
+        "update": {
+          "sessionUpdate": "agent_message_chunk",
+          "content": {
+            "type": "text",
+            "text": "第三"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_292d8bc8-062c-4e44-905e-f135160c1dd9",
+        "update": {
+          "sessionUpdate": "agent_message_chunk",
+          "content": {
+            "type": "text",
+            "text": "行"
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "session_292d8bc8-062c-4e44-905e-f135160c1dd9",
+        "update": {
+          "sessionUpdate": "agent_message_chunk",
+          "content": {
+            "type": "text",
+            "text": "。"
+          }
+        }
+      }
+    },
+    {
+      "_turn_response": {
+        "jsonrpc": "2.0",
+        "id": 3,
+        "result": {
+          "stopReason": "end_turn"
+        }
+      }
+    }
+  ]
+}

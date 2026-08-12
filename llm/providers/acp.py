@@ -447,7 +447,7 @@ def _extract_write_diff(update: dict) -> tuple[str, list[dict], bool] | None:
     （edit 有），diff 徽标/hunk 无数据源（原取证
     `.temp/write_frames_kimi.json` 未入库、已随 .temp 清理丢失；
     0735 计划 T3 重取证存档
-    `.temp/frame_archive/write_20260812_075201.json`——首帧空壳、
+    `帧存档/write_20260812_075201.json`——首帧空壳、
     in_progress 帧 rawInput={path,content} 且 content 无 diff 项的
     形态实证一致）；但 `rawInput.content` 是写入全文，
     新建文件语义的 diff 即 `oldText="" + newText=content`——数据为后端
@@ -616,8 +616,8 @@ def _extract_question_options(update: dict) -> list[dict] | None:
     QuestionCard 卡片内交互数据源；与 questions 字段并存，GUI 不碰 rawInput）。
 
     每问 `{question, header?, options: [{label, description?}], multi_select}`。
-    实证蓝本：kimi 帧（.temp/frame_archive/askuser_*.json）多选字段名为
-    `multi_select`（蛇形）；reasonix 帧（.temp/frame_archive/ask_reasonix_*.json）
+    实证蓝本：kimi 帧（帧存档/askuser_*.json）多选字段名为
+    `multi_select`（蛇形）；reasonix 帧（帧存档/ask_reasonix_*.json）
     为 `multiSelect`（驼峰，0812-0952 计划 T2 兼容补入）；header 为可选短标题。
     """
     raw = update.get("rawInput")
