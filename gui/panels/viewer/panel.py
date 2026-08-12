@@ -321,6 +321,9 @@ class ViewerPanel(QWidget):
         p = Path(path)
         if not p.is_file():
             return self._show_placeholder(f"（文件不存在：{self._display_path(path)}）")
+        # 打开新文件前清除标题行残留提示（如上一文件的「已被删除」常驻/瞬时提示），
+        # 后续回落分支会按需重新设置，时序兼容
+        self._hint_label.clear()
         suffix = p.suffix.lower().lstrip(".")
         # PDF 分流须先于图片：QImageReader 自带 pdf 图像插件（IMAGE_EXTS 含 pdf），
         # 顺序靠后会被图片页截胡（扩展名并非互斥，实施实测发现）
@@ -630,8 +633,11 @@ class ViewerPanel(QWidget):
         if not Path(self._current_path).is_file():
             if self._watcher.files():
                 self._watcher.removePaths(self._watcher.files())
+            # 删除/重命名/移动对 watcher 不可区分，统一报「已被删除」；
+            # 瞬时提示（非 sticky）：持续语义由占位状态承担，常驻文案会张冠李戴
             return self._show_placeholder(
-                f"（文件已被删除：{self._display_path(self._current_path)}）")
+                f"（文件已被删除：{self._display_path(self._current_path)}）",
+                sticky=False)
         self.open_file(self._current_path)
         self._show_hint("已重新加载（外部修改）")
         self.externally_reloaded.emit()
@@ -639,7 +645,13 @@ class ViewerPanel(QWidget):
     # ------------------------------------------------------------------
     # 显示辅助
     # ------------------------------------------------------------------
-    def _show_placeholder(self, text: str, path: str | None = None) -> None:
+    def _show_placeholder(self, text: str, path: str | None = None, sticky: bool = True) -> None:
+        """占位提示：清空正文并回落文本页。
+
+        :param sticky: True 常驻提示（默认，读取失败等需用户感知持续状态的场景）；
+            False 瞬时提示（HINT_TIMEOUT_MS 后自动消失，文件删除分支用，
+            持续语义由「（未打开文件）」占位状态承担）
+        """
         if self._watcher.files():
             self._watcher.removePaths(self._watcher.files())
         self.media_viewer.stop()  # 离开媒体页：停播释放（生命周期红线）
@@ -658,9 +670,13 @@ class ViewerPanel(QWidget):
             self._path_label.setToolTip("")
         self._current_path = None
         self._git_badge.setVisible(False)
-        self._show_hint(text, sticky=True)
+        self._show_hint(text, sticky=sticky)
 
     def _show_hint(self, text: str, sticky: bool = False) -> None:
+        """标题行提示：sticky 常驻，非 sticky 经 HINT_TIMEOUT_MS 后自动清除。
+
+        文件删除分支走非 sticky（瞬时），其余占位提示（读取失败/二进制等）为常驻。
+        """
         self._hint_label.setText(text)
         # 提示全文 tooltip：sticky 长文案被布局挤压时可悬停看全（2048 计划 T2-3）
         self._hint_label.setToolTip(text)

@@ -115,7 +115,7 @@
 |:---|:---|
 | `CodeViewer` | 只读、等宽字体、行号栏（lineNumberArea 经典模式）+ 当前行高亮（行号为人与 AI 的对话坐标系）、软换行（超出宽度的长行按单词边界折行、无空格长串硬断，行号保持逻辑行号）；Qt 内建 Ctrl+滚轮缩放字体已禁用（2026-0806-0223，与聊天区/Markdown 页同款 wheelEvent 守卫，字号唯全局字号链管控） |
 | `PygmentsHighlighter` | 整文档一次 lexing → 区间缓存，`highlightBlock` 按块二分取格式；`get_lexer_for_filename` 探测语言、未知回退纯文本；多行 token（块注释/多行字符串）天然正确；明暗双配色表随主题切换重建 |
-| 外部修改自动重载 | `QFileSystemWatcher` 监视当前文件（**AI 写盘为主修改路径**），150ms 防抖重载、保留滚动位置、标题行提示"已重新加载"；文件被删显示占位 |
+| 外部修改自动重载 | `QFileSystemWatcher` 监视当前文件（**AI 写盘为主修改路径**），150ms 防抖重载、保留滚动位置、标题行提示"已重新加载"；文件被删显示占位 + 标题行瞬时提示（3 秒自动消失，0813 计划：持续语义由占位状态承担；`open_file` 打开新文件时清除残留提示） |
 | Git 差异徽标 | `set_git_service` 注入 `GitStatusService` 后，`open_file` 查询 numstat，标题行路径后追加 `+a -b` 徽标（无改动/非仓库不显示）；外部重载时发射 `externally_reloaded` 供主窗口联动刷新 Git 状态 |
 | 守卫 | >1 MB 截断并提示；二进制文件占位提示（不尝试解码上屏） |
 | 查找浮层 | 右上角悬浮（不占布局，同终端浮层形态）：当前文档搜索 + 命中高亮（经 `CodeViewer.set_search_highlights` 与当前行高亮合并上屏）+ 上一个/下一个；编辑菜单「查找」按焦点分发进入，Esc 关闭 |
