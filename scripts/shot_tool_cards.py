@@ -75,17 +75,24 @@ def _make_asset_png(name: str, color: str, w: int = 320, h: int = 200) -> str:
     return str(path)
 
 
-def _tool_call(tid: str, title: str, kind: str, raw_input: dict | None = None) -> dict:
+def _tool_call(tid: str, title: str, kind: str, raw_input: dict | None = None,
+               content: list | None = None,
+               locations: list | None = None) -> dict:
     frame = {"sessionUpdate": "tool_call", "toolCallId": tid,
              "title": title, "kind": kind, "status": "pending"}
     if raw_input is not None:
         frame["rawInput"] = raw_input
+    if content is not None:
+        frame["content"] = content
+    if locations is not None:
+        frame["locations"] = locations
     return frame
 
 
 def _tool_update(tid: str, status: str, title: str | None = None,
                  kind: str | None = None, raw_input: dict | None = None,
-                 raw_output: dict | None = None) -> dict:
+                 raw_output: dict | None = None, content: list | None = None,
+                 locations: list | None = None) -> dict:
     frame = {"sessionUpdate": "tool_call_update", "toolCallId": tid,
              "status": status}
     if title is not None:
@@ -96,6 +103,10 @@ def _tool_update(tid: str, status: str, title: str | None = None,
         frame["rawInput"] = raw_input
     if raw_output is not None:
         frame["rawOutput"] = raw_output
+    if content is not None:
+        frame["content"] = content
+    if locations is not None:
+        frame["locations"] = locations
     return frame
 
 
@@ -372,6 +383,195 @@ def _scenarios() -> list[tuple[str, list[dict], str, object]]:
                          {"content": "plan 通道条目二", "status": "in_progress"}]},
         ], "会话级 TodoCard 通道行为零变化：📋 任务清单 + 1/2 副标题 + "
            "完成项灰化删除线，in_progress 不着色（非高亮口径）", None),
+        # 0812-0735 计划 T2：kind 补盲场景组（F1——BashCard/DiffCard/
+        # TextOutputCard/SubagentCard(think 路径) 零覆盖补盲），帧形态
+        # 出处逐一标注，无出处假设标 🟡 待 T3 真机取证校正
+        ("21_execute_首帧齐备", [
+            # kilocode 系首帧齐备形态（推定）：tool_call 首帧即带
+            # rawInput.command；title 为工具名（≠command）→ 副标题
+            # 显示命令摘要。in_progress 尾滚帧在 mock 路由中因
+            # _tool_commands 簿记未注入被真实路由代码丢弃（与真机
+            # 200ms 节流同通道），输出定格由 completed 帧承担
+            _tool_call("tc-exec1", "Bash", "execute",
+                       {"command": "ls -la assets/"}),
+            _tool_update("tc-exec1", "in_progress", kind="execute",
+                         raw_output={"output": "total 24\ndrwxr-xr-x 5 user user"}),
+            _tool_update("tc-exec1", "completed", kind="execute",
+                         raw_output={"output":
+                                     "total 24\n"
+                                     "drwxr-xr-x 5 user user 4096 8月11 12:00 .\n"
+                                     "drwxr-xr-x 2 user user 4096 8月11 12:00 fonts\n"
+                                     "drwxr-xr-x 2 user user 4096 8月11 12:00 logo\n"
+                                     "drwxr-xr-x 2 user user 4096 8月11 12:00 themes"}),
+        ], "$ 粗体命令头；输出正文定格；✔；title≠command 时副标题显示"
+           "命令摘要「ls -la assets/」", None),
+        ("22_execute_title即命令", [
+            # 首帧齐备对照形态（1425 计划记载「shell 工具 title 即命令
+            # 本身」——对应 kilocode 系）。0735 计划 T3 真机取证
+            # （.temp/frame_archive/execute_20260812_075201.json）实证
+            # kimi 为首帧空壳迟到形态：首帧 title="Bash"、无 rawInput，
+            # command 随 in_progress 帧迟到（迟到帧 title="Running:
+            # <命令>"）——kimi 真实迟到形态由场景 30 承接，本场景保留
+            # 作首帧齐备回归对照
+            _tool_call("tc-exec2", "pytest scripts/ -x", "execute",
+                       {"command": "pytest scripts/ -x"}),
+            _tool_update("tc-exec2", "completed", kind="execute",
+                         raw_output={"output": "3 passed in 0.42s"}),
+        ], "副标题不重复命令（_tool_call_summary title==command 去重判据"
+           "实证）；$ 粗体命令头正常；✔", None),
+        ("23_edit_kimi迟到diff", [
+            # kimi 系时序（0919 计划 §6.1 取证）：首帧 title="Edit"、
+            # kind="edit"、content 空文本壳、无 rawInput/locations/diff 项
+            # → in_progress 帧 title="Editing <路径>"（路径内嵌）、
+            # rawInput={path,old_string,new_string}、content 带顶层键
+            # diff 项 → completed 仅结果文本（同帧再带一次相同 diff 项
+            # 验 _diff_attached 去重）。同时实证 0919 迟到帧放行链路
+            # （_allow_progress_frame 对带 diff_hunks/summary 帧放行）
+            _tool_call("tc-editkimi", "Edit", "edit",
+                       content=[{"type": "content",
+                                 "content": {"type": "text", "text": ""}}]),
+            _tool_update("tc-editkimi", "in_progress",
+                         title="Editing .temp/probe.txt", kind="edit",
+                         raw_input={"path": ".temp/probe.txt",
+                                    "old_string": "旧行一\n旧行二\n旧行三",
+                                    "new_string": "旧行一\n新行二\n旧行三"},
+                         content=[{"type": "diff",
+                                   "path": str(PROJECT_ROOT / ".temp" / "probe.txt"),
+                                   "oldText": "旧行一\n旧行二\n旧行三",
+                                   "newText": "旧行一\n新行二\n旧行三"}]),
+            _tool_update("tc-editkimi", "completed", kind="edit",
+                         content=[{"type": "content",
+                                   "content": {"type": "text",
+                                               "text": "Replaced 1 occurrence "
+                                                       "in .temp/probe.txt"}},
+                                  {"type": "diff",
+                                   "path": str(PROJECT_ROOT / ".temp" / "probe.txt"),
+                                   "oldText": "旧行一\n旧行二\n旧行三",
+                                   "newText": "旧行一\n新行二\n旧行三"}]),
+        ], "标题恒定 Edit（_accept_title_update=False 拒收「Editing …」）；"
+           "副标题两段式「probe.txt · .temp/」；徽标 +1 −1；hunk 三色；"
+           "双帧同 diff 只挂一份（_diff_attached）；✔", None),
+        ("24_write_kimi合成diff", [
+            # kimi 系时序（0959 计划 §2 取证）：首帧 title="Write"、
+            # kind="edit" 空壳 → in_progress 帧 rawInput={path,content}、
+            # content 无 diff 项（仅 rawInput JSON 文本快照）→
+            # completed 结果文本。rawInput.content 全文经
+            # _extract_write_diff 合成 +N −0
+            _tool_call("tc-writekimi", "Write", "edit",
+                       content=[{"type": "content",
+                                 "content": {"type": "text", "text": ""}}]),
+            _tool_update("tc-writekimi", "in_progress",
+                         title="Writing .temp/write_probe.txt", kind="edit",
+                         raw_input={"path": ".temp/write_probe.txt",
+                                    "content": "第一行\n第二行\n第三行"},
+                         content=[{"type": "content",
+                                   "content": {"type": "text",
+                                               "text": '{"path": ".temp/write_probe.txt", '
+                                                       '"content": "第一行\\n第二行\\n第三行"}'}}]),
+            _tool_update("tc-writekimi", "completed", kind="edit",
+                         raw_output={"output": "File written successfully."}),
+        ], "标题恒定 Write；合成徽标 +3 −0；hunk 全绿；副标题两段式"
+           "「write_probe.txt · .temp/」；入参区仅 path（content 不在 edit"
+           " 白名单键内，无全文重复）；✔", None),
+        ("25_edit_首帧齐备", [
+            # kilocode 系（ACP 标准形态推定）：首帧即带 locations +
+            # content diff 项 + rawInput——徽标/hunk/副标题首帧一次到位
+            _tool_call("tc-editkilo", "Edit", "edit",
+                       {"filePath": "gui/panels/chat/cards.py",
+                        "oldString": "旧实现行", "newString": "新实现行"},
+                       content=[{"type": "diff",
+                                 "path": "gui/panels/chat/cards.py",
+                                 "oldText": "上下文甲\n旧实现行\n上下文乙",
+                                 "newText": "上下文甲\n新实现行\n上下文乙"}],
+                       locations=[{"path": "gui/panels/chat/cards.py"}]),
+            _tool_update("tc-editkilo", "completed", kind="edit",
+                         raw_output={"output": "Edit applied."}),
+        ], "首帧即渲染徽标 +1 −1 与 hunk 三色；副标题取 locations[0].path"
+           " 两段式「cards.py · gui/panels/chat/」；✔", None),
+        ("26_read_行数徽标与截断尾注", [
+            # 通用形态：completed 输出 1005 行超软上限 1000（0645 D2），
+            # read 保头截断（§2.4）
+            _tool_call("tc-readbig", "Read", "read",
+                       {"path": "测试文件夹/文档1.md"}),
+            _tool_update("tc-readbig", "completed", kind="read",
+                         raw_output={"output": "\n".join(
+                             f"第 {i:04d} 行：文档正文内容示例"
+                             for i in range(1, 1006))}),
+        ], "「1005 行」徽标常驻标题行；正文保头截断（第 0001 行起、第 1000"
+           " 行止）；尾注「…… 共 1005 行（仅显示前 1000 行）」；✔", None),
+        ("27_search_fetch_摘要副标题", [
+            # 通用形态：两卡同场景，各带 completed 输出——
+            # _tool_call_summary search/fetch 分支副标题实证
+            _tool_call("tc-search", "Grep", "search",
+                       {"pattern": "_tool_call_summary",
+                        "path": "llm/providers"}),
+            _tool_update("tc-search", "completed", kind="search",
+                         raw_output={"output":
+                                     "llm/providers/acp.py:737:"
+                                     "def _tool_call_summary(update: dict)"}),
+            _tool_call("tc-fetch", "FetchURL", "fetch",
+                       {"url": "https://example.com/acp-spec"}),
+            _tool_update("tc-fetch", "completed", kind="fetch",
+                         raw_output={"output":
+                                     "# ACP Spec\nAgent Client Protocol "
+                                     "defines session/update notifications."}),
+        ], "search 卡副标题显示 pattern「_tool_call_summary」、fetch 卡"
+           "副标题显示 url「https://example.com/acp-spec」；输出正文各自"
+           "定格；均 ✔", None),
+        ("28_think_task_result提取", [
+            # 0645 计划 D5 规格：think（task 子代理）completed 帧
+            # result_summary 走 <task_result> 正则提取，标记外前言不入卡
+            _tool_call("tc-think1", "Agent", "think",
+                       {"description": "分析卡片渲染链路",
+                        "prompt": "请分析 gui/panels/chat 下的卡片分派逻辑"
+                                  "并给出结论。"}),
+            _tool_update("tc-think1", "completed", kind="think",
+                         raw_output={"output":
+                                     "我先查看了 cards.py 的工厂函数，又核对了 "
+                                     "acp.py 的协议映射。\n"
+                                     "<task_result>结论：make_tool_card 按工具名"
+                                     "二级分派优先、未命中按 tool_kind 分派专类，"
+                                     "协议层单点格式化载荷。</task_result>"}),
+        ], "body 仅显示 <task_result> 包裹内结论（标记外前言不入卡）；"
+           "副标题取 description「分析卡片渲染链路」；✔", None),
+        ("29_think_无标记全文兜底", [
+            # 0645 计划 D5 规格：completed 输出无 <task_result> 标记时
+            # _extract_result_summary 取全文兜底
+            _tool_call("tc-think2", "Agent", "think",
+                       {"description": "汇总审计结论",
+                        "prompt": "请汇总本轮审计的全部结论。"}),
+            _tool_update("tc-think2", "completed", kind="think",
+                         raw_output={"output":
+                                     "结论一：TodoList 字段失配为孤例；\n"
+                                     "结论二：假绿的结构性土壤仍在，需制度化"
+                                     "帧证据防回归。"}),
+        ], "body 显示输出全文两行（无标记全文兜底路径实证）；副标题取"
+           " description「汇总审计结论」；✔", None),
+        ("30_execute_kimi迟到命令", [
+            # kimi 实证（0735 计划 T3 取证
+            # .temp/frame_archive/execute_20260812_075201.json）：首帧
+            # title="Bash"、kind="execute"、content 空文本壳、无 rawInput
+            # → in_progress 迟到帧 title="Running: echo capture_execute_
+            # probe"、rawInput={command} → completed 帧 rawOutput 为纯
+            # 字符串（非 {"output": ...} dict——与场景 21/22 构造差异
+            # 如实保留）。场景 16 式迟到变体，承接场景 22 的 🟡 假设校正
+            _tool_call("tc-execkimi", "Bash", "execute",
+                       content=[{"type": "content",
+                                 "content": {"type": "text", "text": ""}}]),
+            _tool_update("tc-execkimi", "in_progress",
+                         title="Running: echo capture_execute_probe",
+                         kind="execute",
+                         raw_input={"command": "echo capture_execute_probe"}),
+            _tool_update("tc-execkimi", "completed", kind="execute",
+                         raw_output="capture_execute_probe\n"),
+        ], "运行中标题短暂变为「Running: echo capture_execute_probe」"
+           "（BashCard _accept_title_update=True），completed 帧缺 title"
+           "经路由 _tool_titles 簿记回填首帧标题——定格标题恒为「Bash」；"
+           "无 $ 粗体命令头（command 仅 _map_tool_call 首帧提取，迟到命令"
+           "不回填 payload[\"command\"]，_tool_commands 簿记亦不建立——"
+           "真机缺口如实记录，另案处置）；入参区迟到回填显示「command: "
+           "echo capture_execute_probe」；输出定格「capture_execute_probe」"
+           "；✔", None),
     ]
 
 

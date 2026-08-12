@@ -444,8 +444,12 @@ def _extract_write_diff(update: dict) -> tuple[str, list[dict], bool] | None:
     """write 形态合成 diff（0803 计划 T2）：rawInput.content 全文 → `+N −0`。
 
     kimi 系 write 新建文件会话的 in_progress 帧 content **无 diff 项**
-    （edit 有），diff 徽标/hunk 无数据源（取证
-    `.temp/write_frames_kimi.json`）；但 `rawInput.content` 是写入全文，
+    （edit 有），diff 徽标/hunk 无数据源（原取证
+    `.temp/write_frames_kimi.json` 未入库、已随 .temp 清理丢失；
+    0735 计划 T3 重取证存档
+    `.temp/frame_archive/write_20260812_075201.json`——首帧空壳、
+    in_progress 帧 rawInput={path,content} 且 content 无 diff 项的
+    形态实证一致）；但 `rawInput.content` 是写入全文，
     新建文件语义的 diff 即 `oldText="" + newText=content`——数据为后端
     真实所给，合成仅是真实数据的 diff 化重表达（不臆造纪律合规），
     且直接复用 `_extract_diff` 管线（difflib hunk 化、软上限截断，
