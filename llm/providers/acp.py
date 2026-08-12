@@ -678,13 +678,22 @@ def _todo_fallback_text(entries: list[TodoEntry]) -> str:
     return "\n".join(lines) + "\n" if lines else ""
 
 
+#: todo status 外部词表 → 内部约定归一（0812-0918 计划 T1；渲染层只认
+#: pending/in_progress/completed/cancelled）：kimi 系完成态为 "done"
+#: （回执 [done] 同源，todolist_a2_frames_20260812_080109.json 实证）；
+#: 未收录取值原样透传（渲染层按缺省 pending 容错，降级方向安全）
+_TODO_STATUS_NORMALIZE = {"done": "completed"}
+
+
 def _extract_todo_entries(items: object) -> list[TodoEntry]:
     """plan.entries / rawInput.todos → TodoEntry 列表（两通道同构，F1）。
 
     条目文本键两系归一：kimi 系为 title，kilocode/opencode 系为
     content——content 或 title 任一字符串即收录（content 优先），
-    内部统一 content 存储；status/priority 为字符串才保留（渲染层
-    按缺省 pending 容错），结构不符的条目静默跳过。
+    内部统一 content 存储；status 经 _TODO_STATUS_NORMALIZE 词表归一
+    （kimi 系 "done" → "completed"），未收录取值原样透传（渲染层
+    按缺省 pending 容错）；priority 为字符串才保留，结构不符的条目
+    静默跳过。
     """
     entries: list[TodoEntry] = []
     if not isinstance(items, list):
@@ -701,7 +710,8 @@ def _extract_todo_entries(items: object) -> list[TodoEntry]:
             continue
         entry = TodoEntry(content=text)
         if isinstance(item.get("status"), str):
-            entry["status"] = item["status"]
+            entry["status"] = _TODO_STATUS_NORMALIZE.get(
+                item["status"], item["status"])
         if isinstance(item.get("priority"), str):
             entry["priority"] = item["priority"]
         entries.append(entry)
@@ -857,6 +867,17 @@ def _map_tool_call_update(update: dict, session_id: str = "") -> Chunk | None:
         # 0158 计划 T1：media_path 与 input_detail 同频回填、同一账本
         if media_path := _extract_media_path(update):
             payload["media_path"] = media_path
+        # 0812-0918 计划 T2-1：execute 迟到 command 提取——kimi 系首帧
+        # 空壳无 rawInput，command 随 in_progress 帧迟到（迟到帧 kind=
+        # "execute" 在场，execute_20260812_075201.json 第 14 帧实证，
+        # 故限 kind == "execute"）；与 input_detail 同账本防重复——
+        # 首帧齐备形态（kilocode/opencode）已登记不重复提取，kimi 迟到
+        # 形态只提首次。净化口径同 _map_tool_call 首帧路径
+        if kind == "execute":
+            raw = update.get("rawInput") or {}
+            if isinstance(raw.get("command"), str):
+                if command := _clean_terminal_text(raw["command"]).strip():
+                    payload["command"] = command
     # 0806 计划 T5：questions 同随 update 帧迟到（首帧空壳场景），同频回填
     if questions := _extract_questions(update):
         payload["questions"] = questions

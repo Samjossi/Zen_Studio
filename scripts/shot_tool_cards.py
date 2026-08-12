@@ -307,11 +307,14 @@ def _scenarios() -> list[tuple[str, list[dict], str, object]]:
             # in_progress 帧补齐 todos（快照语义，每帧都提不设去重账本）
             # 0812-0336 计划 T2：改 kimi 形态（title 键、无 priority），
             # 混入一条脏条目（两键均缺）覆盖防御语义（B7）
+            # 0812-0918 计划 T3：完成项改 kimi 实证 status="done"
+            # （todolist_a2_frames_20260812_080109.json 取证），覆盖
+            # _TODO_STATUS_NORMALIZE 词表归一
             _tool_call("tc-todolate", "TodoList", "other"),
             _tool_update("tc-todolate", "in_progress",
                          raw_input={"todos": [
                              {"title": "协议层 todos 载荷 + diff",
-                              "status": "completed"},
+                              "status": "done"},
                              {"title": "渲染层 TodoListCard",
                               "status": "in_progress"},
                              {"title": "mock 截图闭环",
@@ -320,7 +323,8 @@ def _scenarios() -> list[tuple[str, list[dict], str, object]]:
             _tool_update("tc-todolate", "completed", title="TodoList",
                          raw_output={"output": "清单已更新"}),
         ], "首帧空壳：TodoListCard 清单区随 in_progress 帧迟到载荷出现，"
-           "条目文本与 title 值一致（kimi 形态归一取证）；脏条目静默跳过；"
+           "条目文本与 title 值一致（kimi 形态归一取证）；done 项归一为"
+           " completed：☑ + 删除线 + 计入 x/y；脏条目静默跳过；"
            "入参区保持「（无）」无 todos JSON 重复，副标题 1/3", None),
         ("17_todolist_跨调用变更高亮", [
             # 两次调用（两 toolCallId）：首卡快照 → 次卡快照（状态迁移
@@ -365,7 +369,7 @@ def _scenarios() -> list[tuple[str, list[dict], str, object]]:
             _tool_update("tc-todokimi1", "completed", title="TodoList",
                          raw_output={"output": "ok"}),
             _tool_call("tc-todokimi2", "TodoList", "other",
-                       {"todos": [{"title": "kimi 协议层载荷", "status": "completed"},
+                       {"todos": [{"title": "kimi 协议层载荷", "status": "done"},
                                   {"title": "kimi 渲染层专用卡", "status": "in_progress"},
                                   {"title": "kimi mock 验证", "status": "pending"},
                                   {"title": "kimi 截图闭环", "status": "pending"}]}),
@@ -373,7 +377,9 @@ def _scenarios() -> list[tuple[str, list[dict], str, object]]:
                          raw_output={"output": "ok"}),
         ], "两张 TodoListCard 各自定格（历史留痕），条目文本与 title 值"
            "一致；次卡变更项（1/2/4 项）醒目色、未变更第 3 项常规色，"
-           "副标题 1/4；首卡全项醒目（before 为空首卡全量高亮语义正确）",
+           "done 项归一为 completed：☑ + 删除线 + 计入 x/y（0812-0918"
+           " 计划 T3 混入 kimi 实证 status=\"done\"）；副标题 1/4；首卡"
+           "全项醒目（before 为空首卡全量高亮语义正确）",
            None),
         ("19_plan_通道回归", [
             # plan 通道不动产：无 toolCallId 的会话级快照流仍走
@@ -554,7 +560,10 @@ def _scenarios() -> list[tuple[str, list[dict], str, object]]:
             # → in_progress 迟到帧 title="Running: echo capture_execute_
             # probe"、rawInput={command} → completed 帧 rawOutput 为纯
             # 字符串（非 {"output": ...} dict——与场景 21/22 构造差异
-            # 如实保留）。场景 16 式迟到变体，承接场景 22 的 🟡 假设校正
+            # 如实保留）。场景 16 式迟到变体，承接场景 22 的 🟡 假设校正。
+            # 0812-0918 计划 T2/T3：迟到 command 经协议层提取 +
+            # 路由 _tool_commands 迟到簿记后，`$ ` 命令头补挂、尾滚
+            # 输出帧放行（本场景补一帧尾滚输出实证放行链路）
             _tool_call("tc-execkimi", "Bash", "execute",
                        content=[{"type": "content",
                                  "content": {"type": "text", "text": ""}}]),
@@ -562,14 +571,16 @@ def _scenarios() -> list[tuple[str, list[dict], str, object]]:
                          title="Running: echo capture_execute_probe",
                          kind="execute",
                          raw_input={"command": "echo capture_execute_probe"}),
+            _tool_update("tc-execkimi", "in_progress", kind="execute",
+                         raw_output={"output": "capture_execute_probe\n"}),
             _tool_update("tc-execkimi", "completed", kind="execute",
                          raw_output="capture_execute_probe\n"),
         ], "运行中标题短暂变为「Running: echo capture_execute_probe」"
            "（BashCard _accept_title_update=True），completed 帧缺 title"
            "经路由 _tool_titles 簿记回填首帧标题——定格标题恒为「Bash」；"
-           "无 $ 粗体命令头（command 仅 _map_tool_call 首帧提取，迟到命令"
-           "不回填 payload[\"command\"]，_tool_commands 簿记亦不建立——"
-           "真机缺口如实记录，另案处置）；入参区迟到回填显示「command: "
+           "$ 粗体命令头随迟到帧建立（协议层迟到提取 + 路由迟到簿记 +"
+           " BashCard _set_command 补挂，0812-0918 计划 T2）；尾滚输出"
+           "帧放行（_tool_commands 闸门）；入参区迟到回填显示「command: "
            "echo capture_execute_probe」；输出定格「capture_execute_probe」"
            "；✔", None),
     ]
@@ -593,7 +604,11 @@ class _MiniRouter:
 
     _allow_progress_frame 是 ChatPanel 实例方法，仅依赖
     _tool_commands/_tail_last 两个簿记——SimpleNamespace 伪装实例调
-    未绑定方法，T3 放行判定走真实代码。
+    未绑定方法，T3 放行判定走真实代码。0812-0918 计划 T3：
+    _tool_commands 簿记语义与真实路由对齐——首帧 command 登记、
+    update 帧迟到 command setdefault、输出帧补 command 注入
+    （panel.py:906-907/917-920/928-929 同语义），场景 30 实证
+    迟到簿记后的尾滚放行与 `$ ` 头补挂。
     """
 
     def __init__(self) -> None:
@@ -602,6 +617,14 @@ class _MiniRouter:
 
     def allow_progress(self, payload: dict, tid: str) -> bool:
         return ChatPanel._allow_progress_frame(self._fake_panel, payload, tid)
+
+    def note_command(self, payload: dict, tid: str) -> None:
+        """command 簿记（panel.py 同语义）：首帧登记、迟到帧 setdefault。"""
+        if tid and payload.get("command"):
+            self._fake_panel._tool_commands.setdefault(tid, payload["command"])
+
+    def command_for(self, tid: str) -> str | None:
+        return self._fake_panel._tool_commands.get(tid)
 
 
 def _run_scenario(frames: list[dict],
@@ -628,14 +651,21 @@ def _run_scenario(frames: list[dict],
                 card_map[tid] = card
                 if title := chunk.payload.get("title"):
                     router._titles[tid] = title
+                router.note_command(chunk.payload, tid)  # panel.py:906 同语义
         elif chunk.kind == "tool_call_update":
             payload = dict(chunk.payload)
             tid = payload.get("tool_call_id") or ""
             if not payload.get("title"):
                 payload["title"] = router._titles.get(tid, tid[:8] or "?")
+            # 0918 计划 T2-2：迟到 command 簿记（panel.py 同语义，
+            # 须在 in_progress 放行判定之前）
+            router.note_command(payload, tid)
             if payload.get("status") == "in_progress" \
                     and not router.allow_progress(payload, tid):
                 continue  # 路由丢弃（T3 验证点：带 input_detail/images 不丢）
+            # panel.py:921 同语义：execute 输出帧补 command（`$ ` 头数据源）
+            if payload.get("output") and (cmd := router.command_for(tid)):
+                payload["command"] = cmd
             card = card_map.get(tid)
             if card is None:  # 容错补建（transcript.append_tool_update 同语义）
                 card = make_tool_card(COLORS, open_state, payload)

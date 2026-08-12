@@ -912,6 +912,13 @@ class ChatPanel(QWidget):
             if not payload.get("title"):
                 payload = {**payload,
                            "title": self._tool_titles.get(tid, tid[:8] or "?")}
+            # 0812-0918 计划 T2-2：execute 迟到 command 簿记——kimi 系
+            # 首帧空壳，command 随 update 帧经协议层提取迟到到达
+            # （execute_20260812_075201.json 实证）；setdefault 语义，
+            # 首帧已簿记者不覆盖。簿记建立后同帧/后续带 output 的帧过
+            # _allow_progress_frame 闸门并补 `$ ` 头（新旧两轨同闸门）
+            if payload.get("command") and tid not in self._tool_commands:
+                self._tool_commands[tid] = payload["command"]
             if self._cards_track:
                 # 新轨（0645 计划 §2.3-2）：取消非 execute 工具的 output 剥除
                 # ——所有工具的 output 随载荷进渲染层，由对应卡 body 承接

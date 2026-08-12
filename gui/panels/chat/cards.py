@@ -546,6 +546,10 @@ class ToolCard(CollapsibleCard):
         # 基类 no-op，专卡覆写）
         if media_path := payload.get("media_path"):
             self._set_media_path(media_path)
+        # 0812-0918 计划 T2-2：execute 迟到 command 同频分发（kimi 系首帧
+        # 空壳场景 `$ ` 命令头补挂；基类 no-op，BashCard 覆写）
+        if command := payload.get("command"):
+            self._set_command(command)
         if status == "completed":
             self.set_status("✔", self._colors.tool_fg)
             self._on_completed(payload)
@@ -581,6 +585,10 @@ class ToolCard(CollapsibleCard):
         """入参图片路径钩子（0158 计划 T1）：基类 no-op，
         MediaReadCard 覆写渲染略缩图（幂等，首帧优先）。"""
 
+    def _set_command(self, command: str) -> None:
+        """execute 迟到 command 钩子（0812-0918 计划 T2-2）：基类 no-op，
+        BashCard 覆写补挂 `$ ` 命令头（幂等，首帧优先）。"""
+
     def _add_input_detail(self, detail: str) -> None:
         """通用入参区（D3）：body 末弱化灰小块，「尽可能全」的兜底保证。"""
         self._input_detail_attached = True
@@ -602,13 +610,8 @@ class BashCard(ToolCard):
     """
 
     def _build_body(self, payload: dict) -> None:
-        self._command = payload.get("command") or ""
-        if self._command:
-            cmd = BodyText(f"$ {self._command}", mono=True, max_height=None)
-            cmd_font = cmd.font()
-            cmd_font.setBold(True)
-            cmd.setFont(cmd_font)
-            self.add_body_widget(cmd)
+        self._command = ""
+        self._set_command(payload.get("command") or "")
         self._output = BodyText(mono=True)
         self.add_body_widget(self._output)
         self._note = QLabel(self)
@@ -616,6 +619,21 @@ class BashCard(ToolCard):
         self._note.setVisible(False)
         self.add_body_widget(self._note)
         self.enable_copy(self._copy_text)
+
+    def _set_command(self, command: str) -> None:
+        """`$ ` 粗体命令头（0812-0918 计划 T2-2 兼作迟到补挂钩子）：
+        首帧齐备由 _build_body 挂；kimi 系首帧空壳场景 command 随
+        update 帧迟到，经路由 _tool_commands 簿记注入后于本钩子在
+        body 顶端补挂（幂等——已挂不重复）。"""
+        if not command or self._command:
+            return
+        self._command = command
+        cmd = BodyText(f"$ {command}", mono=True, max_height=None)
+        cmd_font = cmd.font()
+        cmd_font.setBold(True)
+        cmd.setFont(cmd_font)
+        # body 顶端插入（迟到补挂时输出区已在场，命令头须居其前）
+        self._body_layout.insertWidget(0, cmd)
 
     def _copy_text(self) -> str:
         head = f"$ {self._command}\n" if self._command else ""
