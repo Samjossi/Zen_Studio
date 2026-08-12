@@ -293,6 +293,11 @@ REGISTRY: dict[str, BackendSpec] = {
             # 示例 agent 无视觉能力（计划 2026-0803-0041 D6）；Dream 真实
             # 视觉模型接入后按 T0 spike 方法学实测翻案置 True，GUI 侧零改动
             supports_images=False,
+            # 服务端白名单唯一合法档（2026-0812-1752 计划 / 对接文档 §2/§4：
+            # configId="effort" 仅接受 auto，实际档位由 Dream CLI 服务端
+            # 配置决定，IDE 不提供选择；单档菜单仅作状态呈现）
+            efforts=("auto",),
+            default_effort="auto",
         ),
     )
 }

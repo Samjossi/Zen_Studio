@@ -8,11 +8,12 @@ dream-acp-v1.md 为真值来源（其上游即 acp.py 与四后台实测）。
 与 reasonix_acp 的差异（均写在本文件 docstring，逐条可核对）：
 1. `_find_bin()` 三级范式：PATH → `$DREAM_HOME/bin/dream` →
    `~/.dream/bin/dream`（桌面会话 PATH 可能缺用户级目录；计划 §3.4）。
-2. `list_dream_models()` 模型目录来源自持：示例期为静态表（与
-   dream-acp/example/dream 的 DEMO_MODELS 同步——示例 agent 提供
-   dream/demo-fast 与 dream/demo-smart 两个演示别名验证切换链路）；
-   Dream 真实实现落地后形态由其自定（config 自解析或静态表均可），
-   兜底空列表纪律沿用（空列表 = 用 agent 默认模型，不崩 UI）。
+2. `list_dream_models()` 模型目录来源自持：静态表唯一合法值
+   `dream-creator`（2026-0812-1752 计划：服务端白名单硬校验，模型与
+   档位各收敛为唯一固定值，实际模型由 Dream CLI 服务端配置决定，IDE
+   零改动；dream-acp/example/dream 示例 agent 的 DEMO_MODELS 仍为演示
+   别名，两边自本期起不再同步）；兜底空列表纪律沿用（空列表 = 用
+   agent 默认模型，不崩 UI）。
 3. 错误文案：Dream 无 setup 概念，`_raise_setup_hint_if_auth` 改为
    「模型未加载/配置缺失」类引导（对齐实测修正 #5 的报错引导价值——
    宁可多映射，不可让用户面对裸协议错误）。
@@ -43,9 +44,10 @@ from llm.providers.acp import (
 
 DREAM_BIN = "dream"
 
-#: 示例期静态模型表（与 dream-acp/example/dream 的 DEMO_MODELS 同步维护；
+#: 静态模型表（2026-0812-1752 计划：收敛为服务端白名单唯一合法值
+#: dream-creator——set_config_option(configId="model") 其他值一律 -32602；
 #: 默认模型提首——菜单回退落点依赖枚举序，红线 4）
-_DEMO_MODELS = ["dream/demo-fast", "dream/demo-smart"]
+_DREAM_MODELS = ["dream-creator"]
 
 
 def _find_bin() -> str | None:
@@ -73,15 +75,15 @@ def dream_available() -> bool:
 
 
 def list_dream_models() -> list[str]:
-    """枚举 Dream 模型别名；示例期为静态表，任何异常兜底空列表。
+    """枚举 Dream 模型别名；收敛期唯一合法值 `dream-creator`，异常兜底空列表。
 
-    示例期：返回与示例 agent 同步的演示别名表（默认提首）。Dream 真实
-    实现落地后形态由其自定（config 文件自解析或静态表）；缺文件/解析
-    失败全 try 兜底空列表（空列表 = 用 agent 默认模型，不崩 UI，R2 纪律）。
-    别名为不透明字符串（D6 红线 2）：不解析、不拼接、不校验格式。
+    收敛期（2026-0812-1752 计划）：服务端白名单硬校验只接受
+    `dream-creator`（对接文档 §4），静态表单元素。别名为不透明字符串
+    （D6 红线 2）：不解析、不拼接、不校验格式。兜底纪律沿用——任何异常
+    返回空列表（空列表 = 用 agent 默认模型，不崩 UI，R2 纪律）。
     """
     try:
-        return list(_DEMO_MODELS)
+        return list(_DREAM_MODELS)
     except Exception:  # noqa: BLE001 — R2：全 try 兜底空列表
         return []
 
@@ -98,6 +100,9 @@ class DreamAcpLLM(LanguageModel):
             abspath 对已绝对输入幂等
         """
         self._model = model
+        #: 推理强度预选值（2026-0812-1752 计划：白名单唯一合法值 auto；
+        #: None = 未定制，agent 默认强度生效）
+        self._effort: str | None = None
         self._cwd = os.path.abspath(workspace_root or str(PROJECT_ROOT))
         self._conn: AcpConnection | None = None
         self._session_id: str | None = None
@@ -125,6 +130,24 @@ class DreamAcpLLM(LanguageModel):
                     "sessionId": self._session_id, "configId": "model", "value": alias}, timeout=10)
             except RuntimeError:
                 self._session_id = None  # 降级：下轮重建会话并应用模型
+
+    def set_effort(self, value: str) -> None:
+        """切换推理强度（2026-0812-1752 计划新增；会话存在则即时生效）。
+
+        生效机制同 set_model（D6 红线 3）：session/set_config_option
+        （configId="effort"，白名单唯一合法值 auto，对接文档 §4），强度值
+        原样透传不解析不校验（D6 红线 2 同款不透明字符串语义）。失败不丢弃
+        会话（与 set_model 的差异）：强度是辅助控制轴，拒绝不该陪葬会话
+        上下文——`_effort` 已记，下个新会话生效。
+        """
+        self._effort = value
+        if self._conn and self._conn.is_alive and self._session_id:
+            try:
+                self._conn.request("session/set_config_option", {
+                    "sessionId": self._session_id, "configId": "effort",
+                    "value": value}, timeout=10)
+            except RuntimeError:
+                pass  # 降级：保持会话与当前强度，新会话时应用 _effort
 
     def reset_session(self) -> None:
         """清空会话，下次请求 `session/new` 开新会话（进程保留）。"""
@@ -209,6 +232,13 @@ class DreamAcpLLM(LanguageModel):
                         "value": self._model}, timeout=10)
                 except RuntimeError:
                     pass  # 保持 agent 默认模型，不阻断对话
+            if self._effort:  # 新会话应用预选推理强度（2026-0812-1752 计划）
+                try:
+                    self._conn.request("session/set_config_option", {
+                        "sessionId": self._session_id, "configId": "effort",
+                        "value": self._effort}, timeout=10)
+                except RuntimeError:
+                    pass  # 保持 agent 默认强度，不阻断对话
         return self._conn
 
     @staticmethod
