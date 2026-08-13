@@ -121,6 +121,11 @@ class ToolCallPayload(TypedDict, total=False):
     #: 提取 + 跨调用 diff changed 标记，TodoListCard 清单区数据源；
     #: 仅供人类查看，不回传 AI、不改协议语义）
     todos: list[TodoEntry]
+    #: 父指针（0813-1919 计划 T1：本帧属某子代理内部活动，渲染进
+    #: parent_tool_call_id 对应 SubagentCard 的内嵌区而非主流平铺；
+    #: 来源二选一——reasonix 层级 toolCallId 解析 / kimi wire 旁路合成，
+    #: GUI 只认本键不关心来源）
+    parent_tool_call_id: str
 
 
 class ToolUpdatePayload(TypedDict, total=False):
@@ -177,6 +182,9 @@ class ToolUpdatePayload(TypedDict, total=False):
     #: 快照推进，与 input_detail/media_path「首帧优先」语义不同；
     #: 与 ToolCallPayload.todos 同源同构，同走跨调用 diff 管线）
     todos: list[TodoEntry]
+    #: 父指针（0813-1919 计划 T1：与 ToolCallPayload.parent_tool_call_id
+    #: 同源同语义——层级 toolCallId 解析或 kimi wire 旁路合成）
+    parent_tool_call_id: str
 
 
 class LanguageModel(Protocol):

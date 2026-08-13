@@ -8,11 +8,14 @@ make_tool_card + apply_update）→ 逐场景 QWidget.grab() 截图落盘 →
 用法：
     .venv/bin/python scripts/shot_tool_cards.py
 
-产物：.temp/card_shots/{seq}_{场景名}.png + manifest.md（幂等覆盖写）。
+产物：.temp/card_shots/{seq}_{场景名}.png + manifest.md（幂等覆盖写）；
+嵌套场景（0813-1919 计划 T5）另归档 文档/帧存档/ 带时间戳副本。
 """
 import json
 import os
+import shutil
 import sys
+from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -29,6 +32,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from gui.panels.chat.cards import (  # noqa: E402
     CardColors,
     OpenStateMap,
+    SubagentCard,
     TodoCard,
     ToolCard,
     find_pending_question_card,
@@ -37,8 +41,13 @@ from gui.panels.chat.cards import (  # noqa: E402
 )
 from gui.panels.chat.permission_dialog import QuestionDialog  # noqa: E402
 from gui.panels.chat.panel import ChatPanel  # noqa: E402
+from gui.panels.chat.transcript import ChatTranscriptView  # noqa: E402
 from gui.theme import CHAT_PACK, DEFAULT_THEME, get_theme_palette  # noqa: E402
 from llm.providers.acp import map_session_update  # noqa: E402
+from llm.providers.kimi_acp import (  # noqa: E402
+    _synthesize_wire_call,
+    _synthesize_wire_result,
+)
 
 SHOT_DIR = PROJECT_ROOT / ".temp" / "card_shots"
 ASSET_DIR = SHOT_DIR / "_assets"
@@ -649,6 +658,198 @@ def _scenarios() -> list[tuple[str, list[dict], str, object]]:
     ]
 
 
+# ----------------------------------------------------------------------
+# 嵌套场景（0813-1919 计划 T5：子代理活动嵌套显示）
+# ----------------------------------------------------------------------
+#: reasonix 实测蓝本（文档/帧存档/subagent_probe_reasonix_20260813_190102.json
+#: 同源 .temp/subagent_acp_test/reasonix_frames.jsonl 第 108~123 帧）：
+#: 父 task（kind=other）+ 子 ls/read_file（层级 toolCallId `父/子`）
+_RX_PARENT = "call_00_P14w9pZLRhdaZCaoAny63153"
+_RX_CHILDREN = [
+    ("call_00_twRhcebsPqDidwYhwNcc6784", "ls", {"path": ".", "recursive": True},
+     "文档1.md\t824\n文档2.md\t698\n文档3.md\t753\n文档4.md\t843\n文档5.md\t811\n"),
+    ("call_00_b4uA9JD9oQm2M4IdhPGj8916", "read_file", {"path": "文档1.md"},
+     " 1→# 文档一：项目概览\n 2→\n 3→这是一个用于测试的 Markdown 文档。\n"),
+    ("call_01_c8eWFzXSZZzCwtsYzTFj0972", "read_file", {"path": "文档2.md"},
+     " 1→# 文档二：待办事项\n 2→\n 3→- 第一项\n 4→- 第二项\n"),
+    ("call_02_mR0DM1s6ngtP93O4AFaD0036", "read_file", {"path": "文档3.md"},
+     " 1→# 文档三：随笔记\n 2→\n 3→今天天气不错。\n"),
+    ("call_03_g9zlUaiPHc5qPO6B2Ft14163", "read_file", {"path": "文档4.md"},
+     " 1→# 文档四：摘录\n 2→\n 3→床前明月光，疑是地上霜。\n"),
+    ("call_04_HUlHxnEu4ICP9CJDryaj0346", "read_file", {"path": "文档5.md"},
+     " 1→# 文档五：公式\n 2→\n 3→牛顿第二定律：F = ma\n"),
+]
+
+
+def _rx_parent_call() -> dict:
+    return _tool_call(_RX_PARENT, "task", "other",
+                      {"prompt": "列出当前工作目录下的所有文件名，"
+                                 "然后用一句话总结这些文件的用途。",
+                       "description": "列出目录文件名"})
+
+
+def _rx_child_call(suffix: str, title: str, raw_input: dict) -> dict:
+    return _tool_call(f"{_RX_PARENT}/{suffix}", title, "read", raw_input)
+
+
+def _rx_child_done(suffix: str, text: str) -> dict:
+    # reasonix 实证出参形态：content 文本块（非 rawOutput，帧 112/118 同构）
+    return _tool_update(f"{_RX_PARENT}/{suffix}", "completed",
+                        content=[{"type": "content",
+                                  "content": {"type": "text", "text": text}}])
+
+
+def _rx_parent_done() -> dict:
+    return _tool_update(_RX_PARENT, "completed",
+                        content=[{"type": "content",
+                                  "content": {"type": "text", "text":
+                                              "Final answer:\n## 文件列表\n\n"
+                                              "- 文档1.md（824 字节）\n- 文档2.md（698 字节）\n"
+                                              "- 文档3.md（753 字节）\n- 文档4.md（843 字节）\n"
+                                              "- 文档5.md（811 字节）\n\n"
+                                              "## 一句话总结\n\n"
+                                              "这是 Zen_Studio 项目用于「测试文件夹功能」编写的"
+                                              "五个 Markdown 示例文档。"}}])
+
+
+#: kimi 旁路实测蓝本（agents/agent-0/wire.jsonl 裁剪样本
+#: .temp/subagent_wire_sample.jsonl 同源事件；合成走真实
+#: _synthesize_wire_call/_synthesize_wire_result，非手写帧）
+_KIMI_PARENT = "0:tool_sbYPlYDEPKcsL9XI6fidkBfY"
+_KIMI_WIRE_EVENTS = [
+    {"type": "tool.call", "toolCallId": "tool_pg4JULExUlNcD7yP8xquyf70",
+     "name": "Read", "args": {"path": "work plans/2026-0813-0956_改名计划.md"}},
+    {"type": "tool.result", "toolCallId": "tool_pg4JULExUlNcD7yP8xquyf70",
+     "result": {"output": "1\t# Dream_Core 图式引擎改名计划\n2\t\n"
+                          "3\t> **状态**：待审阅\n4\t> **优先级**：中\n"}},
+    {"type": "tool.call", "toolCallId": "tool_liM0XKLv3GsbkPdSnZo3bXTA",
+     "name": "Bash", "args": {"command": "git status --short"}},
+    {"type": "tool.result", "toolCallId": "tool_liM0XKLv3GsbkPdSnZo3bXTA",
+     "result": {"output": " M dream_core/schema_engine/engine.py\n"
+                          " M dream_core/tests/test_p2_schema_engine.py"}},
+    {"type": "tool.call", "toolCallId": "tool_McnwC6H0YkSti6cd4C7r7xOr",
+     "name": "Edit", "args": {"path": "dream_core/schema_engine/engine.py",
+                              "old_string": "class SchemaSdmBrain:",
+                              "new_string": "class SchemaEngine:"}},
+    {"type": "tool.result", "toolCallId": "tool_McnwC6H0YkSti6cd4C7r7xOr",
+     "result": {"output": "Replaced 1 occurrence in engine.py"}},
+]
+
+
+def _kimi_sidecar_frames() -> list[dict]:
+    """kimi 旁路场景帧序列：主流 Agent 起止帧 + wire 事件真实合成帧。"""
+    frames = [_tool_call(_KIMI_PARENT, "Agent", "other",
+                         {"description": "探索代码库结构",
+                          "prompt": "请分析 gui/panels/chat 目录下的卡片渲染链路。"})]
+    kinds: dict[str, str] = {}
+    for event in _KIMI_WIRE_EVENTS:
+        if event["type"] == "tool.call":
+            update = _synthesize_wire_call(event, _KIMI_PARENT)
+            kinds[event["toolCallId"]] = update["kind"]
+        else:
+            update = _synthesize_wire_result(
+                event, _KIMI_PARENT,
+                kinds.get(event.get("toolCallId") or "", "other"))
+        frames.append(update)
+    frames.append(_tool_update(
+        _KIMI_PARENT, "completed", title="Agent",
+        raw_output={"output": "探索结果：卡片渲染链路经 make_tool_card 工厂"
+                              "二级分派，图片出参经 images 载荷独立通道下传。"}))
+    return frames
+
+
+def _nested_scenarios() -> list[tuple[str, list[dict], str, frozenset]]:
+    """(场景名, update 帧序列, 预期看点, 展开子卡下标集)——嵌套场景
+    专用回放器渲染。子卡默认开合按 kind 约定（read 折/execute 开），
+    截图按展开集展示代表 body，其余折叠保全部入镜（子卡片区超
+    BODY_MAX_HEIGHT 出块内滚动，全展开反而只见到前部）。"""
+    running_frames = [_rx_parent_call()]
+    # 运行中态：ls/文档1 已完成，其余 4 张 read_file 仍 ◐ 在途
+    for i, (suffix, title, raw_input, text) in enumerate(_RX_CHILDREN):
+        running_frames.append(_rx_child_call(suffix, title, raw_input))
+        if i < 2:
+            running_frames.append(_rx_child_done(suffix, text))
+    completed_frames = [_rx_parent_call()]
+    for suffix, title, raw_input, text in _RX_CHILDREN:
+        completed_frames.append(_rx_child_call(suffix, title, raw_input))
+        completed_frames.append(_rx_child_done(suffix, text))
+    completed_frames.append(_rx_parent_done())
+    return [
+        ("40_subagent_嵌套_reasonix运行中", running_frames,
+         "父 SubagentCard 展开，「子代理活动」区嵌套子卡：首卡 ls 展开 "
+         "✔ 定格输出与 5 行徽标，文档1 ✔ 折叠行，文档2~4 ◐ 在途，文档5 "
+         "经子卡片区块内滚动可达（块内滚动实证）；父卡状态 ◐；主流无平铺"
+         "子卡", frozenset({0})),
+        ("41_subagent_嵌套_reasonix完成", completed_frames,
+         "父卡 + 嵌套子卡全 ✔（截图手动重展开父卡——真机完成自动折）；"
+         "首卡 ls 展开展示 body，文档1~4 折叠 ✔ 行入镜、文档5 经块内滚动"
+         "可达；成果摘要在子卡片区之后", frozenset({0})),
+        ("42_subagent_嵌套_kimi旁路", _kimi_sidecar_frames(),
+         "kimi wire 旁路合成帧与 reasonix 同形态：Agent 父卡内嵌 Read/"
+         "Bash/Edit 三张子卡全部入镜（Read 折叠行 4 行徽标、Bash 展开 "
+         "$ 命令头 + 输出定格、Edit 折叠行 diff 徽标 +1 −1——三卡分派"
+         "正确）；✔ 定格", frozenset({1})),
+    ]
+
+
+def _run_nested_scenario(frames: list[dict], session_id: str = "mock",
+                         open_children: frozenset = frozenset()) -> QWidget:
+    """嵌套场景全链路回放（0813-1919 计划 T5）：真实 ChatTranscriptView
+    路由——帧 → map_session_update → panel 同语义路由（title 回填/
+    command 簿记/闸门）→ append_tool_call/append_tool_update（T3 嵌套
+    委派走真实代码，不绕过分派直建卡）。返回展开态容器供截图。"""
+    router = _MiniRouter()
+    view = ChatTranscriptView(CHAT_PACK)
+    for frame in frames:
+        chunk = map_session_update(
+            {"params": {"update": frame, "sessionId": session_id}})
+        if chunk is None:
+            continue
+        if chunk.kind == "tool_call":
+            payload = chunk.payload
+            tid = payload.get("tool_call_id") or ""
+            if title := payload.get("title"):
+                router._titles[tid] = title
+            router.note_command(payload, tid)  # panel.py:906 同语义
+            view.append_tool_call(payload)
+        elif chunk.kind == "tool_call_update":
+            payload = dict(chunk.payload)
+            tid = payload.get("tool_call_id") or ""
+            if not payload.get("title"):
+                payload["title"] = router._titles.get(tid, tid[:8] or "?")
+            router.note_command(payload, tid)
+            if payload.get("status") == "in_progress" \
+                    and not router.allow_progress(payload, tid):
+                continue  # 闸门同语义（嵌套子帧 tid 为层级全串，天然唯一）
+            if payload.get("output") and (cmd := router.command_for(tid)):
+                payload["command"] = cmd
+            view.append_tool_update(payload)
+    # 截图展开：父卡 + open_children 下标集内的子卡（其余子卡保持默认
+    # 开合，折叠行入镜证归属；全展开会触发子卡片区块内滚动只见前部）
+    for card in view._tool_cards.values():
+        card.set_open(True)
+        if isinstance(card, SubagentCard):
+            for index, child in enumerate(card._tool_cards.values()):
+                if index in open_children:
+                    child.set_open(True)
+    QApplication.processEvents()  # 子卡片区高度拟合的 singleShot(0) 落地
+    container = view._container
+    container.setFixedWidth(CARD_WIDTH)
+    container.setStyleSheet(f"background: {_WINDOW_BG};")
+    # offscreen 无事件循环：BodyText 自适应/子卡片区拟合/adjustSize 互相
+    # 前置，单轮沉降拿到的 sizeHint 可能陈旧（实测 41 场景曾把标签压成
+    # 2px、子卡片区停在折叠态高）——多轮沉降至尺寸收敛再截图
+    for _ in range(4):
+        container.layout().activate()
+        container.adjustSize()
+        container.resize(CARD_WIDTH, container.sizeHint().height())
+        QApplication.processEvents()
+    # 返回 view 而非 container：view 出作用域被 GC 会连带销毁 C++ 侧
+    # 滚动区及其子 container（grab 时对象已死），由调用方持活
+    return view
+
+
+
 def _activate_and_click(tid: str, index: int) -> None:
     """激活选项按钮组并程序化点击第 index 个按钮（点击定格态 mock）。"""
     card = find_question_card(tid)
@@ -776,6 +977,25 @@ def main() -> int:
         manifest_lines.append("")
         print(f"[shot_tool_cards] {png.relative_to(PROJECT_ROOT)}")
     manifest = SHOT_DIR / "manifest.md"
+    # 嵌套场景（0813-1919 计划 T5）：父卡 + 嵌套子卡截图，产物双份——
+    # .temp/card_shots 入 manifest 闭环，文档/帧存档/ 带时间戳归档
+    archive_dir = PROJECT_ROOT / "文档" / "帧存档"
+    archive_ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    for name, frames, notes, open_children in _nested_scenarios():
+        view = _run_nested_scenario(
+            frames, session_id=name, open_children=open_children)
+        png = SHOT_DIR / f"{name}.png"
+        if not view._container.grab().save(str(png)):
+            print(f"[shot_tool_cards] 错误：截图失败 {png}", file=sys.stderr)
+            return 1
+        manifest_lines.append(f"## {name}")
+        manifest_lines.append(f"- 截图：`{png.relative_to(PROJECT_ROOT)}`")
+        manifest_lines.append(f"- 预期看点：{notes}")
+        manifest_lines.append("")
+        print(f"[shot_tool_cards] {png.relative_to(PROJECT_ROOT)}")
+        archive_png = archive_dir / f"{name}_{archive_ts}.png"
+        shutil.copy2(png, archive_png)
+        print(f"[shot_tool_cards] 归档 {archive_png.relative_to(PROJECT_ROOT)}")
     # QuestionDialog 弹窗截图（0807-0148 计划 T2 止血载体；蓝本为真实
     # request_permission 载荷——含 reject_once 的 Skip 项）
     dialog = QuestionDialog({

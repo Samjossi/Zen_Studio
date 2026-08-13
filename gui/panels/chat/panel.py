@@ -95,6 +95,7 @@ from gui.panels.chat.worker import ChatWorker
 from gui.settings import (
     CHAT_RENDERER_CARDS,
     KEY_CHAT_RENDERER,
+    KEY_KIMI_WIRE_SIDECAR,
     KEY_PERMISSION_MODE,
     KEY_THEME,
 )
@@ -268,6 +269,10 @@ class ChatPanel(QWidget):
         if self._effort_explicit \
                 and (set_effort := getattr(provider, "set_effort", None)) is not None:
             set_effort(self._effort_explicit)
+        # kimi 子代理 wire 旁路开关（0813-1919 计划 T4）：鸭子类型注入，
+        # 无 set_subagent_sidecar 的 provider 静默跳过
+        if (set_sidecar := getattr(provider, "set_subagent_sidecar", None)) is not None:
+            set_sidecar(load_settings()[KEY_KIMI_WIRE_SIDECAR])
         self._providers[name] = provider
         return provider
 
@@ -922,6 +927,10 @@ class ChatPanel(QWidget):
             if self._cards_track:
                 # 新轨（0645 计划 §2.3-2）：取消非 execute 工具的 output 剥除
                 # ——所有工具的 output 随载荷进渲染层，由对应卡 body 承接
+                # 0813-1919 计划 T3 闸门确认：带父指针的嵌套子帧与主流同
+                # 语义过闸——簿记键 tid 即层级全串（`父/子`）天然唯一，
+                # 节流/补 `$ ` 头无需特判（reasonix 实测子帧无 in_progress，
+                # kimi 旁路 v1 不合成 in_progress，本分支实为终态帧直通）
                 if payload.get("status") == "in_progress" \
                         and not self._allow_progress_frame(payload, tid):
                     return

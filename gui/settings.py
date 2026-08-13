@@ -11,7 +11,7 @@ settings.json，update_settings 以 flock 串行化"读-合并-写"三步根治�
 写临时文件 + os.replace 原子覆盖防文件损坏；工作区根改由启动参数决定，
 不再持久化（KEY_WORKSPACE_ROOT 已删，存量旧键读取即丢弃自然失效）。
 
-键空间由 AppSettings 定型（9 个固定键），消费侧一律经 KEY_* 常量
+键空间由 AppSettings 定型（10 个固定键），消费侧一律经 KEY_* 常量
 引用键名，禁止裸字符串键（AFCP 3.1：数据结构显式）。
 
 权限键演进（2026-07-22，文档/修改记录/2026-0722-1240 计划）：二态
@@ -58,6 +58,9 @@ KEY_MODEL_EFFORTS = "model_efforts"
 KEY_TERMINAL_SWAP_COPY_PASTE = "terminal_swap_copy_paste"
 KEY_PERMISSION_MODE = "permission_mode"
 KEY_CHAT_RENDERER = "chat_renderer"
+#: kimi 子代理 wire 旁路开关（0813-1919 计划 T4；默认开，False 回退
+#: 纯 ACP 行为——子代理仅起止 + 成果摘要；格式漂移熔断时的手动回退通道）
+KEY_KIMI_WIRE_SIDECAR = "kimi_wire_sidecar"
 
 #: 对话区渲染轨值域（0645 融合计划 D2-A 双轨并存：cards 卡片轨默认 /
 #: classic 旧轨经典——旧轨冻结保留即回退通道，新轨稳定一个版本后再议下线）
@@ -81,7 +84,7 @@ DEFAULT_THEME = "cloud"
 
 
 class AppSettings(TypedDict):
-    """settings.json 全量结构（9 个固定键，均为用户偏好）。"""
+    """settings.json 全量结构（10 个固定键，均为用户偏好）。"""
 
     theme: str                   # 主题名（gui/theme.py 注册表键）
     font_size: int               # 全局 UI 字号（pt）
@@ -105,6 +108,9 @@ class AppSettings(TypedDict):
     #: 对话区渲染轨（0645 融合计划：cards 卡片折叠轨（默认）/ classic
     #: 经典行文本轨；新建会话标签生效，存量标签不热切换）
     chat_renderer: str
+    #: kimi 子代理 wire 旁路开关（0813-1919 计划 T4：True 默认——
+    #: 子代理内部活动经 wire.jsonl 旁路嵌套显示；False 回退纯 ACP）
+    kimi_wire_sidecar: bool
 
 
 class AppSettingsPatch(TypedDict, total=False):
@@ -119,6 +125,7 @@ class AppSettingsPatch(TypedDict, total=False):
     terminal_swap_copy_paste: bool
     permission_mode: str
     chat_renderer: str
+    kimi_wire_sidecar: bool
 
 
 #: 默认值：文件缺失 / 字段缺失 / JSON 损坏时回退
@@ -132,6 +139,7 @@ DEFAULT_SETTINGS: AppSettings = {
     KEY_TERMINAL_SWAP_COPY_PASTE: False,
     KEY_PERMISSION_MODE: DEFAULT_PERMISSION_MODE,
     KEY_CHAT_RENDERER: DEFAULT_CHAT_RENDERER,
+    KEY_KIMI_WIRE_SIDECAR: True,
 }
 
 

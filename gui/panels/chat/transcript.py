@@ -42,6 +42,7 @@ from gui.panels.chat.cards import (
     BodyHtml,
     CardColors,
     OpenStateMap,
+    SubagentCard,
     ThinkingCard,
     TodoCard,
     ToolCard,
@@ -308,8 +309,14 @@ class ChatTranscriptView(QScrollArea):
     # AI 活动块（鸭式接口：tool_call / tool_call_update / todo）
     # ------------------------------------------------------------------
     def append_tool_call(self, payload: dict) -> None:
-        """工具卡上屏：工厂分派专类；toolCallId 簿记供状态流转寻卡。"""
+        """工具卡上屏：工厂分派专类；toolCallId 簿记供状态流转寻卡。
+        0813-1919 计划 T3：带父指针的子代理内部帧委派父 SubagentCard
+        内嵌区；父卡缺失/非子代理卡降级主流平铺（容错不丢帧）。"""
         self._flush_stream()
+        if (parent := self._find_parent_subagent(payload)) is not None:
+            parent.append_child_call(payload)
+            self._scroll_to_bottom()
+            return
         card = make_tool_card(self._colors, self._open_state, payload,
                               workspace_root=self._workspace_root)
         self._add_block(card)
@@ -317,8 +324,14 @@ class ChatTranscriptView(QScrollArea):
             self._tool_cards[tid] = card
 
     def append_tool_update(self, payload: dict) -> None:
-        """状态流转：寻卡属性更新（◐→✔/✖ 同卡更新、无新增块）。"""
+        """状态流转：寻卡属性更新（◐→✔/✖ 同卡更新、无新增块）。
+        0813-1919 计划 T3：带父指针的子帧同位委派父卡内嵌区（父卡
+        已完成时迟到子帧由父卡幂等回填不新建）；父卡缺失降级平铺。"""
         self._flush_stream()
+        if (parent := self._find_parent_subagent(payload)) is not None:
+            parent.append_child_update(payload)
+            self._scroll_to_bottom()
+            return
         tid = payload.get("tool_call_id") or ""
         card = self._tool_cards.get(tid)
         if card is None:
@@ -330,6 +343,16 @@ class ChatTranscriptView(QScrollArea):
                 self._tool_cards[tid] = card
         card.apply_update(payload)
         self._scroll_to_bottom()
+
+    def _find_parent_subagent(self, payload: dict) -> SubagentCard | None:
+        """父指针路由（0813-1919 计划 T3）：payload 带 parent_tool_call_id
+        且父卡为 SubagentCard 时返回父卡；否则 None（降级主流平铺）。
+        子帧先到父卡未建（理论乱序）同走降级——不暂存，平铺主流。"""
+        parent_id = payload.get("parent_tool_call_id")
+        if not parent_id:
+            return None
+        parent = self._tool_cards.get(parent_id)
+        return parent if isinstance(parent, SubagentCard) else None
 
     def upsert_todo_block(self, entries: list) -> None:
         """todo 卡上屏/整刷：首帧建卡，后续快照 set_entries 整刷（弃锚点）。"""

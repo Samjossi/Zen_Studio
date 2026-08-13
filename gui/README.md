@@ -30,7 +30,7 @@
 | `gui/panels/find_bar.py` | 查找浮层组件：viewer 与 terminal 两面板共用的右上角悬浮查找条（搜索语义归宿主面板） |
 | `gui/panels/file_explorer/` | 文件树子包（右栏上）：`explorer.py` 主控件 / `model.py` 模型层（噪音过滤 + Git 状态着色）/ `actions.py` 右键菜单动作 |
 | `gui/panels/changes/` | Git 变更面板子包（右栏下）：`panel.py` 已变更文件列表（状态着色 + 增减行数，VS Code SCM 简化版） |
-| `gui/panels/chat/` | 聊天面板子包（左栏）：`tabs.py` 标签容器（选择状态层 + 上限 4 标签）/ `panel.py` 装配（含底行：模型选择按钮 + 发送/停止双态按钮）/ `output.py` 输出区 / `input.py` 输入框（文件拖入 → `@路径` 引用）/ `model_bar.py` 模型选择三按钮（纯视图）/ `worker.py` 流式线程 / `permission_dialog.py` ACP 工具审批对话框 / `permission_queue.py` 多标签审批串行弹窗队列 |
+| `gui/panels/chat/` | 聊天面板子包（左栏）：`tabs.py` 标签容器（选择状态层 + 上限 4 标签）/ `panel.py` 装配（含底行：模型选择按钮 + 发送/停止双态按钮）/ `output.py` 输出区（旧轨）/ `transcript.py` 卡片轨对话区视图（0645 计划新轨；0813-1919 计划 T3 父指针路由——带 `parent_tool_call_id` 的子代理内部帧委派父 SubagentCard 内嵌区）/ `cards.py` KiloCode 式卡片折叠组件族（SubagentCard 内嵌「子代理活动」区复用 make_tool_card 嵌套显示子代理内部工具卡，0813-1919 计划 T2）/ `input.py` 输入框（文件拖入 → `@路径` 引用）/ `model_bar.py` 模型选择三按钮（纯视图）/ `worker.py` 流式线程 / `permission_dialog.py` ACP 工具审批对话框 / `permission_queue.py` 多标签审批串行弹窗队列 |
 | `gui/panels/viewer/` | 文件查看面板子包（中栏上，五页预览分流）：`panel.py` 装配（QStackedLayout 五页 + Git 差异徽标）/ `code_viewer.py` 只读文本查看器（行号栏）/ `highlighter.py` Pygments 高亮器 / `image_viewer.py` 图片页（位图 + SVG + GIF）/ `pdf_viewer.py` PDF 页（QPdfView 连续滚动）/ `markdown_view.py` Markdown 渲染页（GFM）/ `media_viewer.py` 音视频播放页 |
 | `gui/panels/terminal/` | 终端面板子包（中栏下）：`panel.py` 装配 / `widget.py` 自绘终端控件 / `screen.py` pyte 语义层 / `session.py` PTY 会话 / `palette.py` ANSI 双主题色板 / `selection.py` 选区控制器（纯逻辑零 Qt 依赖） |
 

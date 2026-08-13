@@ -21,9 +21,19 @@ llm.request.maxTokens。usage.record 于 response 后约 1~3s 异步写盘，
 session/update 映射（1602 计划 T3）：私有 _map_update 已删除，统一改调
 llm/providers/acp.py 的公共实现 map_session_update（D4 上收——原四份
 逐行一致副本同一改动改四处必然漂移）。
+
+子代理 wire 旁路（0813-1919 计划 T4，客户端私有行为，无协议契约）：
+kimi ACP 通道对子代理（Agent 工具）仅报起止，但会话落盘
+`agents/agent-N/wire.jsonl` 完整记录子代理 tool.call/tool.result 且
+轮次内增量写盘（与 0117 轮次内用量轮询同机制实证）。旁路线程在轮次内
+发现新增 agent-N 目录、按字节偏移增量解析 wire，合成与 reasonix 层级
+ID 帧同构的 update dict（tid 拼 `父/子` 全串），经队列注入轮次消费
+循环与 conn 双源汇合——GUI 只认 parent_tool_call_id 一种形态，来源
+差异封闭在本文件。目录发现失败/格式漂移 → 静默关闭旁路回退纯 ACP。
 """
 import atexit
 import json
+import queue
 import threading
 import time
 from pathlib import Path
@@ -159,6 +169,239 @@ def _read_wire_usage_tail(session_dir: Path) -> UsageStats | None:
         used=used_other + used_cache, size=max_tokens, cost=None, source="transcript")
 
 
+# ----------------------------------------------------------------------
+# 子代理 wire 旁路（0813-1919 计划 T4：kimi 子代理内部活动嵌套显示数据源）
+# ----------------------------------------------------------------------
+#: 旁路轮询间隔：兼作 conn.next_update 超时（双源汇合节拍）与 wire 增量
+#: 读取间隔（轮次内增量写盘实测与 0117 用量轮询同机制，亚秒级延迟可接受）
+_SIDECAR_POLL_S = 0.3
+
+#: wire 行 JSON 解析失败熔断阈值（R1 私有格式漂移对策：累计超限静默
+#: 关闭旁路回退纯 ACP；写盘半行按残行缓冲重拼，不计失败）
+_SIDECAR_PARSE_FAIL_LIMIT = 8
+
+#: wire 工具名 → ACP tool_kind 映射（0813-1919 计划 §3.2：合成帧复用
+#: 主流卡片分派约定；未收录名回退 other——AskUserQuestion/TodoList/Agent
+#: 等经渲染层工具名二级分派落专卡，与主流同约定）
+_WIRE_TOOL_KINDS: dict[str, str] = {
+    "Bash": "execute",
+    "Edit": "edit",
+    "Write": "edit",
+    "Read": "read",
+    "Glob": "read",
+    "Grep": "read",
+    "FetchURL": "fetch",
+    "WebFetch": "fetch",
+    "WebSearch": "fetch",
+}
+
+
+def _wire_tool_kind(name: str) -> str:
+    return _WIRE_TOOL_KINDS.get(name, "other")
+
+
+def _synthesize_wire_call(event: dict, parent_tid: str) -> dict | None:
+    """wire `tool.call` 事件 → ACP 同构 tool_call update dict（层级 tid）。
+
+    合成即真实数据的 ACP 化重表达（不臆造）：title/kind/rawInput/locations
+    均出自 wire 实记；Edit 形态 wire 不给 ACP diff 项，args 的
+    old_string/new_string 即真实增删数据，合成 content diff 项喂协议层
+    `_extract_diff` 管线（与 kimi 主流 0919 计划 T2 content diff 项同构；
+    0803 计划 T2 write 合成 diff 先例同纪律）。Write 形态 rawInput.content
+    由 `_extract_write_diff` 天然承接，无需特判。
+    """
+    name = event.get("name")
+    wire_tid = event.get("toolCallId")
+    if not isinstance(name, str) or not name \
+            or not isinstance(wire_tid, str) or not wire_tid:
+        return None
+    kind = _wire_tool_kind(name)
+    args = event.get("args")
+    args = args if isinstance(args, dict) else {}
+    update: dict = {
+        "sessionUpdate": "tool_call",
+        "toolCallId": f"{parent_tid}/{wire_tid}",
+        "title": name,
+        "kind": kind,
+        "status": "pending",
+    }
+    if args:
+        update["rawInput"] = args
+    if isinstance(args.get("path"), str):
+        update["locations"] = [{"path": args["path"]}]
+    if kind == "edit" and (isinstance(args.get("old_string"), str)
+                           or isinstance(args.get("new_string"), str)):
+        update["content"] = [{
+            "type": "diff",
+            "path": args.get("path"),
+            "oldText": args.get("old_string") or "",
+            "newText": args.get("new_string") or "",
+        }]
+    return update
+
+
+def _synthesize_wire_result(event: dict, parent_tid: str, kind: str) -> dict | None:
+    """wire `tool.result` 事件 → ACP 同构 tool_call_update（completed）dict。
+
+    wire 侧无 in_progress 概念（v1 不合成尾滚帧，起止两帧尽力而为）；
+    result.output 映射 rawOutput.output 进既有输出提取管线；错误以
+    output 文本形态落盘（wire 无独立 error 字段，实测格式假设见维护手册）。
+    """
+    wire_tid = event.get("toolCallId")
+    if not isinstance(wire_tid, str) or not wire_tid:
+        return None
+    update: dict = {
+        "sessionUpdate": "tool_call_update",
+        "toolCallId": f"{parent_tid}/{wire_tid}",
+        "status": "completed",
+        "kind": kind,
+    }
+    result = event.get("result")
+    if isinstance(result, dict) and isinstance(result.get("output"), str):
+        update["rawOutput"] = {"output": result["output"]}
+    return update
+
+
+def _dir_ctime(path: Path) -> float:
+    """目录创建时序（关联排序键）；stat 失败排末位（瞬逝目录防御）。"""
+    try:
+        return path.stat().st_ctime
+    except OSError:
+        return float("inf")
+
+
+class _WireSidecar(threading.Thread):
+    """子代理 wire.jsonl 旁路线程（0813-1919 计划 T4）。
+
+    生命周期 = 单个轮次：构造时快照 `agents/` 目录基线；轮次内主流
+    Agent 调用在途期间（`note_agent_call` 登记父 tid 后）发现新增
+    `agent-N` 子目录即建立关联（单在途假设：同一时刻一个子代理，
+    两级封顶下成立；多在途按目录创建时序先到先得，关联不上则该路
+    静默降级）；关联后按字节偏移增量解析 wire 尾部，合成 update dict
+    注入 out 队列由轮次消费循环排干。目录发现失败、wire 缺失、JSON
+    解析失败累计超阈值（格式漂移）→ 置 _broken 静默收束，行为回退
+    纯 ACP（仅起止 + 成果摘要）。
+    """
+
+    def __init__(self, session_dir: Path, out: "queue.Queue[dict]") -> None:
+        super().__init__(daemon=True)
+        self._agents_dir = session_dir / "agents"
+        self._out = out
+        self._stop_flag = threading.Event()
+        self._broken = False
+        #: 在途 Agent 调用的 toolCallId（worker 线程单值写入，GIL 原子；
+        #: 关联建立后锁定不再更新——首在途优先，防多在途错配，R2）
+        self._parent_tid: str | None = None
+        #: 目录发现基线（构造时已在场的子目录不属本轮新增）
+        try:
+            self._known_dirs = {
+                p.name for p in self._agents_dir.iterdir() if p.is_dir()}
+        except OSError:
+            self._known_dirs = set()
+        self._wire_path: Path | None = None
+        self._wire_offset = 0
+        self._wire_buffer = b""
+        #: wire tid → kind（tool.result 帧自身不带工具名，call 帧簿记回补）
+        self._kinds: dict[str, str] = {}
+        self._parse_failures = 0
+
+    def note_agent_call(self, tid: str) -> None:
+        """主流 Agent 调用在途登记（首在途优先；关联后忽略后续登记）。"""
+        if self._wire_path is None:
+            self._parent_tid = tid
+
+    def stop(self) -> None:
+        self._stop_flag.set()
+
+    # ------------------------------------------------------------------
+    def run(self) -> None:
+        while not self._stop_flag.is_set() and not self._broken:
+            try:
+                self._poll()
+            except Exception:  # noqa: BLE001 — 旁路任何异常静默降级，不连累主轮次
+                return
+            self._stop_flag.wait(_SIDECAR_POLL_S)
+
+    def _poll(self) -> None:
+        if self._wire_path is None:
+            self._discover()
+        if self._wire_path is not None:
+            self._read_wire()
+
+    def _discover(self) -> None:
+        """新增 agent-N 目录发现 + 在途 Agent 关联（父 tid 未登记不发现）。"""
+        if self._parent_tid is None:
+            return
+        try:
+            current = {p.name: p for p in self._agents_dir.iterdir()
+                       if p.is_dir() and p.name.startswith("agent-")}
+        except OSError:
+            return
+        new = [p for name, p in current.items() if name not in self._known_dirs]
+        if not new:
+            return
+        self._known_dirs |= set(current)
+        new.sort(key=_dir_ctime)  # 多在途先到先得（R2 假设外的尽力而为）
+        self._wire_path = new[0] / "wire.jsonl"
+
+    def _read_wire(self) -> None:
+        """按字节偏移增量读 wire 尾部；残行留缓冲下轮重拼（写盘半行防御）。"""
+        try:
+            with self._wire_path.open("rb") as f:
+                f.seek(self._wire_offset)
+                self._wire_buffer += f.read()
+                self._wire_offset = f.tell()
+        except OSError:
+            return  # 文件尚未创建/瞬逝：下轮再试
+        lines = self._wire_buffer.split(b"\n")
+        self._wire_buffer = lines.pop()  # 末段残行（可能正在写）留下轮
+        for raw in lines:
+            self._consume_line(raw)
+
+    def _consume_line(self, raw: bytes) -> None:
+        """单条 wire 记录分发：只消费 context.append_loop_event 的
+        tool.call/tool.result（content.part 思维链 v1 跳过，计划 R4）。"""
+        if not raw.strip():
+            return
+        try:
+            record = json.loads(raw)
+        except json.JSONDecodeError:
+            self._parse_failures += 1
+            self._broken = self._parse_failures >= _SIDECAR_PARSE_FAIL_LIMIT
+            return
+        if record.get("type") != "context.append_loop_event":
+            return
+        event = record.get("event") or {}
+        parent = self._parent_tid
+        if parent is None:
+            return
+        etype = event.get("type")
+        if etype == "tool.call":
+            if update := _synthesize_wire_call(event, parent):
+                self._kinds[event["toolCallId"]] = update["kind"]
+                self._out.put(update)
+        elif etype == "tool.result":
+            kind = self._kinds.get(event.get("toolCallId") or "", "other")
+            if update := _synthesize_wire_result(event, parent, kind):
+                self._out.put(update)
+
+
+def _sidecar_observe(sidecar: _WireSidecar, chunk: Chunk) -> None:
+    """ACP 主流帧反哺旁路：Agent 调用在途登记（目录发现关联锚点）。
+
+    title 归一化小写命中 agent/task 即登记在途 toolCallId（kimi 实证
+    title="Agent"，0813-1919 探针；task 防御收录）。只看不改 Chunk。
+    """
+    if chunk.kind != "tool_call":
+        return
+    payload = chunk.payload or {}
+    title = payload.get("title")
+    tid = payload.get("tool_call_id")
+    if isinstance(title, str) and isinstance(tid, str) \
+            and title.strip().lower() in ("agent", "task"):
+        sidecar.note_agent_call(tid)
+
+
 class KimiAcpLLM(LanguageModel):
     """Kimi ACP 后端（长驻子进程 + ndjson JSON-RPC，token 级流式 + 思维链）。"""
 
@@ -179,6 +422,10 @@ class KimiAcpLLM(LanguageModel):
         self._closed = False
         #: 审批处理器（由 GUI 注入）：session/request_permission params → optionId | None
         self._permission_handler: PermissionHandler | None = None
+        #: 子代理 wire 旁路开关（0813-1919 计划 T4 设置项，GUI 经
+        #: set_subagent_sidecar 注入；False 回退纯 ACP 行为——子代理
+        #: 仅起止 + 成果摘要）
+        self._sidecar_enabled = True
         #: poll_usage 的会话目录缓存（0117 计划 T2）：session_index.jsonl 随会话
         #: 增长，每 2s 轮询重读全索引不可接受；按 session_id 缓存反查结果，
         #: 会话切换（reset/重建）时随 _session_id 变化失效重查
@@ -236,6 +483,11 @@ class KimiAcpLLM(LanguageModel):
         self._permission_handler = handler
         if self._conn:
             self._conn.set_permission_handler(handler)
+
+    def set_subagent_sidecar(self, enabled: bool) -> None:
+        """子代理 wire 旁路开关注入（0813-1919 计划 T4；GUI 鸭子类型接线，
+        无本方法的 provider 静默跳过）。"""
+        self._sidecar_enabled = enabled
 
     def close(self) -> None:
         """终止 agent 子进程并注销 atexit 钩（多标签：实例随标签关闭销毁，
@@ -353,25 +605,68 @@ class KimiAcpLLM(LanguageModel):
                 conn.end_turn()
 
     def _iter_turn_chunks(self, conn: AcpConnection) -> Iterator[Chunk]:
-        """轮次内消息消费循环：update → Chunk；response/dead 收尾本轮。"""
+        """轮次内消息消费循环：update → Chunk；response/dead 收尾本轮。
+
+        0813-1919 计划 T4 双源汇合：旁路启用时 conn.next_update 改带
+        超时轮询，超时间隙排干 wire 旁路合成队列（子代理内部活动帧与
+        ACP 帧同一 map_session_update 真实映射链，层级 tid 自动拆父
+        指针）；旁路关闭/不可用时保持原阻塞语义零开销。
+        """
         # 用量基线（1454 T5）：kimi 无 usage_update（1412 T5 实证），轮次收尾
         # 改读会话落盘 wire.jsonl。usage.record 于 response 后约 1~3s 异步写盘，
         # 且须防误读上一轮记录——轮次开始时记下 (session_dir, 已有条数) 基线，
         # 收尾只接受条数增长后的新记录。
         session_dir = _session_dir_of(self._session_id) if self._session_id else None
         baseline_count = _read_wire_usage(session_dir)[0] if session_dir else 0
+        sidecar: _WireSidecar | None = None
+        sidecar_queue: queue.Queue[dict] = queue.Queue()
+        if self._sidecar_enabled and session_dir is not None:
+            sidecar = _WireSidecar(session_dir, sidecar_queue)
+            sidecar.start()
+        try:
+            while True:
+                timeout = _SIDECAR_POLL_S if sidecar is not None else None
+                try:
+                    kind, obj = conn.next_update(timeout=timeout)
+                except queue.Empty:
+                    pass  # 无 ACP 帧间隙：落入下方旁路排干（子代理活动主力通道）
+                else:
+                    if kind == "dead":
+                        self._session_id = None
+                        raise RuntimeError(f"kimi acp 进程意外退出（退出码 {obj}）")
+                    if kind == "response":
+                        self._raise_on_turn_error(obj)
+                        if sidecar is not None:
+                            # 尾部宽限：response 到达时 wire 末段可能尚未
+                            # 落盘，再给一个轮询周期后末次排干（worker
+                            # 线程内短等待，不阻塞 GUI）
+                            time.sleep(_SIDECAR_POLL_S)
+                            yield from self._drain_sidecar(sidecar_queue)
+                        stats = self._poll_wire_usage(session_dir, baseline_count)
+                        if stats is not None:
+                            yield Chunk("usage", "", usage=stats)
+                        return
+                    chunk = map_session_update(obj)
+                    if chunk:
+                        if sidecar is not None:
+                            _sidecar_observe(sidecar, chunk)
+                        yield chunk
+                if sidecar is not None:
+                    yield from self._drain_sidecar(sidecar_queue)
+        finally:
+            if sidecar is not None:
+                sidecar.stop()
+
+    def _drain_sidecar(self, sidecar_queue: "queue.Queue[dict]") -> Iterator[Chunk]:
+        """排干旁路合成队列：update dict 经 map_session_update 真实映射
+        产出 Chunk（层级 tid 由公共映射拆出父指针，0813-1919 计划 T1）。"""
         while True:
-            kind, obj = conn.next_update()
-            if kind == "dead":
-                self._session_id = None
-                raise RuntimeError(f"kimi acp 进程意外退出（退出码 {obj}）")
-            if kind == "response":
-                self._raise_on_turn_error(obj)
-                stats = self._poll_wire_usage(session_dir, baseline_count)
-                if stats is not None:
-                    yield Chunk("usage", "", usage=stats)
+            try:
+                update = sidecar_queue.get_nowait()
+            except queue.Empty:
                 return
-            chunk = map_session_update(obj)
+            chunk = map_session_update({
+                "params": {"update": update, "sessionId": self._session_id or ""}})
             if chunk:
                 yield chunk
 

@@ -1,7 +1,7 @@
 # 后端CLI工具维护说明手册
 
 > 本文档汇总了团队常用 后端CLI工具的官方说明地址，供工程师在遇到疑惑时快速查阅。
-> 最后更新：2026-08-12
+> 最后更新：2026-08-13（新增 §5 Zen Studio 私有通道登记：kimi wire 子代理旁路）
 
 ---
 
@@ -106,6 +106,47 @@ brew install esengine/reasonix/reasonix
 > 本机配置备注：2026-08-12 起 `~/.reasonix/config.toml` 已设 `[sandbox] bash = "off"`
 > （Ubuntu 24.04 AppArmor 默认策略拦截 bwrap 致沙箱不可用、bash 工具瘫痪，
 > 详见《work plans/2026-0812-0301_Reasonix沙箱不可用导致AI反复尝试bash问题调查报告.md》）。
+
+---
+
+## 5. Zen Studio 私有通道登记（无协议契约，格式漂移自查）
+
+### 5.1 kimi wire.jsonl 子代理旁路（2026-08-13 登记）
+
+**机制**：Zen Studio 的 kimi-acp 后端在轮次内旁路读取会话落盘目录
+`~/.kimi-code/sessions/<工作区键>/<sessionId>/agents/agent-N/wire.jsonl`
+（子代理 wire），增量解析合成嵌套工具卡（实现：`llm/providers/kimi_acp.py`
+`_WireSidecar`；开关：config/settings.json `kimi_wire_sidecar`，默认开）。
+该通道是**客户端私有行为**，kimi-code 无任何格式契约，CLI 升级可能漂移。
+
+**登记的格式假设**（实测样本：2026-08-13 `wd_dream_cli` 会话 agent-0
+wire.jsonl，546 行）：
+
+- 记录单位：逐行 JSON（jsonl）；相关记录 `type == "context.append_loop_event"`，
+  事件体在 `event` 键内；
+- 工具调用帧：`event.type == "tool.call"`，含 `toolCallId`（`tool_XXX` 形态）、
+  `name`（工具名原文，如 `Bash`/`Edit`/`Write`/`Read`/`Grep`/`TodoList`）、
+  `args`（入参 dict——Bash 为 `command`、Edit 为 `path/old_string/new_string`
+  蛇形、Write 为 `path/content`、TodoList 为 `todos`）；
+- 工具回执帧：`event.type == "tool.result"`，含同名 `toolCallId` 与
+  `result.output`（纯文本；**错误以 output 文本形态落盘，无独立 error 字段**）；
+- 无 in_progress 中间帧（旁路只合成起止两帧）；思维链为
+  `content.part` 事件（v1 跳过不渲染）；
+- 子代理目录命名 `agent-N`（N 递增），与在途 Agent 调用的关联按目录
+  创建时序先到先得（单在途假设）。
+
+**熔断与降级**：单行 JSON 解析失败累计 ≥8 次旁路静默收束；目录发现失败/
+wire 缺失/关联不上均静默回退纯 ACP 行为（子代理仅起止 + 成果摘要）。
+
+**失效排查路径**：
+
+1. 症状「子代理卡片不再嵌套」→ 先看 `agents/agent-N/wire.jsonl` 是否仍
+   存在且为上述形态（`head -5` 对照登记假设）；
+2. 格式漂移确认后：临时回退——`config/settings.json` 置
+   `"kimi_wire_sidecar": false`；
+3. 根治——按新样本修订 `_synthesize_wire_call/_synthesize_wire_result`
+   与登记假设，并跑 `.venv/bin/python scripts/test_subagent_nested.py`
+   （驱动样本 `.temp/subagent_wire_sample.jsonl` 需同步重制）。
 
 ---
 

@@ -778,6 +778,22 @@ def _tool_call_summary(update: dict) -> str | None:
     return None
 
 
+def _split_hierarchical_tid(tool_call_id: str) -> str | None:
+    """层级 toolCallId（`父ID/子ID`）→ 父 ID；无层级（无 `/`）返回 None。
+
+    0813-1919 计划 T1（子代理活动嵌套显示）：reasonix 原生下发子代理
+    内部 tool_call/tool_call_update 帧，父子关系编码于层级 toolCallId
+    （实测帧存档 subagent_probe_reasonix_20260813_190102.json——
+    `call_00_P14w9p.../call_00_twRhc...`，首段即父调用全串）；agent 侧
+    一层委派封顶（两级），partition 首段即父 ID。toolCallId 保留全串
+    作锚点键（唯一性），父指针独立载荷字段下传。
+    纯字符串判定：无层级 ID 的后端（kimi `0:tool_…` / kilocode / dream）
+    天然零影响；kimi 旁路合成帧复用同一形态（tid 拼为 `父/子`）。
+    """
+    parent, sep, _child = tool_call_id.partition("/")
+    return parent if sep and parent else None
+
+
 def _map_tool_call(update: dict, session_id: str = "") -> Chunk:
     """tool_call → 结构化 Chunk。
 
@@ -791,6 +807,9 @@ def _map_tool_call(update: dict, session_id: str = "") -> Chunk:
     payload = ToolCallPayload()
     if isinstance(update.get("toolCallId"), str):
         payload["tool_call_id"] = update["toolCallId"]
+        # 0813-1919 计划 T1：层级 toolCallId → 父指针（子代理内部活动帧）
+        if parent := _split_hierarchical_tid(update["toolCallId"]):
+            payload["parent_tool_call_id"] = parent
     payload["title"] = update.get("title") or "?"
     tool_kind = update.get("kind") if isinstance(update.get("kind"), str) else "other"
     payload["tool_kind"] = tool_kind
@@ -854,6 +873,9 @@ def _map_tool_call_update(update: dict, session_id: str = "") -> Chunk | None:
     payload = ToolUpdatePayload()
     if isinstance(update.get("toolCallId"), str):
         payload["tool_call_id"] = update["toolCallId"]
+        # 0813-1919 计划 T1：层级 toolCallId → 父指针（同首帧路径）
+        if parent := _split_hierarchical_tid(update["toolCallId"]):
+            payload["parent_tool_call_id"] = parent
     status = update.get("status")
     if not isinstance(status, str) or not status:
         return None  # 无状态可报（bash 输出快照等部分更新帧，F3 字段可缺省）
@@ -1207,9 +1229,13 @@ class AcpConnection:
             except queue.Empty:
                 return
 
-    def next_update(self) -> _TurnMessage:
-        """取下一条轮次内消息（阻塞；无超时：agent 轮次可长达数分钟）。"""
-        return self._updates.get()
+    def next_update(self, timeout: float | None = None) -> _TurnMessage:
+        """取下一条轮次内消息（默认无超时阻塞：agent 轮次可长达数分钟）。
+
+        timeout 秒数超时抛 queue.Empty（0813-1919 计划 T4：kimi wire
+        旁路与 conn 双源汇合的轮询消费用；其余后端不传超时保持原语义）。
+        """
+        return self._updates.get(timeout=timeout)
 
     def terminate(self) -> None:
         """终止子进程并主动注入死讯：consumer 立即醒来，不必等 reader EOF。

@@ -30,7 +30,7 @@ from html import escape as _html_escape
 from html import unescape as _html_unescape
 from pathlib import Path
 
-from PySide6.QtCore import QSize, Qt, QTimer, QUrl, Signal
+from PySide6.QtCore import QEvent, QSize, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QFrame,
@@ -38,6 +38,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QPlainTextEdit,
     QPushButton,
+    QScrollArea,
     QTextBrowser,
     QToolButton,
     QVBoxLayout,
@@ -803,14 +804,131 @@ class SubagentCard(ToolCard):
     0806 计划 T5 增强：Agent/Task 工具名分派复用本卡——出参在
     result_summary（think kind）缺省时回退 output 正文（kind=other 的
     Agent 调用协议层不产 result_summary，结果全文在 output 通道）。
+
+    0813-1919 计划 T2 内嵌子卡片区（F2 边界部分翻案）：reasonix 协议
+    层级 ID 帧与 kimi wire 旁路合成帧使子代理内部活动实时可得——
+    带 parent_tool_call_id 的载荷经路由委派进本卡 body 顶端
+    「子代理活动」区（懒建，首个子帧到达时现身），复用 make_tool_card
+    工厂与 apply_update 纯方法；自有 OpenStateMap 实例防主流开合记忆
+    串扰；区整体超 BODY_MAX_HEIGHT 出块内滚动不撑爆父卡；父卡完成后
+    迟到子帧幂等回填不新建（_children_done）；子卡片区随父卡折叠
+    一起显隐（body 内一个 section，CollapsibleCard 既有机制）。
+    两级封顶：agent 侧一层委派，子卡区内不再嵌套 SubagentCard 区。
     """
 
     def _build_body(self, payload: dict) -> None:
+        #: 内嵌子卡片簿记（子帧全串 tid → ToolCard；transcript._tool_cards
+        #: 的嵌套版，父卡生命周期内有效，轮次收尾随主流簿记一并丢弃引用）
+        self._tool_cards: dict[str, ToolCard] = {}
+        #: 子卡独立开合记忆（0813-1919 计划 T2：与主流 OpenStateMap 隔离）
+        self._child_open_state = OpenStateMap()
+        #: 父卡终态标记：完成后迟到子帧幂等回填既有卡、不新建（T2）
+        self._children_done = False
+        self._children_label: QLabel | None = None
+        self._children_host: QWidget | None = None
+        self._children_scroll: QScrollArea | None = None
+        self._children_layout: QVBoxLayout | None = None
         self._summary = BodyText()
         self._summary.setVisible(False)
         self.add_body_widget(self._summary)
 
+    # ------------------------------------------------------------------
+    # 内嵌子卡片区（0813-1919 计划 T2）
+    # ------------------------------------------------------------------
+    def append_child_call(self, payload: dict) -> None:
+        """子代理内部 tool_call 帧上屏：工厂分派 + tid 簿记
+        （transcript.append_tool_call 的嵌套版，同 30 行模式）。"""
+        self._ensure_children_section()
+        card = self._make_child_card(payload)
+        self._children_layout.addWidget(card)
+        if tid := payload.get("tool_call_id"):
+            self._tool_cards[tid] = card
+        self._fit_children_height()
+
+    def append_child_update(self, payload: dict) -> None:
+        """子帧状态流转：寻卡属性更新（transcript.append_tool_update
+        嵌套版）；父卡完成后迟到子帧幂等回填不新建（T2 定格语义）。"""
+        tid = payload.get("tool_call_id") or ""
+        card = self._tool_cards.get(tid)
+        if card is None:
+            if self._children_done:
+                return  # 定格后迟到陌生子帧：丢弃（不新建），既有卡回填仍放行
+            self._ensure_children_section()
+            card = self._make_child_card(payload)  # 容错补建（transcript 同语义）
+            self._children_layout.addWidget(card)
+            if tid:
+                self._tool_cards[tid] = card
+        card.apply_update(payload)
+
+    def _ensure_children_section(self) -> None:
+        """「子代理活动」区懒建（首个子帧到达时现身）：body 顶端插入
+        标签行 + 限高滚动区（内容贴高至 BODY_MAX_HEIGHT 封顶出块内
+        滚动，不撑爆父卡——QScrollArea 默认 sizeHint 不随内容贴高，
+        高度由 _fit_children_height 显式拟合）。"""
+        if self._children_layout is not None:
+            return
+        self._children_label = QLabel("子代理活动", self)
+        self._children_label.setStyleSheet(
+            f"color: {self._colors.tool_fg}; font-size: 90%;")
+        self._children_host = QWidget(self)
+        self._children_layout = QVBoxLayout(self._children_host)
+        self._children_layout.setContentsMargins(0, 0, 0, 0)
+        self._children_layout.setSpacing(4)
+        self._children_scroll = QScrollArea(self)
+        self._children_scroll.setWidgetResizable(True)
+        self._children_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self._children_scroll.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._children_scroll.setMaximumHeight(BODY_MAX_HEIGHT)
+        self._children_scroll.setWidget(self._children_host)
+        # 子卡增删/body 高变化（LayoutRequest 沿父子链上传）→ 延迟重拟合
+        self._children_host.installEventFilter(self)
+        # body 顶端插入（阅读顺序：子代理活动 → 成果摘要）
+        self._body_layout.insertWidget(0, self._children_label)
+        self._body_layout.insertWidget(1, self._children_scroll)
+
+    def _fit_children_height(self) -> None:
+        """子卡片区高度拟合：内容 sizeHint ≤ BODY_MAX_HEIGHT 贴内容，
+        超限封顶出块内滚动条（_HugHeightMixin 同策略的容器版）。
+        延迟回调到达时卡片可能已在析构途中（截图 mock 场景实证），
+        访问已死 C++ 对象静默放弃（探活纪律同 find_question_card）。"""
+        if self._children_scroll is None or self._children_host is None:
+            return
+        try:
+            # activate() 强制布局链同步重算——子卡开合后 sizeHint 未沉降
+            # 时直接读会拿到旧值（mock 截图实证：拟合卡在折叠态高度）
+            self._children_layout.activate()
+            hint = self._children_host.sizeHint().height()
+        except RuntimeError:
+            return
+        target = min(max(hint, 24), BODY_MAX_HEIGHT)
+        if target != self._children_scroll.height():
+            self._children_scroll.setFixedHeight(target)
+
+    def eventFilter(self, watched, event) -> bool:
+        """子卡片区内容高变化侦听（子卡开合/BodyText 自适应均经
+        LayoutRequest 上传）；singleShot(0) 待尺寸链沉降后重拟合。
+        接收者语境绑定滚动区：卡片先销毁则回调自动作废，不触死对象。"""
+        if self._children_host is not None and watched is self._children_host \
+                and event.type() == QEvent.Type.LayoutRequest \
+                and self._children_scroll is not None:
+            QTimer.singleShot(0, self._children_scroll, self._fit_children_height)
+        return super().eventFilter(watched, event)
+
+    def _make_child_card(self, payload: dict) -> ToolCard:
+        """子卡片工厂（make_tool_card 复用）+ R3 护栏：子代理内
+        AskUserQuestion 不嵌套交互卡（_QUESTION_CARD_REGISTRY 全局
+        注册表单例语义防串扰），强制 McpCard 文本兜底显示。"""
+        title = payload.get("title") or ""
+        if _TOOL_NAME_CARDS.get(_normalize_tool_name(title)) is QuestionCard:
+            return McpCard(self._colors, self._child_open_state, payload,
+                           self._workspace_root)
+        return make_tool_card(self._colors, self._child_open_state, payload,
+                              workspace_root=self._workspace_root)
+
+    # ------------------------------------------------------------------
     def _on_completed(self, payload: dict) -> None:
+        self._children_done = True  # 定格：迟到子帧幂等回填不新建（T2）
         summary = payload.get("result_summary") or payload.get("output")
         if summary:
             self._summary.set_text(summary)
