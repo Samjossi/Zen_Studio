@@ -172,6 +172,10 @@ class ChatPanel(QWidget):
         #: 拍板单条待发）：busy 期间登记后文本驻留输入框，轮次正常收尾
         #: 立即自动发送；清空输入框自动取消；内存态不持久化
         self._pending_send = False
+        #: 开发中后端告知已上屏标记（2026-0814-0603 计划 T2）：切后端
+        #: 分支与 _send_turn 首发送补告共用本标记——切换告知后置位，
+        #: 防启动即落在该后端（无切换事件）时每次发送重复告知
+        self._dev_note_shown = False
         self._stream_buffer = ""
         self._has_seen_reasoning = False
         #: 工具调用 title 簿记（toolCallId → title，1602 计划 T6）：
@@ -342,6 +346,7 @@ class ChatPanel(QWidget):
                     target=_close_providers, args=([old],), daemon=True).start()
             self.output.append_message(
                 "系统", f"已切换到 {BACKEND_LABELS.get(backend, backend)} 后端，开始新会话")
+            self._show_dev_note(backend)
         self._llm_name = backend
         self._apply_image_capability()  # 0340 方案 B：能力位随后端切换刷新
         provider = self._get_provider(backend)
@@ -350,6 +355,18 @@ class ChatPanel(QWidget):
                 # 保持同步（计划 2026-0730-2338 D5 降级项）：provider 层无锁，
                 # 挪线程会与对话线程并发触达同一 ACP stdio 连接；正常亚秒级
                 set_model(version)
+
+    def _show_dev_note(self, backend: str) -> None:
+        """开发中后端如实告知（2026-0814-0603 计划 T2）：spec.dev_note
+        非空则对话流追加一条「系统」消息并置位已告知标记。
+
+        纯本地 UI——无任何字节进 ACP 帧，不进 prompt、不污染上下文；
+        成熟后端 dev_note=None 时 no-op，零行为变化。
+        """
+        spec = spec_of(backend)
+        if spec is not None and spec.dev_note:
+            self.output.append_message("系统", spec.dev_note)
+            self._dev_note_shown = True
 
     def request_stop(self) -> None:
         """停止当前轮次（输入区停止按钮 / Esc 触发），幂等。"""
@@ -781,6 +798,10 @@ class ChatPanel(QWidget):
         provider: LanguageModel,
     ) -> None:
         """一轮发送主流程（_on_send 直发与待发触发共用，0807-2305 计划 D2）。"""
+        if not self._dev_note_shown:
+            # 启动即落在开发中后端（持久化恢复，无切换事件）：本标签
+            # 首次发送时补一条如实告知（2026-0814-0603 计划 T2）
+            self._show_dev_note(self._llm_name)
         self._set_busy(True)
         message: Message = {"role": "user", "content": text}
         if images:

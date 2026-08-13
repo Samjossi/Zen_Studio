@@ -2,7 +2,7 @@
 
 > **状态**：已实施
 > **范围**：`llm/` 包 — LLM 调用薄层（本机 agent CLI 后端，代码库零密钥）
-> **时间**：2026-07-18 17:21（UTC+8，创建）/ 2026-07-31 01:30（修订）
+> **时间**：2026-07-18 17:21（UTC+8，创建）/ 2026-08-14 06:03（修订）
 
 ---
 
@@ -23,7 +23,7 @@
 | `llm/__init__.py` | 包初始化：导出统一接口、后端常量（`BACKEND_KIMI_ACP`/`BACKEND_LABELS`，由 REGISTRY 派生 re-export）与 provider 类 |
 | `llm/base.py` | `LanguageModel` Protocol + `Message` 类型别名 + `Chunk` 流式块（kind：text/reasoning/usage）+ `UsageStats` 用量定型（source 三级 push/transcript/estimate，2026-07-31，文档/修改记录/2026-0731-1454）+ `poll_usage()` 可选轮询方法（默认 None，2026-08-02，文档/修改记录/2026-0802-0117） |
 | `llm/context_limits.py` | 模型上下文窗口上限查询（2026-07-31，文档/修改记录/2026-0731-1454）：`reasonix_context_window()`（config.toml `[[providers]].context_window` 动态解析，缺项 None 不臆造）+ `reasonix_config_path()` 路径主定义（providers 反向复用，无环） |
-| `llm/registry.py` | 后端注册表：`BackendSpec`（name/label/vendor/available/list_models/factory）+ `REGISTRY` 单点 + 查询 API（`spec_of`/`vendor_of`/`vendor_groups`）；模型列表进程级缓存（`_cached_list_models` 包装，锁覆盖查拉写防并发重复拉取）+ `refresh_models()` 唯一失效口（2026-07-30，文档/修改记录/2026-0730-2338）；import 无副作用，探测均惰性 |
+| `llm/registry.py` | 后端注册表：`BackendSpec`（name/label/vendor/available/list_models/factory + 可选 `dev_note` 开发中告知文案，2026-08-14，work plans/2026-0814-0603 计划）+ `REGISTRY` 单点 + 查询 API（`spec_of`/`vendor_of`/`vendor_groups`）；模型列表进程级缓存（`_cached_list_models` 包装，锁覆盖查拉写防并发重复拉取）+ `refresh_models()` 唯一失效口（2026-07-30，文档/修改记录/2026-0730-2338）；import 无副作用，探测均惰性 |
 | `llm/providers/__init__.py` | provider 子包标记（每家厂商一个文件） |
 | `llm/providers/acp.py` | 泛化 ACP 连接层 `AcpConnection`（ndjson JSON-RPC 帧收发/id 配对/反向请求分发/死讯注入；agent 名参数化）+ 审批协议定型类型（`PermissionParams`/`PermissionHandler`）+ session/update 公共映射 `map_session_update`（2026-0731-1602 计划 T2：四 provider 私有 `_map_update` 上收，message/thought/usage 原三分支 + tool_call 结构化/tool_call_update/plan 新三分支；2026-0808-0627 计划 T1：todowrite→todo 首帧特判撤销，rawInput.todos 提取为 `todos` 载荷 + 跨调用 diff changed 标记，kind="todo" 仅余 plan 通道；2026-0813-1919 计划 T1：层级 toolCallId `父/子` 拆出 `parent_tool_call_id` 父指针——reasonix 子代理内部活动帧嵌套显示锚点，无层级 ID 后端零影响）与 `map_usage_update` |
 | `llm/providers/kimi_common.py` | kimi 二进制公共探测与模型枚举：`_find_bin`（PATH → `$KIMI_CODE_HOME/bin` → `~/.kimi-code/bin`）、`kimi_available`、`list_kimi_models`（CLI 传输层已于 2026-07-31 移除，见 文档/修改记录/2026-0731-0036） |
@@ -31,6 +31,7 @@
 | `llm/providers/reasonix_acp.py` | `ReasonixAcpLLM`：Reasonix ACP 后端（长驻 `reasonix acp`，与 KimiAcpLLM 同构；模型目录解析 `~/.reasonix/config.toml`；未 setup 经 session/new 错误映射引导「请先运行 reasonix setup」；轮次失败 `stopReason=error` 转可读报错；上下文用量走 transcript 快照文本估算，source="estimate"，2026-0731-1454） |
 | `llm/providers/opencode_acp.py` | `OpenCodeAcpLLM`：OpenCode ACP 后端（同构；`opencode models` 纯文本枚举，Zen 官方 `opencode/` 前缀模型菜单层剔除） |
 | `llm/providers/kilocode_acp.py` | `KiloCodeAcpLLM`：Kilo Code ACP 后端（同构；`kilo models` 纯文本枚举，网关聚合 `kilo/` 前缀模型菜单层剔除） |
+| `llm/providers/dream_acp.py` | `DreamAcpLLM`：Dream ACP 后端（开发中接口层；与 ReasonixAcpLLM 逐行同构；模型收敛唯一别名 `dream-creator`、强度唯一档 `auto`，实际模型由 Dream CLI 服务端配置决定，IDE 零感知；协议真值来源 `dream-acp/protocol/dream-acp-v1.md`；开发中状态经注册表 `dev_note` 如实告知，work plans/2026-0814-0603 计划） |
 
 ## 3. 接口设计
 
@@ -57,6 +58,7 @@ class LanguageModel(Protocol):
 | `ReasonixAcpLLM` | provider（`"reasonix-acp"`，后台 Reasonix）：长驻 `reasonix acp` 子进程，协议层与 `KimiAcpLLM` 同构（ACP v1）；模型目录经 `list_reasonix_models()` 解析 `~/.reasonix/config.toml`（`$REASONIX_HOME` 可覆盖）`[[providers]]` 段，别名为 `provider/model` 全名（DeepSeek 系）；未 setup（`session/new` 报 `not configured` 类错误）时映射为「请先运行 reasonix setup」友好提示；轮次失败 `stopReason=error` 转可读报错 |
 | `OpenCodeAcpLLM` | provider（`"opencode-acp"`，后台 OpenCode）：长驻 `opencode acp` 子进程，同构；模型目录经 `opencode models` 纯文本枚举，Zen 官方 `opencode/` 前缀模型在菜单层剔除 |
 | `KiloCodeAcpLLM` | provider（`"kilocode-acp"`，后台 Kilo Code）：长驻 `kilo acp` 子进程，同构；模型目录经 `kilo models` 纯文本枚举，网关聚合 `kilo/` 前缀模型在菜单层剔除 |
+| `DreamAcpLLM` | provider（`"dream-acp"`，后台 Dream，**开发中**）：长驻 `dream acp` 子进程，同构；纯接口层，模型/强度收敛为 `dream-creator`/`auto` 单值（服务端白名单硬校验，实际模型由 Dream CLI 服务端 `~/.dream/` 配置决定）；菜单标注「Dream ACP（开发中）」，切换/首发时经 `BackendSpec.dev_note` 在对话流输出如实告知（纯本地 UI，不进 ACP 帧） |
 
 ### 3.1 上下文用量徽章：数据时机与各后端限制（2026-08-02，文档/修改记录/2026-0802-0117）
 

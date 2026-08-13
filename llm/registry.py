@@ -81,6 +81,11 @@ class BackendSpec:
     #: 不做静态兜底，D1）。None = 该接口无动态数据源（纯静态兜底）。
     #: 经 _cached_list_efforts 同款进程级缓存包装，refresh_models() 同点失效
     list_efforts: Callable[[], dict[str, tuple[list[str], str | None]]] | None = None
+    #: 开发中状态如实告知文案（2026-0814-0603 计划 T1）：非空时切到该
+    #: 接口、以及持久化恢复后本标签首次发送，对话流各输出一条「系统」
+    #: 消息（panel 侧消费；纯本地 UI，不进 ACP 帧）。None = 成熟接口，
+    #: 零行为变化
+    dev_note: str | None = None
 
 
 # ----------------------------------------------------------------------
@@ -284,7 +289,7 @@ REGISTRY: dict[str, BackendSpec] = {
         ),
         BackendSpec(
             name="dream-acp",
-            label="Dream ACP",
+            label="Dream ACP（开发中）",
             vendor="dream",
             vendor_label="Dream",
             available=dream_available,
@@ -298,6 +303,12 @@ REGISTRY: dict[str, BackendSpec] = {
             # 配置决定，IDE 不提供选择；单档菜单仅作状态呈现）
             efforts=("auto",),
             default_effort="auto",
+            # 如实告知（2026-0814-0603 计划 T1）：纯接口层、模型由服务端
+            # 配置决定，dream-creator 别名不代表具体模型
+            dev_note=(
+                "Dream ACP 为开发中的接口层，本身不含模型。当前回复由本机 "
+                "Dream CLI 服务端配置的模型生成（可能为 DeepSeek），界面所示 "
+                "dream-creator 不代表具体模型。"),
         ),
     )
 }
