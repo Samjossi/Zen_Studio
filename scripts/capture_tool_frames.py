@@ -9,7 +9,7 @@
 - execute：Bash 命令执行（顺带取证 rawInput.command 到达时序——
   首帧齐备 vs 迟到，校正 shot_tool_cards.py 场景 22 的 🟡 假设）。
 
-产物：帧存档/{todolist,write,edit,execute}_<时间戳>.json
+产物：文档/帧存档/{todolist,write,edit,execute}_<时间戳>.json
 （全序列 session/update 帧 + 审批载荷 + 轮次响应）。
 
 运行（项目根）：
@@ -31,7 +31,7 @@ from core.paths import PROJECT_ROOT
 from llm.providers.acp import AcpConnection
 from llm.providers.kimi_common import _find_bin
 
-ARCHIVE_DIR = PROJECT_ROOT / "帧存档"
+ARCHIVE_DIR = PROJECT_ROOT / "文档" / "帧存档"
 WRITE_PROBE = PROJECT_ROOT / ".temp" / "capture_write_probe.txt"
 EDIT_PROBE = PROJECT_ROOT / ".temp" / "capture_edit_probe.txt"
 

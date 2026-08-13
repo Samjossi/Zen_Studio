@@ -111,7 +111,7 @@ class ToolCallPayload(TypedDict, total=False):
     #: AskUserQuestion 选项结构载荷（0807-0148 计划 T3：QuestionCard 卡片
     #: 内交互数据源；每问 {question, header?, options: [{label, description?}],
     #: multi_select}，rawInput.questions 原样提取——多选字段名实证为
-    #: multi_select 蛇形，见 帧存档/askuser_*.json）
+    #: multi_select 蛇形，见 文档/帧存档/askuser_*.json）
     question_options: list[dict]
     #: 入参图片本地路径（0158 计划 T1：MediaReadCard 略缩图数据源，
     #: 仅供人类查看，不回传 AI；rawInput.path/filePath 原值，

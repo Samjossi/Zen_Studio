@@ -1,0 +1,528 @@
+{
+  "agent": "kimi",
+  "bin": "~/.kimi-code/bin/kimi",
+  "prompt": "请使用 Agent 工具委派一个子代理完成这个小任务：列出当前目录下的文件名，并用一句话总结。你自己不要直接列目录，必须通过子代理完成，完成后汇报子代理的结果。",
+  "initialize_result": {
+    "protocolVersion": 1,
+    "agentCapabilities": {
+      "loadSession": true,
+      "promptCapabilities": {
+        "image": true,
+        "audio": false,
+        "embeddedContext": true
+      },
+      "sessionCapabilities": {
+        "list": {},
+        "resume": {},
+        "close": {},
+        "delete": {},
+        "fork": {},
+        "additionalDirectories": {}
+      },
+      "mcpCapabilities": {
+        "http": true,
+        "sse": true
+      },
+      "auth": {
+        "logout": {}
+      }
+    },
+    "authMethods": [
+      {
+        "id": "login",
+        "type": "terminal",
+        "name": "Login with Kimi account",
+        "description": "Open the device-code login flow in a terminal.",
+        "args": [
+          "--login"
+        ],
+        "env": {},
+        "_meta": {
+          "terminal-auth": {
+            "type": "terminal",
+            "label": "Login with Kimi account",
+            "command": "~/.kimi-code/bin/kimi",
+            "args": [
+              "login"
+            ],
+            "env": {}
+          }
+        }
+      }
+    ],
+    "agentInfo": {
+      "name": "Kimi Code CLI",
+      "version": "0.34.0"
+    }
+  },
+  "sessionId": "session_a4fbf705-d6c9-4697-9119-9a060875acfb",
+  "turn_seconds": 76.5,
+  "stop_reason": "end_turn",
+  "update_frame_count": 246,
+  "analysis": {
+    "session_update_type_counts": {
+      "available_commands_update": 1,
+      "session_info_update": 1,
+      "agent_thought_chunk": 7,
+      "agent_message_chunk": 154,
+      "tool_call": 1,
+      "tool_call_update": 82
+    },
+    "tool_call_count": 1,
+    "tool_calls": [
+      {
+        "toolCallId": "0:tool_sbYPlYDEPKcsL9XI6fidkBfY",
+        "title": "Agent",
+        "kind": "other",
+        "status": "pending",
+        "has_parentId": false,
+        "all_keys": [
+          "content",
+          "kind",
+          "sessionUpdate",
+          "status",
+          "title",
+          "toolCallId"
+        ]
+      }
+    ],
+    "tool_update_count": 82,
+    "tool_updates": [
+      {
+        "toolCallId": "0:tool_sbYPlYDEPKcsL9XI6fidkBfY",
+        "status": "in_progress",
+        "title": null
+      },
+      {
+        "toolCallId": "0:tool_sbYPlYDEPKcsL9XI6fidkBfY",
+        "status": "in_progress",
+        "title": null
+      },
+      {
+        "toolCallId": "0:tool_sbYPlYDEPKcsL9XI6fidkBfY",
+        "status": "in_progress",
+        "title": null
+      },
+      {
+        "toolCallId": "0:tool_sbYPlYDEPKcsL9XI6fidkBfY",
+        "status": "in_progress",
+        "title": null
+      },
+      {
+        "toolCallId": "0:tool_sbYPlYDEPKcsL9XI6fidkBfY",
+        "status": "in_progress",
+        "title": null
+      },
+      {
+        "toolCallId": "0:tool_sbYPlYDEPKcsL9XI6fidkBfY",
+        "status": "in_progress",
+        "title": null
+      },
+      {
+        "toolCallId": "0:tool_sbYPlYDEPKcsL9XI6fidkBfY",
+        "status": "in_progress",
+        "title": null
+      },
+      {
+        "toolCallId": "0:tool_sbYPlYDEPKcsL9XI6fidkBfY",
+        "status": "in_progress",
+        "title": null
+      },
+      {
+        "toolCallId": "0:tool_sbYPlYDEPKcsL9XI6fidkBfY",
+        "status": "in_progress",
+        "title": null
+      },
+      {
+        "toolCallId": "0:tool_sbYPlYDEPKcsL9XI6fidkBfY",
+        "status": "in_progress",
+        "title": null
+      },
+      {
+        "toolCallId": "0:tool_sbYPlYDEPKcsL9XI6fidkBfY",
+        "status": "in_progress",
+        "title": null
+      },
+      {
+        "toolCallId": "0:tool_sbYPlYDEPKcsL9XI6fidkBfY",
+        "status": "in_progress",
+        "title": null
+      },
+      {
+        "toolCallId": "0:tool_sbYPlYDEPKcsL9XI6fidkBfY",
+        "status": "in_progress",
+        "title": null
+      },
+      {
+        "toolCallId": "0:tool_sbYPlYDEPKcsL9XI6fidkBfY",
+        "status": "in_progress",
+        "title": null
+      },
+      {
+        "toolCallId": "0:tool_sbYPlYDEPKcsL9XI6fidkBfY",
+        "status": "in_progress",
+        "title": null
+      },
+      {
+        "toolCallId": "0:tool_sbYPlYDEPKcsL9XI6fidkBfY",
+        "status": "in_progress",
+        "title": null
+      },
+      {
+        "toolCallId": "0:tool_sbYPlYDEPKcsL9XI6fidkBfY",
+        "status": "in_progress",
+        "title": null
+      },
+      {
+        "toolCallId": "0:tool_sbYPlYDEPKcsL9XI6fidkBfY",
+        "status": "in_progress",
+        "title": null
+      },
+      {
+        "toolCallId": "0:tool_sbYPlYDEPKcsL9XI6fidkBfY",
+        "status": "in_progress",
+        "title": null
+      },
+      {
+        "toolCallId": "0:tool_sbYPlYDEPKcsL9XI6fidkBfY",
+        "status": "in_progress",
+        "title": null
+      },
+      {
+        "toolCallId": "0:tool_sbYPlYDEPKcsL9XI6fidkBfY",
+        "status": "in_progress",
+        "title": null
+      },
+      {
+        "toolCallId": "0:tool_sbYPlYDEPKcsL9XI6fidkBfY",
+        "status": "in_progress",
+        "title": null
+      },
+      {
+        "toolCallId": "0:tool_sbYPlYDEPKcsL9XI6fidkBfY",
+        "status": "in_progress",
+        "title": null
+      },
+      {
+        "toolCallId": "0:tool_sbYPlYDEPKcsL9XI6fidkBfY",
+        "status": "in_progress",
+        "title": null
+      },
+      {
+        "toolCallId": "0:tool_sbYPlYDEPKcsL9XI6fidkBfY",
+        "status": "in_progress",
+        "title": null
+      },
+      {
+        "toolCallId": "0:tool_sbYPlYDEPKcsL9XI6fidkBfY",
+        "status": "in_progress",
+        "title": null
+      },
+      {
+        "toolCallId": "0:tool_sbYPlYDEPKcsL9XI6fidkBfY",
+        "status": "in_progress",
+        "title": null
+      },
+      {
+        "toolCallId": "0:tool_sbYPlYDEPKcsL9XI6fidkBfY",
+        "status": "in_progress",
+        "title": null
+      },
+      {
+        "toolCallId": "0:tool_sbYPlYDEPKcsL9XI6fidkBfY",
+        "status": "in_progress",
+        "title": null
+      },
+      {
+        "toolCallId": "0:tool_sbYPlYDEPKcsL9XI6fidkBfY",
+        "status": "in_progress",
+        "title": null
+      },
+      {
+        "toolCallId": "0:tool_sbYPlYDEPKcsL9XI6fidkBfY",
+        "status": "in_progress",
+        "title": null
+      },
+      {
+        "toolCallId": "0:tool_sbYPlYDEPKcsL9XI6fidkBfY",
+        "status": "in_progress",
+        "title": null
+      },
+      {
+        "toolCallId": "0:tool_sbYPlYDEPKcsL9XI6fidkBfY",
+        "status": "in_progress",
+        "title": null
+      },
+      {
+        "toolCallId": "0:tool_sbYPlYDEPKcsL9XI6fidkBfY",
+        "status": "in_progress",
+        "title": null
+      },
+      {
+        "toolCallId": "0:tool_sbYPlYDEPKcsL9XI6fidkBfY",
+        "status": "in_progress",
+        "title": null
+      },
+      {
+        "toolCallId": "0:tool_sbYPlYDEPKcsL9XI6fidkBfY",
+        "status": "in_progress",
+        "title": null
+      },
+      {
+        "toolCallId": "0:tool_sbYPlYDEPKcsL9XI6fidkBfY",
+        "status": "in_progress",
+        "title": null
+      },
+      {
+        "toolCallId": "0:tool_sbYPlYDEPKcsL9XI6fidkBfY",
+        "status": "in_progress",
+        "title": null
+      },
+      {
+        "toolCallId": "0:tool_sbYPlYDEPKcsL9XI6fidkBfY",
+        "status": "in_progress",
+        "title": null
+      },
+      {
+        "toolCallId": "0:tool_sbYPlYDEPKcsL9XI6fidkBfY",
+        "status": "in_progress",
+        "title": null
+      },
+      {
+        "toolCallId": "0:tool_sbYPlYDEPKcsL9XI6fidkBfY",
+        "status": "in_progress",
+        "title": null
+      },
+      {
+        "toolCallId": "0:tool_sbYPlYDEPKcsL9XI6fidkBfY",
+        "status": "in_progress",
+        "title": null
+      },
+      {
+        "toolCallId": "0:tool_sbYPlYDEPKcsL9XI6fidkBfY",
+        "status": "in_progress",
+        "title": null
+      },
+      {
+        "toolCallId": "0:tool_sbYPlYDEPKcsL9XI6fidkBfY",
+        "status": "in_progress",
+        "title": null
+      },
+      {
+        "toolCallId": "0:tool_sbYPlYDEPKcsL9XI6fidkBfY",
+        "status": "in_progress",
+        "title": null
+      },
+      {
+        "toolCallId": "0:tool_sbYPlYDEPKcsL9XI6fidkBfY",
+        "status": "in_progress",
+        "title": null
+      },
+      {
+        "toolCallId": "0:tool_sbYPlYDEPKcsL9XI6fidkBfY",
+        "status": "in_progress",
+        "title": null
+      },
+      {
+        "toolCallId": "0:tool_sbYPlYDEPKcsL9XI6fidkBfY",
+        "status": "in_progress",
+        "title": null
+      },
+      {
+        "toolCallId": "0:tool_sbYPlYDEPKcsL9XI6fidkBfY",
+        "status": "in_progress",
+        "title": null
+      },
+      {
+        "toolCallId": "0:tool_sbYPlYDEPKcsL9XI6fidkBfY",
+        "status": "in_progress",
+        "title": null
+      },
+      {
+        "toolCallId": "0:tool_sbYPlYDEPKcsL9XI6fidkBfY",
+        "status": "in_progress",
+        "title": null
+      },
+      {
+        "toolCallId": "0:tool_sbYPlYDEPKcsL9XI6fidkBfY",
+        "status": "in_progress",
+        "title": null
+      },
+      {
+        "toolCallId": "0:tool_sbYPlYDEPKcsL9XI6fidkBfY",
+        "status": "in_progress",
+        "title": null
+      },
+      {
+        "toolCallId": "0:tool_sbYPlYDEPKcsL9XI6fidkBfY",
+        "status": "in_progress",
+        "title": null
+      },
+      {
+        "toolCallId": "0:tool_sbYPlYDEPKcsL9XI6fidkBfY",
+        "status": "in_progress",
+        "title": null
+      },
+      {
+        "toolCallId": "0:tool_sbYPlYDEPKcsL9XI6fidkBfY",
+        "status": "in_progress",
+        "title": null
+      },
+      {
+        "toolCallId": "0:tool_sbYPlYDEPKcsL9XI6fidkBfY",
+        "status": "in_progress",
+        "title": null
+      },
+      {
+        "toolCallId": "0:tool_sbYPlYDEPKcsL9XI6fidkBfY",
+        "status": "in_progress",
+        "title": null
+      },
+      {
+        "toolCallId": "0:tool_sbYPlYDEPKcsL9XI6fidkBfY",
+        "status": "in_progress",
+        "title": null
+      },
+      {
+        "toolCallId": "0:tool_sbYPlYDEPKcsL9XI6fidkBfY",
+        "status": "in_progress",
+        "title": null
+      },
+      {
+        "toolCallId": "0:tool_sbYPlYDEPKcsL9XI6fidkBfY",
+        "status": "in_progress",
+        "title": null
+      },
+      {
+        "toolCallId": "0:tool_sbYPlYDEPKcsL9XI6fidkBfY",
+        "status": "in_progress",
+        "title": null
+      },
+      {
+        "toolCallId": "0:tool_sbYPlYDEPKcsL9XI6fidkBfY",
+        "status": "in_progress",
+        "title": null
+      },
+      {
+        "toolCallId": "0:tool_sbYPlYDEPKcsL9XI6fidkBfY",
+        "status": "in_progress",
+        "title": null
+      },
+      {
+        "toolCallId": "0:tool_sbYPlYDEPKcsL9XI6fidkBfY",
+        "status": "in_progress",
+        "title": null
+      },
+      {
+        "toolCallId": "0:tool_sbYPlYDEPKcsL9XI6fidkBfY",
+        "status": "in_progress",
+        "title": null
+      },
+      {
+        "toolCallId": "0:tool_sbYPlYDEPKcsL9XI6fidkBfY",
+        "status": "in_progress",
+        "title": null
+      },
+      {
+        "toolCallId": "0:tool_sbYPlYDEPKcsL9XI6fidkBfY",
+        "status": "in_progress",
+        "title": null
+      },
+      {
+        "toolCallId": "0:tool_sbYPlYDEPKcsL9XI6fidkBfY",
+        "status": "in_progress",
+        "title": null
+      },
+      {
+        "toolCallId": "0:tool_sbYPlYDEPKcsL9XI6fidkBfY",
+        "status": "in_progress",
+        "title": null
+      },
+      {
+        "toolCallId": "0:tool_sbYPlYDEPKcsL9XI6fidkBfY",
+        "status": "in_progress",
+        "title": null
+      },
+      {
+        "toolCallId": "0:tool_sbYPlYDEPKcsL9XI6fidkBfY",
+        "status": "in_progress",
+        "title": null
+      },
+      {
+        "toolCallId": "0:tool_sbYPlYDEPKcsL9XI6fidkBfY",
+        "status": "in_progress",
+        "title": null
+      },
+      {
+        "toolCallId": "0:tool_sbYPlYDEPKcsL9XI6fidkBfY",
+        "status": "in_progress",
+        "title": null
+      },
+      {
+        "toolCallId": "0:tool_sbYPlYDEPKcsL9XI6fidkBfY",
+        "status": "in_progress",
+        "title": null
+      },
+      {
+        "toolCallId": "0:tool_sbYPlYDEPKcsL9XI6fidkBfY",
+        "status": "in_progress",
+        "title": null
+      },
+      {
+        "toolCallId": "0:tool_sbYPlYDEPKcsL9XI6fidkBfY",
+        "status": "in_progress",
+        "title": null
+      },
+      {
+        "toolCallId": "0:tool_sbYPlYDEPKcsL9XI6fidkBfY",
+        "status": "in_progress",
+        "title": null
+      },
+      {
+        "toolCallId": "0:tool_sbYPlYDEPKcsL9XI6fidkBfY",
+        "status": "in_progress",
+        "title": null
+      },
+      {
+        "toolCallId": "0:tool_sbYPlYDEPKcsL9XI6fidkBfY",
+        "status": "in_progress",
+        "title": null
+      },
+      {
+        "toolCallId": "0:tool_sbYPlYDEPKcsL9XI6fidkBfY",
+        "status": "in_progress",
+        "title": "Launching explore agent: 列出目录文件并总结"
+      },
+      {
+        "toolCallId": "0:tool_sbYPlYDEPKcsL9XI6fidkBfY",
+        "status": "completed",
+        "title": null
+      }
+    ],
+    "subagent_like_calls": [
+      {
+        "toolCallId": "0:tool_sbYPlYDEPKcsL9XI6fidkBfY",
+        "title": "Agent",
+        "kind": "other",
+        "status": "pending",
+        "has_parentId": false,
+        "all_keys": [
+          "content",
+          "kind",
+          "sessionUpdate",
+          "status",
+          "title",
+          "toolCallId"
+        ]
+      }
+    ],
+    "nested_activity_signals": [],
+    "unknown_frames_sample": [
+      {
+        "sessionUpdate": "session_info_update",
+        "title": "请使用 Agent 工具委派一个子代理完成这个小任务：列出当前目录下的文件名，并用一句话总结。你自己不要直接列目录，必须通过子代理完成，完成后汇报子代理的结果。"
+      }
+    ],
+    "conclusion": "收到子代理工具帧，但无内部活动帧（仅起止）"
+  }
+}

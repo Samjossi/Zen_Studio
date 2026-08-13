@@ -207,7 +207,7 @@ def _scenarios() -> list[tuple[str, list[dict], str, object]]:
                          raw_output={"output": long_json}),
         ], "超 300 字符单行 minified JSON 完整 pretty 展示，不被「…」截断", None),
         # 0807-0148 计划 T5：AskUserQuestion 交互侧场景（蓝本为真实帧
-        # 帧存档/askuser_*.json 的 options 编码）
+        # 文档/帧存档/askuser_*.json 的 options 编码）
         ("07_askuser_pending_选项按钮", [
             _tool_call("tc-askbtn", "AskUserQuestion", "other",
                        {"questions": [
@@ -249,7 +249,7 @@ def _scenarios() -> list[tuple[str, list[dict], str, object]]:
         ], "multi_select（蛇形字段名，真实帧实证）问题 completed 问答对正常"
            "渲染；question_options 载荷提取不破坏现行渲染", None),
         # 0807-0445 计划（方案 B）：dismissed 终态渲染——用户按引导 Skip 后
-        # 自由作答的常态终态（蓝本 帧存档/askuser_other_*.json）
+        # 自由作答的常态终态（蓝本 文档/帧存档/askuser_other_*.json）
         ("11_askuser_已跳过_dismissed", [
             _tool_call("tc-askskip", "AskUserQuestion", "other",
                        {"questions": [
@@ -415,7 +415,7 @@ def _scenarios() -> list[tuple[str, list[dict], str, object]]:
         ("22_execute_title即命令", [
             # 首帧齐备对照形态（1425 计划记载「shell 工具 title 即命令
             # 本身」——对应 kilocode 系）。0735 计划 T3 真机取证
-            # （帧存档/execute_20260812_075201.json）实证
+            # （文档/帧存档/execute_20260812_075201.json）实证
             # kimi 为首帧空壳迟到形态：首帧 title="Bash"、无 rawInput，
             # command 随 in_progress 帧迟到（迟到帧 title="Running:
             # <命令>"）——kimi 真实迟到形态由场景 30 承接，本场景保留
@@ -556,7 +556,7 @@ def _scenarios() -> list[tuple[str, list[dict], str, object]]:
            " description「汇总审计结论」；✔", None),
         ("30_execute_kimi迟到命令", [
             # kimi 实证（0735 计划 T3 取证
-            # 帧存档/execute_20260812_075201.json）：首帧
+            # 文档/帧存档/execute_20260812_075201.json）：首帧
             # title="Bash"、kind="execute"、content 空文本壳、无 rawInput
             # → in_progress 迟到帧 title="Running: echo capture_execute_
             # probe"、rawInput={command} → completed 帧 rawOutput 为纯
@@ -585,7 +585,7 @@ def _scenarios() -> list[tuple[str, list[dict], str, object]]:
            "echo capture_execute_probe」；输出定格「capture_execute_probe」"
            "；✔", None),
         # 0812-0952 计划 T5：reasonix ask 两场景（蓝本 T0 取证帧
-        # 帧存档/ask_reasonix_*_20260812_100424.json）
+        # 文档/帧存档/ask_reasonix_*_20260812_100424.json）
         ("31_ask_reasonix_问答对", [
             # 实证形态：update 帧 title="ask"、kind="other"、
             # rawInput.questions 与 kimi 同构（label/description 小写，

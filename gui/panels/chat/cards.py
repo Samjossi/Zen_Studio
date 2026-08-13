@@ -823,7 +823,7 @@ class SubagentCard(ToolCard):
 def _parse_answered_text(output: str) -> dict | None:
     """reasonix ask 出参文本形态 → answers 字典（0812-0952 计划 T3）。
 
-    实证蓝本（帧存档/ask_reasonix_*.json）：reasonix completed
+    实证蓝本（文档/帧存档/ask_reasonix_*.json）：reasonix completed
     帧出参非 JSON，而是 `The user answered:` 起头、逐行 `- 键: 答案` 的
     纯文本（kimi 为 `{"answers": {...}}` JSON）。键是问题短标题（header）
     而非问题原文，与 _fill_answers「精确匹配失败按声明顺序分配」兜底衔接。
@@ -1036,7 +1036,7 @@ def find_pending_question_card(questions: list[str]) -> "QuestionCard | None":
 
     背景：reasonix 的 request_permission 与 session/update 帧 toolCallId
     **双轨不一致**（`ask-1-q1` vs `call_00_…`，实证
-    帧存档/ask_reasonix_*.json），id 定位必然 miss 降级弹窗。
+    文档/帧存档/ask_reasonix_*.json），id 定位必然 miss 降级弹窗。
     改按问题文本精确匹配兜底：决策帧 rawInput.question 与渲染帧
     rawInput.questions[].question 同文（同一次提问的两条帧路），
     命中唯一即返回。多卡同文命中取注册最早者（同窗口 question 请求
@@ -1329,7 +1329,7 @@ def _diff_soft_limit_note() -> int:
 #: ——首帧特判合并会话级单卡的旧路线撤销，每次调用一张 TodoListCard；
 #: 0812-0952 计划 T3 增补 ask——reasonix 提问工具（实证：update 帧
 #: title="ask"、rawInput.questions 与 kimi 同构，
-#: 帧存档/ask_reasonix_*.json）
+#: 文档/帧存档/ask_reasonix_*.json）
 _TOOL_NAME_CARDS: dict[str, type] = {
     "askuserquestion": QuestionCard,
     "ask": QuestionCard,

@@ -1,0 +1,234 @@
+{
+  "agent": "reasonix",
+  "bin": "reasonix",
+  "prompt": "如果你有子代理委派工具（例如 Agent 或 task 工具），请用它委派一个子代理完成：列出当前目录下的文件名并用一句话总结。如果你没有这类工具，请直接回答「无子代理工具」，不要调用其他工具。",
+  "initialize_result": {
+    "protocolVersion": 1,
+    "agentCapabilities": {
+      "loadSession": true,
+      "sessionCapabilities": {
+        "list": {},
+        "resume": {},
+        "close": {},
+        "delete": {}
+      },
+      "promptCapabilities": {
+        "image": false,
+        "audio": false,
+        "embeddedContext": true
+      },
+      "mcpCapabilities": {
+        "http": true,
+        "sse": false
+      },
+      "_meta": {
+        "reasonix.io": {
+          "sessionSteer": {
+            "method": "_reasonix.io/session/steer"
+          }
+        }
+      }
+    },
+    "agentInfo": {
+      "name": "reasonix",
+      "version": "v1.17.21"
+    },
+    "authMethods": [
+      {
+        "id": "reasonix-setup",
+        "name": "Reasonix setup",
+        "description": "Configure Reasonix providers and credentials in a terminal",
+        "type": "terminal",
+        "args": [
+          "setup"
+        ]
+      }
+    ]
+  },
+  "sessionId": "ab252c07-c69f-4fab-9add-0609a8520f83",
+  "turn_seconds": 14.2,
+  "stop_reason": "end_turn",
+  "update_frame_count": 206,
+  "analysis": {
+    "session_update_type_counts": {
+      "available_commands_update": 1,
+      "agent_thought_chunk": 102,
+      "tool_call": 7,
+      "tool_call_update": 7,
+      "agent_message_chunk": 89
+    },
+    "tool_call_count": 7,
+    "tool_calls": [
+      {
+        "toolCallId": "call_00_P14w9pZLRhdaZCaoAny63153",
+        "title": "task",
+        "kind": "other",
+        "status": "pending",
+        "has_parentId": false,
+        "all_keys": [
+          "kind",
+          "rawInput",
+          "sessionUpdate",
+          "status",
+          "title",
+          "toolCallId"
+        ]
+      },
+      {
+        "toolCallId": "call_00_P14w9pZLRhdaZCaoAny63153/call_00_twRhcebsPqDidwYhwNcc6784",
+        "title": "ls",
+        "kind": "read",
+        "status": "pending",
+        "has_parentId": false,
+        "all_keys": [
+          "kind",
+          "rawInput",
+          "sessionUpdate",
+          "status",
+          "title",
+          "toolCallId"
+        ]
+      },
+      {
+        "toolCallId": "call_00_P14w9pZLRhdaZCaoAny63153/call_00_b4uA9JD9oQm2M4IdhPGj8916",
+        "title": "read_file",
+        "kind": "read",
+        "status": "pending",
+        "has_parentId": false,
+        "all_keys": [
+          "kind",
+          "locations",
+          "rawInput",
+          "sessionUpdate",
+          "status",
+          "title",
+          "toolCallId"
+        ]
+      },
+      {
+        "toolCallId": "call_00_P14w9pZLRhdaZCaoAny63153/call_01_c8eWFzXSZZzCwtsYzTFj0972",
+        "title": "read_file",
+        "kind": "read",
+        "status": "pending",
+        "has_parentId": false,
+        "all_keys": [
+          "kind",
+          "locations",
+          "rawInput",
+          "sessionUpdate",
+          "status",
+          "title",
+          "toolCallId"
+        ]
+      },
+      {
+        "toolCallId": "call_00_P14w9pZLRhdaZCaoAny63153/call_02_mR0DM1s6ngtP93O4AFaD0036",
+        "title": "read_file",
+        "kind": "read",
+        "status": "pending",
+        "has_parentId": false,
+        "all_keys": [
+          "kind",
+          "locations",
+          "rawInput",
+          "sessionUpdate",
+          "status",
+          "title",
+          "toolCallId"
+        ]
+      },
+      {
+        "toolCallId": "call_00_P14w9pZLRhdaZCaoAny63153/call_03_g9zlUaiPHc5qPO6B2Ft14163",
+        "title": "read_file",
+        "kind": "read",
+        "status": "pending",
+        "has_parentId": false,
+        "all_keys": [
+          "kind",
+          "locations",
+          "rawInput",
+          "sessionUpdate",
+          "status",
+          "title",
+          "toolCallId"
+        ]
+      },
+      {
+        "toolCallId": "call_00_P14w9pZLRhdaZCaoAny63153/call_04_HUlHxnEu4ICP9CJDryaj0346",
+        "title": "read_file",
+        "kind": "read",
+        "status": "pending",
+        "has_parentId": false,
+        "all_keys": [
+          "kind",
+          "locations",
+          "rawInput",
+          "sessionUpdate",
+          "status",
+          "title",
+          "toolCallId"
+        ]
+      }
+    ],
+    "tool_update_count": 7,
+    "tool_updates": [
+      {
+        "toolCallId": "call_00_P14w9pZLRhdaZCaoAny63153/call_00_twRhcebsPqDidwYhwNcc6784",
+        "status": "completed",
+        "title": null
+      },
+      {
+        "toolCallId": "call_00_P14w9pZLRhdaZCaoAny63153/call_00_b4uA9JD9oQm2M4IdhPGj8916",
+        "status": "completed",
+        "title": null
+      },
+      {
+        "toolCallId": "call_00_P14w9pZLRhdaZCaoAny63153/call_01_c8eWFzXSZZzCwtsYzTFj0972",
+        "status": "completed",
+        "title": null
+      },
+      {
+        "toolCallId": "call_00_P14w9pZLRhdaZCaoAny63153/call_02_mR0DM1s6ngtP93O4AFaD0036",
+        "status": "completed",
+        "title": null
+      },
+      {
+        "toolCallId": "call_00_P14w9pZLRhdaZCaoAny63153/call_03_g9zlUaiPHc5qPO6B2Ft14163",
+        "status": "completed",
+        "title": null
+      },
+      {
+        "toolCallId": "call_00_P14w9pZLRhdaZCaoAny63153/call_04_HUlHxnEu4ICP9CJDryaj0346",
+        "status": "completed",
+        "title": null
+      },
+      {
+        "toolCallId": "call_00_P14w9pZLRhdaZCaoAny63153",
+        "status": "completed",
+        "title": null
+      }
+    ],
+    "subagent_like_calls": [
+      {
+        "toolCallId": "call_00_P14w9pZLRhdaZCaoAny63153",
+        "title": "task",
+        "kind": "other",
+        "status": "pending",
+        "has_parentId": false,
+        "all_keys": [
+          "kind",
+          "rawInput",
+          "sessionUpdate",
+          "status",
+          "title",
+          "toolCallId"
+        ]
+      }
+    ],
+    "nested_activity_signals": [
+      "子代理之外出现了其他 tool_call 开始帧（可能为主代理自身活动，需人工复核时序）"
+    ],
+    "unknown_frames_sample": [],
+    "conclusion": "发现疑似子代理内部活动帧"
+  }
+}

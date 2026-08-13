@@ -1,0 +1,113 @@
+{
+  "agent": "kilocode",
+  "bin": "kilocode",
+  "prompt": "请使用 task 工具委派一个子任务给子代理：列出当前目录下的文件名，并用一句话总结。你自己不要直接执行，必须通过 task 子代理完成。",
+  "initialize_result": {
+    "protocolVersion": 1,
+    "agentCapabilities": {
+      "loadSession": true,
+      "mcpCapabilities": {
+        "http": true,
+        "sse": true
+      },
+      "promptCapabilities": {
+        "embeddedContext": true,
+        "image": true
+      },
+      "sessionCapabilities": {
+        "close": {},
+        "fork": {},
+        "list": {},
+        "resume": {}
+      }
+    },
+    "authMethods": [
+      {
+        "description": "Run `kilo auth login` in the terminal",
+        "name": "Login with Kilo",
+        "id": "kilo-login"
+      }
+    ],
+    "agentInfo": {
+      "name": "Kilo",
+      "version": "7.4.17"
+    }
+  },
+  "sessionId": "ses_00537d01dffeVdDmPKTmGoOrCi",
+  "turn_seconds": 122.3,
+  "stop_reason": "end_turn",
+  "update_frame_count": 336,
+  "analysis": {
+    "session_update_type_counts": {
+      "available_commands_update": 1,
+      "agent_thought_chunk": 234,
+      "tool_call": 1,
+      "tool_call_update": 4,
+      "agent_message_chunk": 95,
+      "usage_update": 1
+    },
+    "tool_call_count": 1,
+    "tool_calls": [
+      {
+        "toolCallId": "tool_jJmb0nANXlBV7e2eoTIU8Fdz",
+        "title": "task",
+        "kind": "think",
+        "status": "pending",
+        "has_parentId": false,
+        "all_keys": [
+          "kind",
+          "locations",
+          "rawInput",
+          "sessionUpdate",
+          "status",
+          "title",
+          "toolCallId"
+        ]
+      }
+    ],
+    "tool_update_count": 4,
+    "tool_updates": [
+      {
+        "toolCallId": "tool_jJmb0nANXlBV7e2eoTIU8Fdz",
+        "status": "in_progress",
+        "title": "task"
+      },
+      {
+        "toolCallId": "tool_jJmb0nANXlBV7e2eoTIU8Fdz",
+        "status": "in_progress",
+        "title": "task"
+      },
+      {
+        "toolCallId": "tool_jJmb0nANXlBV7e2eoTIU8Fdz",
+        "status": "in_progress",
+        "title": "列目录并一句话总结"
+      },
+      {
+        "toolCallId": "tool_jJmb0nANXlBV7e2eoTIU8Fdz",
+        "status": "completed",
+        "title": "列目录并一句话总结"
+      }
+    ],
+    "subagent_like_calls": [
+      {
+        "toolCallId": "tool_jJmb0nANXlBV7e2eoTIU8Fdz",
+        "title": "task",
+        "kind": "think",
+        "status": "pending",
+        "has_parentId": false,
+        "all_keys": [
+          "kind",
+          "locations",
+          "rawInput",
+          "sessionUpdate",
+          "status",
+          "title",
+          "toolCallId"
+        ]
+      }
+    ],
+    "nested_activity_signals": [],
+    "unknown_frames_sample": [],
+    "conclusion": "收到子代理工具帧，但无内部活动帧（仅起止）"
+  }
+}

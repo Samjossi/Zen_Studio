@@ -10,8 +10,8 @@
   （含 auto_all）；
 - 非 question 请求四态行为回归不变；
 - _extract_question_options 结构化载荷提取（真实帧蓝本：
-  帧存档/askuser_*.json——multi_select 蛇形字段名；
-  帧存档/ask_reasonix_*.json——multiSelect 驼峰兼容）。
+  文档/帧存档/askuser_*.json——multi_select 蛇形字段名；
+  文档/帧存档/ask_reasonix_*.json——multiSelect 驼峰兼容）。
 
 运行（项目根）：.venv/bin/python scripts/test_question_permission.py
 """
@@ -58,7 +58,7 @@ check("Agent 不命中", not is_question_request(q_params("Agent")))
 check("空 title 不命中", not is_question_request(q_params("")))
 check("缺 toolCall 不命中", not is_question_request({}))
 
-# 1b. 结构通道（0812-0952 计划 T1，实证 帧存档/ask_reasonix_*.json）
+# 1b. 结构通道（0812-0952 计划 T1，实证 文档/帧存档/ask_reasonix_*.json）
 # reasonix 决策帧：title 是问题原文而非工具名，白名单管不到
 reasonix_params = {
     "toolCall": {"title": "今天晚上吃什么？", "kind": "other",
@@ -124,7 +124,7 @@ check("选项 label 提取", items[0]["options"] == [{"label": "佛像"},
                                                 {"label": "莲花", "description": "金色莲花"}])
 check("description 可选保留", items[0]["options"][1]["description"] == "金色莲花")
 # 4b. reasonix 帧形态（0812-0952 计划 T2，实证蓝本
-#     帧存档/ask_reasonix_multi_*.json）：multiSelect 驼峰字段名
+#     文档/帧存档/ask_reasonix_multi_*.json）：multiSelect 驼峰字段名
 update_reasonix = {"rawInput": {"questions": [
     {"header": "周末活动", "question": "周末想做的活动有哪些？", "multiSelect": True,
      "options": [{"label": "去户外徒步", "description": "亲近大自然"}]},

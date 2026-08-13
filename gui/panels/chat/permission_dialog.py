@@ -31,7 +31,7 @@ KIND_LABELS = {
 #: 自由作答引导文案（0807-0445 计划，方案 B；QuestionDialog 与 QuestionCard
 #: 共用单一来源）。背景：T0 spike 实证 kimi ACP request_permission 通道无法
 #: 回传自由文本（H1 文本原文/H2 约定前缀/H3 _meta 全部失效——未知 optionId
-#: 被静默视为 dismiss，帧存档/askuser_other_*.json），客户端
+#: 被静默视为 dismiss，文档/帧存档/askuser_other_*.json），客户端
 #: 无法附加可回传文本的 Other 输入项，故降级为引导提示：Skip 后正文作答。
 OTHER_HINT_TEXT = "💡 选项都不合适？点「Skip」后在聊天输入框直接回复，即可自由作答"
 
@@ -134,7 +134,7 @@ class QuestionDialog(QDialog):
     提供的 name 原文（答案选项，禁走 KIND_LABELS 审批语义映射）；agent 附
     带的 Skip（reject_once）选项照常展示，用户显式跳过。
 
-    multi_select 说明（实证结论，帧存档/askuser_20260807_023820.json）：
+    multi_select 说明（实证结论，文档/帧存档/askuser_20260807_023820.json）：
     kimi 多选题（rawInput.questions[].multi_select=true）经 ACP 降级为单选
     ——request_permission 响应模型只能回一个 optionId，选项逐题单个编码。
     故本对话框统一单选按钮组；若未来后端出现多选组合编码，再升级复选框
@@ -195,10 +195,10 @@ class QuestionDialog(QDialog):
         """问题文本提取：rawInput.questions 优先（结构化路径）；
         rawInput.question 单问题字符串次之（reasonix 实证：
         request_permission 的 rawInput 为 `{question, options, multi}`
-        单问题形态——帧存档/ask_reasonix_*.json）；
+        单问题形态——文档/帧存档/ask_reasonix_*.json）；
         toolCall.content 文本块兜底（kimi 实证：request_permission 的
         toolCall 不带 rawInput，问题文本在 content 块——
-        帧存档/askuser_*.json）。"""
+        文档/帧存档/askuser_*.json）。"""
         tool_call = params.get("toolCall") or {}
         raw = tool_call.get("rawInput")
         if isinstance(raw, dict) and isinstance(raw.get("questions"), list):

@@ -54,11 +54,11 @@ ALLOW_KIND_PREFERENCE = ("allow_always", "allow_once")
 
 #: question 类交互工具名归一化小写名集（白名单通道，辅助防线）：
 #: AskUserQuestion 的 ACP 语义是"agent 提问 → 用户作答"，答案选项以
-#: allow_once kind 编码（实证：帧存档/askuser_*.json），
+#: allow_once kind 编码（实证：文档/帧存档/askuser_*.json），
 #: 无特判会被决策链当普通工具审批自动放行并秒选第一个选项。
 #: 白名单服务于"request_permission 的 toolCall.title 恰为工具名且
 #: rawInput 不带问题载荷"的异构形态；reasonix 决策帧 title 是问题原文
-#: （实证：帧存档/ask_reasonix_*.json），白名单管不到，
+#: （实证：文档/帧存档/ask_reasonix_*.json），白名单管不到，
 #: 由结构通道覆盖。其他后端同类工具名按实证补入，集中维护。
 _QUESTION_TOOL_NAMES = frozenset({"askuserquestion", "ask"})
 
@@ -70,7 +70,7 @@ def is_question_request(params: PermissionParams) -> bool:
     与工具名解耦）：rawInput 携带提问载荷签名任一即命中——
     - `questions` 列表（kimi 系 / reasonix session/update 帧形态）；
     - `question` 字符串 + `options` 列表（reasonix request_permission
-      决策帧形态，实证 帧存档/ask_reasonix_*.json：该帧
+      决策帧形态，实证 文档/帧存档/ask_reasonix_*.json：该帧
       title 是问题原文而非工具名，白名单永远命中不了）。
     只看字段存在性，不解析内容（误伤面收敛：普通工具 rawInput 无此二签名）。
 
