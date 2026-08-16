@@ -34,10 +34,11 @@ _pinned 跟随锁——用户手势上翻（滚轮/拖拽/键盘翻页，经 val
 from html import escape as _html_escape
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QTimer, QUrl, Signal
+from PySide6.QtCore import QEvent, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QTextCharFormat, QTextCursor
 from PySide6.QtWidgets import (
     QFrame,
+    QGraphicsOpacityEffect,
     QScrollArea,
     QToolButton,
     QVBoxLayout,
@@ -75,6 +76,13 @@ _FOLLOW_THRESHOLD_PX = 48
 
 #: 悬浮「回到底部」钮与视口右下缘的间距（2317 计划 D3）
 _BACK_TO_BOTTOM_MARGIN = 16
+
+#: 悬浮「回到底部」钮直径（圆形钮，内嵌中等向下三角 ⏷ U+23F7，
+#: 2026-0816 简化拍板，同日经 ▼、⤓ 改定）
+_BACK_TO_BOTTOM_SIZE = 32
+
+#: 悬浮「回到底部」钮常态透明度（2026-0817 拍板）：hover 时恢复 1.0
+_BACK_TO_BOTTOM_OPACITY = 0.5
 
 
 class TextStreamBlock(BodyHtml):
@@ -237,14 +245,23 @@ class ChatTranscriptView(QScrollArea):
         self._last_bar_value = 0
         self._last_bar_maximum = 0
         self.verticalScrollBar().valueChanged.connect(self._on_bar_value_changed)
-        # 悬浮「回到底部」钮：parent 到 viewport（不随内容滚动），解锁期间
-        # 浮现右下角，点击回底并恢复锁定
+        # 悬浮「回到底部」钮：圆形 + 中等向下三角 ⏷，parent 到 viewport
+        # （不随内容滚动），解锁期间浮现右下角，点击回底并恢复锁定
         self._back_to_bottom = QToolButton(self.viewport())
         self._back_to_bottom.setObjectName("BackToBottomButton")
-        self._back_to_bottom.setText("↓ 回到底部")
+        self._back_to_bottom.setText("⏷")
+        self._back_to_bottom.setToolTip("回到底部")
+        self._back_to_bottom.setFixedSize(_BACK_TO_BOTTOM_SIZE, _BACK_TO_BOTTOM_SIZE)
         self._back_to_bottom.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
         self._back_to_bottom.setCursor(Qt.CursorShape.PointingHandCursor)
         self._back_to_bottom.clicked.connect(self._on_back_to_bottom)
+        # 整体半透明（2026-0817 拍板：不挡正文，常态 0.5 / hover 1.0，
+        # QGraphicsOpacityEffect 整钮含符号一起变淡，不碰颜色键、四主题通吃；
+        # Enter/Leave 经 eventFilter 恢复与回落）
+        self._back_to_bottom_opacity = QGraphicsOpacityEffect(self._back_to_bottom)
+        self._back_to_bottom_opacity.setOpacity(_BACK_TO_BOTTOM_OPACITY)
+        self._back_to_bottom.setGraphicsEffect(self._back_to_bottom_opacity)
+        self._back_to_bottom.installEventFilter(self)
         self._back_to_bottom.hide()
 
         #: 当前正文流式块（首个正文帧懒建 / end_stream、reset 清）
@@ -501,10 +518,20 @@ class ChatTranscriptView(QScrollArea):
         self._set_pinned(True)
         self._do_scroll()
 
+    def eventFilter(self, watched, event) -> bool:
+        """悬浮钮 hover 透明度：进入恢复 1.0，离开回落常态值。
+        （构造早期事件路径可能先于按钮创建触发本过滤器，
+        getattr 守卫防 AttributeError）"""
+        if watched is getattr(self, "_back_to_bottom", None):
+            if event.type() == QEvent.Type.Enter:
+                self._back_to_bottom_opacity.setOpacity(1.0)
+            elif event.type() == QEvent.Type.Leave:
+                self._back_to_bottom_opacity.setOpacity(_BACK_TO_BOTTOM_OPACITY)
+        return super().eventFilter(watched, event)
+
     def _place_back_to_bottom(self) -> None:
-        """悬浮钮右下角定位（viewport 坐标系，不随内容滚动）。"""
+        """悬浮钮右下角定位（viewport 坐标系，不随内容滚动；尺寸固定圆形）。"""
         btn = self._back_to_bottom
-        btn.adjustSize()
         vp = self.viewport()
         btn.move(vp.width() - btn.width() - _BACK_TO_BOTTOM_MARGIN,
                  vp.height() - btn.height() - _BACK_TO_BOTTOM_MARGIN)

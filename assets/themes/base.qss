@@ -307,12 +307,17 @@ QToolButton:disabled {
     border-color: $button_disabled_border;
 }
 
-/* 对话区悬浮「回到底部」钮（2026-0816-2317 计划 D3/T4）：用户上翻解除
- * 流式跟随时浮现于视口右下角，点击回底并恢复锁定；沿用全局实体化范式
- * （主题键为不透明色值，qss 模板层无半透明通道，取实底），padding 略收
- * 保持小巧不遮正文 */
+/* 对话区悬浮「回到底部」钮（2026-0816-2317 计划 D3/T4，2026-0816 简化为
+ * 圆形钮，同日字符经 ▼、⤓ 改定 ⏷ U+23F7）：用户上翻解除流式跟随时浮现
+ * 于视口右下角，点击回底并恢复锁定；沿用全局实体化范式（主题键为不透明
+ * 色值，qss 模板层无半透明通道，取实底），尺寸由代码 setFixedSize(32,32)
+ * 锁定，border-radius 取一半成圆，padding 清零；⏷ 为扁实心三角（字形
+ * 扁宽，无需粗体），26px 时字形墨盒 20w×13h ≈ 半径 80%（多字号截图
+ * 对比选定） */
 #BackToBottomButton {
-    padding: 3px 10px;
+    padding: 0;
+    border-radius: 16px;
+    font-size: 26px;
 }
 
 /* 终端头部栏按钮：padding 收敛保持头部紧凑（替代旧 setFixedHeight(22)
