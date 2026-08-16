@@ -25,6 +25,11 @@ panel 路由层按设置项选轨后零分支复用同一代码路径。
 横向滚动条 ScrollBarAlwaysOff 硬关闭——治本在 cards.py _ElidedLabel
 （单行 QLabel 长文本撑宽容器的病根截断 + 最小宽归零）与 Body 块
 WidgetWidth 换行，本策略兜底任何未来块类型异常撑宽只裁边不滚动。
+
+流式跟随智能锁定（2026-08-16，work plans/2026-0816-2317 计划）：
+_pinned 跟随锁——用户手势上翻（滚轮/拖拽/键盘翻页，经 valueChanged
+方向判定）解除自动滚底并浮现「回到底部」悬浮钮，滚回底部阈值或点钮
+恢复跟随；程序滚底带标志位防误判，与旧轨 output.py 同构。
 """
 from html import escape as _html_escape
 from pathlib import Path
@@ -34,6 +39,7 @@ from PySide6.QtGui import QTextCharFormat, QTextCursor
 from PySide6.QtWidgets import (
     QFrame,
     QScrollArea,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -62,6 +68,13 @@ _STREAM_FLUSH_MS = 30  # 流式合帧节流间隔（1836 计划 D5 平移）
 #: 间距（setSpacing(6)）构成两级体系；布局层抽象不入文本（D1-B），
 #: 复制/选择/断言零污染，数值单一常量一处可调
 _TURN_GAP_PX = 14
+
+#: 跟随锁恢复阈值（2317 计划 D1/P1）：视口距底部 ≤ 此值视为贴底，
+#: 用户手势滚动落回区间内即恢复自动跟随
+_FOLLOW_THRESHOLD_PX = 48
+
+#: 悬浮「回到底部」钮与视口右下缘的间距（2317 计划 D3）
+_BACK_TO_BOTTOM_MARGIN = 16
 
 
 class TextStreamBlock(BodyHtml):
@@ -211,6 +224,29 @@ class ChatTranscriptView(QScrollArea):
         self._blocks.addStretch(1)
         self.setWidget(self._container)
 
+        # ---- 跟随锁（2317 计划 D1/D3）：用户手势上翻阅史解除自动滚底，
+        # 回底恢复；判定全部收口于 valueChanged 方向比较（滚轮/拖拽/键盘
+        # 翻页同源），sliderMoved 等手势信号无需单独接线 ----
+        #: True = 流式输出自动滚底；False = 用户阅史中，视角原地不动
+        self._pinned = True
+        #: 程序滚底标志（2317 计划 D2）：setValue 期间置位，valueChanged
+        #: 据此区分程序滚动与用户手势——内容增长推高 maximum 不触发
+        #: valueChanged，用户被动离底永不误判解锁
+        self._in_programmatic_scroll = False
+        #: 上次滚动位置/量程（方向与「清空回落」判定基准）
+        self._last_bar_value = 0
+        self._last_bar_maximum = 0
+        self.verticalScrollBar().valueChanged.connect(self._on_bar_value_changed)
+        # 悬浮「回到底部」钮：parent 到 viewport（不随内容滚动），解锁期间
+        # 浮现右下角，点击回底并恢复锁定
+        self._back_to_bottom = QToolButton(self.viewport())
+        self._back_to_bottom.setObjectName("BackToBottomButton")
+        self._back_to_bottom.setText("↓ 回到底部")
+        self._back_to_bottom.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+        self._back_to_bottom.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._back_to_bottom.clicked.connect(self._on_back_to_bottom)
+        self._back_to_bottom.hide()
+
         #: 当前正文流式块（首个正文帧懒建 / end_stream、reset 清）
         self._stream_block: TextStreamBlock | None = None
         #: 待落块的角色前缀（2000 计划 D2-A 懒建：begin_stream 簿记，
@@ -258,6 +294,9 @@ class ChatTranscriptView(QScrollArea):
 
     def append_user_message(self, content: str, images: list | None = None) -> None:
         self._flush_stream()
+        # 2317 计划 P3：用户发送新消息强制回底并恢复跟随（自己说话
+        # 必然要看回复，与 ChatGPT/Claude 同款）
+        self._set_pinned(True)
         block = UserBubbleBlock(
             content, images, self._colors, self._mention_checker(), self._container)
         block.link_clicked.connect(self.anchorClicked)
@@ -415,5 +454,66 @@ class ChatTranscriptView(QScrollArea):
         QTimer.singleShot(0, self._do_scroll)
 
     def _do_scroll(self) -> None:
+        if not self._pinned:
+            return  # 用户上翻阅史（2317 计划 D1）：自动滚底让位
         bar = self.verticalScrollBar()
-        bar.setValue(bar.maximum())
+        self._in_programmatic_scroll = True
+        try:
+            bar.setValue(bar.maximum())
+        finally:
+            self._in_programmatic_scroll = False
+
+    # ------------------------------------------------------------------
+    # 跟随锁（2317 计划）：解锁/恢复判定 + 悬浮「回到底部」钮
+    # ------------------------------------------------------------------
+    def _set_pinned(self, pinned: bool) -> None:
+        """跟随锁状态切换：解锁浮现「回到底部」钮，锁定隐藏。"""
+        if self._pinned == pinned:
+            return
+        self._pinned = pinned
+        self._back_to_bottom.setVisible(not pinned)
+        if not pinned:
+            self._place_back_to_bottom()
+
+    def _on_bar_value_changed(self, value: int) -> None:
+        """位置判定（2317 计划 D1/D2）：程序滚底跳过；量程收缩（清空/
+        换会话）回落跟随态；用户手势值减小即解锁，落回底部阈值恢复。
+
+        单向纪律：本回调只在「值减小」与「贴底」时改状态，内容增长把
+        用户被动推离底部不触发本回调（maximum 变、value 不变），故永不
+        反向误判解锁。
+        """
+        bar = self.verticalScrollBar()
+        old, self._last_bar_value = self._last_bar_value, value
+        old_max, self._last_bar_maximum = self._last_bar_maximum, bar.maximum()
+        if self._in_programmatic_scroll:
+            return
+        if bar.maximum() < old_max:
+            self._set_pinned(True)  # 量程收缩=内容清空/换会话：回落跟随
+            return
+        if value < old:
+            self._set_pinned(False)
+        elif bar.maximum() - value <= _FOLLOW_THRESHOLD_PX:
+            self._set_pinned(True)
+
+    def _on_back_to_bottom(self) -> None:
+        """点按回底：恢复跟随锁定并立即滚底（2317 计划 D3）。"""
+        self._set_pinned(True)
+        self._do_scroll()
+
+    def _place_back_to_bottom(self) -> None:
+        """悬浮钮右下角定位（viewport 坐标系，不随内容滚动）。"""
+        btn = self._back_to_bottom
+        btn.adjustSize()
+        vp = self.viewport()
+        btn.move(vp.width() - btn.width() - _BACK_TO_BOTTOM_MARGIN,
+                 vp.height() - btn.height() - _BACK_TO_BOTTOM_MARGIN)
+        btn.raise_()
+
+    def resizeEvent(self, event) -> None:
+        """基类布局后重定位悬浮钮；锁定态窗口变化重贴底（2317 计划 D4，
+        防窗口拉高后底部留白、跟随失效假象）。"""
+        super().resizeEvent(event)
+        self._place_back_to_bottom()
+        if self._pinned:
+            self._scroll_to_bottom()

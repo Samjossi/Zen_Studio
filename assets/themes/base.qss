@@ -307,6 +307,14 @@ QToolButton:disabled {
     border-color: $button_disabled_border;
 }
 
+/* 对话区悬浮「回到底部」钮（2026-0816-2317 计划 D3/T4）：用户上翻解除
+ * 流式跟随时浮现于视口右下角，点击回底并恢复锁定；沿用全局实体化范式
+ * （主题键为不透明色值，qss 模板层无半透明通道，取实底），padding 略收
+ * 保持小巧不遮正文 */
+#BackToBottomButton {
+    padding: 3px 10px;
+}
+
 /* 终端头部栏按钮：padding 收敛保持头部紧凑（替代旧 setFixedHeight(22)
  * 锁高——固定高度内容盒仅 14px 致中文截顶，2026-0722-1815 计划 P2）；
  * 作用域内仅「清屏」一个 QPushButton，无误伤面 */
