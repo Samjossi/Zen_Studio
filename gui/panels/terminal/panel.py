@@ -86,8 +86,23 @@ class TerminalPanel(QWidget):
         self._tab_bar.setObjectName("TerminalTabs")
         self._tab_bar.setTabsClosable(True)
         self._tab_bar.setExpanding(False)       # tab 不拉伸，左侧自然排列
-        self._tab_bar.setUsesScrollButtons(True)  # 溢出滚动箭头兜底
+        # 弃用原生溢出滚动箭头（其语义是"把哪边隐藏 tab 滚进视野"，标签带反向
+        # 移动，用户实机反馈方向感反转）——改自定义 ◀ ▶ 直觉语义按钮：
+        # 点击直接选中左/右邻居 tab（2026-0818-1111 计划方案 B）；
+        # 关滚动后 tab 压缩宽度挤入可视区，文字省略号兜底
+        self._tab_bar.setUsesScrollButtons(False)
         self._tab_bar.setDrawBase(False)         # 不画基线，融入头部栏
+
+        # ◀ ▶ 切换按钮：QToolButton 复刻 _btn_new 接线，零固定尺寸走全局 qss
+        self._btn_prev = QToolButton(self)
+        self._btn_prev.setText("◀")
+        self._btn_prev.setToolTip("上一个终端")
+        self._btn_next = QToolButton(self)
+        self._btn_next.setText("▶")
+        self._btn_next.setToolTip("下一个终端")
+        # 初值禁用（零 tab）；启停随 tab 增减由 _refresh_nav_buttons 维护
+        self._btn_prev.setEnabled(False)
+        self._btn_next.setEnabled(False)
 
         # 「+」新建终端：QToolButton 复刻聊天侧接线（tabs.py），零固定尺寸
         # 零自定字体，走全局 QToolButton 实体化 qss——QPushButton +
@@ -114,6 +129,8 @@ class TerminalPanel(QWidget):
         row = QHBoxLayout(self._header)
         row.addWidget(self._tab_bar, 1)
         row.addWidget(self._status)
+        row.addWidget(self._btn_prev)  # ◀ ▶ 成对置于「清屏」左侧（2026-08-18 用户定版）
+        row.addWidget(self._btn_next)
         row.addWidget(self._btn_clear)
         row.addWidget(self._btn_new)  # 最右端：原「−」隐藏按钮位置
         # 右端 6px 对齐面板级 6px 外边距体系（《规范》§6.3）
@@ -161,6 +178,8 @@ class TerminalPanel(QWidget):
         self._tab_bar.tabCloseRequested.connect(self._close_tab)
         self._btn_new.clicked.connect(lambda: self._spawn())
         self._btn_clear.clicked.connect(self._on_clear)
+        self._btn_prev.clicked.connect(lambda: self._step_tab(-1))
+        self._btn_next.clicked.connect(lambda: self._step_tab(1))
         # widget 只发原始事件，会话决策全在本层（单向依赖）
         self.terminal.context_menu_requested.connect(self._on_context_menu)
         self.terminal.find_requested.connect(self._show_find)
@@ -224,6 +243,7 @@ class TerminalPanel(QWidget):
         self._sessions.append(session_entry)
         idx = self._tab_bar.addTab(session_entry.title)
         self._tab_bar.setCurrentIndex(idx)  # 触发 _switch_tab 完成绑定
+        self._refresh_nav_buttons()
         return session_entry
 
     def _switch_tab(self, idx: int) -> None:
@@ -244,6 +264,19 @@ class TerminalPanel(QWidget):
         self._clear_search()  # 高亮绑定的是旧屏幕，切换即失效
         self._refresh_status()
 
+    def _step_tab(self, delta: int) -> None:
+        """◀ ▶ 按钮：选中左/右邻居 tab，到端环绕（QTabBar 自动保证
+        新当前 tab 可见——关原生滚动箭头后的可视性由选中驱动）。"""
+        count = self._tab_bar.count()
+        if count >= 2:
+            self._tab_bar.setCurrentIndex((self._tab_bar.currentIndex() + delta) % count)
+
+    def _refresh_nav_buttons(self) -> None:
+        """◀ ▶ 启停跟随 tab 数（≥2 才有邻居可切）。"""
+        enabled = self._tab_bar.count() >= 2
+        self._btn_prev.setEnabled(enabled)
+        self._btn_next.setEnabled(enabled)
+
     def _close_tab(self, idx: int) -> None:
         """关闭会话：进程回收（幂等）+ 断信号 + 出栈；全关后进入空状态。"""
         if not (0 <= idx < len(self._sessions)):
@@ -254,6 +287,7 @@ class TerminalPanel(QWidget):
         session_entry.session.terminate()
         self.session_closed.emit(session_entry)  # AI 桥清理（手关 AI tab 等价 kill+release）
         self._tab_bar.removeTab(idx)  # currentChanged 自然触发 _switch_tab（索引已对齐）
+        self._refresh_nav_buttons()
         if not self._sessions:
             self._serial = 0  # 全关归零：下一个新建重新从「终端1」开始
             self._switch_tab(-1)
