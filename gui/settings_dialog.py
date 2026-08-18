@@ -64,8 +64,11 @@ from gui.settings import (
     KEY_FONT_SIZE,
     KEY_MODEL_BACKEND,
     KEY_PERMISSION_MODE,
+    KEY_TERMINAL_AI_TAB_CLOSE_DELAY_S,
     KEY_TERMINAL_SWAP_COPY_PASTE,
     KEY_THEME,
+    TERMINAL_AI_TAB_CLOSE_DELAY_MAX_S,
+    TERMINAL_AI_TAB_CLOSE_DELAY_MIN_S,
     update_settings,
 )
 from gui.theme import (
@@ -118,7 +121,7 @@ _PAGE_REGISTRY: tuple[tuple[str, str, str, str | None], ...] = (
      "_build_model_page", "_reload_model"),
     ("外观", "主题与字号即时应用全窗口（含各面板配色）。",
      "_build_appearance_page", "_reload_appearance"),
-    ("终端", "终端按键行为配置，切换即时生效。",
+    ("终端", "终端按键与 AI 标签行为配置，切换即时生效。",
      "_build_terminal_page", "_reload_terminal"),
     ("高级", "配置文件查看与重置操作。",
      "_build_advanced_page", None),
@@ -130,6 +133,7 @@ class SettingsDialog(QDialog):
 
     :param ctx: MainWindow（鸭子类型：apply_model_selection / switch_theme /
         set_font_size / set_terminal_swap_copy_paste /
+        set_terminal_ai_tab_close_delay /
         open_settings_file / reset_settings / chat_tabs / statusBar；
         FONT_SIZE_MIN/MAX/STATUS_MSG_TIMEOUT_MS 类常量）
     """
@@ -445,6 +449,18 @@ class SettingsDialog(QDialog):
         layout.addWidget(self._swap_check)
         layout.addWidget(self._make_hint(
             "勾选后：Ctrl+C/V 复制粘贴，Ctrl+Shift+C/V 发中断（SIGINT）/粘贴标记。", page))
+        row = QHBoxLayout()
+        row.addWidget(QLabel("AI 终端标签结束后停留时长：", page))
+        self._close_delay_spin = QSpinBox(page)
+        self._close_delay_spin.setRange(
+            TERMINAL_AI_TAB_CLOSE_DELAY_MIN_S, TERMINAL_AI_TAB_CLOSE_DELAY_MAX_S)
+        self._close_delay_spin.setSuffix(" 秒")
+        self._close_delay_spin.valueChanged.connect(self._on_close_delay_changed)
+        row.addWidget(self._close_delay_spin)
+        row.addStretch(1)
+        layout.addLayout(row)
+        layout.addWidget(self._make_hint(
+            "AI 命令结束后，终端标签停留此时长再自动关闭；设为 0 立即关闭。", page))
         return page
 
     def _on_swap_toggled(self, checked: bool) -> None:
@@ -452,6 +468,13 @@ class SettingsDialog(QDialog):
             self._ctx.set_terminal_swap_copy_paste(checked)
             self._ctx.statusBar().showMessage(
                 f"终端：Ctrl+C/V 复制粘贴 → {'开' if checked else '关'}",
+                self._ctx.STATUS_MSG_TIMEOUT_MS)
+
+    def _on_close_delay_changed(self, value: int) -> None:
+        if not self._reloading:
+            self._ctx.set_terminal_ai_tab_close_delay(value)
+            self._ctx.statusBar().showMessage(
+                f"终端：AI 标签结束后停留时长 → {value} 秒",
                 self._ctx.STATUS_MSG_TIMEOUT_MS)
 
     # ------------------------------------------------------------------
@@ -509,6 +532,7 @@ class SettingsDialog(QDialog):
 
     def _reload_terminal(self, settings) -> None:
         self._swap_check.setChecked(settings[KEY_TERMINAL_SWAP_COPY_PASTE])
+        self._close_delay_spin.setValue(settings[KEY_TERMINAL_AI_TAB_CLOSE_DELAY_S])
 
     def _reload_model(self, settings) -> None:
         """模型页三级回显：后台（vendor 由 backend 经注册表推导，D2 不读

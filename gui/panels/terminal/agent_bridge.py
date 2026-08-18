@@ -3,7 +3,10 @@
 agent 的 Bash 命令经 ACP terminal/* 反向请求落到终端面板的用户可见
 AI tab 中执行（真 PTY，所有权在用户侧，AI 远程"驾驶"）：用户实时看
 输出、可 Ctrl+C 干预、可手关 tab（等价 kill+release）；release 后
-tab 自动关闭（协议语义：agent 不再查询），标签栏不积噪音。
+tab 自动关闭（协议语义：agent 不再查询），标签栏不积噪音；release 后
+停留「结束后停留时长」设置值（settings 键 terminal_ai_tab_close_delay_s，
+默认 4 秒、0 = 立即关）再关，短命令 tab 避免一闪即逝（2026-08-18
+实机反馈补丁，见 文档/修改记录/2026-0818-1120 计划 §6）。
 
 线程模型：连接层 reader 线程调用本桥 → QTimer.singleShot(receiver, callable)
 封送 GUI 线程同步执行（同 PERMISSION_QUEUE.ask 已验证的阻塞封送模式）；
@@ -21,6 +24,7 @@ from dataclasses import dataclass, field
 from PySide6.QtCore import QThread, QTimer
 
 from gui.panels.terminal.panel import TerminalPanel, _Session
+from gui.settings import KEY_TERMINAL_AI_TAB_CLOSE_DELAY_S, load_settings
 
 #: 输出尾部缓冲上限（字节）：超出保留尾部并置 truncated（T1 契约的截断策略）
 _TAIL_BYTES = 64 * 1024
@@ -92,12 +96,20 @@ class AgentTerminalBridge:
         self._lock = threading.Lock()
         self._serial = 0
         self._terms: dict[str, _TermRecord] = {}
+        #: AI 命令结束后 tab 停留秒数（设置中心「终端」页可调；初值自读
+        #: 持久化，变更经 set_close_delay_seconds 由 MainWindow 即时推送）
+        self._close_delay_s = load_settings()[KEY_TERMINAL_AI_TAB_CLOSE_DELAY_S]
         # 用户手关 AI tab（等价 kill+release）：桥侧清理挂起 wait 与簿记
         panel.session_closed.connect(self._on_tab_closed)
 
     def handle(self) -> _BridgeHandler:
         """取独立处理器视图（每 provider 一个，注入 set_terminal_handler）。"""
         return _BridgeHandler(self)
+
+    def set_close_delay_seconds(self, seconds: int) -> None:
+        """设置中心即时下发结束后停留时长（GUI 线程；唯一读取点
+        _schedule_close 同在 GUI 线程，无竞态）。"""
+        self._close_delay_s = seconds
 
     # ------------------------------------------------------------------
     # 线程封送（reader 线程 → GUI 线程，同 PERMISSION_QUEUE.ask 模式）
@@ -191,17 +203,34 @@ class AgentTerminalBridge:
             self._invoke_gui(rec.entry.session.terminate)  # PtySession.terminate 幂等
 
     def _release(self, terminal_id: str) -> None:
-        """解除协议侧跟踪并自动关 tab（2026-0818-1120 计划 T2）：release 的
-        协议语义即 agent 不再查询该终端，输出已在 release 前经尾部缓冲交付，
-        关 tab 无损；执行期可视性/干预能力不变。用户已手关则面板侧 no-op。"""
+        """解除协议侧跟踪并关 tab（2026-0818-1120 计划 T2 + 停留补丁）：
+        release 的协议语义即 agent 不再查询该终端，输出已在 release 前经尾部
+        缓冲交付，关 tab 无损；执行期可视性/干预能力不变。关 tab 调度封送
+        GUI 线程（_schedule_close）：停留时长为 0 立即关，否则停留满再关。
+        用户已手关则面板侧 no-op。"""
         with self._lock:
             rec = self._terms.pop(terminal_id, None)
         if rec is None:
             return
         self._flush_waits(rec, rec.exit_code if rec.exit_code is not None else -1)
         if rec.entry is not None:
-            entry = rec.entry
-            self._invoke_gui(lambda: self._panel.close_agent_session(entry))
+            # 延迟调度整体封送 GUI 线程：QTimer.singleShot 会在调用线程
+            # startTimer，reader 线程无事件分发器建不起定时器（offscreen
+            # 冒烟实证），必须在 GUI 线程创建
+            self._invoke_gui(lambda: self._schedule_close(rec))
+
+    def _schedule_close(self, rec: _TermRecord) -> None:
+        """GUI 线程：release 后停留设定秒数再关 tab——0 立即关；否则
+        QTimer 延迟关（receiver=面板：面板销毁则定时器自动取消，安全）。"""
+        entry = rec.entry
+        if entry is None:
+            return
+        if self._close_delay_s <= 0:
+            self._panel.close_agent_session(entry)
+        else:
+            QTimer.singleShot(
+                self._close_delay_s * 1000, self._panel,
+                lambda entry=entry: self._panel.close_agent_session(entry))
 
     # ------------------------------------------------------------------
     # 会话事件（GUI 线程，信号槽）

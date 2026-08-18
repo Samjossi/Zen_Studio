@@ -11,7 +11,7 @@ settings.json，update_settings 以 flock 串行化"读-合并-写"三步根治�
 写临时文件 + os.replace 原子覆盖防文件损坏；工作区根改由启动参数决定，
 不再持久化（KEY_WORKSPACE_ROOT 已删，存量旧键读取即丢弃自然失效）。
 
-键空间由 AppSettings 定型（10 个固定键），消费侧一律经 KEY_* 常量
+键空间由 AppSettings 定型（11 个固定键），消费侧一律经 KEY_* 常量
 引用键名，禁止裸字符串键（AFCP 3.1：数据结构显式）。
 
 权限键演进（2026-07-22，文档/修改记录/2026-0722-1240 计划）：二态
@@ -56,6 +56,9 @@ KEY_MODEL_VERSIONS = "model_versions"
 #: 推理强度记忆表（2026-0806 计划）：接口实现名 → 用户显式选定的强度值
 KEY_MODEL_EFFORTS = "model_efforts"
 KEY_TERMINAL_SWAP_COPY_PASTE = "terminal_swap_copy_paste"
+#: AI 终端标签结束后停留秒数（2026-0818-1120 计划 §6 防闪烁补丁）：
+#: AI 命令结束（release）后 tab 停留此时长再自动关闭；0 = 立即关
+KEY_TERMINAL_AI_TAB_CLOSE_DELAY_S = "terminal_ai_tab_close_delay_s"
 KEY_PERMISSION_MODE = "permission_mode"
 KEY_CHAT_RENDERER = "chat_renderer"
 #: kimi 子代理 wire 旁路开关（0813-1919 计划 T4；默认开，False 回退
@@ -82,9 +85,15 @@ _LEGACY_KEY_MODEL_VERSION = "model_version"
 #: 不可反向引用 theme.py——theme 依赖本模块，反向成环）
 DEFAULT_THEME = "cloud"
 
+#: AI 终端标签结束后停留时长：值域（秒）与默认值——设置中心 SpinBox 范围
+#: 与 load_settings 值域防御共用同一来源（AFCP 3.4 常量化）
+TERMINAL_AI_TAB_CLOSE_DELAY_MIN_S = 0
+TERMINAL_AI_TAB_CLOSE_DELAY_MAX_S = 30
+DEFAULT_TERMINAL_AI_TAB_CLOSE_DELAY_S = 4
+
 
 class AppSettings(TypedDict):
-    """settings.json 全量结构（10 个固定键，均为用户偏好）。"""
+    """settings.json 全量结构（11 个固定键，均为用户偏好）。"""
 
     theme: str                   # 主题名（gui/theme.py 注册表键）
     font_size: int               # 全局 UI 字号（pt）
@@ -101,6 +110,8 @@ class AppSettings(TypedDict):
     model_efforts: dict[str, str]
     #: 终端复制/粘贴快捷键反转（True：Ctrl+C/V 复制粘贴，Ctrl+Shift+C/V 发 SIGINT/\x16）
     terminal_swap_copy_paste: bool
+    #: AI 终端标签结束后停留秒数（0~30，默认 4；0 = release 后立即关闭）
+    terminal_ai_tab_close_delay_s: int
     #: AI 工具权限模式（四态枚举，值域见 llm/permission_policy.PERMISSION_MODES：
     #: confirm_all 逐次确认 / confirm_execute 仅命令确认 / auto_guarded 智能
     #: 放行+黑名单兜底（默认）/ auto_all 全部放行）
@@ -123,6 +134,7 @@ class AppSettingsPatch(TypedDict, total=False):
     model_versions: dict[str, str]
     model_efforts: dict[str, str]
     terminal_swap_copy_paste: bool
+    terminal_ai_tab_close_delay_s: int
     permission_mode: str
     chat_renderer: str
     kimi_wire_sidecar: bool
@@ -137,6 +149,7 @@ DEFAULT_SETTINGS: AppSettings = {
     KEY_MODEL_VERSIONS: {},
     KEY_MODEL_EFFORTS: {},
     KEY_TERMINAL_SWAP_COPY_PASTE: False,
+    KEY_TERMINAL_AI_TAB_CLOSE_DELAY_S: DEFAULT_TERMINAL_AI_TAB_CLOSE_DELAY_S,
     KEY_PERMISSION_MODE: DEFAULT_PERMISSION_MODE,
     KEY_CHAT_RENDERER: DEFAULT_CHAT_RENDERER,
     KEY_KIMI_WIRE_SIDECAR: True,
@@ -186,6 +199,14 @@ def load_settings() -> AppSettings:
     # 值域防御：渲染轨非法值（手改配置/旧版残留）回退默认轨
     if settings[KEY_CHAT_RENDERER] not in CHAT_RENDERERS:
         settings[KEY_CHAT_RENDERER] = DEFAULT_CHAT_RENDERER
+    # 值域防御：结束后停留时长非 int（bool 亦拒）回默认；越界钳制到值域
+    close_delay = settings[KEY_TERMINAL_AI_TAB_CLOSE_DELAY_S]
+    if not isinstance(close_delay, int) or isinstance(close_delay, bool):
+        settings[KEY_TERMINAL_AI_TAB_CLOSE_DELAY_S] = DEFAULT_TERMINAL_AI_TAB_CLOSE_DELAY_S
+    else:
+        settings[KEY_TERMINAL_AI_TAB_CLOSE_DELAY_S] = max(
+            TERMINAL_AI_TAB_CLOSE_DELAY_MIN_S,
+            min(TERMINAL_AI_TAB_CLOSE_DELAY_MAX_S, close_delay))
     # 异常/文件缺失路径同样脱离共享引用
     settings[KEY_MODEL_VERSIONS] = dict(settings[KEY_MODEL_VERSIONS])
     settings[KEY_MODEL_EFFORTS] = dict(settings[KEY_MODEL_EFFORTS])

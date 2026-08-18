@@ -352,8 +352,9 @@ class TerminalPanel(QWidget):
         self._spawn()
 
     def close_agent_session(self, session_entry: _Session) -> None:
-        """AI 桥 release 后自动关 tab（2026-0818-1120 计划 T1）：按会话对象
-        定位（用户可能已手关，找不到即 no-op）；复用 _close_tab 既有路径
+        """AI 桥 release 后自动关 tab（2026-0818-1120 计划 T1；短命令经
+        最短存活延迟后由 QTimer 调本方法，语义相同）：按会话对象定位
+        （用户可能已手关，找不到即 no-op）；复用 _close_tab 既有路径
         （terminate 幂等 + session_closed 信号 + 空状态归零）。"""
         try:
             idx = self._sessions.index(session_entry)

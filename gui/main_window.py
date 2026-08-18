@@ -75,6 +75,7 @@ from gui.settings import (
     KEY_FONT_SIZE,
     KEY_MODEL_BACKEND,
     KEY_MODEL_VERSIONS,
+    KEY_TERMINAL_AI_TAB_CLOSE_DELAY_S,
     KEY_TERMINAL_SWAP_COPY_PASTE,
     KEY_THEME,
     SETTINGS_FILE,
@@ -188,7 +189,9 @@ class MainWindow(QMainWindow):
         # ACP terminal/* GUI 桥（2026-0817-1554 计划 T5）：支持 terminal/*
         # 的 agent（kimi/reasonix）Bash 命令落终端面板 AI tab 执行，用户
         # 实时看输出可干预；不支持的 provider 声明恒 false（行为不变）
-        self.chat_tabs.set_terminal_bridge(AgentTerminalBridge(self.terminal_panel))
+        # 自持引用：设置中心「结束后停留时长」变更需即时推送到桥（2026-08-18 §6）
+        self._agent_terminal_bridge = AgentTerminalBridge(self.terminal_panel)
+        self.chat_tabs.set_terminal_bridge(self._agent_terminal_bridge)
         # 左栏最小宽度显式下限（0401 计划 D4/T5）：配合下方
         # setCollapsible(0, False) 双闸——拖到 MIN_WIDTH 即触底且不可塌缩
         self.chat_tabs.setMinimumWidth(ChatTabs.MIN_WIDTH)
@@ -635,6 +638,15 @@ class MainWindow(QMainWindow):
         hint = "Ctrl+C/V 复制粘贴" if checked else "Ctrl+Shift+C/V 复制粘贴"
         self.statusBar().showMessage(f"终端快捷键：{hint}", self.STATUS_MSG_SHORT_MS)
 
+    def set_terminal_ai_tab_close_delay(self, seconds: int) -> None:
+        """AI 终端标签结束后停留时长：持久化 + 即时下发 AI 终端桥（无需重启，
+        仅影响此后 release 的 tab；已在停留倒计时中的 tab 按旧值到点关）。"""
+        update_settings({KEY_TERMINAL_AI_TAB_CLOSE_DELAY_S: seconds})
+        self._agent_terminal_bridge.set_close_delay_seconds(seconds)
+        self._sync_settings_dialog()
+        self.statusBar().showMessage(
+            f"AI 终端标签结束后停留时长：{seconds} 秒", self.STATUS_MSG_SHORT_MS)
+
     def _on_modelbar_changed(self, _backend: str, _version: object) -> None:
         """模型选择变化（当前活动标签底行下拉/标签切换经 ChatTabs 转发）
         → 设置中心同步（reload 防回环）。"""
@@ -673,7 +685,8 @@ class MainWindow(QMainWindow):
             # 阻断同会话 closeEvent 回写当前布局（否则重置被静默撤销）
             self._state_store.disable_save()
 
-        # 即时应用：主题（含四面板配色）→ 字号 → 模型 → 终端快捷键。
+        # 即时应用：主题（含四面板配色）→ 字号 → 模型 → 终端快捷键与
+        # AI 标签结束后停留时长。
         # 挂起对话框 sync：各应用槽内置 _sync_settings_dialog 被抑制（否则 N 槽
         # 连发触发 N+1 次全量 reload，前 N 次读中间态即被覆盖），批末单次终态 reload
         settings = load_settings()
@@ -686,6 +699,9 @@ class MainWindow(QMainWindow):
                 settings[KEY_MODEL_VERSIONS].get(settings[KEY_MODEL_BACKEND]))
             swap = settings[KEY_TERMINAL_SWAP_COPY_PASTE]  # 重置后为默认 False
             self.terminal_panel.set_swap_copy_paste(swap)
+            # 结束后停留时长重置后为默认 4 秒（直接下发桥，状态栏不逐条刷屏）
+            self._agent_terminal_bridge.set_close_delay_seconds(
+                settings[KEY_TERMINAL_AI_TAB_CLOSE_DELAY_S])
         finally:
             self._dialog_sync_suspend -= 1
         self._sync_settings_dialog()
