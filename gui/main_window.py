@@ -699,7 +699,7 @@ class MainWindow(QMainWindow):
                 settings[KEY_MODEL_VERSIONS].get(settings[KEY_MODEL_BACKEND]))
             swap = settings[KEY_TERMINAL_SWAP_COPY_PASTE]  # 重置后为默认 False
             self.terminal_panel.set_swap_copy_paste(swap)
-            # 结束后停留时长重置后为默认 4 秒（直接下发桥，状态栏不逐条刷屏）
+            # 结束后停留时长重置后回默认值（直接下发桥，状态栏不逐条刷屏）
             self._agent_terminal_bridge.set_close_delay_seconds(
                 settings[KEY_TERMINAL_AI_TAB_CLOSE_DELAY_S])
         finally:

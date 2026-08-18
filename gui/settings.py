@@ -88,8 +88,8 @@ DEFAULT_THEME = "cloud"
 #: AI 终端标签结束后停留时长：值域（秒）与默认值——设置中心 SpinBox 范围
 #: 与 load_settings 值域防御共用同一来源（AFCP 3.4 常量化）
 TERMINAL_AI_TAB_CLOSE_DELAY_MIN_S = 0
-TERMINAL_AI_TAB_CLOSE_DELAY_MAX_S = 30
-DEFAULT_TERMINAL_AI_TAB_CLOSE_DELAY_S = 4
+TERMINAL_AI_TAB_CLOSE_DELAY_MAX_S = 999
+DEFAULT_TERMINAL_AI_TAB_CLOSE_DELAY_S = 12
 
 
 class AppSettings(TypedDict):
@@ -110,7 +110,7 @@ class AppSettings(TypedDict):
     model_efforts: dict[str, str]
     #: 终端复制/粘贴快捷键反转（True：Ctrl+C/V 复制粘贴，Ctrl+Shift+C/V 发 SIGINT/\x16）
     terminal_swap_copy_paste: bool
-    #: AI 终端标签结束后停留秒数（0~30，默认 4；0 = release 后立即关闭）
+    #: AI 终端标签结束后停留秒数（0~999，默认 12；0 = release 后立即关闭）
     terminal_ai_tab_close_delay_s: int
     #: AI 工具权限模式（四态枚举，值域见 llm/permission_policy.PERMISSION_MODES：
     #: confirm_all 逐次确认 / confirm_execute 仅命令确认 / auto_guarded 智能

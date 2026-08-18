@@ -5,7 +5,7 @@ AI tab 中执行（真 PTY，所有权在用户侧，AI 远程"驾驶"）：用�
 输出、可 Ctrl+C 干预、可手关 tab（等价 kill+release）；release 后
 tab 自动关闭（协议语义：agent 不再查询），标签栏不积噪音；release 后
 停留「结束后停留时长」设置值（settings 键 terminal_ai_tab_close_delay_s，
-默认 4 秒、0 = 立即关）再关，短命令 tab 避免一闪即逝（2026-08-18
+默认 12 秒、0 = 立即关）再关，短命令 tab 避免一闪即逝（2026-08-18
 实机反馈补丁，见 文档/修改记录/2026-0818-1120 计划 §6）。
 
 线程模型：连接层 reader 线程调用本桥 → QTimer.singleShot(receiver, callable)
