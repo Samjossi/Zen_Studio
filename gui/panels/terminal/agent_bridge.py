@@ -2,7 +2,8 @@
 
 agent 的 Bash 命令经 ACP terminal/* 反向请求落到终端面板的用户可见
 AI tab 中执行（真 PTY，所有权在用户侧，AI 远程"驾驶"）：用户实时看
-输出、可 Ctrl+C 干预、可手关 tab（等价 kill+release）。
+输出、可 Ctrl+C 干预、可手关 tab（等价 kill+release）；release 后
+tab 自动关闭（协议语义：agent 不再查询），标签栏不积噪音。
 
 线程模型：连接层 reader 线程调用本桥 → QTimer.singleShot(receiver, callable)
 封送 GUI 线程同步执行（同 PERMISSION_QUEUE.ask 已验证的阻塞封送模式）；
@@ -190,13 +191,17 @@ class AgentTerminalBridge:
             self._invoke_gui(rec.entry.session.terminate)  # PtySession.terminate 幂等
 
     def _release(self, terminal_id: str) -> None:
-        """解除协议侧跟踪：tab 保留供用户查看，标题不变
-        （退出状态由头部状态行「进程已退出 code N」承载，不占标题）。"""
+        """解除协议侧跟踪并自动关 tab（2026-0818-1120 计划 T2）：release 的
+        协议语义即 agent 不再查询该终端，输出已在 release 前经尾部缓冲交付，
+        关 tab 无损；执行期可视性/干预能力不变。用户已手关则面板侧 no-op。"""
         with self._lock:
             rec = self._terms.pop(terminal_id, None)
         if rec is None:
             return
         self._flush_waits(rec, rec.exit_code if rec.exit_code is not None else -1)
+        if rec.entry is not None:
+            entry = rec.entry
+            self._invoke_gui(lambda: self._panel.close_agent_session(entry))
 
     # ------------------------------------------------------------------
     # 会话事件（GUI 线程，信号槽）

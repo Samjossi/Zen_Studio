@@ -351,6 +351,16 @@ class TerminalPanel(QWidget):
         """新建终端会话（同头部「＋」）。"""
         self._spawn()
 
+    def close_agent_session(self, session_entry: _Session) -> None:
+        """AI 桥 release 后自动关 tab（2026-0818-1120 计划 T1）：按会话对象
+        定位（用户可能已手关，找不到即 no-op）；复用 _close_tab 既有路径
+        （terminate 幂等 + session_closed 信号 + 空状态归零）。"""
+        try:
+            idx = self._sessions.index(session_entry)
+        except ValueError:
+            return
+        self._close_tab(idx)
+
     def clear_active(self) -> None:
         """清屏当前会话（写 Ctrl+L，shell 自清）。"""
         self._on_clear()
