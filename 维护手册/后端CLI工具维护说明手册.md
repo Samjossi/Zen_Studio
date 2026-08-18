@@ -105,7 +105,7 @@ brew install esengine/reasonix/reasonix
 
 > 本机配置备注：2026-08-12 起 `~/.reasonix/config.toml` 已设 `[sandbox] bash = "off"`
 > （Ubuntu 24.04 AppArmor 默认策略拦截 bwrap 致沙箱不可用、bash 工具瘫痪，
-> 详见《work plans/2026-0812-0301_Reasonix沙箱不可用导致AI反复尝试bash问题调查报告.md》）。
+> 详见《文档/修改记录/2026-0812-0301_Reasonix沙箱不可用导致AI反复尝试bash问题调查报告.md》）。
 
 ---
 

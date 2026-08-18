@@ -1,10 +1,13 @@
+> ⚠️ **归档声明**：本文档为历史快照，记录了特定时间点的决策与实施状态。
+> 当前代码状态以对应 `.py` 源文件为准，本文档内容可能已过时，仅供参考。
+
 # AskUserQuestion 自定义输入（Other 选项）计划
 
 > **状态**：已实施（方案 B 引导提示，2026-08-07；原计划 T1/T2 的「Other 输入经 selected 通道回传」被 T0 spike 证伪，见 §8）
 > **范围**：`gui/panels/chat/permission_dialog.py`（QuestionDialog）、`gui/panels/chat/cards.py`（QuestionCard 按钮组）、`llm/permission_policy.py`（如需识别自定义回传）、`.temp/`（spike 脚本）、`scripts/`（验证）
 > **时间**：2026-08-07 04:45（设计，UTC+8）
 > **优先级**：中（体验性缺陷：用户只能二选一/多选一，无法自由作答）
-> **前序**：`work plans/2026-0807-0148_AskUserQuestion自动选答修复计划.md`（已实施：交互回环建成，本计划在其两个交互载体上补自定义输入项）
+> **前序**：`文档/修改记录/2026-0807-0148_AskUserQuestion自动选答修复计划.md`（已实施：交互回环建成，本计划在其两个交互载体上补自定义输入项）
 
 ---
 

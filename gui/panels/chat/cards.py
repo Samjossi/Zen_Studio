@@ -17,7 +17,7 @@
 主题色经 CardColors 注入（ChatPack 键直引，单一来源纪律）；主题切换
 语义与旧轨一致——仅影响此后新建的卡（0640 继承 1836 取舍）。
 
-横向滚动根治（2026-08-06，work plans/2026-0806-0401 计划 T1/T2）：
+横向滚动根治（2026-08-06，文档/修改记录/2026-0806-0401 计划 T1/T2）：
 - _ElidedLabel 单行省略标签：卡片标题/副标题/todo 条目的长文本按可用宽
   ElideRight 截断 + tooltip 全文兜底；minimumSizeHint 归零 + Ignored
   水平策略，根治 QLabel 长文本 minimumSizeHint=全文像素宽沿布局链把

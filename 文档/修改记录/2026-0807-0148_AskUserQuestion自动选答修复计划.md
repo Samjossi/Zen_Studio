@@ -1,3 +1,6 @@
+> ⚠️ **归档声明**：本文档为历史快照，记录了特定时间点的决策与实施状态。
+> 当前代码状态以对应 `.py` 源文件为准，本文档内容可能已过时，仅供参考。
+
 # AskUserQuestion 自动选答修复计划
 
 > **状态**：已实施（T1-T4 + T5 抓帧，2026-08-07 02:40；验证全绿：单元测试 /
@@ -5,7 +8,7 @@
 > **范围**：`llm/permission_policy.py`（决策层）、`llm/providers/acp.py`（协议层）、`llm/base.py`（载荷契约）、`gui/panels/chat/panel.py`（审批路由）、`gui/panels/chat/permission_queue.py`（交互串行化）、`gui/panels/chat/permission_dialog.py`（弹窗面）、`gui/panels/chat/cards.py`（QuestionCard）、`scripts/`（验证脚本）
 > **时间**：2026-08-07 01:48（设计，UTC+8）
 > **优先级**：高（功能性缺陷：用户选择权被静默剥夺）
-> **前序**：`work plans/2026-0806-1712_工具调用卡片渲染修复计划.md`（T5 已建 QuestionCard 渲染骨架，本计划在其上补交互回环）
+> **前序**：`文档/修改记录/2026-0806-1712_工具调用卡片渲染修复计划.md`（T5 已建 QuestionCard 渲染骨架，本计划在其上补交互回环）
 
 ---
 

@@ -1,6 +1,6 @@
 """core/child_env.py 环境净化单元测试。
 
-覆盖 work plans/2026-0811-0909 计划 T3 验证清单：
+覆盖 文档/修改记录/2026-0811-0909 计划 T3 验证清单：
     uv run python scripts/test_child_env.py
 
 不触真实子进程：直接对注入的假 env 字典调用 sanitize_environ() 断言。
