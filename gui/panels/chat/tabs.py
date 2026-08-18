@@ -41,6 +41,12 @@
   全部关闭即 _tab_seq 重置，再新建从「会话 1」开始（用户决策）
 - 关闭异步化：_close_tab 立即摘标签返回；terminate/wait 等重等待
   全部移入 ChatPanel 的 daemon 清理线程，GUI 线程零阻塞
+
+会话记录持久化（2026-08-18，文档/修改记录/2026-0818-2350 计划 T3）：
+- 关闭时 save_sessions 全量快照落盘（config/sessions/<hash8>.json，
+  按工作区分文件）；用户主动关闭的标签不在快照中，下次启动不恢复
+- 启动时 restore_sessions 按存档重建标签并重放文字记录（只读展示、
+  不入 _history、不回传 provider）；存档为空保留自动首标签现状行为
 """
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
@@ -54,6 +60,11 @@ from PySide6.QtWidgets import (
 )
 
 from gui.panels.chat.panel import ChatPanel
+from gui.panels.chat.session_store import (
+    SessionRecord,
+    load_sessions,
+    save_sessions,
+)
 from gui.settings import (
     KEY_MODEL_BACKEND,
     KEY_MODEL_EFFORTS,
@@ -204,11 +215,25 @@ class ChatTabs(QWidget):
     def add_tab(self) -> None:
         """新建会话标签（注入「新建注入值」作初始选择）；达上限忽略
         （按钮已禁用兜底）。新建后该标签选择即独立，不再受其余标签影响。"""
+        self._add_tab_with(self._backend, self._version)
+
+    def _add_tab_with(
+        self,
+        backend: str | None,
+        version: str | None,
+        record: SessionRecord | None = None,
+    ) -> None:
+        """建标签主流程（add_tab 新建与 restore_sessions 存档恢复共用）。
+
+        record 非 None = 存档恢复路径：backend/version 取存档值作构造注入
+        （不污染新建注入值），建成后 replay_session 重放文字记录上屏
+        （2026-0818-2350 计划 T3）。
+        """
         if self._tabs.count() >= self.MAX_TABS:
             return
         panel = ChatPanel(
-            self._backend,
-            self._version,
+            backend,
+            version,
             self._workspace_root,
             self,
             effort=self._effort,
@@ -235,6 +260,9 @@ class ChatTabs(QWidget):
         # 新建即当前：三按钮忙闲按本标签（必为空闲）刷新一次，防前标签
         # 响应中新建出的标签继承禁用态（currentChanged 槽也会重报对外）
         panel.model_bar.set_busy(panel in self._busy_panels)
+        if record is not None:
+            # 存档恢复：重放文字记录上屏（只读展示，不入 _history）
+            panel.replay_session(record)
 
     def set_terminal_bridge(self, bridge: object | None) -> None:
         """注入 ACP terminal/* GUI 桥（main_window 装配后调用）：存量标签
@@ -434,3 +462,32 @@ class ChatTabs(QWidget):
         """恢复默认布局：全部标签的输出/输入区回初始尺寸。"""
         for panel in self._panels():
             panel.reset_layout()
+
+    # ------------------------------------------------------------------
+    # 会话记录持久化（2026-0818-2350 计划 T3）：关闭时全量快照保存，
+    # 启动时按存档重建标签并重放文字记录（只读展示）
+    # ------------------------------------------------------------------
+    def save_sessions(self) -> None:
+        """关闭时保存会话记录（MainWindow.closeEvent 挂点）：全量快照 =
+        当前存活标签的集合——用户主动关闭的标签天然缺席，下次不恢复；
+        全关（零存活）→ 删存档文件，下次零恢复。空历史标签不入存档。"""
+        records = [record for panel in self._panels()
+                   if (record := panel.export_session()) is not None]
+        save_sessions(self._workspace_root, records)
+
+    def restore_sessions(self) -> None:
+        """启动时恢复会话记录（MainWindow._restore_window_state 挂点）。
+
+        存档非空时先回收构造期自动新建的空首标签（未对话即关，无 provider
+        会话损失），再按存档逐条重建标签并重放文字记录；存档为空 no-op
+        （保留自动首标签，现状行为不变）。
+        """
+        records = load_sessions(self._workspace_root)
+        if not records:
+            return
+        if self._tabs.count() == 1 and isinstance(
+                first := self._tabs.widget(0), ChatPanel) \
+                and first.export_session() is None:
+            self._close_tab(0)
+        for record in records:
+            self._add_tab_with(record["backend"], record["version"], record)

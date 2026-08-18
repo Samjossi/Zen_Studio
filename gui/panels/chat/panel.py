@@ -65,6 +65,13 @@ AI 活动信息路由（2026-07-31，文档/修改记录/2026-0731-1602 计划 T
 - 底行双常驻恒宽钮：「发送/排队/等待发送…」三态钮 +「■ 停止」
   常驻钮；待发双指示（2305 D4）= 三态钮禁用态文案 + 输入框
   pending 虚线 accent 描边（qss 动态属性）
+
+会话记录持久化（2026-08-18，文档/修改记录/2026-0818-2350 计划 T2）：
+- export_session 导出「_replayed_history + _history」两段拼接（关闭时
+  全量快照数据源）；replay_session 重放存档文字记录上屏（只读展示 +
+  系统分隔行标注），重放段簿记 _replayed_history 供再导出——不进
+  _history、不回传 provider（重启后 agent 侧为全新会话，界面历史对
+  AI 不可见，标注文案如实告知）
 """
 import threading
 import time
@@ -89,6 +96,7 @@ from gui.panels.chat.model_bar import ModelBar
 from gui.panels.chat.output import ChatOutput
 from gui.panels.chat.permission_queue import PERMISSION_QUEUE
 from gui.panels.chat.question_bridge import QUESTION_BRIDGE
+from gui.panels.chat.session_store import SessionRecord
 from gui.panels.chat.timeline import ActivityTimeline
 from gui.panels.chat.transcript import ChatTranscriptView
 from gui.panels.chat.worker import ChatWorker
@@ -180,6 +188,10 @@ class ChatPanel(QWidget):
         #: 防启动即落在该后端（无切换事件）时每次发送重复告知
         self._dev_note_shown = False
         self._stream_buffer = ""
+        #: 已重放的存档历史（2026-0818-2350 计划 T2）：replay_session 置位；
+        #: 与 _history 分列——_history 回传 provider（ACP 系只取末条）、
+        #: 本字段只服务于导出再存档（重启多次记录不丢，导出时两段拼接）
+        self._replayed_history: list[Message] = []
         self._has_seen_reasoning = False
         #: 工具调用 title 簿记（toolCallId → title，1602 计划 T6）：
         #: tool_call_update 帧常缺 title，状态行显示经此簿记补全；
@@ -765,6 +777,52 @@ class ChatPanel(QWidget):
     def reset_layout(self) -> None:
         """恢复默认布局：输出/输入区回初始尺寸（视图菜单「恢复默认布局」）。"""
         self._splitter.setSizes(self.DEFAULT_SPLITTER_SIZES)
+
+    # ------------------------------------------------------------------
+    # 会话记录持久化（2026-0818-2350 计划 T2）：导出/重放文字对话；
+    # 恢复内容只上屏展示，不入 _history、不回传 provider
+    # ------------------------------------------------------------------
+    def export_session(self) -> SessionRecord | None:
+        """导出本标签会话记录（关闭时全量快照的数据源）；空历史返回 None。
+
+        历史 = 已重放段 + 本轮新增段拼接：恢复后未对话即关，存档原样保留
+        （重启多次记录不丢）；恢复后继续对话，新消息续接在存档段后。
+        backend/version 取 ModelBar 回退后的有效值（与 UI 一致），恢复时
+        作新建注入值；effort 不导出（跟随 model_efforts 记忆表机制）。
+        """
+        history = self._replayed_history + self._history
+        if not history:
+            return None
+        return SessionRecord(
+            backend=self.model_bar.current_backend(),
+            version=self.model_bar.current_version(),
+            history=history,
+        )
+
+    def replay_session(self, record: SessionRecord) -> None:
+        """重放存档会话记录上屏（构造后由 ChatTabs.restore_sessions 调用）。
+
+        只读展示语义：复用既有上屏接口渲染（user 气泡卡 / AI 流式块），
+        末尾追加系统分隔行如实告知；**不回传 provider**——重放段簿记于
+        _replayed_history（供再导出），不进 _history（ACP 系 provider
+        历史由 agent 会话自管，重启后 agent 侧是全新会话，界面历史对
+        AI 不可见）。
+        """
+        self._replayed_history = list(record["history"])
+        for message in self._replayed_history:
+            role, content = message["role"], message["content"]
+            if role == "user":
+                # 图片附件防御：落盘 PNG 已清理则跳过该附件只显文本
+                images = [img for img in message.get("images") or []
+                          if Path(img["path"]).exists()]
+                self.output.append_user_message(content, images or None)
+            elif role == "assistant":
+                self.output.begin_stream("AI")
+                self.output.append_stream_chunk(content)
+                self.output.end_stream()
+            else:
+                self.output.append_message("系统", content)
+        self.output.append_message("系统", "🕘 会话记录（ 不计入上下文 ）")
 
     # ------------------------------------------------------------------
     # ACP 审批回环（权限四态：纯逻辑前置决策，弹窗面由档位决定）

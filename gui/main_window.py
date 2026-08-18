@@ -334,6 +334,9 @@ class MainWindow(QMainWindow):
             self._workspace_root,
         )
         self._state_store.restore()
+        # 会话记录恢复（2026-0818-2350 计划 T4）：布局恢复后按存档重建
+        # 标签并重放文字记录；存档为空 no-op（保留自动首标签）
+        self.chat_tabs.restore_sessions()
 
     def _restore_panels_visible(self) -> None:
         """隐藏面板先恢复可见：布局采集/保存前置（防 0 尺寸写入持久化）。"""
@@ -350,9 +353,12 @@ class MainWindow(QMainWindow):
         """关闭时布局保存（closeEvent 单一入口）：恢复可见 + 写自身根 + default。"""
         self._restore_panels_visible()
         self._state_store.save()
+        # 会话记录保存（2026-0818-2350 计划 T4）：全量快照——存活标签集合
+        # 落盘，用户主动关闭的标签不在快照中，下次启动不恢复
+        self.chat_tabs.save_sessions()
 
     def closeEvent(self, event: QCloseEvent) -> None:
-        """关闭时一次性保存窗口几何与四处分隔栏状态。"""
+        """关闭时一次性保存窗口几何、四处分隔栏状态与会话记录快照。"""
         # 面板隐藏时先恢复可见再保存：避免把 0 尺寸写入持久化（启动始终显示）
         self._save_layout_state()
         super().closeEvent(event)
