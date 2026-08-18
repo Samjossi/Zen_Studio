@@ -48,7 +48,9 @@ from llm.providers.acp import (
     PermissionHandler,
     PermissionOption,
     PermissionParams,
+    TerminalHandler,
     ToolCallInfo,
+    build_client_capabilities,
     build_prompt_blocks,
     map_session_update,
 )
@@ -63,6 +65,10 @@ _WIRE_USAGE_POLL_S = 0.2
 #: 可达 MB 级，每 2s 全量 read_text 不可接受；64KB 足够覆盖末多条
 #: llm.request / usage.record（单行实测数百字节至数千字节）
 _WIRE_TAIL_BYTES = 64 * 1024
+
+#: ACP terminal/* 反向能力支持矩阵（2026-0817-1522 五 agent 实测报告）：
+#: kimi/reasonix 支持；本 agent 不支持时保持 terminal: false（行为与现状等价）
+_TERMINAL_CAPABILITY = True
 
 
 def _session_dir_of(session_id: str) -> Path | None:
@@ -422,6 +428,9 @@ class KimiAcpLLM(LanguageModel):
         self._closed = False
         #: 审批处理器（由 GUI 注入）：session/request_permission params → optionId | None
         self._permission_handler: PermissionHandler | None = None
+        #: 终端处理器（GUI 桥经 set_terminal_handler 注入）；None = 不声明
+        #: terminal 能力（无 GUI 的 headless 场景自动退化 false）
+        self._terminal_handler: TerminalHandler | None = None
         #: 子代理 wire 旁路开关（0813-1919 计划 T4 设置项，GUI 经
         #: set_subagent_sidecar 注入；False 回退纯 ACP 行为——子代理
         #: 仅起止 + 成果摘要）
@@ -484,6 +493,12 @@ class KimiAcpLLM(LanguageModel):
         if self._conn:
             self._conn.set_permission_handler(handler)
 
+    def set_terminal_handler(self, handler: TerminalHandler | None) -> None:
+        """注入终端处理器（terminal/* 反向请求路由）；None 恢复 terminal: false。"""
+        self._terminal_handler = handler
+        if self._conn:
+            self._conn.set_terminal_handler(handler)
+
     def set_subagent_sidecar(self, enabled: bool) -> None:
         """子代理 wire 旁路开关注入（0813-1919 计划 T4；GUI 鸭子类型接线，
         无本方法的 provider 静默跳过）。"""
@@ -529,13 +544,12 @@ class KimiAcpLLM(LanguageModel):
                 self._conn = None
                 raise RuntimeError("kimi acp 后端已关闭（标签已销毁）")
             self._conn.set_permission_handler(self._permission_handler)
+            self._conn.set_terminal_handler(self._terminal_handler)
             self._session_id = None
             self._conn.request("initialize", {
                 "protocolVersion": 1,
-                "clientCapabilities": {
-                    "fs": {"readTextFile": False, "writeTextFile": False},
-                    "terminal": False,
-                },
+                "clientCapabilities": build_client_capabilities(
+                    terminal=_TERMINAL_CAPABILITY and self._terminal_handler is not None),
                 "clientInfo": {"name": "zen-studio", "title": "Zen Studio", "version": APP_VERSION},
             })
         if self._session_id is None:

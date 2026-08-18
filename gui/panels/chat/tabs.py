@@ -105,6 +105,9 @@ class ChatTabs(QWidget):
         # 自定义 QWidget 子类的 qss 背景需 WA_StyledBackground 才会绘制
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self._workspace_root = workspace_root
+        #: ACP terminal/* GUI 桥（main_window 装配后经 set_terminal_bridge
+        #: 注入；None = 全后端 terminal: false，2026-0817-1554 计划 T5）
+        self._terminal_bridge: object | None = None
         self._tab_seq = 0  # 序号：非全关不复用（防指代漂移）；全关即重置
         self._busy_panels: set[ChatPanel] = set()
         #: 标签序号簿记（panel → 会话 N）：标题「会话 N」的序号来源；
@@ -209,6 +212,7 @@ class ChatTabs(QWidget):
             self._workspace_root,
             self,
             effort=self._effort,
+            terminal_bridge=self._terminal_bridge,
         )
         panel.busy_changed.connect(lambda busy, p=panel: self._on_tab_busy(p, busy))
         panel.model_bar.selection_changed.connect(
@@ -231,6 +235,15 @@ class ChatTabs(QWidget):
         # 新建即当前：三按钮忙闲按本标签（必为空闲）刷新一次，防前标签
         # 响应中新建出的标签继承禁用态（currentChanged 槽也会重报对外）
         panel.model_bar.set_busy(panel in self._busy_panels)
+
+    def set_terminal_bridge(self, bridge: object | None) -> None:
+        """注入 ACP terminal/* GUI 桥（main_window 装配后调用）：存量标签
+        即时补注，后续新建标签经构造参数透传（2026-0817-1554 计划 T5）。"""
+        self._terminal_bridge = bridge
+        for idx in range(self._tabs.count()):
+            panel = self._tabs.widget(idx)
+            if isinstance(panel, ChatPanel):
+                panel.set_terminal_bridge(bridge)
 
     def _tab_title(self, panel: ChatPanel) -> str:
         """标签标题恒为「会话 N」（2026-08-03 用户决策）：异构后台后标题

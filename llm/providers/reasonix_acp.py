@@ -46,6 +46,8 @@ from llm.context_limits import reasonix_config_path, reasonix_context_window
 from llm.providers.acp import (
     AcpConnection,
     PermissionHandler,
+    TerminalHandler,
+    build_client_capabilities,
     build_prompt_blocks,
     map_session_update,
 )
@@ -59,6 +61,10 @@ _config_path = reasonix_config_path
 #: transcript 文本估算系数（chars/token）：英文 ~4、中文 ~1.5，reasonix
 #: system prompt 英文为主，取 4 偏保守（估算偏低，GUI 以 ~ 前缀标注口径）
 _ESTIMATE_CHARS_PER_TOKEN = 4
+
+#: ACP terminal/* 反向能力支持矩阵（2026-0817-1522 五 agent 实测报告）：
+#: kimi/reasonix 支持；本 agent 不支持时保持 terminal: false（行为与现状等价）
+_TERMINAL_CAPABILITY = True
 
 
 def estimate_usage_from_transcript(
@@ -200,6 +206,9 @@ class ReasonixAcpLLM(LanguageModel):
         self._closed = False
         #: 审批处理器（由 GUI 注入）：session/request_permission params → optionId | None
         self._permission_handler: PermissionHandler | None = None
+        #: 终端处理器（GUI 桥经 set_terminal_handler 注入）；None = 不声明
+        #: terminal 能力（无 GUI 的 headless 场景自动退化 false）
+        self._terminal_handler: TerminalHandler | None = None
         atexit.register(self.close)
 
     # ------------------------------------------------------------------
@@ -258,6 +267,12 @@ class ReasonixAcpLLM(LanguageModel):
         if self._conn:
             self._conn.set_permission_handler(handler)
 
+    def set_terminal_handler(self, handler: TerminalHandler | None) -> None:
+        """注入终端处理器（terminal/* 反向请求路由）；None 恢复 terminal: false。"""
+        self._terminal_handler = handler
+        if self._conn:
+            self._conn.set_terminal_handler(handler)
+
     def close(self) -> None:
         """终止 agent 子进程并注销 atexit 钩（多标签：实例随标签关闭销毁，
         不注销则绑定方法把已死实例钉在 atexit 注册表至进程退出）。
@@ -298,13 +313,12 @@ class ReasonixAcpLLM(LanguageModel):
                 self._conn = None
                 raise RuntimeError("reasonix acp 后端已关闭（标签已销毁）")
             self._conn.set_permission_handler(self._permission_handler)
+            self._conn.set_terminal_handler(self._terminal_handler)
             self._session_id = None
             init_result = self._conn.request("initialize", {
                 "protocolVersion": 1,
-                "clientCapabilities": {
-                    "fs": {"readTextFile": False, "writeTextFile": False},
-                    "terminal": False,
-                },
+                "clientCapabilities": build_client_capabilities(
+                    terminal=_TERMINAL_CAPABILITY and self._terminal_handler is not None),
                 "clientInfo": {"name": "zen-studio", "title": "Zen Studio", "version": APP_VERSION},
             })
             self._log_agent_info(init_result)

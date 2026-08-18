@@ -21,7 +21,7 @@ import sys
 import threading
 from collections.abc import Callable
 from pathlib import Path
-from typing import Literal, TypedDict
+from typing import Literal, Protocol, TypedDict
 
 from llm.base import (
     Chunk,
@@ -35,6 +35,12 @@ from llm.base import (
 from core.paths import workspace_display_path
 
 _ACP_TIMEOUT_S = 30  # initialize / session/new / set_config_option 等控制请求超时
+
+#: terminal/* 反向请求方法集（无 handler 时分发维持 -32601 兜底语义）
+_TERMINAL_METHODS = frozenset({
+    "terminal/create", "terminal/output", "terminal/wait_for_exit",
+    "terminal/kill", "terminal/release",
+})
 
 
 # ----------------------------------------------------------------------
@@ -105,6 +111,65 @@ class PermissionParams(TypedDict, total=False):
 
 #: 审批处理器签名：session/request_permission params → optionId（None 视为拒绝）
 PermissionHandler = Callable[[PermissionParams], str | None]
+
+
+class TerminalHandler(Protocol):
+    """terminal/* 反向请求处理器鸭子类型契约（GUI 桥 AgentTerminalBridge 实现）。
+
+    create/output/kill/release 在连接层 reader 线程被调，实现方自行封送
+    GUI 线程同步执行后返回；wait_for_exit 为回调式（长阻塞语义，严禁
+    占 reader 线程——会卡死同 session 的 session/update 流），进程退出时
+    实现方回调 `{exitCode, signal}`，连接层据登记挂起的 response id 补发
+    响应包。on_connection_dead 在死讯注入路径被调（agent 已死，无回包），
+    实现方清理本连接全部挂起 wait 回调。
+    """
+
+    def create(self, command: str, args: list[str], cwd: str | None,
+               env: dict[str, str] | None) -> str:
+        """建终端会话执行命令 → terminalId（args 为空时 command 为整行 shell 串）。"""
+        ...
+
+    def output(self, terminal_id: str) -> dict:
+        """→ {output, truncated, exitStatus?}（尾部 64KB 截断策略归实现方）。"""
+        ...
+
+    def wait_for_exit(self, terminal_id: str, callback: Callable[[dict], None]) -> None:
+        """挂进程退出一次性回调；已退出则立即回调 {exitCode, signal}。"""
+        ...
+
+    def kill(self, terminal_id: str) -> None:
+        """终止会话进程（幂等）。"""
+        ...
+
+    def release(self, terminal_id: str) -> None:
+        """解除协议侧跟踪（tab 保留归实现方语义）。"""
+        ...
+
+    def on_connection_dead(self) -> None:
+        """agent 进程死讯注入：清理本连接全部挂起 wait 回调（兜底 exitCode=-1）。"""
+        ...
+
+
+def build_client_capabilities(terminal: bool) -> dict:
+    """initialize 载荷 clientCapabilities 构造收口（fs 声明恒 false，见 1554 计划 §5）。
+
+    :param terminal: 是否声明 terminal/* 反向能力（支持矩阵常量 and 已注入 handler）
+    """
+    return {
+        "fs": {"readTextFile": False, "writeTextFile": False},
+        "terminal": terminal,
+    }
+
+
+def _parse_terminal_env(env: object) -> dict[str, str] | None:
+    """terminal/create 的 env 载荷 → dict（协议为 [{name, value}] 数组，dict 容错直通）。"""
+    if isinstance(env, dict):
+        return {str(k): str(v) for k, v in env.items()}
+    if isinstance(env, list):
+        parsed = {str(item["name"]): str(item.get("value", ""))
+                  for item in env if isinstance(item, dict) and "name" in item}
+        return parsed or None
+    return None
 
 #: 轮次内消息：update/response 载荷为 JSON-RPC 帧，dead 载荷为进程退出码
 _TurnMessage = tuple[Literal["update", "response"], dict] | tuple[Literal["dead"], int | None]
@@ -1067,11 +1132,21 @@ class AcpConnection:
         self._terminated = False  # 死讯注入幂等标志（reader EOF 与 terminate 谁先谁注入）
         #: 审批处理器（GUI 经 set_permission_handler 注入）；None=自动允许（C2 语义）
         self._permission_handler: PermissionHandler | None = None
+        #: 终端处理器（GUI 经 set_terminal_handler 注入）；None=terminal/*
+        #: 反向请求维持 -32601 兜底（未声明能力时 agent 本不该发起）
+        self._terminal_handler: TerminalHandler | None = None
+        #: 挂起的 terminal/wait_for_exit 响应 id 集（异步应答簿记；
+        #: 访问均持 _write_lock）：进程退出回调到达时补发响应包
+        self._pending_waits: set[int] = set()
         threading.Thread(target=self._reader, daemon=True).start()
 
     def set_permission_handler(self, handler: PermissionHandler | None) -> None:
         """注入审批处理器（None = 自动允许，C2 语义）。"""
         self._permission_handler = handler
+
+    def set_terminal_handler(self, handler: TerminalHandler | None) -> None:
+        """注入终端处理器（None = terminal/* 反向请求回 -32601）。"""
+        self._terminal_handler = handler
 
     # ------------------------------------------------------------------
     # 帧收发
@@ -1104,6 +1179,16 @@ class AcpConnection:
         for pending_queue in list(self._pending.values()):
             pending_queue.put({"error": {"code": -32099,
                                          "message": f"{self._agent_name} 进程意外退出"}})
+        # 挂起的 wait_for_exit：agent 已死无法回包，通知 handler 清理
+        # （bridge 侧以 exitCode=-1 兜底唤醒自身登记处）
+        handler = self._terminal_handler
+        if handler is not None:
+            try:
+                handler.on_connection_dead()
+            except Exception as e:  # noqa: BLE001 — 死讯路径异常不外溢
+                print(f"[{self._agent_name}] 终端处理器死讯清理异常: {e}", file=sys.stderr)
+        with self._write_lock:
+            self._pending_waits.clear()
 
     def _dispatch_line(self, line: str) -> None:
         """单帧分发：反向请求 / 轮次内通知与响应（→_updates）/ 控制响应（→_pending）。"""
@@ -1132,7 +1217,8 @@ class AcpConnection:
 
     def _handle_reverse(self, obj: dict) -> None:
         """反向请求（agent→client）：审批经 handler 路由（无 handler 自动允许）；
-        fs/terminal 未声明能力，兜底 methodNotFound。须及时应答，防 agent 阻塞。"""
+        terminal/* 经 handler 路由（无 handler 兜底 methodNotFound，与未声明
+        能力的现状等价）；fs 未声明能力，兜底 methodNotFound。须及时应答，防 agent 阻塞。"""
         if obj["method"] == "session/request_permission":
             params: PermissionParams = obj.get("params") or {}
             options = params.get("options") or []
@@ -1153,10 +1239,80 @@ class AcpConnection:
                 else:  # agent 未给任何选项：按协议回 cancelled
                     self._send({"jsonrpc": "2.0", "id": obj["id"], "result": {
                         "outcome": {"outcome": "cancelled"}}})
+        elif obj["method"] in _TERMINAL_METHODS and self._terminal_handler is not None:
+            self._handle_terminal(obj)
         else:
             with self._write_lock:
                 self._send({"jsonrpc": "2.0", "id": obj["id"],
                             "error": {"code": -32601, "message": "method not found"}})
+
+    # ------------------------------------------------------------------
+    # terminal/* 反向请求（T1，2026-0817-1554 计划；无 handler 时维持 -32601 现状）
+    # ------------------------------------------------------------------
+    def _handle_terminal(self, obj: dict) -> None:
+        """terminal/* 分发：create/output/kill/release 同步应答；
+        wait_for_exit 长阻塞语义改异步应答（登记 response id 挂起，进程退出
+        回调到达时 _complete_wait 补发响应包——严禁占 reader 线程等待）。"""
+        method = obj["method"]
+        params = obj.get("params") or {}
+        request_id = obj["id"]
+        handler = self._terminal_handler
+        assert handler is not None  # 分发处已判空
+        if method == "terminal/wait_for_exit":
+            with self._write_lock:
+                self._pending_waits.add(request_id)
+            try:
+                handler.wait_for_exit(
+                    params.get("terminalId") or "",
+                    lambda result, rid=request_id: self._complete_wait(rid, result))
+            except Exception as e:  # noqa: BLE001 — handler 异常不阻塞 agent
+                with self._write_lock:
+                    self._pending_waits.discard(request_id)
+                self._reply_error(request_id, -32603, f"wait_for_exit 失败：{e}")
+            return
+        try:
+            if method == "terminal/create":
+                terminal_id = handler.create(
+                    params.get("command") or "", list(params.get("args") or []),
+                    params.get("cwd"), _parse_terminal_env(params.get("env")))
+                result: dict = {"terminalId": terminal_id}
+            elif method == "terminal/output":
+                result = handler.output(params.get("terminalId") or "")
+            elif method == "terminal/kill":
+                handler.kill(params.get("terminalId") or "")
+                result = {}
+            else:  # terminal/release
+                handler.release(params.get("terminalId") or "")
+                result = {}
+        except Exception as e:  # noqa: BLE001 — handler 异常回 -32603，防 agent 永久阻塞
+            self._reply_error(request_id, -32603, f"{method} 失败：{e}")
+            return
+        with self._write_lock:
+            self._send({"jsonrpc": "2.0", "id": request_id, "result": result})
+
+    def _complete_wait(self, request_id: int, result: dict) -> None:
+        """wait_for_exit 异步应答：进程退出回调（GUI 线程）补发响应包。
+
+        回调可能晚于死讯注入（id 已清）——登记处查无此项即丢弃；
+        _write_lock 串行化跨线程写帧（与 reader 线程应答互斥）。
+        """
+        with self._write_lock:
+            if request_id not in self._pending_waits:
+                return
+            self._pending_waits.discard(request_id)
+            try:
+                self._send({"jsonrpc": "2.0", "id": request_id, "result": result})
+            except (OSError, ValueError):
+                pass  # 连接将死：死讯注入路径已兜底
+
+    def _reply_error(self, request_id: int, code: int, message: str) -> None:
+        """反向请求错误应答（写锁串行化；连接将死时静默丢弃）。"""
+        with self._write_lock:
+            try:
+                self._send({"jsonrpc": "2.0", "id": request_id,
+                            "error": {"code": code, "message": message}})
+            except (OSError, ValueError):
+                pass
 
     @staticmethod
     def _pick_option(options: list[PermissionOption], kind: str) -> str | None:
@@ -1260,7 +1416,9 @@ __all__ = [
     "ToolCallInfo",
     "PermissionParams",
     "PermissionHandler",
+    "TerminalHandler",
     "map_session_update",
     "map_usage_update",
     "build_prompt_blocks",
+    "build_client_capabilities",
 ]

@@ -66,6 +66,7 @@ from gui.panels import FileExplorer, ViewerPanel
 from gui.panels.changes import ChangesPanel
 from gui.panels.chat import ChatTabs
 from gui.panels.terminal import TerminalPanel
+from gui.panels.terminal.agent_bridge import AgentTerminalBridge
 from gui.git_graph_dialog import GitGraphDialog
 from gui.recent_projects import RecentProjectsStore
 from gui.settings import (
@@ -184,6 +185,10 @@ class MainWindow(QMainWindow):
         workspace_root = self._workspace_root
         # 左栏：AI 会话标签容器（选择状态层 + 多标签 ChatPanel，上限 4）
         self.chat_tabs = ChatTabs(workspace_root=workspace_root)
+        # ACP terminal/* GUI 桥（2026-0817-1554 计划 T5）：支持 terminal/*
+        # 的 agent（kimi/reasonix）Bash 命令落终端面板 AI tab 执行，用户
+        # 实时看输出可干预；不支持的 provider 声明恒 false（行为不变）
+        self.chat_tabs.set_terminal_bridge(AgentTerminalBridge(self.terminal_panel))
         # 左栏最小宽度显式下限（0401 计划 D4/T5）：配合下方
         # setCollapsible(0, False) 双闸——拖到 MIN_WIDTH 即触底且不可塌缩
         self.chat_tabs.setMinimumWidth(ChatTabs.MIN_WIDTH)

@@ -32,7 +32,7 @@
 | `gui/panels/changes/` | Git 变更面板子包（右栏下）：`panel.py` 已变更文件列表（状态着色 + 增减行数，VS Code SCM 简化版） |
 | `gui/panels/chat/` | 聊天面板子包（左栏）：`tabs.py` 标签容器（选择状态层 + 上限 4 标签）/ `panel.py` 装配（含底行：模型选择按钮 + 发送/停止双态按钮）/ `output.py` 输出区（旧轨）/ `transcript.py` 卡片轨对话区视图（0645 计划新轨；0813-1919 计划 T3 父指针路由——带 `parent_tool_call_id` 的子代理内部帧委派父 SubagentCard 内嵌区）/ `cards.py` KiloCode 式卡片折叠组件族（SubagentCard 内嵌「子代理活动」区复用 make_tool_card 嵌套显示子代理内部工具卡，0813-1919 计划 T2）/ `input.py` 输入框（文件拖入 → `@路径` 引用）/ `model_bar.py` 模型选择三按钮（纯视图）/ `worker.py` 流式线程 / `permission_dialog.py` ACP 工具审批对话框 / `permission_queue.py` 多标签审批串行弹窗队列 |
 | `gui/panels/viewer/` | 文件查看面板子包（中栏上，五页预览分流）：`panel.py` 装配（QStackedLayout 五页 + Git 差异徽标）/ `code_viewer.py` 只读文本查看器（行号栏）/ `highlighter.py` Pygments 高亮器 / `image_viewer.py` 图片页（位图 + SVG + GIF）/ `pdf_viewer.py` PDF 页（QPdfView 连续滚动）/ `markdown_view.py` Markdown 渲染页（GFM）/ `media_viewer.py` 音视频播放页 |
-| `gui/panels/terminal/` | 终端面板子包（中栏下）：`panel.py` 装配 / `widget.py` 自绘终端控件 / `screen.py` pyte 语义层 / `session.py` PTY 会话 / `palette.py` ANSI 双主题色板 / `selection.py` 选区控制器（纯逻辑零 Qt 依赖） |
+| `gui/panels/terminal/` | 终端面板子包（中栏下）：`panel.py` 装配 / `widget.py` 自绘终端控件 / `screen.py` pyte 语义层 / `session.py` PTY 会话 / `palette.py` ANSI 双主题色板 / `selection.py` 选区控制器（纯逻辑零 Qt 依赖）/ `agent_bridge.py` ACP terminal/* 反向能力 GUI 桥（AI tab，2026-08-17） |
 
 > LLM 调用层为后端逻辑，位于项目根 `llm/`（与 `gui/` 平级）：`base.py` Protocol / `providers/` 下 kimi / reasonix / OpenCode / Kilo Code 四家 ACP 长驻后端（传输层统一为 ACP，kimi CLI `-p` 模式已于 2026-07-31 移除）。多标签改造后 provider 由每个 `ChatPanel` 自持（`ChatPanel._build_providers` 装配单点）。
 >
@@ -123,7 +123,7 @@
 
 ## 7. 终端面板（中栏下）
 
-`TerminalPanel`：单行头部栏（**tab 区**＋固定操作组）+ `TerminalWidget` 自绘终端。**真 PTY 多会话终端**（ANSI 颜色/交互程序/`kimi login` 全可用）。AI-first 语境下为**用户终端**（agent 命令镜像待 ACP terminal RPC，备案）。OOP 五层单向依赖（详见 `2026-0719-0412_中栏下终端面板实施计划.md` §2）：
+`TerminalPanel`：单行头部栏（**tab 区**＋固定操作组）+ `TerminalWidget` 自绘终端。**真 PTY 多会话终端**（ANSI 颜色/交互程序/`kimi login` 全可用）。AI-first 语境下为用户终端 **+ AI tab**（2026-08-17，ACP terminal/* 反向能力落地：支持该能力的 agent（kimi/reasonix）Bash 命令落到用户可见的 `🤖 <命令>` tab 执行，实时输出、可 Ctrl+C 干预、手关等价 kill+release；桥接层 `agent_bridge.py` 仅经面板公开方法操作，连接层派发见 `llm/providers/acp.py`）。OOP 五层单向依赖（详见 `2026-0719-0412_中栏下终端面板实施计划.md` §2）：
 
 头部栏（阶段一/二重构，见 `文档/修改记录/2026-0719-0955_*.md`）：左起 tab 区（每会话一 tab：shell 名/OSC 动态标题＋行内 ×；`＋`新建；激活态下划线随主题）＋状态＋「清屏」（写 Ctrl+L，shell 自清）＋「−」隐藏（视图菜单可恢复）；固定高度随字号重算。终端区右键菜单承接重开/终止/关闭（Theia 功能分层）；`Ctrl+F` 查找为右上角浮层（不占布局）。
 

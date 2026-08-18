@@ -147,6 +147,7 @@ class ChatPanel(QWidget):
         workspace_root: str,
         parent: QWidget | None = None,
         effort: str | None = None,
+        terminal_bridge: object | None = None,
     ) -> None:
         """
         :param backend: 初始后端（registry 名；None/失效项经 ModelBar 静默
@@ -156,6 +157,8 @@ class ChatPanel(QWidget):
         :param parent: 父控件
         :param effort: 初始推理强度（2026-0806 计划；None = 未定制，agent
             默认强度生效；注入值归 ChatTabs 记忆表解析，后续切换见 set_effort）
+        :param terminal_bridge: ACP terminal/* GUI 桥（2026-0817-1554 计划
+            T5；None = 不声明 terminal 能力，agent Bash 在其内部进程执行）
         """
         super().__init__(parent)
         self.setObjectName("SidePanel")  # 侧栏灰底分区（主题 qss 统一着色）
@@ -238,6 +241,8 @@ class ChatPanel(QWidget):
         # model_bar.current_version()（选择状态单一来源，语义不变）
         self._workspace_root = workspace_root
         self._providers: dict[str, LanguageModel] = {}
+        #: ACP terminal/* GUI 桥（ChatTabs 注入；None = 全后端 terminal: false）
+        self._terminal_bridge = terminal_bridge
         self.set_effort(effort)  # 注入恢复（静默 UI + 簿记；provider 未建则跳过）
 
         self._build_layout()
@@ -265,6 +270,12 @@ class ChatPanel(QWidget):
         provider = spec.factory(workspace_root=self._workspace_root)
         if (set_handler := getattr(provider, "set_permission_handler", None)) is not None:
             set_handler(self._ask_permission)
+        # ACP terminal/* GUI 桥注入（2026-0817-1554 计划 T5）：鸭子类型，
+        # 无 set_terminal_handler 的 provider 静默跳过；桥为 None（无 GUI
+        # 的 headless 场景）时全后端 terminal 声明恒 false
+        if self._terminal_bridge is not None \
+                and (set_term := getattr(provider, "set_terminal_handler", None)) is not None:
+            set_term(self._terminal_bridge.handle())
         version = self.model_bar.current_version()
         if version and (set_model := getattr(provider, "set_model", None)) is not None:
             set_model(version)
@@ -279,6 +290,16 @@ class ChatPanel(QWidget):
             set_sidecar(load_settings()[KEY_KIMI_WIRE_SIDECAR])
         self._providers[name] = provider
         return provider
+
+    def set_terminal_bridge(self, bridge: object | None) -> None:
+        """ACP terminal/* GUI 桥后注入（ChatTabs 对存量标签用；新建标签
+        经构造参数注入）。已懒实例化的 provider 即时补注（鸭子类型）。"""
+        self._terminal_bridge = bridge
+        if bridge is None:
+            return
+        for provider in self._providers.values():
+            if (set_term := getattr(provider, "set_terminal_handler", None)) is not None:
+                set_term(bridge.handle())
 
     def set_effort(self, effort: str | None) -> None:
         """推理强度应用（本标签单面板入口）：同步自身 ModelBar 第四级

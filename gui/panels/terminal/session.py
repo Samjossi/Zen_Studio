@@ -5,6 +5,7 @@
 """
 import atexit
 import os
+import select
 import threading
 
 from ptyprocess import PtyProcess
@@ -27,6 +28,12 @@ class PtySession(QObject):
         self._is_closing = False  # 应用退出中：reader 线程不再发射信号（防销毁期 UB）
         self._generation = 0  # 进程代次：重开后旧代 reader 的退出信号作废（防竞态污染新会话状态）
         self._cwd = str(PROJECT_ROOT)  # shell 工作目录（start 可改；工作区切换只影响新会话）
+        #: ptyprocess waitpid 族（isalive/wait/terminate）非线程安全：reader
+        #: 线程循环与 GUI 线程（resize/is_alive/write/terminate）并发调用会
+        #: 互偷回收（一方两次 waitpid 间隙另一方先收割 → ECHILD 异常，
+        #: 秒退命令丢输出丢退出码，2026-08-18 AI tab 实测）。此锁串行化
+        #: 全部 waitpid 路径；read/write 等 fd 操作不入锁（内核自管）
+        self._proc_lock = threading.Lock()
         if app := QCoreApplication.instance():
             app.aboutToQuit.connect(self._on_about_to_quit)
         atexit.register(self.terminate)
@@ -40,11 +47,15 @@ class PtySession(QObject):
     # ------------------------------------------------------------------
     # 生命周期
     # ------------------------------------------------------------------
-    def start(self, column_count: int = 80, line_count: int = 24, cwd: str | None = None) -> None:
-        """spawn $SHELL（TERM=xterm-256color）并启动 reader 线程。
+    def start(self, column_count: int = 80, line_count: int = 24, cwd: str | None = None,
+              argv: list[str] | None = None, env_extra: dict[str, str] | None = None) -> None:
+        """spawn 进程（TERM=xterm-256color）并启动 reader 线程。
 
-        :param cwd: shell 工作目录；None 沿用上次（重开保持原目录），
+        :param cwd: 进程工作目录；None 沿用上次（重开保持原目录），
                     缺省为项目根（工作区切换时由 TerminalPanel 传入新根）。
+        :param argv: 进程 argv；None = $SHELL 交互会话（用户手开路径），
+            AI 会话经此注入具体命令（ACP terminal/* 桥接，2026-0817-1554 计划 T4）。
+        :param env_extra: 额外环境变量（叠加在 os.environ 之上，agent 请求值）。
         """
         if cwd is not None:
             self._cwd = cwd
@@ -54,37 +65,48 @@ class PtySession(QObject):
         self.terminate()
         shell = os.environ.get("SHELL", "/bin/bash")
         env = dict(os.environ, TERM="xterm-256color")
+        if env_extra:
+            env.update(env_extra)
         self._proc = PtyProcess.spawn(
-            [shell], cwd=self._cwd, env=env, dimensions=(line_count, column_count))
+            argv or [shell], cwd=self._cwd, env=env, dimensions=(line_count, column_count))
         threading.Thread(
             target=self._read_loop, args=(self._proc, self._generation), daemon=True).start()
 
     def terminate(self) -> None:
         """终止子进程（幂等；应用退出经 atexit 兜底）。"""
         proc, self._proc = self._proc, None
-        if proc is not None and proc.isalive():
-            try:
-                proc.terminate(force=True)
-            except Exception:  # noqa: BLE001 — 退出期异常无需上屏
-                pass
+        if proc is not None:
+            with self._proc_lock:
+                if proc.isalive():
+                    try:
+                        proc.terminate(force=True)
+                    except Exception:  # noqa: BLE001 — 退出期异常无需上屏
+                        pass
 
     def is_alive(self) -> bool:
-        return self._proc is not None and self._proc.isalive()
+        with self._proc_lock:
+            return self._proc is not None and self._proc.isalive()
 
     # ------------------------------------------------------------------
     # I/O
     # ------------------------------------------------------------------
     def write(self, data: bytes) -> None:
-        if self._proc is not None and self._proc.isalive():
+        with self._proc_lock:
+            proc = self._proc
+            alive = proc is not None and proc.isalive()
+        if alive:
             try:
-                self._proc.write(data)
+                proc.write(data)
             except OSError:
                 pass
 
     def resize(self, row_count: int, column_count: int) -> None:
-        if self._proc is not None and self._proc.isalive():
+        with self._proc_lock:
+            proc = self._proc
+            alive = proc is not None and proc.isalive()
+        if alive:
             try:
-                self._proc.setwinsize(max(1, row_count), max(1, column_count))
+                proc.setwinsize(max(1, row_count), max(1, column_count))
             except OSError:
                 pass
 
@@ -98,7 +120,30 @@ class PtySession(QObject):
         防止 terminate 旧进程产生的晚到退出信号污染新会话状态。
         """
         try:
-            while proc.isalive():
+            while True:
+                with self._proc_lock:
+                    alive = proc.isalive()
+                if not alive:
+                    break
+                try:
+                    data = proc.read(4096)
+                except (EOFError, OSError):
+                    break
+                if not data:
+                    break
+                if generation == self._generation and self._may_emit():
+                    self.data_received.emit(data)
+            # 收尾排空：进程已退出但 PTY 缓冲可能仍有未读输出（GUI 侧
+            # isalive 先收割时主循环的 read 从未执行，秒退命令场景实证）；
+            # select 短超时轮询有界（防孙进程持有 pty 致排空悬挂），
+            # EOF/EIO 即排空完毕
+            while True:
+                try:
+                    readable, _, _ = select.select([proc.fd], [], [], 0.1)
+                except (OSError, ValueError):
+                    break
+                if not readable:
+                    break
                 try:
                     data = proc.read(4096)
                 except (EOFError, OSError):
@@ -109,17 +154,18 @@ class PtySession(QObject):
                     self.data_received.emit(data)
         finally:
             code = -1
-            try:
-                if not proc.isalive():
-                    code = proc.wait()
-            except Exception:  # noqa: BLE001 — 退出码不可得时按 -1
-                # 显式 None 判断：exitstatus 为 0（正常退出）时不能用 or -1 兜底
-                return_code = getattr(proc, "exitstatus", None)
-                code = return_code if return_code is not None else -1
-            if code is None:
-                # ptyprocess：被信号杀死时 wait() 返回 None（exitstatus=None）；
-                # 按 shell 惯例以 128+signo 回报（SIGHUP=129 / SIGINT=130 / SIGKILL=137）
-                sig = getattr(proc, "signalstatus", None)
-                code = 128 + sig if isinstance(sig, int) else -1
+            with self._proc_lock:
+                try:
+                    if not proc.isalive():
+                        code = proc.wait()
+                except Exception:  # noqa: BLE001 — 退出码不可得时按 -1
+                    # 显式 None 判断：exitstatus 为 0（正常退出）时不能用 or -1 兜底
+                    return_code = getattr(proc, "exitstatus", None)
+                    code = return_code if return_code is not None else -1
+                if code is None:
+                    # ptyprocess：被信号杀死时 wait() 返回 None（exitstatus=None）；
+                    # 按 shell 惯例以 128+signo 回报（SIGHUP=129 / SIGINT=130 / SIGKILL=137）
+                    sig = getattr(proc, "signalstatus", None)
+                    code = 128 + sig if isinstance(sig, int) else -1
             if generation == self._generation and self._may_emit():
                 self.process_exited.emit(code)

@@ -6,8 +6,9 @@
 序号标题（终端N，递增不复用）、右键菜单功能分层、查找浮层（当前屏搜索，不占布局）。
 """
 from dataclasses import dataclass
+from collections.abc import Callable
 
-from PySide6.QtCore import QEvent, QObject, Qt, QTimer
+from PySide6.QtCore import QEvent, QObject, Qt, QTimer, Signal
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import (
     QFrame,
@@ -43,6 +44,10 @@ class _Session:
 
 class TerminalPanel(QWidget):
     """中栏下终端面板（真 PTY 多会话 tab：spawn $SHELL，cwd=项目根）。"""
+
+    #: 会话 tab 被用户关闭（载荷为 _Session 值对象；AI 桥据此清理——
+    #: 用户手关 AI tab 等价 kill+release，2026-0817-1554 计划 T4）
+    session_closed = Signal(object)
 
     #: 面板最小高度（px）：头部栏约 28px + 约 5 行终端文本，
     #: 配合主窗口 middle_splitter.setCollapsible(1, False) 生效
@@ -180,21 +185,46 @@ class TerminalPanel(QWidget):
         return self._sessions[idx] if 0 <= idx < len(self._sessions) else None
 
     def _spawn(self) -> None:
-        """新建会话：以当前网格尺寸 spawn（此刻控件尺寸已稳定），入栈并切为新 tab。"""
+        """新建用户会话：以当前网格尺寸 spawn（此刻控件尺寸已稳定），入栈并切为新 tab。"""
+        self._serial += 1
+        self._spawn_entry(argv=None, cwd=self._cwd, title=f"终端{self._serial}")
+
+    def spawn_agent_session(self, argv: list[str], cwd: str | None, title: str,
+                            on_data: Callable[[bytes], None] | None = None,
+                            on_exited: Callable[[int], None] | None = None) -> _Session:
+        """新建 AI 会话（ACP terminal/* 桥接入口，2026-0817-1554 计划 T4）：
+        复用用户会话同一套 _Session/tab 栈/信号接线；不占「终端N」序号。
+
+        仅供 AgentTerminalBridge 封送至 GUI 线程后调用；返回会话句柄供桥
+        侧生命周期管理。on_data/on_exited 为桥侧附加监听——在 start 之前
+        接线（快命令首帧数据可能先于 spawn 返回到达，事后接线会丢输出）。
+        """
+        return self._spawn_entry(argv=argv, cwd=cwd or self._cwd, title=title,
+                                 on_data=on_data, on_exited=on_exited)
+
+    def _spawn_entry(self, argv: list[str] | None, cwd: str, title: str,
+                     on_data: Callable[[bytes], None] | None = None,
+                     on_exited: Callable[[int], None] | None = None) -> _Session:
+        """spawn 公共实现：建会话 + 入栈 + 切为新 tab（用户/AI 会话同路径）。"""
         row_count, column_count = self.terminal.get_grid_size()
         session = PtySession(self)
         screen = TerminalScreen(column_count, row_count)
-        self._serial += 1
-        session_entry = _Session(session=session, screen=screen, title=f"终端{self._serial}")
+        session_entry = _Session(session=session, screen=screen, title=title)
         # 闭包捕获 session_entry：多会话数据各自进各自 screen（不错绑）
         session.data_received.connect(
             lambda data, session_entry=session_entry: self._on_data(session_entry, data))
         session.process_exited.connect(
             lambda return_code, session_entry=session_entry: self._on_exited(session_entry, return_code))
-        session.start(column_count, row_count, cwd=self._cwd)
+        # 桥侧附加监听（AI 会话）：与面板自带接线同在 start 之前完成
+        if on_data is not None:
+            session.data_received.connect(on_data)
+        if on_exited is not None:
+            session.process_exited.connect(on_exited)
+        session.start(column_count, row_count, cwd=cwd, argv=argv)
         self._sessions.append(session_entry)
         idx = self._tab_bar.addTab(session_entry.title)
         self._tab_bar.setCurrentIndex(idx)  # 触发 _switch_tab 完成绑定
+        return session_entry
 
     def _switch_tab(self, idx: int) -> None:
         """切换活动会话：widget 重绑定 + 尺寸补同步 + 状态/按钮刷新。"""
@@ -222,6 +252,7 @@ class TerminalPanel(QWidget):
         session_entry.session.data_received.disconnect()
         session_entry.session.process_exited.disconnect()
         session_entry.session.terminate()
+        self.session_closed.emit(session_entry)  # AI 桥清理（手关 AI tab 等价 kill+release）
         self._tab_bar.removeTab(idx)  # currentChanged 自然触发 _switch_tab（索引已对齐）
         if not self._sessions:
             self._serial = 0  # 全关归零：下一个新建重新从「终端1」开始
