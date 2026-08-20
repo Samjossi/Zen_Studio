@@ -9,7 +9,8 @@
 - 提交列（CommitColumnDelegate）：hash（hash_fg 弱化）+ refs 徽标（圆角
   胶囊，四型分色取自 GIT_GRAPH_PACK，背景/边框按色值派生透明度）+
   subject（HEAD 行加粗），空间不足省略号截断
-- 主题/字号：apply_theme(theme) 挂 MainWindow.switch_theme 链、
+- 主题/字号：apply_theme(theme) 曾挂 MainWindow.switch_theme 链——热切换
+  已随 2026-0820-1642 计划移除，方法保留为公共接口；
   refresh_font() 挂 _apply_font_size 链（同对话框既有先例）
 """
 from __future__ import annotations

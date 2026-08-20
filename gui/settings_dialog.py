@@ -11,9 +11,9 @@
   堆叠页 + 底部「关闭」按钮；各页不再自带页顶说明（1510 计划 D4/D8）
 - 主题化：app 级 qss 覆盖标准控件；内联 style 不受其管辖的部分（hint 灰、
   分隔线）由 apply_theme(theme) 收敛点按 muted_text/border 令牌重刷
-  （挂 MainWindow.switch_theme 链，同五面板先例；1510 计划 D6——
-  QPalette 角色色方案被否决：apply_theme 只设样式表不设 palette，角色色
-  不会随主题变化）
+  （热切换已随 2026-0820-1642 计划移除，本方法保留为公共接口，构造期
+  自检初始化；1510 计划 D6 否决的 QPalette 角色色方案已由该计划翻盘——
+  gui/theme.apply_theme 现纳管 app 级 QPalette 兜底，见其 §4.1）
 - 字号化：页标题/黑名单等宽区字号**相对派生**自 app 全局字号（禁止绝对值
   写死——不随用户字号缩放，全局调大后标题反而比正文小），由
   apply_font_size() 收敛点重刷（挂 MainWindow._apply_font_size 链，同
@@ -214,7 +214,7 @@ class SettingsDialog(QDialog):
             self._subtitle_label.setText(subtitle)
 
     def apply_theme(self, theme: str) -> None:
-        """主题收敛点（MainWindow.switch_theme 链，同五面板先例）。
+        """主题收敛点（热切换已随 2026-0820-1642 计划移除，方法保留为公共接口）。
 
         app 级 qss 覆盖标准控件；此处仅重刷其管辖不到的内联 style——
         hint 取 muted_text 令牌，分隔线取 border 令牌（QFrame 线色走
@@ -428,7 +428,7 @@ class SettingsDialog(QDialog):
                 self._ctx.STATUS_MSG_TIMEOUT_MS)
 
     def _on_theme_activated(self, index: int) -> None:
-        # 状态栏反馈由 MainWindow.switch_theme 统一发（「已切换为xx主题」），不重复
+        # 反馈由 MainWindow.switch_theme 统一发（重启生效提示弹窗，1642 计划），不重复
         self._ctx.switch_theme(self._theme_combo.itemData(index))
 
     def _on_font_changed(self, value: int) -> None:

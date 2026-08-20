@@ -29,7 +29,7 @@ from string import Template
 from typing import TypedDict
 
 from pygments.token import Token
-from PySide6.QtGui import QFont, QFontDatabase
+from PySide6.QtGui import QColor, QFont, QFontDatabase, QPalette
 from PySide6.QtWidgets import QApplication
 
 from core.paths import PROJECT_ROOT, THEMES_ASSETS_DIR
@@ -615,7 +615,8 @@ EMOJI_FONT_FILES = (
 )
 EMOJI_FAMILY = "Noto Color Emoji"
 
-#: 注册幂等标志：主题切换会重入 apply_theme，字体只需注册一次
+#: 注册幂等标志：字号调整链（main_window._apply_font_size）会重入 apply_theme，
+#: 字体只需注册一次
 _are_fonts_registered = False
 
 
@@ -690,8 +691,39 @@ def get_mono_family() -> str:
     return "monospace"
 
 
+def _apply_palette(app: QApplication, palette: dict) -> None:
+    """按当前主题令牌刷新 app 级 QPalette（QSS 够不到的角色兜底）。
+
+    根因：QSS 的 color 不沿控件树继承（1424 计划探针实证），未显式命中的
+    文本控件（QLabel/QMenuBar/文本编辑类等）落到 palette Text 角色恒黑。
+    QSS 已显式覆盖的控件以 QSS 为准（Qt 优先级天然如此），本函数只填兜底。
+    （2026-0820-1642 计划 §4.1；不设 AlternateBase/BrightText/3D 斜面角色——
+    本应用无消费方或 base.qss 已全量接管，理由见该计划角色映射表）
+    """
+    pal = app.palette()  # 基于现行调色板改，未触及角色保留平台默认
+    pal.setColor(QPalette.ColorRole.Window, QColor(palette["window_bg"]))
+    pal.setColor(QPalette.ColorRole.WindowText, QColor(palette["text"]))
+    pal.setColor(QPalette.ColorRole.Base, QColor(palette["input_bg"]))
+    pal.setColor(QPalette.ColorRole.Text, QColor(palette["text"]))
+    pal.setColor(QPalette.ColorRole.Button, QColor(palette["card_bg"]))
+    pal.setColor(QPalette.ColorRole.ButtonText, QColor(palette["text"]))
+    pal.setColor(QPalette.ColorRole.ToolTipBase, QColor(palette["tooltip_bg"]))
+    pal.setColor(QPalette.ColorRole.ToolTipText, QColor(palette["tooltip_text"]))
+    pal.setColor(QPalette.ColorRole.Highlight, QColor(palette["accent"]))
+    # 白字与 base.qss selection-color: #ffffff 既有硬编码一致；
+    # gui/selection_band.py 等选区带派生自 QPalette.Highlight，天然同源
+    pal.setColor(QPalette.ColorRole.HighlightedText, QColor("#ffffff"))
+    pal.setColor(QPalette.ColorRole.Link, QColor(palette["accent"]))
+    pal.setColor(QPalette.ColorRole.PlaceholderText, QColor(palette["muted_text"]))
+    disabled = QColor(palette["button_disabled_text"])
+    pal.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.Text, disabled)
+    pal.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.WindowText, disabled)
+    pal.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.ButtonText, disabled)
+    app.setPalette(pal)
+
+
 def apply_theme(app: QApplication) -> None:
-    """按当前配置应用主题样式表与全局字体。"""
+    """按当前配置应用主题样式表、QPalette 兜底色与全局字体。"""
     settings = load_settings()
 
     try:
@@ -700,5 +732,6 @@ def apply_theme(app: QApplication) -> None:
         # 模板文件缺失（打包错误）时静默回退到 Qt 默认样式
         app.setStyleSheet("")
 
+    _apply_palette(app, get_theme_palette(settings[KEY_THEME]))
     register_bundled_fonts()
     app.setFont(QFont(BUNDLED_FAMILY, settings[KEY_FONT_SIZE]))

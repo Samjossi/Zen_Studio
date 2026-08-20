@@ -10,8 +10,9 @@
 - 主形态：GitGraphView 结构化列表（委托自绘图形列/refs 徽标分栏）；
   解析失败（--graph 格式漂移）整窗回退彩色富文本形态（1542 计划 D3），
   两级失败再走占位文案（非仓库/尚无提交），不弹任何错误框
-- 主题/字号链：apply_theme(theme) 挂 MainWindow.switch_theme 链（视图/
-  富文本重渲染均用缓存数据，不重复 spawn git）；refresh_font() 挂
+- 主题/字号链：apply_theme(theme) 曾挂 MainWindow.switch_theme 链（视图/
+  富文本重渲染均用缓存数据，不重复 spawn git）——热切换已随
+  2026-0820-1642 计划移除，方法保留为公共接口；refresh_font() 挂
   MainWindow._apply_font_size 链（同查看器/终端先例）
 """
 from PySide6.QtGui import QFont, QShowEvent
@@ -126,7 +127,7 @@ class GitGraphDialog(QDialog):
     # 主题/字号链
     # ------------------------------------------------------------------
     def apply_theme(self, theme: str) -> None:
-        """主题切换跟随（挂 MainWindow.switch_theme 链）：视图/富文本重渲染。"""
+        """主题切换跟随（热切换已随 1642 计划移除，方法保留为公共接口）：视图/富文本重渲染。"""
         self._theme = theme
         self._view.apply_theme(theme)
         self._render_fallback()

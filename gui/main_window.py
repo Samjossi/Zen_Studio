@@ -396,28 +396,22 @@ class MainWindow(QMainWindow):
     # 主题切换（视图菜单 ▸ 外观；QActionGroup 单回调读 data 载荷）
     # ------------------------------------------------------------------
     def switch_theme(self, theme: str) -> None:
-        """切换主题：持久化 + 即时应用，并同步四面板各自的主题资源包。"""
+        """切换主题：持久化 + 提示重启后生效（热切换已移除，见 2026-0820-1642 计划）。
+
+        热链（apply_theme 八方转发）随本计划停用：存量卡片色构造期冻结进
+        内联 HTML/QSS，热刷需逐卡簿记（1424 计划，已回滚）；重启后全部
+        新建自然正确。各面板 apply_theme 方法保留（公共接口），仅本函数
+        不再调用。菜单勾选语义 = 已保存的选择（非当前生效主题）。
+        """
+        unchanged = theme == load_settings()[KEY_THEME]  # D1：未变更不弹窗
         save_theme(theme)
-        app = QApplication.instance()
-        if app is not None:
-            apply_theme(app)
-        self.viewer_panel.apply_theme(theme)
-        self.terminal_panel.apply_theme(theme)
-        self.file_explorer.apply_theme(theme)
-        self.changes_panel.apply_theme(theme)
-        self.chat_tabs.apply_theme(theme)
-        # 标题栏内联 QSS 不受 app 级 qss 管辖，随链重刷（启动主题构造期已自检初始化）
-        self.title_bar.apply_theme(theme)
-        if self._settings_dialog is not None:
-            # 设置中心内联 style（hint/分隔线）不受 app 级 qss 管辖，随链重刷
-            self._settings_dialog.apply_theme(theme)
-        if self._git_graph_dialog is not None:
-            # 提交历史图委托自绘色/降级富文本色随链重渲染（缓存数据，不重复 spawn git）
-            self._git_graph_dialog.apply_theme(theme)
         if action := self.menus.get(theme_action_key(theme)):
             action.setChecked(True)
         self._sync_settings_dialog()
-        self.statusBar().showMessage(f"已切换为{get_label(theme)}主题", self.STATUS_MSG_TIMEOUT_MS)
+        if not unchanged:
+            QMessageBox.information(
+                self, "主题已保存",
+                f"已选择{get_label(theme)}主题，重启后生效。")
 
     # ------------------------------------------------------------------
     # 文件菜单槽

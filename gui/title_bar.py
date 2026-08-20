@@ -14,8 +14,9 @@
 （bg/text/hover/close_hover 四键，见 gui/theme.py THEME_PALETTES）；
 A 方案（复用 sidebar_bg 等现有令牌）经核算 sidebar_bg 与 window_bg 色差 <2%，
 四亮色主题下标题栏与菜单栏/内容区无区分度，否决。关闭 hover 红 #c75450
-跨主题通用，入令牌包便于后续微调（D4）。`apply_theme` 挂
-MainWindow.switch_theme 转发链即时联动（同 viewer_panel/settings_dialog 先例），
+跨主题通用，入令牌包便于后续微调（D4）。`apply_theme` 曾挂
+MainWindow.switch_theme 转发链即时联动（同 viewer_panel/settings_dialog 先例）——
+热切换已随 2026-0820-1642 计划移除，方法保留为公共接口；
 启动主题于构造时经 load_settings 自检初始化。
 """
 from PySide6.QtCore import QEvent, QPoint, Qt
@@ -80,7 +81,8 @@ class TitleBar(QWidget):
         self.setFixedHeight(TITLE_BAR_HEIGHT)
         # qss background 对 QWidget 需显式开启样式绘制
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        # 启动主题初始化（构造期自检持久化配置；后续切换走 apply_theme 转发链）
+        # 启动主题初始化（构造期自检持久化配置；热切换已随 1642 计划移除，
+        # 后续切换重启生效，apply_theme 保留为公共接口）
         self.apply_theme(load_settings()[KEY_THEME])
 
         #: 手动拖拽兜底偏移（startSystemMove 可用时恒为 None）
@@ -118,7 +120,7 @@ class TitleBar(QWidget):
         self._sync_max_button()
 
     # ------------------------------------------------------------------
-    # 主题联动（MainWindow.switch_theme 转发链，同五面板/settings_dialog 先例）
+    # 主题联动（热切换已随 1642 计划移除，apply_theme 保留为公共接口）
     # ------------------------------------------------------------------
     def apply_theme(self, theme: str) -> None:
         """按主题 title_bar 令牌包重刷内联 QSS（未注册主题名由调色板查询兜底）。"""
