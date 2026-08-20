@@ -6,12 +6,14 @@ $token 占位符由 string.Template 按 THEME_PALETTES[主题名] 渲染（缺�
 KeyError，fail-fast）。耦合色（如菜单/下拉同底色）物理同源，不可能漂移；
 新增主题 = THEME_PALETTES 加一行字典。
 
-资源包单套化（2026-07-21，见 文档/修改记录/2026-0721-0205_dark主题移除与
-资源包单套化实施计划.md）：dark 主题移除，语法高亮/终端 ANSI/查看器行号/
-Git 状态色四套资源包全库各只此一套，四个主题字典直接引用同一模块级常量
-（共享即引用，不复制）。架构中不存在任何明暗判断代码（get_family 已废除、
-明暗双包已删除）；未来新增主题（含中间态/深色）逐值手写或基于共享包覆盖
-单项（如 {**CHROME_PACK, "find_bg": "#xxx"}）。
+资源包亮暗双套（2026-07-21 单套化，见 文档/修改记录/2026-0721-0205_dark
+主题移除与资源包单套化实施计划.md；2026-08-20 双深色主题新增，见 work
+plans/2026-0820-1115_双深色主题新增实施计划.md）：语法高亮/终端 ANSI/
+查看器行号/Git 状态色/Git Graph 徽标/聊天面板六套资源包亮暗各一套
+（*_PACK / *_PACK_DARK 模块级常量），亮色四主题共享引用亮套、深色两主题
+共享引用暗套（共享即引用，不复制）。架构中不存在任何明暗判断代码
+（get_family 已废除）；未来新增主题（含中间态）逐值手写或基于共享包覆盖
+单项（如 {**CHROME_PACK_DARK, "find_bg": "#xxx"}）。
 
 字体（2026-07-19，见 文档/修改记录/2026-0719-1152_字体库统一计划.md）：
 双字体族全部自带、统一注册自 assets/fonts/，不引用系统字体——
@@ -227,6 +229,89 @@ CHAT_PACK: ChatPack = {
 }
 
 # ----------------------------------------------------------------------
+# 深色资源包（2026-0820-1115 计划；深色两主题共享引用，纪律同亮套。
+# 语法/终端/Git 状态三套以 0205 计划移除的旧 dark 包（git 04453ce^）
+# 为底稿逐项审校采纳；Git Graph/聊天两套为新增键，按深底对比度新配）
+# ----------------------------------------------------------------------
+
+#: 语法高亮配色包（深色；旧 SYNTAX_PACK_B 直采，One Dark 系色值）
+SYNTAX_PACK_DARK: dict = {
+    Token.Keyword: {"color": "#6EA6FF", "bold": True},
+    Token.Keyword.Namespace: {"color": "#C678DD", "bold": True},
+    Token.Name.Builtin: {"color": "#56B6C2"},
+    Token.Name.Function: {"color": "#61AFEF"},
+    Token.Name.Class: {"color": "#E5C07B", "bold": True},
+    Token.Name.Decorator: {"color": "#C678DD"},
+    Token.String: {"color": "#98C379"},
+    Token.Number: {"color": "#D19A66"},
+    Token.Comment: {"color": "#7F848E", "italic": True},
+    Token.Operator: {"color": "#ABB2BF"},
+    Token.Generic.Heading: {"color": "#E5C07B", "bold": True},
+    Token.Generic.Subheading: {"color": "#E5C07B", "bold": True},
+    Token.Generic.Strong: {"bold": True},
+    Token.Generic.Emph: {"italic": True},
+    Token.Error: {"color": "#E06C75"},
+}
+
+#: 终端配色包（深色；ANSI 16 色直采旧 TERMINAL_PACK_B，find_* 叠加色
+#: 新配——沿用亮套半透明琥珀思路，深底下透明度上调一档保证可见）
+TERMINAL_PACK_DARK: TerminalPack = {
+    "default_fg": "#d4d4d4", "default_bg": "#1e1e1e",
+    "black": "#4d4d4d", "red": "#f14c4c", "green": "#23d18b", "brown": "#e5e510",
+    "blue": "#3b8eea", "magenta": "#d670d6", "cyan": "#29b8db", "white": "#e5e5e5",
+    "brightblack": "#666666", "brightred": "#ff6e67", "brightgreen": "#5ff7a0",
+    "brightbrown": "#f4f47c", "brightblue": "#6ea6ff", "brightmagenta": "#e28bff",
+    "brightcyan": "#4de8ff", "brightwhite": "#ffffff",
+    "find_bg": "#4dffdc64", "find_cur": "#80ffb400",
+}
+
+#: 查看器控件配色包（深色；直采旧 CHROME_B，键名随现行 ChromePack 映射：
+#: ln_fg→line_number_fg、ln_bg→line_number_bg、cur_bg→current_line_bg）
+CHROME_PACK_DARK: ChromePack = {
+    "line_number_fg": "#6b717d", "line_number_bg": "#26292e",
+    "current_line_bg": "#2f333a",
+    "find_bg": "#5c4a0f", "find_cur": "#8a6d1a",
+}
+
+#: Git 状态色包（深色；直采旧 GIT_STATUS_B，亮一度的同族色保证深底可读）
+GIT_STATUS_PACK_DARK: GitStatusPack = {
+    "modified": "#e5b567",   # 琥珀
+    "untracked": "#4ec971",  # 亮绿
+    "deleted": "#e06c75",    # 亮红
+    "ignored": "#6e6e6e",    # 灰
+    "conflict": "#ff5f5f",   # 强亮红
+}
+
+#: Git 提交历史图配色包（深色；新增键无旧底稿——徽标四型对齐终端包
+#: ANSI 亮色系，hash 弱化灰取 GitHub 暗色 muted 同族）
+GIT_GRAPH_PACK_DARK: GitGraphPack = {
+    "head": "#d670d6",     # 亮品红（HEAD 特殊位）
+    "branch": "#4ec971",   # 亮绿（本地分支）
+    "tag": "#e5b567",      # 琥珀（标签）
+    "remote": "#29b8db",   # 亮青（远程分支）
+    "hash_fg": "#7d8590",  # 灰（短 hash 弱化）
+}
+
+#: 聊天面板配色包（深色；新增键无旧底稿。usage_hot_fg/tool_error_fg 不引
+#: WARNING_COLOR——#c0392b 深底对比度不足（约 2.5:1），取 deleted 同族亮红
+#: #e06c75；timeline 三键对齐终端 ANSI 亮色系；气泡/输出卡两档明度差纪律
+#: 同亮套——气泡卡略亮（深色下「略深」反转为「略亮」才浮于窗口底）；
+#: diff 红绿对齐 Git 状态色）
+CHAT_PACK_DARK: ChatPack = {
+    "reasoning_fg": "#8b949e",
+    "usage_hot_fg": "#e06c75",
+    "tool_fg": "#9aa4b0",
+    "tool_error_fg": "#e06c75",
+    "timeline_read_fg": "#58a6ff",
+    "timeline_write_fg": "#79c0ff",
+    "timeline_tool_fg": "#29b8db",
+    "user_bubble_bg": "#2e2e30",
+    "tool_output_bg": "#262628",
+    "diff_add_fg": "#4ec971",
+    "diff_del_fg": "#ff7b72",
+}
+
+# ----------------------------------------------------------------------
 # 主题调色板注册表（qss 令牌 + 五资源包；注册顺序即视图菜单顺序）
 # ----------------------------------------------------------------------
 
@@ -246,15 +331,17 @@ QSS_TOKEN_KEYS = (
 
 #: 资源包键集合（非 qss 令牌，渲染时不参与替换）
 PACK_KEYS = ("label", "syntax", "terminal", "chrome", "git_status", "chat",
-             "title_bar")
+             "title_bar", "git_graph")
 
-#: 主题注册表：键 = 主题名；label = 菜单显示名；其余为 qss 令牌 + 五资源包。
-#: 四主题引用同一组资源包常量（共享即引用，不复制——全库各只此一套）；
-#: 未来新增主题可全手写或 {**CHROME_PACK, ...} 单项覆盖。
+#: 主题注册表：键 = 主题名；label = 菜单显示名；其余为 qss 令牌 + 六资源包。
+#: 亮色四主题共享引用亮套常量、深色两主题共享引用 *_DARK 暗套常量
+#: （共享即引用，不复制）；未来新增主题可全手写或 {**CHROME_PACK, ...} 单项覆盖。
 #:
 #: 1259 教训：亮色四主题 combo_hover_bg 为 transparent——hover 伪态背景不触发
 #: 选中背景接管，透明等价于未设置（见 base.qss 下拉框段注释）；QComboBox 普通态
 #: 永不设 background-color（check_theme_tokens.py 反模式断言机器拦截）。
+#: 深色两主题 popup_bg 为深色实底，combo hover 需可见色，沿用旧 dark 实值思路
+#: （2026-0820-1115 计划 §3 表格行）。
 THEME_PALETTES: dict[str, dict] = {
     "cloud": {
         "label": "云白",
@@ -399,6 +486,85 @@ THEME_PALETTES: dict[str, dict] = {
         "syntax": SYNTAX_PACK, "terminal": TERMINAL_PACK,
         "chrome": CHROME_PACK, "git_status": GIT_STATUS_PACK, "chat": CHAT_PACK,
         "git_graph": GIT_GRAPH_PACK,
+    },
+    # 深色两主题（2026-0820-1115 计划 D1 定名）：令牌底稿取旧 dark 条目
+    # （git 04453ce^，经 2026-07 人工验收），令牌名随现行规范映射
+    # （side_bg→sidebar_bg、btn_*→button_*）；资源包共享 *_DARK 暗套。
+    "graphite": {
+        "label": "石墨",
+        "accent": "#0765d4",
+        "text": "#f5f5f7",
+        "muted_text": "#86868b",
+        "window_bg": "#1e1e1e",
+        "sidebar_bg": "#252527",
+        "card_bg": "#2c2c2e",
+        "border": "rgba(255, 255, 255, 0.16)",
+        "border_hover": "rgba(255, 255, 255, 0.26)",
+        "input_bg": "#3a3a3c",
+        "combo_hover_bg": "#454548",
+        "popup_bg": "#2c2c2e",
+        "popup_border": "rgba(255, 255, 255, 0.18)",
+        "menu_border": "rgba(255, 255, 255, 0.18)",
+        "popup_separator": "rgba(255, 255, 255, 0.12)",
+        "list_item_hover": "rgba(255, 255, 255, 0.07)",
+        "button_hover_bg": "rgba(7, 101, 212, 0.28)",
+        "button_pressed_bg": "rgba(7, 101, 212, 0.38)",
+        "button_disabled_text": "rgba(245, 245, 247, 0.35)",
+        "button_disabled_bg": "#2a2a2c",
+        "button_disabled_border": "rgba(255, 255, 255, 0.08)",
+        "separator": "#38383a",
+        "splitter_hover": "rgba(255, 255, 255, 0.14)",
+        "scrollbar_handle": "rgba(255, 255, 255, 0.28)",
+        "scrollbar_handle_hover": "rgba(255, 255, 255, 0.42)",
+        "tooltip_bg": "#ececef",
+        "tooltip_text": "#1d1d1f",
+        "title_bar": {
+            "bg": "#242426", "text": "#f5f5f7",
+            "hover": "rgba(255, 255, 255, 0.08)", "close_hover": "#c75450",
+        },
+        "syntax": SYNTAX_PACK_DARK, "terminal": TERMINAL_PACK_DARK,
+        "chrome": CHROME_PACK_DARK, "git_status": GIT_STATUS_PACK_DARK,
+        "chat": CHAT_PACK_DARK, "git_graph": GIT_GRAPH_PACK_DARK,
+    },
+    # 深夜：石墨的蓝色调变体——底色/描边/hover 染色统一偏蓝，accent 取
+    # GitHub 暗色 accent-emphasis #2f81f7（白字选中对比度优于亮蓝）；
+    # 资源包共享暗套，仅终端默认底色单项覆盖为窗口同色（蓝调一致）。
+    "midnight": {
+        "label": "深夜",
+        "accent": "#2f81f7",
+        "text": "#e6edf3",
+        "muted_text": "#8b98a9",
+        "window_bg": "#171d27",
+        "sidebar_bg": "#1b2230",
+        "card_bg": "#20293a",
+        "border": "rgba(140, 170, 220, 0.16)",
+        "border_hover": "rgba(140, 170, 220, 0.28)",
+        "input_bg": "#283349",
+        "combo_hover_bg": "#303c56",
+        "popup_bg": "#20293a",
+        "popup_border": "rgba(140, 170, 220, 0.20)",
+        "menu_border": "rgba(140, 170, 220, 0.20)",
+        "popup_separator": "rgba(140, 170, 220, 0.12)",
+        "list_item_hover": "rgba(47, 129, 247, 0.12)",
+        "button_hover_bg": "rgba(47, 129, 247, 0.16)",
+        "button_pressed_bg": "rgba(47, 129, 247, 0.26)",
+        "button_disabled_text": "rgba(230, 237, 243, 0.35)",
+        "button_disabled_bg": "#1d2534",
+        "button_disabled_border": "rgba(140, 170, 220, 0.08)",
+        "separator": "#2b3546",
+        "splitter_hover": "rgba(140, 170, 220, 0.14)",
+        "scrollbar_handle": "rgba(255, 255, 255, 0.28)",
+        "scrollbar_handle_hover": "rgba(255, 255, 255, 0.42)",
+        "tooltip_bg": "#ececef",
+        "tooltip_text": "#1d1d1f",
+        "title_bar": {
+            "bg": "#1d2534", "text": "#e6edf3",
+            "hover": "rgba(140, 170, 220, 0.10)", "close_hover": "#c75450",
+        },
+        "syntax": SYNTAX_PACK_DARK,
+        "terminal": {**TERMINAL_PACK_DARK, "default_bg": "#171d27"},
+        "chrome": CHROME_PACK_DARK, "git_status": GIT_STATUS_PACK_DARK,
+        "chat": CHAT_PACK_DARK, "git_graph": GIT_GRAPH_PACK_DARK,
     },
 }
 
