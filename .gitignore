@@ -1,5 +1,7 @@
 # 项目特有
 参考代码/
+# 本机私有约定（个人指令，不入库）
+AGENTS.local.md
 
 # 用户配置（界面状态/主题/模型选择持久化，不入库）
 config/settings.json
