@@ -1,10 +1,22 @@
 # Zen Studio
 
-> **状态**：已发布（v1.6）
+> **状态**：已发布（v1.7）
 > **范围**：项目总览 — 定位、特性、架构、运行与文档体系
-> **时间**：2026-08-03 09:10（UTC+8）
+> **时间**：2026-08-28 15:10（UTC+8）
 
 **Agent 驱动的桌面 IDE**：本机 agent CLI 是唯一执笔人，代码修改一律经 agent 落盘；IDE 本体只承担「看、问、跑」——只读查看器看代码，AI 聊天面板问问题，真 PTY 终端跑命令。基于 Python 3.12 + PySide6，Linux 桌面优先，可打包为 AppImage 分发。
+
+---
+
+## 界面预览
+
+一句话让 agent 写个贪吃蛇小游戏（工具卡片 / diff 徽标 / 流式响应全程可见）：
+
+![AI 聊天面板：让 agent 创建贪吃蛇游戏](assets/readme/demo_chat.gif)
+
+![主界面总览](assets/readme/screenshot_overview.png)
+
+更多定格图：`assets/readme/screenshot_chat.png`（对话与工具卡片）、`assets/readme/screenshot_code.png`（只读查看器看代码）。
 
 ---
 
@@ -22,7 +34,7 @@ Zen Studio 的设计哲学是 **Agent 驱动**：代码修改一律经 AI agent 
 
 | 特性 | 说明 |
 |:---|:---|
-| AI 聊天面板 | 多标签会话（上限 4，标签间 provider 完全隔离可并行）；对话区双轨渲染——KiloCode 式卡片折叠（默认，工具/思维链/diff/TODO 全族卡，开合状态记忆）与经典流式可切换；token 级流式 + 思维链可见（ACP 后端）；图片附件多模态发送（粘贴/拖入，缩略图 chip 行，能力外后端自动退化 `@路径` 引用）；上下文 token 用量徽章（kimi 轮次内实时刷新）；发送/停止双态按钮；拖入文件插 `@相对路径` 引用；ACP 工具审批模态框（允许一次/始终允许/拒绝） |
+| AI 聊天面板 | 多标签会话（上限 4，标签间 provider 完全隔离可并行）；对话区双轨渲染——KiloCode 式卡片折叠（默认，工具/思维链/diff/TODO 全族卡，开合状态记忆）与经典流式可切换；token 级流式 + 思维链可见（ACP 后端）；图片附件多模态发送（粘贴/拖入，缩略图 chip 行，能力外后端自动退化 `@路径` 引用）；上下文 token 用量徽章（kimi 轮次内实时刷新）；发送/停止双态按钮；拖入文件插 `@相对路径` 引用；ACP 工具审批模态框（允许一次/始终允许/拒绝）；AskUserQuestion 提问卡片内作答（卡内按钮组串行激活，弹窗兜底） |
 | 统一 CLI 后端 | 对话统一经本机 agent CLI（OAuth 自管凭证），代码库**零 API KEY**；传输层统一为 ACP 长驻协议（Zed/JetBrains 同款集成方式），kimi / reasonix / OpenCode / Kilo Code / Dream 五后台可选 |
 | 会话标签异构后台 | 每标签独立选择后台 / 接口 / 模型（ModelBar 三级下拉直显当前值），标签间互不广播、busy 各禁各的，异构后台可真正并行；按接口记忆的模型选择持久化 |
 | 多类型文件预览 | 只读查看器五页分流：文本（Pygments 高亮 + 行号栏）/ 图片（位图 + 矢量 SVG + GIF 动图 + 棋盘格透明底）/ PDF（连续滚动 + 翻页缩放）/ Markdown（GFM 渲染）/ 音视频（就地播放，双击即播） |
@@ -77,7 +89,7 @@ Zen Studio 的设计哲学是 **Agent 驱动**：代码修改一律经 AI agent 
 | `llm/` | LLM 调用薄层（`LanguageModel` Protocol + ACP 注册表五后端：kimi / reasonix / OpenCode / Kilo Code / Dream），详见 `llm/README.md` |
 | `dream-acp/` | Dream 后台 ACP 协议文件夹：带版本号协议文档 + 最小示例 agent + spike 握手工具（自包含零依赖，将来整体迁出 Dream 项目作底本） |
 | `core/` | 底层设施：版本单一来源 / 路径解析 / Git 数据层 / 外部应用调起 |
-| `assets/` | 主题 qss、自带字体（OFL）、Logo 成套件与候选池 |
+| `assets/` | 主题 qss、自带字体（OFL）、Logo 成套件与候选池、`readme/` 文档素材（README 引用的截图与 GIF） |
 | `building/` | PyInstaller spec、AppImage 构建脚本与产物 |
 | `config/` | 版本单一来源（`version.json`）与运行时配置（settings / 最近项目 / 窗口状态，gitignored 数据） |
 | `维护手册/` | 开发维护手册：AI 友好代码协议 / 视觉验证闭环开发指南 / 工具箱说明 / 虚拟环境创建约定 / 后端CLI工具维护说明手册 |
@@ -176,4 +188,4 @@ Zen Studio 站在巨人的肩膀上。感谢以下开源项目，它们的设计
 
 ---
 
-*Zen Studio v1.6 | 文档撰写：2026-07-29 22:20 (UTC+8)，修订：2026-08-03 09:10 (UTC+8)*
+*Zen Studio v1.7 | 文档撰写：2026-07-29 22:20 (UTC+8)，修订：2026-08-28 15:10 (UTC+8)*

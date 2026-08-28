@@ -16,6 +16,7 @@ Zen Studio 全部**运行时资产**的集中存放地，**会被 PyInstaller �
 | `themes/` | QSS 主题模板（`base.qss`，gui/theme.py 消费的只读资源） | ✅ 打包 |
 | `logo/` | 正式 Logo 全套资产（母版 SVG + 八尺寸 PNG） | ✅ 打包 |
 | `logo候选池/` | Logo 设计草稿（历史候选方案存档） | ❌ **不打包** |
+| `readme/` | 根目录 `README.md` 引用的文档素材（界面截图、演示 GIF），非运行时资产 | ❌ **不打包** |
 
 ## 纪律
 
@@ -24,5 +25,5 @@ Zen Studio 全部**运行时资产**的集中存放地，**会被 PyInstaller �
   因此新增「需要打包」的资产时必须**同时**：
   1. 放入合适的既有子目录（或新建专目录）；
   2. 在 `building/zen-studio.spec` 的 `datas` 中补一条收编记录。
-- `fonts/思源宋体/` 与 `logo候选池/` **禁止**加入 `datas`，也禁止恢复整目录收编。
+- `fonts/思源宋体/`、`logo候选池/` 与 `readme/` **禁止**加入 `datas`，也禁止恢复整目录收编。
 - 运行时通过 `core/paths.py` 的路径常量访问本目录，禁止散落的手写路径推导。
