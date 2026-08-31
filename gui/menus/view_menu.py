@@ -45,18 +45,23 @@ def build(menubar: QMenuBar, ctx: QMainWindow, actions: ActionRegistry) -> None:
     menu.addSeparator()
 
     action = menu.addAction("刷新 Git 状态(&G)")
-    action.triggered.connect(ctx.git_controller.refresh)
+    # 空窗守卫（2026-0831-2350 计划 D4）：无工作区根时 git_controller /
+    # file_explorer 为 None，点击静默跳过
+    action.triggered.connect(
+        lambda: ctx.git_controller is not None and ctx.git_controller.refresh())
     actions.register("view.git_refresh", action)
 
     # 提交历史图弹窗（1507 计划）：非模态单例，菜单项不做 enable 联动
-    # ——非仓库点击照样弹窗走窗内降级占位（计划 D5）
+    # ——非仓库点击照样弹窗走窗内降级占位（计划 D5）；空窗由
+    # MainWindow.show_git_graph 内守卫（状态栏提示，不弹窗）
     action = menu.addAction("提交历史图(&L)")
     action.triggered.connect(ctx.show_git_graph)
     actions.register("view.git_graph", action)
 
     # 文件树手动刷新：watcher 溢出/外部批量改动致状态滞留时由用户触发全量重读
     action = menu.addAction("刷新文件树(&F)")
-    action.triggered.connect(ctx.file_explorer.refresh)
+    action.triggered.connect(
+        lambda: ctx.file_explorer is not None and ctx.file_explorer.refresh())
     actions.register("view.file_tree_refresh", action)
 
     menu.addSeparator()

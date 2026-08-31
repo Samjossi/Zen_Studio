@@ -21,7 +21,6 @@ migrate_state_dir() 一次性幂等迁入；
 工作区哈希文件 → default → 全默认），已知工作区仍恢复自身文件；
 关闭时双写（哈希文件 + default），后写胜 = 最后关闭窗口生效。
 """
-import hashlib
 import json
 import os
 from pathlib import Path
@@ -29,6 +28,7 @@ from typing import TypedDict
 
 from PySide6.QtCore import QByteArray
 
+from core.paths import workspace_digest
 from gui.settings import CONFIG_DIR, write_json_atomic
 
 #: 旧版单文件路径（2026-07-22 多开改造前）；仅存留作一次性迁移识别
@@ -43,9 +43,12 @@ DEFAULT_LAYOUT_FILE = WINDOW_STATE_DIR / "default.json"
 
 
 def window_state_file_for(workspace_root: str) -> Path:
-    """工作区根 → 状态文件路径（sha256 前 8 位分文件，多开互不覆盖）。"""
-    digest = hashlib.sha256(workspace_root.encode("utf-8")).hexdigest()[:8]
-    return WINDOW_STATE_DIR / f"{digest}.json"
+    """工作区根 → 状态文件路径（sha256 前 8 位分文件，多开互不覆盖）。
+
+    哈希算法收口 core.paths.workspace_digest（2026-0831-2350 计划 D1），
+    与 sessions/ 分文件、root_ownership 套接字命名同一来源。
+    """
+    return WINDOW_STATE_DIR / f"{workspace_digest(workspace_root)}.json"
 
 
 def migrate_state_dir() -> None:

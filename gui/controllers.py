@@ -132,27 +132,36 @@ class GitStatusController(QObject):
 class WindowStateStore:
     """窗口几何与四处 splitter 状态的读写持久化（window_state/<hash8>.json）。
 
-    状态文件按工作区根哈希分文件（多开互不覆盖），构造时由 workspace_root 推导。
-    读取走文件级回退链（哈希文件 → default.json → 全默认）：新工作区首开
-    继承最近关闭窗口布局；关闭时双写 default（后写胜，VS Code 语义）。
+    状态文件按工作区根哈希分文件（多开互不覆盖），默认由 workspace_root 推导；
+    空白窗口（无根）经显式 state_file 入参指向全局 default.json。读取走文件级
+    回退链（哈希文件 → default.json → 全默认）：新工作区首开继承最近关闭窗口
+    布局；关闭时双写 default（后写胜，VS Code 语义）。
     """
 
     def __init__(
         self,
         window: QMainWindow,
         splitters: dict[str, QSplitter],
-        chat_panel: ChatTabs,
-        workspace_root: str,
+        chat_panel: ChatTabs | None,
+        workspace_root: str | None,
+        state_file: Path | None = None,
     ) -> None:
         """
         :param splitters: 配置键 → splitter（KEY_SPLITTER_MAIN/EDITOR/SIDEBAR）
-        :param chat_panel: 会话标签容器（其内 splitter 状态经 restore_state/save_state 自管）
-        :param workspace_root: 工作区根（决定状态文件路径）
+        :param chat_panel: 会话标签容器（其内 splitter 状态经 restore_state/save_state
+            自管）；空白窗口为 None（无聊天面板，相关读写跳过）
+        :param workspace_root: 工作区根（决定状态文件路径）；空白窗口为 None
+        :param state_file: 显式状态文件（空白窗口传 DEFAULT_LAYOUT_FILE——布局
+            继承/回写都走全局 default，2026-0831-2350 计划 D4）；None 时维持
+            workspace_root 推导（二选一，必居其一）
         """
         self._window = window
         self._splitters = splitters
         self._chat_panel = chat_panel
-        self._state_file = window_state_file_for(workspace_root)
+        self._state_file = (
+            state_file if state_file is not None
+            else window_state_file_for(workspace_root)
+        )
         migrate_state_dir()  # 根目录存量一次性迁入子目录（幂等）
         migrate_legacy_window_state(self._state_file)  # 旧版单文件一次性迁移
         self._is_save_enabled = True
@@ -177,7 +186,8 @@ class WindowStateStore:
         for key, splitter in self._splitters.items():
             if splitter_state := state.get(key):
                 splitter.restoreState(decode_state(splitter_state))
-        self._chat_panel.restore_state(state.get(KEY_SPLITTER_CHAT))
+        if self._chat_panel is not None:  # 空白窗口无聊天面板（None 守卫）
+            self._chat_panel.restore_state(state.get(KEY_SPLITTER_CHAT))
 
     def collect_layout_patch(self) -> WindowStatePatch:
         """实时采集当前窗口布局 patch（geometry + 四处 splitter，未落盘）。
@@ -192,7 +202,8 @@ class WindowStateStore:
             **{key: encode_state(splitter.saveState())
                for key, splitter in self._splitters.items()},
         }
-        if (chat_state := self._chat_panel.save_state()) is not None:
+        if self._chat_panel is not None and \
+                (chat_state := self._chat_panel.save_state()) is not None:
             patch[KEY_SPLITTER_CHAT] = chat_state
         return patch
 

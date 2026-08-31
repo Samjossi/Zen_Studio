@@ -16,13 +16,22 @@ ActionRegistry 全局注册表）；本类保留面板、槽函数与面板显�
 与窗口状态持久化（WindowStateStore）迁出至 gui/controllers.py 组合持有。
 多开工作区（2026-07-22，见 文档/修改记录/2026-0722-0756 计划）：一进程绑定
 一工作区根（启动参数注入，不再窗口内切换）；「打开文件夹」改为起新进程。
-文件菜单扩展（2026-07-22，文档/修改记录/2026-0722-1901）：「新建窗口」同根
-多开入口。「最近打开的项目」（2026-07-24，文档/修改记录/2026-0724-1003）：
+文件菜单扩展（2026-07-22，文档/修改记录/2026-0722-1901）：「新建窗口」入口
+（2026-08-31 起由同根多开改为空白窗口，见下）。「最近打开的项目」（2026-07-24，文档/修改记录/2026-0724-1003）：
 窗口启动即记录自身工作区根 → RecentProjectsStore 全局共享列表
 （config/recent_projects.json），子菜单回放在新窗口绑定该根。
 「打开文件夹」（2026-07-24，文档/修改记录/2026-0724-1806）：换根关旧窗——
 预写布局（活窗口采集 patch 直写目标根哈希文件 + default 双写，复制语义）
 后起新进程，2s 探活（Popen.poll）存活才关旧窗，启动即败保留旧窗。
+
+一窗一根与空白新窗口（2026-08-31，work plans/2026-0831-2350 计划）：
+同一工作区根同时只允许一个窗口——QLocalServer 按根占用登记
+（gui/root_ownership.py），任何入口命中已占用根一律唤活已有窗口
+（对齐 VS Code），不再同根多开；「新建窗口」改为空白窗口
+（workspace_root=None 空窗模式：文件树槽位欢迎占位、聊天槽位置灰占位、
+终端禁用不自动 spawn shell），空窗内走「打开文件夹」就地填充（复用
+换根关旧窗路径，空窗无旧根可留恋）。占用唤活经退出码协议
+（EXIT_ROOT_OCCUPIED=3）接入既有 spawn 探活链。
 
 窗口四边距体系（2026-07-20，见 文档/修改记录/2026-0720-1218 与 2026-0720-1815
 两份计划）：面板内 6px 外边距承担卡片↔把手间距；中央容器补窗口级边距
@@ -38,6 +47,7 @@ import sys
 
 from PySide6.QtCore import Qt, QTimer, QUrl
 from PySide6.QtGui import QCloseEvent, QDesktopServices, QPixmap
+from PySide6.QtNetwork import QLocalServer
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -67,8 +77,10 @@ from gui.panels.changes import ChangesPanel
 from gui.panels.chat import ChatTabs
 from gui.panels.terminal import TerminalPanel
 from gui.panels.terminal.agent_bridge import AgentTerminalBridge
+from gui.panels.welcome import PlaceholderPanel, WelcomePanel
 from gui.git_graph_dialog import GitGraphDialog
 from gui.recent_projects import RecentProjectsStore
+from gui.root_ownership import EXIT_ROOT_OCCUPIED
 from gui.settings import (
     CONFIG_DIR,
     DEFAULT_SETTINGS,
@@ -91,6 +103,7 @@ from gui.theme import (
 from gui.title_bar import TitleBar
 from gui.window_resize import EdgeResizeController
 from gui.window_state import (
+    DEFAULT_LAYOUT_FILE,
     KEY_SPLITTER_EDITOR,
     KEY_SPLITTER_MAIN,
     KEY_SPLITTER_SIDEBAR,
@@ -116,21 +129,35 @@ class MainWindow(QMainWindow):
     #: 启动失败（解释器错误/import 崩溃）绝大多数在此窗口内退出
     SPAWN_PROBE_MS = 2000
 
-    def __init__(self, workspace_root: str | None = None) -> None:
+    def __init__(self, workspace_root: str | None = None,
+                 root_server: QLocalServer | None = None) -> None:
         """
-        :param workspace_root: 工作区根（启动参数注入；None = 项目根）
+        :param workspace_root: 工作区根（启动参数注入）；None = 空白窗口
+            （2026-0831-2350 计划 D4：不造假根，文件树/聊天槽位换占位部件，
+            self.file_explorer / self.chat_tabs 为 None，消费点显式守卫）
+        :param root_server: 根占用登记 server（一窗一根 D1/D2，main.py
+            acquire_root_ownership 成功产物；空窗无根不登记为 None）。
+            本窗口接管其生命周期并接 newConnection 响应外部唤活
         """
         super().__init__()
         # 新增（文档/修改记录/2026-0730-0007 计划 T6）：隐藏系统原生标题栏，
         # 改由 TitleBar 自绘（见 _build_layout 首行）；保留 Window 类型标志，
         # 任务栏/Alt-Tab/最小化行为不变
         self.setWindowFlags(self.windowFlags() | Qt.WindowType.FramelessWindowHint)
-        self._workspace_root = workspace_root or str(PROJECT_ROOT)
-        # 非默认工作区时标题栏标注根路径，多开窗口一眼可辨
-        if self._workspace_root != str(PROJECT_ROOT):
-            self.setWindowTitle(f"Zen Studio — {self._workspace_root}")
+        self._workspace_root = workspace_root
+        # 空窗标题固定「未打开文件夹」；非默认工作区标题栏标注根路径，
+        # 多窗一眼可辨
+        if workspace_root is None:
+            self.setWindowTitle("Zen Studio — 未打开文件夹")
+        elif workspace_root != str(PROJECT_ROOT):
+            self.setWindowTitle(f"Zen Studio — {workspace_root}")
         else:
             self.setWindowTitle("Zen Studio")
+        # 根占用 server（一窗一根）：其他进程命中本根即发唤活消息
+        self._root_server = root_server
+        if root_server is not None:
+            root_server.setParent(self)  # 生命周期随窗口（关闭即释放占用）
+            root_server.newConnection.connect(self._on_root_connection)
         self.resize(1200, 800)
 
         #: 设置中心对话框（非模态单例，首次打开时惰性创建）
@@ -142,6 +169,9 @@ class MainWindow(QMainWindow):
         #: 单次终态 reload，避免 N 槽触发 N+1 次全量 reload（flock 磁盘读）
         self._dialog_sync_suspend = 0
 
+        # 最近项目 store 提前于布局装配：空窗欢迎占位的最近项目快捷列表
+        # 建窗时读它（纯数据无 UI 依赖，提前安全）
+        self._init_recent_projects()
         self._build_layout()
         # 无边框边缘缩放热区（文档/修改记录/2026-0730-0043 计划阶段二 T5/T6）：
         # 八向判定 + startSystemResize 优先/手动 setGeometry 兜底；
@@ -149,7 +179,6 @@ class MainWindow(QMainWindow):
         # 静态下限 315 + 中栏 + 右栏 FileExplorer 240 + 边距/手柄的经验值）
         self.setMinimumSize(900, 500)
         self._resize_controller = EdgeResizeController(self)
-        self._init_recent_projects()
         self._init_statusbar()
         self._init_git_status()  # 先于菜单装配：视图菜单「刷新 Git 状态」直挂控制器
         self._init_menus()
@@ -163,19 +192,33 @@ class MainWindow(QMainWindow):
         自身工作区根——一进程绑定一根，菜单选文件夹 / 命令行 main.py
         <folder> / 新建窗口三路径汇聚于此；全局共享列表（config/
         recent_projects.json），去重置顶语义下同根重复启动无噪音。
-        无 UI 依赖（纯数据写盘），置于布局装配后、菜单装配前（子菜单
-        aboutToShow 读 store 时已就绪）。
+        无 UI 依赖（纯数据写盘），置于布局装配前：空窗欢迎占位的最近项目
+        快捷列表建窗时读本 store（菜单子菜单 aboutToShow 读时亦已就绪）。
         """
         self.recent_projects = RecentProjectsStore(
             CONFIG_DIR / "recent_projects.json")
-        self.recent_projects.add(self._workspace_root)
+        # 空白窗口不记录（无根可记）；store 照建——「最近打开的项目」菜单要用
+        if self._workspace_root is not None:
+            self.recent_projects.add(self._workspace_root)
 
     def _build_layout(self) -> None:
-        """布局装配：三栏 splitter（聊天 / 中栏查看器+终端 / 右栏文件树+变更）。"""
+        """布局装配：三栏 splitter（聊天 / 中栏查看器+终端 / 右栏文件树+变更）。
+
+        空白窗口分支（2026-0831-2350 计划 D4）：聊天槽位 → 置灰占位、
+        文件树槽位 → 欢迎占位（self.chat_tabs / self.file_explorer 置
+        None，全部消费点显式守卫）；终端面板禁用且不自动 spawn shell。
+        """
         # 中栏垂直拆分：上为文件查看器（只读+高亮），下为内嵌终端（真 PTY）
         self._splitter_editor = QSplitter(Qt.Orientation.Vertical)
         self.viewer_panel = ViewerPanel(workspace_root=self._workspace_root)
-        self.terminal_panel = TerminalPanel(cwd=self._workspace_root)
+        if self._workspace_root is None:
+            # 空窗：终端 cwd 回退用户主目录；auto_spawn=False 阻止 resize
+            # 首触 spawn 无用 shell，整体禁用防用户手点「+」
+            self.terminal_panel = TerminalPanel(
+                cwd=str(Path.home()), auto_spawn=False)
+            self.terminal_panel.setEnabled(False)
+        else:
+            self.terminal_panel = TerminalPanel(cwd=self._workspace_root)
         self._splitter_editor.addWidget(self.viewer_panel)
         self._splitter_editor.addWidget(self.terminal_panel)
         self._splitter_editor.setSizes(self.DEFAULT_SIZES_EDITOR)
@@ -184,29 +227,48 @@ class MainWindow(QMainWindow):
 
         self._splitter_main = QSplitter(Qt.Orientation.Horizontal)
         workspace_root = self._workspace_root
-        # 左栏：AI 会话标签容器（选择状态层 + 多标签 ChatPanel，上限 4）
-        self.chat_tabs = ChatTabs(workspace_root=workspace_root)
         # ACP terminal/* GUI 桥（2026-0817-1554 计划 T5）：支持 terminal/*
         # 的 agent（kimi/reasonix）Bash 命令落终端面板 AI tab 执行，用户
         # 实时看输出可干预；不支持的 provider 声明恒 false（行为不变）
         # 自持引用：设置中心「结束后停留时长」变更需即时推送到桥（2026-08-18 §6）
         self._agent_terminal_bridge = AgentTerminalBridge(self.terminal_panel)
-        self.chat_tabs.set_terminal_bridge(self._agent_terminal_bridge)
+        if workspace_root is None:
+            # 空窗左栏：置灰占位（无根不建 ChatTabs——无会话存取、无 provider 连接）
+            self.chat_tabs: ChatTabs | None = None
+            self._chat_slot = PlaceholderPanel("打开文件夹后可开始 AI 会话")
+        else:
+            # 左栏：AI 会话标签容器（选择状态层 + 多标签 ChatPanel，上限 4）
+            self.chat_tabs = ChatTabs(workspace_root=workspace_root)
+            self._chat_slot = self.chat_tabs
+            self.chat_tabs.set_terminal_bridge(self._agent_terminal_bridge)
         # 左栏最小宽度显式下限（0401 计划 D4/T5）：配合下方
         # setCollapsible(0, False) 双闸——拖到 MIN_WIDTH 即触底且不可塌缩
-        self.chat_tabs.setMinimumWidth(ChatTabs.MIN_WIDTH)
-        self._splitter_main.addWidget(self.chat_tabs)
+        # （空窗占位部件同宽约束，布局与正常窗口一致）
+        self._chat_slot.setMinimumWidth(ChatTabs.MIN_WIDTH)
+        self._splitter_main.addWidget(self._chat_slot)
         self._splitter_main.addWidget(self._splitter_editor)
 
-        # 右栏：垂直拆分——上文件树（根目录为工作区根）、下 Git 变更面板；
-        # 双击文件 → 中栏查看器打开
-        self.file_explorer = FileExplorer(workspace_root)
-        self.file_explorer.file_opened.connect(self.viewer_panel.open_file)
-        # 对话区正文文件路径链接点击 → 查看器打开并跳行（1836 计划 L2-5）
-        self.chat_tabs.file_open_requested.connect(self.viewer_panel.open_file)
+        # 右栏：垂直拆分——上文件树（根目录为工作区根；空窗为欢迎占位）、
+        # 下 Git 变更面板；双击文件 → 中栏查看器打开
+        if workspace_root is None:
+            self.file_explorer: FileExplorer | None = None
+            # 欢迎占位带最近项目快捷列表（2026-09-01 迭代，原计划 §5 缓办项）：
+            # 点击 = 就地填充（与「打开文件夹…」按钮同走 open_folder_here
+            # 换根关旧窗路径）；建窗时刻快照，已消失目录过滤
+            recent = [p for p in self.recent_projects.list() if Path(p).is_dir()]
+            self._explorer_slot = WelcomePanel(recent)
+            # 「打开文件夹…」按钮 → 换根关旧窗路径（空窗就地填充语义）
+            self._explorer_slot.open_folder_requested.connect(self.open_folder_here)
+            self._explorer_slot.open_project_requested.connect(self.open_folder_here)
+        else:
+            self.file_explorer = FileExplorer(workspace_root)
+            self._explorer_slot = self.file_explorer
+            self.file_explorer.file_opened.connect(self.viewer_panel.open_file)
+            # 对话区正文文件路径链接点击 → 查看器打开并跳行（1836 计划 L2-5）
+            self.chat_tabs.file_open_requested.connect(self.viewer_panel.open_file)
         self.changes_panel = ChangesPanel()
         self._splitter_sidebar = QSplitter(Qt.Orientation.Vertical)
-        self._splitter_sidebar.addWidget(self.file_explorer)
+        self._splitter_sidebar.addWidget(self._explorer_slot)
         self._splitter_sidebar.addWidget(self.changes_panel)
         self._splitter_sidebar.setSizes(self.DEFAULT_SIZES_SIDEBAR)
         # 防折叠：变更面板最小高度由 ChangesPanel.MIN_HEIGHT 约束
@@ -256,9 +318,11 @@ class MainWindow(QMainWindow):
         # QMenuBar 段教训注释）；延迟一拍确保样式与布局已结算再测量项高
         QTimer.singleShot(0, self._fit_menubar_height)
         # 模型选择：标签底行下拉切换 → ChatTabs 收敛（当前活动标签语义，
-        # 2026-0803-0112 计划）转发 → 设置中心同步；当前标签响应中模型页禁用
-        self.chat_tabs.selection_changed.connect(self._on_modelbar_changed)
-        self.chat_tabs.busy_changed.connect(self._on_chat_busy_changed)
+        # 2026-0803-0112 计划）转发 → 设置中心同步；当前标签响应中模型页禁用。
+        # 空白窗口无聊天面板（None 守卫），两组接线整体跳过
+        if self.chat_tabs is not None:
+            self.chat_tabs.selection_changed.connect(self._on_modelbar_changed)
+            self.chat_tabs.busy_changed.connect(self._on_chat_busy_changed)
 
     def _init_statusbar(self) -> None:
         """状态栏：去尺寸把手 + 定高 + Git 统计常驻区 + 就绪消息。"""
@@ -273,7 +337,12 @@ class MainWindow(QMainWindow):
     # Git 状态可视化：编排职责外移 GitStatusController（gui/controllers.py）
     # ------------------------------------------------------------------
     def _init_git_status(self) -> None:
-        """Git 编排控制器装配（服务创建/去抖/四面板扇出刷新）。"""
+        """Git 编排控制器装配（服务创建/去抖/四面板扇出刷新）。
+        空白窗口整体跳过（无文件树/无仓库可监视，git_controller=None，
+        消费点 changeEvent / show_git_graph / 视图菜单显式守卫）。"""
+        if self._workspace_root is None:
+            self.git_controller = None
+            return
         self.git_controller = GitStatusController(
             self.file_explorer,
             self.viewer_panel,
@@ -289,7 +358,8 @@ class MainWindow(QMainWindow):
 
     def changeEvent(self, event) -> None:
         """窗口重获焦点 → 去抖刷新（兜底终端 checkout 等外部 git 操作）。"""
-        if event.type() == event.Type.ActivationChange and self.isActiveWindow():
+        if (event.type() == event.Type.ActivationChange and self.isActiveWindow()
+                and self.git_controller is not None):  # 空窗守卫（无 Git 编排）
             self.git_controller.schedule_refresh()
         super().changeEvent(event)
 
@@ -323,6 +393,9 @@ class MainWindow(QMainWindow):
 
     def _restore_window_state(self) -> None:
         """启动时恢复窗口几何与各处分隔栏（读写细节外移 WindowStateStore）。"""
+        # 空白窗口（D4）：无工作区哈希文件，布局读写走全局 default.json
+        # （继承最近关闭窗口布局；回写天然成为下一空窗/新工作区继承源）
+        blank = self._workspace_root is None
         self._state_store = WindowStateStore(
             self,
             {
@@ -332,17 +405,21 @@ class MainWindow(QMainWindow):
             },
             self.chat_tabs,
             self._workspace_root,
+            state_file=DEFAULT_LAYOUT_FILE if blank else None,
         )
         self._state_store.restore()
         # 会话记录恢复（2026-0818-2350 计划 T4）：布局恢复后按存档重建
-        # 标签并重放文字记录；存档为空 no-op（保留自动首标签）
-        self.chat_tabs.restore_sessions()
+        # 标签并重放文字记录；存档为空 no-op（保留自动首标签）。
+        # 空白窗口无聊天面板（无会话存取），跳过
+        if self.chat_tabs is not None:
+            self.chat_tabs.restore_sessions()
 
     def _restore_panels_visible(self) -> None:
-        """隐藏面板先恢复可见：布局采集/保存前置（防 0 尺寸写入持久化）。"""
+        """隐藏面板先恢复可见：布局采集/保存前置（防 0 尺寸写入持久化）。
+        聊天/文件树取槽位部件（空窗为占位部件，显隐语义不变）。"""
         for panel in (
-            self.chat_tabs,
-            self.file_explorer,
+            self._chat_slot,
+            self._explorer_slot,
             self.terminal_panel,
             self.changes_panel,
         ):
@@ -354,8 +431,10 @@ class MainWindow(QMainWindow):
         self._restore_panels_visible()
         self._state_store.save()
         # 会话记录保存（2026-0818-2350 计划 T4）：全量快照——存活标签集合
-        # 落盘，用户主动关闭的标签不在快照中，下次启动不恢复
-        self.chat_tabs.save_sessions()
+        # 落盘，用户主动关闭的标签不在快照中，下次启动不恢复。
+        # 空白窗口无聊天面板（无会话存档），跳过
+        if self.chat_tabs is not None:
+            self.chat_tabs.save_sessions()
 
     def closeEvent(self, event: QCloseEvent) -> None:
         """关闭时一次性保存窗口几何、四处分隔栏状态与会话记录快照。"""
@@ -373,10 +452,12 @@ class MainWindow(QMainWindow):
         panel.setVisible(is_visible)
 
     def set_chat_visible(self, is_visible: bool) -> None:
-        self._set_panel_visible(KEY_VIEW_CHAT, self.chat_tabs, is_visible)
+        # 空窗作用到置灰占位部件（槽位显隐语义不变）
+        self._set_panel_visible(KEY_VIEW_CHAT, self._chat_slot, is_visible)
 
     def set_explorer_visible(self, is_visible: bool) -> None:
-        self._set_panel_visible(KEY_VIEW_EXPLORER, self.file_explorer, is_visible)
+        # 空窗作用到欢迎占位部件（同上）
+        self._set_panel_visible(KEY_VIEW_EXPLORER, self._explorer_slot, is_visible)
 
     def set_terminal_visible(self, is_visible: bool) -> None:
         self._set_panel_visible(KEY_VIEW_TERMINAL, self.terminal_panel, is_visible)
@@ -389,7 +470,8 @@ class MainWindow(QMainWindow):
         self._splitter_main.setSizes(self.DEFAULT_SIZES_MAIN)
         self._splitter_editor.setSizes(self.DEFAULT_SIZES_EDITOR)
         self._splitter_sidebar.setSizes(self.DEFAULT_SIZES_SIDEBAR)
-        self.chat_tabs.reset_layout()
+        if self.chat_tabs is not None:  # 空窗守卫（无聊天面板内分隔栏）
+            self.chat_tabs.reset_layout()
         self.statusBar().showMessage("已恢复默认布局", self.STATUS_MSG_SHORT_MS)
 
     # ------------------------------------------------------------------
@@ -418,26 +500,41 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
     def open_file_dialog(self) -> None:
         """打开文件：QFileDialog 选文件 → 查看器完整管线（高亮/徽标）。"""
-        path, _ = QFileDialog.getOpenFileName(self, "打开文件", self.file_explorer.root_dir)
+        # 空窗无文件树（root_dir 无从谈起），对话框起始目录回退用户主目录
+        start_dir = (self.file_explorer.root_dir
+                     if self.file_explorer is not None else str(Path.home()))
+        path, _ = QFileDialog.getOpenFileName(self, "打开文件", start_dir)
         if path:
             self.viewer_panel.open_file(path)
 
     def new_window(self) -> None:
-        """新建窗口：以当前工作区根起新进程（同根多开，不弹对话框）。"""
-        self._spawn_window(self._workspace_root)
+        """新建窗口：空白窗口（不绑定任何目录，对齐 VS Code New Window）。
 
-    def open_folder_here(self) -> None:
+        2026-0831-2350 计划：取代旧「同根多开」语义——同根入口已由一窗一根
+        唤活协议收口；空窗内走「打开文件夹」就地填充（换根关旧窗路径，
+        空窗无旧根可留恋）。
+        """
+        self._spawn_window(None)
+
+    def open_folder_here(self, path: str | None = None) -> None:
         """打开文件夹（换根关旧窗）：选目录 → 预写布局 → 起新进程 → 探活关旧窗。
 
         进程级「替换当前工作区」（文档/修改记录/2026-0724-1806）：不做窗口内
         就地换根（2026-0722-1901 否决），等价手动「在新窗口打开文件夹」
         再关旧窗的合成一步。同根选择接受（语义 = 重启当前窗口），不开特例
-        （对齐 open_recent_project 既有风格）。
+        （对齐 open_recent_project 既有风格）。空白窗口走本路径就地填充
+        （2026-0831-2350 计划：空窗无旧根可留恋，正好不浪费窗口）。
+
+        :param path: 预选目录直达（空窗欢迎占位最近项目点击，2026-09-01
+            迭代）；falsy（None 或菜单 triggered 的 checked=False）→ 弹对话框
         """
-        path = QFileDialog.getExistingDirectory(
-            self, "打开文件夹", self.file_explorer.root_dir)
         if not path:
-            return
+            # 空窗无文件树，对话框起始目录回退用户主目录
+            start_dir = (self.file_explorer.root_dir
+                         if self.file_explorer is not None else str(Path.home()))
+            path = QFileDialog.getExistingDirectory(self, "打开文件夹", start_dir)
+            if not path:
+                return
         target = Path(path).resolve()
         if not target.is_dir():
             # 防 main.py resolve_workspace_root 静默回退项目根：新窗开错根 +
@@ -459,9 +556,16 @@ class MainWindow(QMainWindow):
 
     def _close_after_spawn(self, proc: subprocess.Popen) -> None:
         """换根探活（singleShot 带 receiver：探活窗口期手动关窗自动取消）：
-        新进程存活才关旧窗；启动即败保留旧窗报退出码。"""
+        新进程存活才关旧窗；目标根已被占用（退出码 EXIT_ROOT_OCCUPIED =
+        唤活协议成功）不关旧窗；启动即败保留旧窗报退出码。"""
         if proc.poll() is None:
             self.close()
+        elif proc.returncode == EXIT_ROOT_OCCUPIED:
+            # 一窗一根（D3）：目标根已有活窗口且已唤活——保留本窗
+            # （空窗打开已占用根 = 空窗保留，语义正好合理）
+            self.statusBar().showMessage(
+                "该文件夹已在其他窗口打开，已激活该窗口",
+                self.STATUS_MSG_LONG_MS)
         else:
             self.statusBar().showMessage(
                 f"新窗口启动失败（退出码 {proc.returncode}），本窗口已保留",
@@ -471,17 +575,36 @@ class MainWindow(QMainWindow):
         """在新窗口打开文件夹：QFileDialog 选目录 → 起新进程（取消无副作用）。
 
         多开模型（文档/修改记录/2026-0722-0756）：一进程绑定一工作区根，
-        进程边界天然隔离工作区状态，不再窗口内切换。
+        进程边界天然隔离工作区状态，不再窗口内切换。一窗一根
+        （2026-0831-2350）：目标根已被占用时新进程唤活已有窗口后以
+        退出码 3 退出，状态栏提示经 _report_spawn_outcome 纠正。
         """
+        # 空窗无文件树，对话框起始目录回退用户主目录
+        start_dir = (self.file_explorer.root_dir
+                     if self.file_explorer is not None else str(Path.home()))
         path = QFileDialog.getExistingDirectory(
-            self, "在新窗口打开文件夹", self.file_explorer.root_dir)
+            self, "在新窗口打开文件夹", start_dir)
         if not path:
             return
-        self._spawn_window(str(Path(path).resolve()))
+        folder = str(Path(path).resolve())
+        proc = self._spawn_window(folder)
+        QTimer.singleShot(self.SPAWN_PROBE_MS, self,
+                          lambda: self._report_spawn_outcome(proc, folder))
 
-    def _spawn_window(self, folder: str) -> subprocess.Popen:
-        """起新进程开指定工作区根（新建窗口 / 在新窗口打开文件夹 / 打开
-        文件夹换根共用）；返回进程句柄供换根场景启动探活。
+    def _report_spawn_outcome(self, proc: subprocess.Popen, folder: str) -> None:
+        """新窗轻量探活（一窗一根 D3，singleShot 带 receiver）：退出码 3 =
+        目标根已被其他窗口占用且唤活成功——把状态栏「已在新窗口打开」纠正
+        为「已激活已有窗口」；其余结果不改写（存活即正常新开）。
+        """
+        if proc.poll() == EXIT_ROOT_OCCUPIED:
+            self.statusBar().showMessage(
+                f"该文件夹已在其他窗口打开，已激活该窗口：{folder}",
+                self.STATUS_MSG_LONG_MS)
+
+    def _spawn_window(self, folder: str | None) -> subprocess.Popen:
+        """起新进程开指定工作区根（在新窗口打开文件夹 / 打开文件夹换根 /
+        最近项目回放共用；folder=None 拼 --blank 起空白窗口）；返回进程
+        句柄供启动探活。
 
         双态命令（文档/修改记录/2026-0725-1234 计划 T2）：打包态二进制自身
         即入口，拼 PROJECT_ROOT/main.py 指向的 _internal/main.py 在解包
@@ -501,12 +624,14 @@ class MainWindow(QMainWindow):
         if IS_FROZEN:
             appimage = os.environ.get("APPIMAGE", "")
             entry = appimage if appimage and Path(appimage).is_file() else sys.executable
-            cmd = [entry, folder]
+            cmd = [entry, folder] if folder is not None else [entry, "--blank"]
         else:
-            cmd = [sys.executable, str(PROJECT_ROOT / "main.py"), folder]
+            cmd = [sys.executable, str(PROJECT_ROOT / "main.py"),
+                   folder if folder is not None else "--blank"]
         proc = subprocess.Popen(cmd)
         self.statusBar().showMessage(
-            f"已在新窗口打开：{folder}", self.STATUS_MSG_TIMEOUT_MS)
+            f"已在新窗口打开：{folder}" if folder is not None else "已新建空白窗口",
+            self.STATUS_MSG_TIMEOUT_MS)
         return proc
 
     def open_recent_project(self, path: str) -> None:
@@ -514,11 +639,14 @@ class MainWindow(QMainWindow):
         自身记录链自动置顶，无需手工再记）。
 
         目录已消失则从列表剔除并状态栏提示（与变更面板「文件已删除」
-        提示风格一致）。点击项恰为当前工作区根时等价于「新建窗口」，
-        接受、不开特例。
+        提示风格一致）。点击项已被占用（含恰为当前工作区根）时经一窗一根
+        唤活协议激活该窗口（点击当前根 = 激活本窗口自身，连自己 socket
+        发唤活的无害自激），状态栏提示经 _report_spawn_outcome 纠正。
         """
         if Path(path).is_dir():
-            self._spawn_window(path)
+            proc = self._spawn_window(path)
+            QTimer.singleShot(self.SPAWN_PROBE_MS, self,
+                              lambda: self._report_spawn_outcome(proc, path))
         else:
             self.recent_projects.remove(path)
             self.statusBar().showMessage(
@@ -586,12 +714,38 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
     def show_git_graph(self) -> None:
         """打开提交历史图：首次惰性创建，重复打开 raise 现有实例。"""
+        if self.git_controller is None:  # 空白窗口无 Git 编排（D4 守卫）
+            self.statusBar().showMessage(
+                "未打开文件夹，无提交历史可显示", self.STATUS_MSG_TIMEOUT_MS)
+            return
         if self._git_graph_dialog is None:
             self._git_graph_dialog = GitGraphDialog(
                 self.git_controller.service, self)
         self._git_graph_dialog.show()
         self._git_graph_dialog.raise_()
         self._git_graph_dialog.activateWindow()
+
+    # ------------------------------------------------------------------
+    # 一窗一根：外部唤活（root_server newConnection → 置前抢焦点）
+    # ------------------------------------------------------------------
+    def _on_root_connection(self) -> None:
+        """占用 server 收到连接：其他进程命中本根并发来唤活消息（内容无关，
+        收到即激活，D2）。逐条取净挂起连接后执行一次唤活。"""
+        if self._root_server is None:
+            return
+        while self._root_server.hasPendingConnections():
+            conn = self._root_server.nextPendingConnection()
+            if conn is not None:
+                conn.deleteLater()  # 消息无需读取，连接到达即唤活语义完备
+        self._on_external_activate()
+
+    def _on_external_activate(self) -> None:
+        """唤活本窗口：还原最小化 + 置前 + 抢焦点（设置中心/提交历史图
+        对话框同款链；Wayland 下 activateWindow 受合成器限制可能不置前，
+        计划 §4 已记）。"""
+        self.showNormal()
+        self.raise_()
+        self.activateWindow()
 
     # ------------------------------------------------------------------
     # 设置菜单槽
@@ -627,7 +781,8 @@ class MainWindow(QMainWindow):
     def apply_model_selection(self, backend: str, version: str | None) -> None:
         """设置中心驱动的模型切换：收敛到 ChatTabs（只作用当前活动标签，
         2026-0803-0112 计划 D3）后同步设置中心控件态。"""
-        self.chat_tabs.apply_model_selection(backend, version)
+        if self.chat_tabs is not None:  # 空白窗口无聊天面板（None 守卫）
+            self.chat_tabs.apply_model_selection(backend, version)
         self._sync_settings_dialog()
 
     def set_terminal_swap_copy_paste(self, checked: bool) -> None:
@@ -681,7 +836,11 @@ class MainWindow(QMainWindow):
         patch = dict(DEFAULT_SETTINGS)
         update_settings(patch)
         if not keep.isChecked():
-            self._state_store.reset()  # 仅删当前工作区的状态文件，重启回默认布局
+            # 空白窗口跳过 reset：其状态文件即全局 default.json，删除会
+            # 误伤其他窗口与新工作区的布局继承源（2026-0831-2350 计划 §4）；
+            # disable_save 保留——阻断 closeEvent 回写当前布局覆盖重置
+            if self._workspace_root is not None:
+                self._state_store.reset()  # 仅删当前工作区的状态文件，重启回默认布局
             # 阻断同会话 closeEvent 回写当前布局（否则重置被静默撤销）
             self._state_store.disable_save()
 

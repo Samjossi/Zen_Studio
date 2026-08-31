@@ -19,11 +19,11 @@
 入存档。恢复的消息只上屏展示，不回传 provider（全部 ACP 系 provider
 历史由 agent 会话自管、只发末条 user 消息，回传无意义且污染协议语义）。
 """
-import hashlib
 import json
 from pathlib import Path
 from typing import TypedDict
 
+from core.paths import workspace_digest
 from gui.settings import CONFIG_DIR, write_json_atomic
 from llm.base import Message
 
@@ -60,9 +60,12 @@ class SessionArchive(TypedDict):
 
 
 def session_file_for(workspace_root: str) -> Path:
-    """工作区根 → 存档文件路径（sha256 前 8 位分文件，多开互不覆盖）。"""
-    digest = hashlib.sha256(workspace_root.encode("utf-8")).hexdigest()[:8]
-    return SESSIONS_DIR / f"{digest}.json"
+    """工作区根 → 存档文件路径（sha256 前 8 位分文件，多开互不覆盖）。
+
+    哈希算法收口 core.paths.workspace_digest（2026-0831-2350 计划 D1），
+    与 window_state/ 分文件、root_ownership 套接字命名同一来源。
+    """
+    return SESSIONS_DIR / f"{workspace_digest(workspace_root)}.json"
 
 
 def _clean_history(raw: object) -> list[Message]:

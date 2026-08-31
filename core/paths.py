@@ -13,6 +13,7 @@ assets/ 经 spec datas 原样收编落位于此。
 ${XDG_CONFIG_HOME:-~/.config}/zen-studio/——AppImage 为只读 squashfs，
 写解包目录必然失败，用户数据必须写用户目录。
 """
+import hashlib
 import os
 import sys
 from pathlib import Path
@@ -53,6 +54,15 @@ def _user_config_dir() -> Path:
 
 
 USER_CONFIG_DIR = _user_config_dir()
+
+
+def workspace_digest(workspace_root: str) -> str:
+    """工作区根 → 8 位摘要（sha256 前缀）。
+
+    单一来源（一窗一根 2026-0831-2350 计划 D1）：window_state / sessions
+    分文件命名与 root_ownership 套接字命名共用，防三处内联哈希漂移。
+    """
+    return hashlib.sha256(workspace_root.encode("utf-8")).hexdigest()[:8]
 
 
 def workspace_display_path(path: str | Path, workspace_root: str | Path | None) -> str:

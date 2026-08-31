@@ -20,6 +20,7 @@
 | `gui/settings.py` | 通用配置持久化：读写 `config/settings.json`，"读全量 → 合并 → 写回"统一入口（主题/窗口几何/分隔栏/模型选择/工作区根共用；模型版本为按接口记忆的 `model_versions` 表） |
 | `gui/settings_dialog.py` | 设置中心对话框：左导航 + 右分页（页面注册表驱动），唯一偏好配置面；控件 change 即时持久化即时应用 |
 | `gui/window_state.py` | 窗口状态持久化：读写 `config/window_state/<hash8>.json`（按工作区哈希分文件，`default.json` 供新工作区首开继承） |
+| `gui/root_ownership.py` | 一窗一根占用登记与唤活协议：`QLocalServer` 按工作区根 listen（`config/sockets/<hash8>.sock`），命中已占用根发唤活消息并以退出码 3 退出；陈旧套接字探测自愈（2026-08-31） |
 | `gui/recent_projects.py` | 最近打开的工作区根存取（`config/recent_projects.json`），文件菜单「最近打开的项目」子菜单消费 |
 | `gui/theme.py` | 主题体系：`THEME_META` 多主题注册表（云白/暖米/晴空/薄荷/暗色，按 light/dark 两族）+ qss 应用 + 自带双字体注册（思源黑体 / 更纱黑体）+ `GIT_STATUS_COLORS` Git 状态色表 |
 | `gui/title_bar.py` | 自定义标题栏（无边框窗口）：Logo + 标题文字 + 最小化/最大化/关闭三按钮 |
@@ -28,6 +29,7 @@
 | `gui/menus/` | 菜单栏子包：`registry.py` Action 注册表（`菜单.动作` 键名全局可寻址）/ `assembler.py` 装配器 / 每菜单一文件（file/edit/view/terminal/settings/help） |
 | `gui/panels/__init__.py` | 面板包初始化，对外导出 `FileExplorer`、`ViewerPanel` |
 | `gui/panels/find_bar.py` | 查找浮层组件：viewer 与 terminal 两面板共用的右上角悬浮查找条（搜索语义归宿主面板） |
+| `gui/panels/welcome.py` | 空白窗口占位部件：`WelcomePanel`（文件树槽位：「未打开文件夹」+「打开文件夹…」按钮 + 最近打开项目快捷列表，点击均就地填充）与 `PlaceholderPanel`（聊天槽位置灰占位，2026-08-31 一窗一根计划 D4；最近列表 2026-09-01 迭代） |
 | `gui/panels/file_explorer/` | 文件树子包（右栏上）：`explorer.py` 主控件 / `model.py` 模型层（噪音过滤 + Git 状态着色）/ `actions.py` 右键菜单动作 |
 | `gui/panels/changes/` | Git 变更面板子包（右栏下）：`panel.py` 已变更文件列表（状态着色 + 增减行数，VS Code SCM 简化版） |
 | `gui/panels/chat/` | 聊天面板子包（左栏）：`tabs.py` 标签容器（选择状态层 + 上限 4 标签）/ `panel.py` 装配（含底行：模型选择按钮 + 发送/停止双态按钮）/ `output.py` 输出区（旧轨）/ `transcript.py` 卡片轨对话区视图（0645 计划新轨；0813-1919 计划 T3 父指针路由——带 `parent_tool_call_id` 的子代理内部帧委派父 SubagentCard 内嵌区）/ `cards.py` KiloCode 式卡片折叠组件族（SubagentCard 内嵌「子代理活动」区复用 make_tool_card 嵌套显示子代理内部工具卡，0813-1919 计划 T2）/ `input.py` 输入框（文件拖入 → `@路径` 引用）/ `model_bar.py` 模型选择三按钮（纯视图）/ `worker.py` 流式线程 / `permission_dialog.py` ACP 工具审批对话框 / `permission_queue.py` 多标签审批串行弹窗队列 |
@@ -82,7 +84,7 @@
 
 菜单内容速览：**文件**（打开文件 / 在新窗口打开文件夹=多开进程 / 打开配置目录 / 退出）；**编辑**（复制 / 全选——转发焦点控件；查找——按焦点分发终端或查看器浮层）；**视图**（四面板显隐 / 噪音过滤 / 恢复默认布局 / Git 刷新 / 外观▸主题互斥组）；**终端**（新建 / 清屏 / 重开 / 终止，与头部按钮、右键菜单同一实现路径）；**设置**（设置中心…——唯一偏好配置面 / 打开配置文件 / 恢复默认设置，三项入口菜单）；**帮助**（关于）。
 
-**多开工作区**（文件 ▸ 在新窗口打开文件夹，2026-07-22 多实例多标签改造）：一进程绑定一工作区根（启动参数 `uv run main.py [folder]` 注入，缺省回退项目根），「打开文件夹」改为 `subprocess.Popen` 起新进程；进程边界天然隔离文件树/终端/Git/agent cwd。非默认工作区窗口标题标注根路径。共享配置并发治理：`settings.json` 经 flock 文件锁串行化"读-合并-写" + 原子写；窗口状态按工作区哈希分文件（`config/window_state/<hash8>.json`，2026-07-24 收编子目录对齐 VS Code `workspaceStorage/`），各窗口恢复各自几何；新工作区首开继承全局 `config/window_state/default.json`（最近关闭窗口布局，关闭时双写、后写胜，VS Code 语义）。
+**一窗一根与空白新窗口**（2026-08-31，work plans/2026-0831-2350 计划）：一进程绑定一工作区根（启动参数 `uv run main.py [folder]` 注入，缺省回退项目根；`--blank` 起空白窗口不绑定目录），换根入口仍为 `subprocess.Popen` 起新进程，进程边界天然隔离文件树/终端/Git/agent cwd。**同一工作区根同时只允许一个窗口**：`main()` 经 `gui/root_ownership.py` 的 `QLocalServer` 按根占用登记（`config/sockets/<hash8>.sock`），任何入口（菜单 spawn / 命令行 / 双击图标）命中已占用根时唤活已有窗口（showNormal + raise + activateWindow，对齐 VS Code）后以退出码 3 退出，不再同根多开；崩溃残留的陈旧套接字由 connect 探测失败 → removeServer → 重试 listen 自愈。「新建窗口」改为空白窗口：文件树槽位欢迎占位、聊天槽位置灰占位、终端禁用不自动 spawn shell、布局读写走全局 `default.json`；空窗内经「打开文件夹」就地填充（复用换根关旧窗路径）。非默认工作区窗口标题标注根路径（空窗标题「未打开文件夹」）。共享配置并发治理：`settings.json` 经 flock 文件锁串行化"读-合并-写" + 原子写；窗口状态按工作区哈希分文件（`config/window_state/<hash8>.json`，2026-07-24 收编子目录对齐 VS Code `workspaceStorage/`），各窗口恢复各自几何；新工作区首开继承全局 `config/window_state/default.json`（最近关闭窗口布局，关闭时双写、后写胜，VS Code 语义）。
 
 ## 5. 聊天面板（左栏）
 

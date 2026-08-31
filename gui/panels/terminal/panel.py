@@ -53,7 +53,8 @@ class TerminalPanel(QWidget):
     #: 配合主窗口 middle_splitter.setCollapsible(1, False) 生效
     MIN_HEIGHT = 140
 
-    def __init__(self, parent: QWidget | None = None, cwd: str | None = None) -> None:
+    def __init__(self, parent: QWidget | None = None, cwd: str | None = None,
+                 auto_spawn: bool = True) -> None:
         super().__init__(parent)
         self.setMinimumHeight(self.MIN_HEIGHT)
         # ANSI 配色取自主题调色板（资源包下沉，每主题自带全套）
@@ -73,8 +74,11 @@ class TerminalPanel(QWidget):
         self.terminal.set_swap_copy_paste(load_settings()[KEY_TERMINAL_SWAP_COPY_PASTE])
 
         # 首次启动延迟到拿到真实网格尺寸：构造时控件尚未布局（高≈0 → 网格仅 1 行），
-        # 立即 spawn 会让 bash 首屏输出被 pyte resize 的 xterm 沉底语义固定到末行
-        self._has_pending_start = True
+        # 立即 spawn 会让 bash 首屏输出被 pyte resize 的 xterm 沉底语义固定到末行。
+        # auto_spawn=False（空白窗口，2026-0831-2350 计划 D4）：面板整体禁用，
+        # resize 首触不 spawn 无用 shell（事件过滤器照常安装，门控在
+        # _has_pending_start 初值）
+        self._has_pending_start = auto_spawn
         self.terminal.installEventFilter(self)
 
     # ------------------------------------------------------------------

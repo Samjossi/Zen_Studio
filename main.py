@@ -4,8 +4,10 @@
     uv run main.py --auto-screenshot --screenshot-interval 1
     uv run main.py --auto-screenshot --screenshot-on-start --screenshot-interval 5
 
-多开工作区（一进程绑定一工作区根，见 文档/修改记录/2026-0722-0756 计划）：
-    uv run main.py [folder]
+一窗一根与空白新窗口（work plans/2026-0831-2350 计划）：
+    uv run main.py [folder]     # 绑定工作区根；根已被占用则唤活已有窗口后
+                                # 以退出码 3（EXIT_ROOT_OCCUPIED）退出
+    uv run main.py --blank      # 空白窗口（不绑定目录；与 folder 互斥，blank 优先）
 """
 import argparse
 import os
@@ -21,6 +23,7 @@ from core.child_env import sanitize_environ
 from core.paths import IS_FROZEN, LOGO_DIR, PROJECT_ROOT, USER_CONFIG_DIR
 from gui import MainWindow
 from gui.recent_projects import RecentProjectsStore
+from gui.root_ownership import EXIT_ROOT_OCCUPIED, acquire_root_ownership
 from gui.theme import apply_theme
 
 #: 截图输出目录：开发态项目内 .tmp/；打包态落用户数据根（AppImage 只读
@@ -48,7 +51,9 @@ def build_app_icon() -> QIcon:
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Zen Studio")
     parser.add_argument("folder", nargs="?", default=None,
-                        help="工作区根目录（缺省回退项目根）")
+                        help="工作区根目录（缺省回退项目根；与 --blank 互斥，blank 优先）")
+    parser.add_argument("--blank", action="store_true",
+                        help="空白窗口（不绑定任何目录，对齐 VS Code New Window）")
     parser.add_argument("--auto-screenshot", action="store_true", help="启用自动截图")
     parser.add_argument("--screenshot-interval", type=int, default=1, help="截图间隔（秒），默认 1")
     parser.add_argument("--screenshot-on-start", action="store_true", help="启动时立即截一张图")
@@ -117,14 +122,27 @@ def main() -> None:
     # 环境；glibc 启动时已缓存链接搜索路径，运行期改写不影响自身 dlopen
     sanitize_environ(os.environ)
     args = parse_args(sys.argv[1:])
-    workspace_root = resolve_workspace_root(args.folder)
+    # QApplication 提前创建（2026-0831-2350 计划 D2）：占用登记的
+    # QLocalServer 依赖事件循环投递 newConnection，须在判定前就绪
     app = QApplication(sys.argv)
     apply_theme(app)
     # 窗口图标（标题栏左侧 + X11 任务栏）；desktopFileName 供 Wayland
     # 与 .desktop 的 StartupWMClass 关联（同名 zen-studio，见 T10）
     app.setWindowIcon(build_app_icon())
     app.setDesktopFileName("zen-studio")
-    window = MainWindow(workspace_root=workspace_root)
+    # 一窗一根占用判定收口：所有起窗路径（菜单 spawn / 命令行 / 双击图标）
+    # 汇聚于此。⚠️ 行为变化备忘：双击图标/默认启动命中已开根时变为激活
+    # 已有窗口（对齐 VS Code，预期）。空窗无根不登记（多空窗可共存）
+    if args.blank:
+        workspace_root = None
+        root_server = None
+    else:
+        workspace_root = resolve_workspace_root(args.folder)
+        root_server = acquire_root_ownership(workspace_root)
+        if root_server is None:
+            # 根已被活窗口占用：唤活消息已发出，本进程静默退出
+            sys.exit(EXIT_ROOT_OCCUPIED)
+    window = MainWindow(workspace_root=workspace_root, root_server=root_server)
     window.show()
 
     if args.auto_screenshot:
