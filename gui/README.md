@@ -29,7 +29,7 @@
 | `gui/menus/` | 菜单栏子包：`registry.py` Action 注册表（`菜单.动作` 键名全局可寻址）/ `assembler.py` 装配器 / 每菜单一文件（file/edit/view/terminal/settings/help） |
 | `gui/panels/__init__.py` | 面板包初始化，对外导出 `FileExplorer`、`ViewerPanel` |
 | `gui/panels/find_bar.py` | 查找浮层组件：viewer 与 terminal 两面板共用的右上角悬浮查找条（搜索语义归宿主面板） |
-| `gui/panels/welcome.py` | 空白窗口占位部件：`WelcomePanel`（文件树槽位：「未打开文件夹」+「打开文件夹…」按钮 + 最近打开项目快捷列表，点击均就地填充）与 `PlaceholderPanel`（聊天槽位置灰占位，2026-08-31 一窗一根计划 D4；最近列表 2026-09-01 迭代） |
+| `gui/panels/welcome.py` | 空白窗口占位部件：`WelcomePanel`（文件树槽位：「未打开文件夹」+「打开文件夹…」按钮 + 最近打开项目快捷列表，条目只显项目名、悬停看全路径，点击就地填充）与 `PlaceholderPanel`（聊天槽位置灰占位，2026-08-31 一窗一根计划 D4；最近列表 2026-09-01 迭代） |
 | `gui/panels/file_explorer/` | 文件树子包（右栏上）：`explorer.py` 主控件 / `model.py` 模型层（噪音过滤 + Git 状态着色）/ `actions.py` 右键菜单动作 |
 | `gui/panels/changes/` | Git 变更面板子包（右栏下）：`panel.py` 已变更文件列表（状态着色 + 增减行数，VS Code SCM 简化版） |
 | `gui/panels/chat/` | 聊天面板子包（左栏）：`tabs.py` 标签容器（选择状态层 + 上限 4 标签）/ `panel.py` 装配（含底行：模型选择按钮 + 发送/停止双态按钮）/ `output.py` 输出区（旧轨）/ `transcript.py` 卡片轨对话区视图（0645 计划新轨；0813-1919 计划 T3 父指针路由——带 `parent_tool_call_id` 的子代理内部帧委派父 SubagentCard 内嵌区）/ `cards.py` KiloCode 式卡片折叠组件族（SubagentCard 内嵌「子代理活动」区复用 make_tool_card 嵌套显示子代理内部工具卡，0813-1919 计划 T2）/ `input.py` 输入框（文件拖入 → `@路径` 引用）/ `model_bar.py` 模型选择三按钮（纯视图）/ `worker.py` 流式线程 / `permission_dialog.py` ACP 工具审批对话框 / `permission_queue.py` 多标签审批串行弹窗队列 |

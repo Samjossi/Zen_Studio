@@ -68,14 +68,14 @@ class WelcomePanel(QWidget):
         card_layout.addWidget(label)
         card_layout.addWidget(button, alignment=Qt.AlignmentFlag.AlignCenter)
         if recent_projects:
-            # 显示名与文件菜单最近子菜单同款（文件夹名 — 父目录），toolTip 全路径
+            # 条目只显示项目名（2026-09-01 精简：完整路径不必全堆在卡片上），
+            # 用户要看具体地址时鼠标悬停 toolTip 即得全路径
             recent_label = QLabel("最近打开：", card)
             recent_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             card_layout.addSpacing(16)
             card_layout.addWidget(recent_label)
             for path in recent_projects:
-                p = Path(path)
-                item = QPushButton(f"{p.name}  —  {p.parent}", card)
+                item = QPushButton(Path(path).name, card)
                 item.setToolTip(path)
                 item.clicked.connect(
                     lambda checked=False, target=path:
