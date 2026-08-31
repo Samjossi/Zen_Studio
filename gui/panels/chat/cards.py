@@ -202,8 +202,11 @@ class _HugHeightMixin:
     """内容高度自适应 + 上限封顶：doc 实际高 ≤ BODY_MAX_HEIGHT 时贴内容，
     超限封顶出块内滚动条（防单卡撑爆 QScrollArea 布局）。"""
 
-    def _init_hug(self, max_height: int | None) -> None:
+    def _init_hug(self, max_height: int | None, bottom_padding: int = 6) -> None:
+        """bottom_padding：拟合高度在文档内容之外追加的底部补偿像素，
+        默认 6 保持存量卡片行为；气泡等需收紧的场景传小值。"""
         self._max_height = max_height
+        self._bottom_padding = bottom_padding
         self.document().contentsChanged.connect(self._fit_height)
 
     def resizeEvent(self, event) -> None:
@@ -220,12 +223,20 @@ class _HugHeightMixin:
         width = self.viewport().width()
         if width > 0:
             doc.setTextWidth(width)
-        target = self._content_pixel_height() + 6
+        target = self._content_pixel_height() + self._bottom_padding
         if self._max_height is not None:
             target = min(target, self._max_height)
         target = max(target, 22)
         if target != self.height():
             self.setFixedHeight(target)
+            # Qt 只在文档宽度变化引发重排（documentSizeChanged）时重算滚动条
+            # 范围，纯高度 resize 不重算——setHtml 瞬间控件仍是默认高，范围按
+            # 旧高度定格后残留（0831 气泡内滚动条常显缺陷根因）。内容未超限
+            # 时滚动条本不该出现，手动归零；超限（封顶出块内滚动条）场景不动
+            bar = self.verticalScrollBar()
+            if (bar.maximum() > 0
+                    and self._content_pixel_height() <= self.viewport().height()):
+                bar.setRange(0, 0)
 
 
 class BodyText(_HugHeightMixin, QPlainTextEdit):
@@ -236,6 +247,7 @@ class BodyText(_HugHeightMixin, QPlainTextEdit):
         text: str = "",
         mono: bool = False,
         max_height: int | None = BODY_MAX_HEIGHT,
+        bottom_padding: int = 6,
         parent=None,
     ) -> None:
         super().__init__(parent)
@@ -252,7 +264,7 @@ class BodyText(_HugHeightMixin, QPlainTextEdit):
             self.setFont(QFont(get_mono_family()))
         if text:
             self.setPlainText(text)
-        self._init_hug(max_height)
+        self._init_hug(max_height, bottom_padding)
 
     def _content_pixel_height(self) -> int:
         """QPlainTextDocumentLayout 的 size().height() 单位是块数（行数）非像素
@@ -287,6 +299,7 @@ class BodyHtml(_HugHeightMixin, QTextBrowser):
         html: str = "",
         mono: bool = False,
         max_height: int | None = BODY_MAX_HEIGHT,
+        bottom_padding: int = 6,
         parent=None,
     ) -> None:
         super().__init__(parent)
@@ -304,7 +317,7 @@ class BodyHtml(_HugHeightMixin, QTextBrowser):
         self.anchorClicked.connect(self.link_clicked)
         if html:
             self.setHtml(html)
-        self._init_hug(max_height)
+        self._init_hug(max_height, bottom_padding)
 
 
 # ----------------------------------------------------------------------

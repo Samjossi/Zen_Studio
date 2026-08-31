@@ -168,9 +168,23 @@ class UserBubbleBlock(QFrame):
         body = linkify_html(_html_escape(content), colors.link_fg, mention_exists)
         body = body.replace("\n", "<br>")
         for img in images or []:
-            uri = Path(img["path"]).resolve().as_uri()
-            body += f'<br><img src="{uri}" width="200">'
-        text = BodyHtml(f"<b>我：</b>{body}", max_height=None, parent=self)
+            img_path = Path(img["path"])
+            if img_path.exists():
+                uri = img_path.resolve().as_uri()
+                body += f'<br><img src="{uri}" width="200">'
+            else:
+                # 粘贴图超量被 _prune_pasted_images 惰性清除 / 本地图被移动
+                # 删除时，缺失图会被 QTextDocument 渲染成 200x200 空白占位
+                # （0831 气泡巨大空白缺陷根因）——降级为文本占位，与
+                # replay_session 的存在性过滤语义对齐
+                body += f'<br><i>[图片已失效：{_html_escape(img_path.name)}]</i>'
+        # 不设默认 documentMargin（4px）与默认底部补偿（6px）：三层底部
+        # 留白叠加约一行，观感如空行（0831 气泡底部空行修复）——margin
+        # 须在 setHtml 前收紧，让 contentsChanged 触发的 _fit_height
+        # 直接按收紧后的文档高度拟合
+        text = BodyHtml(max_height=None, bottom_padding=2, parent=self)
+        text.document().setDocumentMargin(2)
+        text.setHtml(f"<b>我：</b>{body}")
         text.anchorClicked.connect(self.link_clicked)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 6, 8, 6)
