@@ -8,6 +8,11 @@
     uv run main.py [folder]     # 绑定工作区根；根已被占用则唤活已有窗口后
                                 # 以退出码 3（EXIT_ROOT_OCCUPIED）退出
     uv run main.py --blank      # 空白窗口（不绑定目录；与 folder 互斥，blank 优先）
+
+无项目可恢复启动（work plans/2026-0903-0305 计划）：
+    folder 缺省/无效时从最近项目列表恢复首项；首次启动、历史为空或已清空
+    等「无项目可恢复」场景与 --blank 同形态——空白窗口，不再回退任何
+    默认目录（开发态/打包态行为一致）。
 """
 import argparse
 import os
@@ -51,7 +56,7 @@ def build_app_icon() -> QIcon:
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Zen Studio")
     parser.add_argument("folder", nargs="?", default=None,
-                        help="工作区根目录（缺省回退项目根；与 --blank 互斥，blank 优先）")
+                        help="工作区根目录（缺省从最近项目恢复，无历史则空白窗口；与 --blank 互斥，blank 优先）")
     parser.add_argument("--blank", action="store_true",
                         help="空白窗口（不绑定任何目录，对齐 VS Code New Window）")
     parser.add_argument("--auto-screenshot", action="store_true", help="启用自动截图")
@@ -69,28 +74,29 @@ def _is_unpack_dir(path: str) -> bool:
     return p.name == "_internal" and (p / "base_library.zip").is_file()
 
 
-def _frozen_default_workspace() -> str:
-    """打包态默认工作区（文档/修改记录/2026-0725-1234 计划 T1）：最近项目
-    首项（目录仍存在且非解包目录者）→ 用户主目录 二级回退。解包目录
-    （frozen 的 PROJECT_ROOT）不是任何人的工作区，绝不能作为回退落点。"""
+def _default_workspace() -> str | None:
+    """缺省启动工作区（文档/修改记录/2026-0725-1234 计划 T1 修订）：最近项目
+    首项（目录仍存在且非解包目录者）。解包目录（frozen 的 PROJECT_ROOT）
+    不是任何人的工作区，绝不能作为回退落点。列表为空/全无效（首次启动、
+    历史被清空）时返回 None——调用方按空白窗口处理，绝不回退主目录
+    （2026-0903-0305 计划：旧版二级回退 Path.home() 会把 home 当工作区）。"""
     store = RecentProjectsStore(USER_CONFIG_DIR / "recent_projects.json")
     for path in store.list():
         if Path(path).is_dir() and not _is_unpack_dir(path):
             return path
-    return str(Path.home())
+    return None
 
 
-def resolve_workspace_root(folder: str | None) -> str:
+def resolve_workspace_root(folder: str | None) -> str | None:
     """启动参数 → 工作区根（文件菜单多开路径已校验）。
-    缺省/无效回退：开发态项目根；打包态走 _frozen_default_workspace。"""
+    缺省/无效走 _default_workspace()（开发态/打包态一致，2026-0903-0305
+    计划 D2）；返回 None 表示无项目可恢复，按空白窗口处理。"""
     if folder:
         root = Path(folder).expanduser().resolve()
         if root.is_dir():
             return str(root)
         print(f"[main] 工作区目录无效，回退默认工作区：{folder}", file=sys.stderr)
-    if IS_FROZEN:
-        return _frozen_default_workspace()
-    return str(PROJECT_ROOT)
+    return _default_workspace()
 
 
 def setup_screenshot(window: MainWindow, interval: int, on_start: bool) -> QTimer:
@@ -138,10 +144,15 @@ def main() -> None:
         root_server = None
     else:
         workspace_root = resolve_workspace_root(args.folder)
-        root_server = acquire_root_ownership(workspace_root)
-        if root_server is None:
-            # 根已被活窗口占用：唤活消息已发出，本进程静默退出
-            sys.exit(EXIT_ROOT_OCCUPIED)
+        if workspace_root is None:
+            # 无项目可恢复（首次启动/历史为空/已清空）：与 --blank 同形态，
+            # 空白窗口不做占用登记（2026-0903-0305 计划 D1）
+            root_server = None
+        else:
+            root_server = acquire_root_ownership(workspace_root)
+            if root_server is None:
+                # 根已被活窗口占用：唤活消息已发出，本进程静默退出
+                sys.exit(EXIT_ROOT_OCCUPIED)
     window = MainWindow(workspace_root=workspace_root, root_server=root_server)
     window.show()
 
