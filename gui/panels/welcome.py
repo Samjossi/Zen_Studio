@@ -47,7 +47,13 @@ class PlaceholderPanel(QWidget):
 
 class WelcomePanel(QWidget):
     """空窗文件树槽位欢迎占位：「未打开文件夹」提示 + 「打开文件夹…」按钮
-    + 最近打开项目快捷列表（2026-09-01 迭代，原计划 §5 缓办项）。"""
+    + 最近打开项目快捷列表（2026-09-01 迭代，原计划 §5 缓办项）。
+
+    快捷列表只显示前 MAX_RECENT_SHOWN 条（2026-09-02：存储上限扩到 24 后，
+    欢迎页是快捷入口不堆全量，全量走文件菜单「最近打开的项目」子菜单）。"""
+
+    #: 快捷列表显示上限（存储上限 MAX_RECENT_PROJECTS=24，此处只取前 12 条）
+    MAX_RECENT_SHOWN = 12
 
     #: 用户点击「打开文件夹…」（主窗口接 open_folder_here 弹对话框选目录）
     open_folder_requested = Signal()
@@ -74,7 +80,7 @@ class WelcomePanel(QWidget):
             recent_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             card_layout.addSpacing(16)
             card_layout.addWidget(recent_label)
-            for path in recent_projects:
+            for path in recent_projects[:self.MAX_RECENT_SHOWN]:
                 item = QPushButton(Path(path).name, card)
                 item.setToolTip(path)
                 item.clicked.connect(

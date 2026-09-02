@@ -20,8 +20,8 @@ from pathlib import Path
 
 from gui.settings import write_json_atomic
 
-#: 列表上限（超出截断最旧）
-MAX_RECENT_PROJECTS = 10
+#: 列表上限（超出截断最旧；2026-09-02 由 10 扩到 24，菜单全量展示）
+MAX_RECENT_PROJECTS = 24
 
 #: 文件内键名常量（消费侧唯一合法引用方式，AFCP 3.1）
 KEY_RECENT_PROJECTS = "recent_projects"
