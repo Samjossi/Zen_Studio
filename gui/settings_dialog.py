@@ -152,7 +152,9 @@ class SettingsDialog(QDialog):
         set_font_size / set_terminal_swap_copy_paste /
         set_terminal_ai_tab_close_delay /
         open_settings_file / reset_settings / chat_tabs / statusBar；
-        FONT_SIZE_MIN/MAX/STATUS_MSG_TIMEOUT_MS 类常量）
+        FONT_SIZE_MIN/MAX/STATUS_MSG_TIMEOUT_MS 类常量）。
+        chat_tabs 在空白窗口为 None——模型页降级禁用（2026-0905-2044
+        计划），消费点显式守卫
     """
 
     def __init__(self, ctx) -> None:
@@ -404,6 +406,15 @@ class SettingsDialog(QDialog):
         layout.addRow("接口", self._interface_combo)
         layout.addRow("模型", self._model_combo)
         layout.addRow(self._make_hint("当前会话响应中暂不可切换。", page))
+        # 空白窗口降级（2026-0905-2044 计划）：无会话标签，模型选择无
+        # 作用对象——三下拉禁用 + 原因提示。窗口实例生命周期内 chat_tabs
+        # 恒 None 或恒非 None（空窗填充走换根关旧窗、起新进程），降级态
+        # 建页一次定型，无需动态切换
+        if self._ctx.chat_tabs is None:
+            for combo in (self._vendor_combo, self._interface_combo, self._model_combo):
+                combo.setEnabled(False)
+            layout.addRow(self._make_hint(
+                "空白窗口无会话标签，模型选择不可用；打开文件夹后生效。", page))
         self._vendor_combo.activated.connect(self._on_vendor_activated)
         self._interface_combo.activated.connect(self._on_interface_activated)
         self._model_combo.activated.connect(self._on_model_activated)
@@ -435,8 +446,10 @@ class SettingsDialog(QDialog):
             self._ctx.STATUS_MSG_TIMEOUT_MS)
 
     def set_model_enabled(self, enabled: bool) -> None:
-        """busy 联动：AI 响应中禁用三下拉（与 ModelBar 三按钮对齐）。"""
-        on = enabled and self._any_backend_available
+        """busy 联动：AI 响应中禁用三下拉（与 ModelBar 三按钮对齐）。
+        空白窗口（chat_tabs None）恒禁用（双保险：建页已禁，此处拦截
+        未来绕过 showEvent 的直接调用，2026-0905-2044 计划 D1）。"""
+        on = enabled and self._any_backend_available and self._ctx.chat_tabs is not None
         self._vendor_combo.setEnabled(on)
         self._interface_combo.setEnabled(on)
         self._model_combo.setEnabled(on)
@@ -608,6 +621,10 @@ class SettingsDialog(QDialog):
         卡住窗口首帧绘制，呈现「先闪一个小窗口再出完整窗口」的中间态；
         窗口显示定型后填充，视觉闪动消除。
         """
+        # 空白窗口守卫（2026-0905-2044 计划 D1）：无会话标签，三下拉保持
+        # 建页降级初态（空 + 禁用），无填充需求
+        if self._ctx.chat_tabs is None:
+            return
         backend = self._ctx.chat_tabs.current_backend() or settings[KEY_MODEL_BACKEND]
         # 一级：后台（持久化不存后台键，由接口实现名推导）
         vendor_index = self._vendor_combo.findData(vendor_of(backend))
@@ -683,7 +700,9 @@ class SettingsDialog(QDialog):
         super().showEvent(event)
         self._models_cache.clear()  # 每次打开强制刷新一次模型列表
         self.reload()
-        self.set_model_enabled(not self._ctx.chat_tabs.is_busy())
+        # 空白窗口无 chat_tabs（None 守卫，2026-0905-2044 计划）：三下拉恒禁用
+        self.set_model_enabled(
+            self._ctx.chat_tabs is not None and not self._ctx.chat_tabs.is_busy())
 
     # ------------------------------------------------------------------
     # 内部
