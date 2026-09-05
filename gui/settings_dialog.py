@@ -60,13 +60,18 @@ from gui.settings import (
     CHAT_RENDERER_CARDS,
     CHAT_RENDERER_CLASSIC,
     CONFIG_DIR,
+    DEFAULT_STARTUP_MODE,
     KEY_CHAT_RENDERER,
     KEY_FONT_SIZE,
     KEY_MODEL_BACKEND,
     KEY_PERMISSION_MODE,
+    KEY_STARTUP_MODE,
     KEY_TERMINAL_AI_TAB_CLOSE_DELAY_S,
     KEY_TERMINAL_SWAP_COPY_PASTE,
     KEY_THEME,
+    STARTUP_MODE_BLANK,
+    STARTUP_MODE_RESTORE,
+    STARTUP_MODES,
     TERMINAL_AI_TAB_CLOSE_DELAY_MAX_S,
     TERMINAL_AI_TAB_CLOSE_DELAY_MIN_S,
     update_settings,
@@ -110,11 +115,23 @@ _TITLE_FONT_DELTA_PT = 4
 #: 黑名单只读区固定高度（防展开撑变形；1510 计划 D13）
 _BLACKLIST_HEIGHT = 160
 
+#: 启动模式选项文案（值域常量单一来源在 gui/settings.py；本表仅 UI 文案）
+_STARTUP_MODE_LABELS = {
+    STARTUP_MODE_RESTORE: (
+        "恢复上次项目",
+        "启动时自动打开最后关闭的项目；该项目已不可用时回退最近打开的项目。"),
+    STARTUP_MODE_BLANK: (
+        "空白窗口",
+        "启动时不加载任何项目，与「新建窗口」同形态。"),
+}
+
 #: 页面注册表：(导航名, 副标题, 构建方法名, 重载方法名)；元组顺序即导航顺序。
 #: 副标题由骨架页标题区统一展示（各页不再自带页顶说明）。
 #: 新增设置页 = 写 _build_xxx_page / _reload_xxx 两函数 + 此处加一行，
 #: 骨架与 reload 分发零改动（AFCP 3.4 常量化；同 menus/assembler.MODULES 先例）
 _PAGE_REGISTRY: tuple[tuple[str, str, str, str | None], ...] = (
+    ("常规", "启动行为配置，切换即时保存，下次启动生效。",
+     "_build_general_page", "_reload_general"),
     ("AI 工具权限", "控制 AI 工具调用的审批粒度，切换即时生效。",
      "_build_permission_page", "_reload_permission"),
     ("AI 模型", "选择 AI 后台、接口与模型；作用于当前活动会话标签，与聊天面板底行模型按钮双向同步。",
@@ -248,6 +265,40 @@ class SettingsDialog(QDialog):
         mono_font = QFont(get_mono_family())
         mono_font.setPointSizeF(base)
         self._blacklist_text.setFont(mono_font)
+
+    # ------------------------------------------------------------------
+    # 常规页（启动模式二态单选，2026-0905-2025 计划）
+    # ------------------------------------------------------------------
+    def _build_general_page(self) -> QWidget:
+        page = QWidget(self)
+        layout = QVBoxLayout(page)
+        layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        layout.addWidget(self._make_hint("启动时（无命令行参数）：", page))
+        self._startup_radios: dict[str, QRadioButton] = {}
+        for mode in STARTUP_MODES:
+            name, desc = _STARTUP_MODE_LABELS[mode]
+            radio = QRadioButton(name, page)
+            radio.setStyleSheet(_STYLE_RADIO)
+            radio.toggled.connect(
+                lambda checked, m=mode: self._on_startup_mode(m, checked))
+            self._startup_radios[mode] = radio
+            layout.addWidget(radio)
+            desc_label = QLabel(desc, page)
+            desc_label.setIndent(_DESC_INDENT)
+            desc_label.setWordWrap(True)
+            self._hint_labels.append(desc_label)
+            layout.addWidget(desc_label)
+        return page
+
+    def _on_startup_mode(self, mode: str, checked: bool) -> None:
+        """启动模式二态：即时持久化，下次启动生效（启动决策在进程入口
+        一次性做出，无法热切换，状态栏提示写明）。"""
+        if not checked or self._reloading:
+            return
+        update_settings({KEY_STARTUP_MODE: mode})
+        self._ctx.statusBar().showMessage(
+            f"启动时：{_STARTUP_MODE_LABELS[mode][0]}（下次启动生效）",
+            self._ctx.STATUS_MSG_TIMEOUT_MS)
 
     # ------------------------------------------------------------------
     # AI 工具权限页（四态单选 + 黑名单只读折叠区）
@@ -515,6 +566,13 @@ class SettingsDialog(QDialog):
                     getattr(self, reload_name)(settings)
         finally:
             self._reloading = False
+
+    def _reload_general(self, settings) -> None:
+        """常规页：定位持久化启动模式（未知值静默回退默认档）。"""
+        mode = settings[KEY_STARTUP_MODE]
+        radio = (self._startup_radios.get(mode)
+                 or self._startup_radios[DEFAULT_STARTUP_MODE])
+        radio.setChecked(True)
 
     def _reload_permission(self, settings) -> None:
         """权限页：定位持久化档位（未知档静默回退默认档）。"""

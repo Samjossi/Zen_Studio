@@ -16,9 +16,9 @@ Zen Studio 的**开发态**运行时配置存放地。本目录内数据文件�
 
 | 文件 | 说明 | 读写方 |
 |:---|:---|:---|
-| `config/settings.json` | 应用偏好：主题 / 字号 / 噪音过滤 / 模型选择（`model_backend` + 按接口记忆的 `model_versions` 表）/ 审批默认档 | `gui/settings.py` 统一入口 |
+| `config/settings.json` | 应用偏好：主题 / 字号 / 模型选择（`model_backend` + 按接口记忆的 `model_versions` 表）/ 审批默认档 / 启动模式（`startup_mode`：恢复上次项目 / 空白窗口） | `gui/settings.py` 统一入口 |
 | `config/settings.lock` | `settings.json` 的 flock 文件锁（多开实例并发治理） | `gui/settings.py` |
-| `config/recent_projects.json` | 最近打开的工作区根历史（文件菜单「最近打开的项目」数据源） | `gui/recent_projects.py` |
+| `config/recent_projects.json` | 最近打开的工作区根历史（文件菜单「最近打开的项目」数据源）+ `last_closed_root` 键（最后关闭的根，启动恢复数据源） | `gui/recent_projects.py` |
 | `config/version.json` | 配置版本标记（内容为 `{"version": "1.0"}`；⚠️ 当前全库无代码读写，疑似早期遗留文件，待确认后清理） | —（暂无消费方） |
 | `config/window_state/<hash8>.json` | 窗口几何与分隔栏状态，按工作区根哈希分文件（VS Code `workspaceStorage` 语义） | `gui/window_state.py` |
 | `config/window_state/default.json` | 全局默认布局：最近关闭窗口双写、后写胜，供新工作区首开与空白窗口继承 | `gui/window_state.py` |

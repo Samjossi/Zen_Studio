@@ -21,7 +21,7 @@
 | `gui/settings_dialog.py` | 设置中心对话框：左导航 + 右分页（页面注册表驱动），唯一偏好配置面；控件 change 即时持久化即时应用 |
 | `gui/window_state.py` | 窗口状态持久化：读写 `config/window_state/<hash8>.json`（按工作区哈希分文件，`default.json` 供新工作区首开继承） |
 | `gui/root_ownership.py` | 一窗一根占用登记与唤活协议：`QLocalServer` 按工作区根 listen（`config/sockets/<hash8>.sock`），命中已占用根发唤活消息并以退出码 3 退出；陈旧套接字探测自愈（2026-08-31） |
-| `gui/recent_projects.py` | 最近打开的工作区根存取（`config/recent_projects.json`），文件菜单「最近打开的项目」子菜单消费 |
+| `gui/recent_projects.py` | 最近打开的工作区根存取（`config/recent_projects.json`），文件菜单「最近打开的项目」子菜单消费；另管 `last_closed_root` 键（closeEvent 记录最后关闭的根，供启动恢复） |
 | `gui/theme.py` | 主题体系：`THEME_META` 多主题注册表（云白/暖米/晴空/薄荷/暗色，按 light/dark 两族）+ qss 应用 + 自带双字体注册（思源黑体 / 更纱黑体）+ `GIT_STATUS_COLORS` Git 状态色表 |
 | `gui/title_bar.py` | 自定义标题栏（无边框窗口）：Logo + 标题文字 + 最小化/最大化/关闭三按钮 |
 | `gui/window_resize.py` | 无边框窗口八向边缘缩放热区（窗口级事件过滤器） |
