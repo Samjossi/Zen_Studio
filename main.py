@@ -9,13 +9,11 @@
                                 # 以退出码 3（EXIT_ROOT_OCCUPIED）退出
     uv run main.py --blank      # 空白窗口（不绑定目录；与 folder 互斥，blank 优先）
 
-无项目可恢复启动（work plans/2026-0903-0305 计划）：
-    folder 缺省/无效时按启动模式恢复（2026-0905-2025 计划：设置中心
-    「常规」页 startup_mode 二态——restore 恢复最后关闭的项目，失效回退
-    最近项目首项 / blank 起空白窗口）；首次启动、历史为空或已清空
-    等「无项目可恢复」场景与 --blank 同形态——空白窗口，不再回退任何
-    默认目录（开发态/打包态行为一致）。命令行 folder 与 --blank 显式
-    参数优先于 startup_mode 设置。
+无参启动恒空白窗口（work plans/2026-0905-2347 计划，撤销 2026-0905-2025
+的启动恢复特性）：folder 缺省/无效时不读任何历史、不恢复上次项目，
+与 --blank 同形态——空白窗口，绝不回退任何默认目录（开发态/打包态
+行为一致，2026-0903-0305 计划：旧版回退 Path.home() 会把 home 当工作区）。
+打开项目只经两条显式路径：命令行 folder 参数 / 窗内「打开文件夹」。
 """
 import argparse
 import os
@@ -30,9 +28,7 @@ from PySide6.QtWidgets import QApplication
 from core.child_env import sanitize_environ
 from core.paths import IS_FROZEN, LOGO_DIR, PROJECT_ROOT, USER_CONFIG_DIR
 from gui import MainWindow
-from gui.recent_projects import RecentProjectsStore
 from gui.root_ownership import EXIT_ROOT_OCCUPIED, acquire_root_ownership
-from gui.settings import KEY_STARTUP_MODE, STARTUP_MODE_BLANK, load_settings
 from gui.theme import apply_theme
 
 #: 截图输出目录：开发态项目内 .tmp/；打包态落用户数据根（AppImage 只读
@@ -60,7 +56,7 @@ def build_app_icon() -> QIcon:
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Zen Studio")
     parser.add_argument("folder", nargs="?", default=None,
-                        help="工作区根目录（缺省按启动模式恢复，无历史则空白窗口；与 --blank 互斥，blank 优先）")
+                        help="工作区根目录（缺省/无效则空白窗口，不恢复历史；与 --blank 互斥，blank 优先）")
     parser.add_argument("--blank", action="store_true",
                         help="空白窗口（不绑定任何目录，对齐 VS Code New Window）")
     parser.add_argument("--auto-screenshot", action="store_true", help="启用自动截图")
@@ -69,51 +65,16 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def _is_unpack_dir(path: str) -> bool:
-    """判定是否 PyInstaller 解包根（onedir `_internal` / AppImage 挂载内同构）：
-    目录名 `_internal` 且内含 `base_library.zip`（PyInstaller 运行时标志文件）。
-    旧版 S1 bug 曾把解包目录当工作区写进最近项目列表，此类路径绝不可作
-    回退落点——`is_dir()` 过滤不掉至今仍存于磁盘的 onedir `_internal`。"""
-    p = Path(path)
-    return p.name == "_internal" and (p / "base_library.zip").is_file()
-
-
-def _default_workspace() -> str | None:
-    """缺省启动工作区（文档/修改记录/2026-0725-1234 计划 T1 修订；
-    2026-0905-2025 计划按启动模式分流并改恢复语义为「最后关闭」）：
-
-    - startup_mode = blank：直接返回 None（空白窗口，不加载任何项目）；
-    - startup_mode = restore：先取 last_closed_root（目录仍存在且非解包
-      目录者），失效则回退遍历最近项目列表首项有效者（兼容无
-      last_closed_root 键的存量历史文件）。
-
-    解包目录（frozen 的 PROJECT_ROOT）不是任何人的工作区，绝不能作为
-    回退落点。列表为空/全无效（首次启动、历史被清空）时返回 None——
-    调用方按空白窗口处理，绝不回退主目录（2026-0903-0305 计划：旧版
-    二级回退 Path.home() 会把 home 当工作区）。"""
-    if load_settings()[KEY_STARTUP_MODE] == STARTUP_MODE_BLANK:
-        return None
-    store = RecentProjectsStore(USER_CONFIG_DIR / "recent_projects.json")
-    last_closed = store.get_last_closed()
-    if (last_closed is not None and Path(last_closed).is_dir()
-            and not _is_unpack_dir(last_closed)):
-        return last_closed
-    for path in store.list():
-        if Path(path).is_dir() and not _is_unpack_dir(path):
-            return path
-    return None
-
-
 def resolve_workspace_root(folder: str | None) -> str | None:
     """启动参数 → 工作区根（文件菜单多开路径已校验）。
-    缺省/无效走 _default_workspace()（开发态/打包态一致，2026-0903-0305
-    计划 D2）；返回 None 表示无项目可恢复，按空白窗口处理。"""
+    folder 缺省/无效返回 None——无参启动恒空白窗口，不读任何历史、
+    不恢复上次项目（2026-0905-2347 计划，撤销启动恢复特性）。"""
     if folder:
         root = Path(folder).expanduser().resolve()
         if root.is_dir():
             return str(root)
-        print(f"[main] 工作区目录无效，回退默认工作区：{folder}", file=sys.stderr)
-    return _default_workspace()
+        print(f"[main] 工作区目录无效，启动空白窗口：{folder}", file=sys.stderr)
+    return None
 
 
 def setup_screenshot(window: MainWindow, interval: int, on_start: bool) -> QTimer:
@@ -162,7 +123,7 @@ def main() -> None:
     else:
         workspace_root = resolve_workspace_root(args.folder)
         if workspace_root is None:
-            # 无项目可恢复（首次启动/历史为空/已清空）：与 --blank 同形态，
+            # 无显式有效 folder（无参/目录无效）：与 --blank 同形态，
             # 空白窗口不做占用登记（2026-0903-0305 计划 D1）
             root_server = None
         else:

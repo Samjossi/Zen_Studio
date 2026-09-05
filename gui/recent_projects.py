@@ -12,11 +12,6 @@ main.py <folder> / 新建窗口三路径汇聚），消费侧为文件菜单「�
 
 读写走「读全量 → 合并 → write_json_atomic 写回」链，不自造 IO；多开窗口
 并发写为后写胜（列表非关键数据，收敛即正确，不加锁）。
-
-last_closed_root 键（2026-0905-2025 计划）：仅由 MainWindow.closeEvent
-写入（后关者胜，天然即「最后关闭」），仅由 main.py 无参启动恢复路径
-（startup_mode = restore）读取；与 recent_projects 列表的「最近打开」
-语义相互独立，互不扰动。
 """
 from __future__ import annotations  # list() 方法与内建类型同名，注解延迟求值
 
@@ -30,9 +25,6 @@ MAX_RECENT_PROJECTS = 24
 
 #: 文件内键名常量（消费侧唯一合法引用方式，AFCP 3.1）
 KEY_RECENT_PROJECTS = "recent_projects"
-#: 最后关闭的工作区根（2026-0905-2025 计划）：closeEvent 唯一写入，
-#: 无参启动 restore 模式唯一读取；「清除列表」连带清除
-KEY_LAST_CLOSED_ROOT = "last_closed_root"
 
 
 class RecentProjectsStore:
@@ -57,21 +49,6 @@ class RecentProjectsStore:
             return []
         return list(paths)
 
-    def get_last_closed(self) -> str | None:
-        """读回最后关闭的工作区根；缺失/损坏/类型非 str 一律回退 None。"""
-        path = self._read_all().get(KEY_LAST_CLOSED_ROOT)
-        return path if isinstance(path, str) else None
-
-    def set_last_closed(self, path: str) -> None:
-        """记录最后关闭的工作区根：规范化（resolve）+ 合并写回（保留列表键）。
-
-        仅 MainWindow.closeEvent 调用（后关者胜）；启动路径不写——
-        写入时机即「最后关闭」语义的定义本身（2026-0905-2025 计划 D1/D2）。
-        """
-        data = self._read_all()
-        data[KEY_LAST_CLOSED_ROOT] = str(Path(path).resolve())
-        write_json_atomic(self._state_file, data)
-
     def add(self, path: str) -> None:
         """记录：规范化（resolve）+ 去重 + 置顶 + 截断上限，即时原子写。
 
@@ -88,9 +65,7 @@ class RecentProjectsStore:
         self._write(remaining)
 
     def clear(self) -> None:
-        """清空（子菜单「清除列表」项）：列表与 last_closed_root 一并清除
-        （2026-0905-2025 计划 D5——两者同属历史，只清列表会让清空后启动
-        仍恢复旧项目）。"""
+        """清空（子菜单「清除列表」项）：整表重写为空列表。"""
         write_json_atomic(self._state_file, {KEY_RECENT_PROJECTS: []})
 
     def _read_all(self) -> dict:
@@ -103,7 +78,7 @@ class RecentProjectsStore:
         return data if isinstance(data, dict) else {}
 
     def _write(self, paths: list[str]) -> None:
-        """整表原子写：列表键全量覆盖，保留 last_closed_root 键。"""
+        """整表原子写：列表键全量覆盖，其余键原样保留（读全量合并）。"""
         data = self._read_all()
         data[KEY_RECENT_PROJECTS] = paths
         write_json_atomic(self._state_file, data)

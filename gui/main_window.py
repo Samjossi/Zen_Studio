@@ -20,10 +20,9 @@ ActionRegistry 全局注册表）；本类保留面板、槽函数与面板显�
 （2026-08-31 起由同根多开改为空白窗口，见下）。「最近打开的项目」（2026-07-24，文档/修改记录/2026-0724-1003）：
 窗口启动即记录自身工作区根 → RecentProjectsStore 全局共享列表
 （config/recent_projects.json），子菜单回放在新窗口绑定该根。
-启动模式与「最后关闭」恢复（2026-09-05，work plans/2026-0905-2025 计划）：
-closeEvent 记录自身根为 last_closed_root（后关者胜）；无参启动按设置中心
-「常规」页 startup_mode 分流——restore 恢复最后关闭的项目（失效回退
-列表首项）/ blank 起空白窗口。
+启动恢复特性已撤销（2026-09-05，work plans/2026-0905-2347 计划）：
+无参启动恒空白窗口，closeEvent 不再记录「最后关闭」根，打开项目
+只经命令行 folder / 窗内「打开文件夹」/ 最近项目菜单三条显式路径。
 「打开文件夹」（2026-07-24，文档/修改记录/2026-0724-1806）：换根关旧窗——
 预写布局（活窗口采集 patch 直写目标根哈希文件 + default 双写，复制语义）
 后起新进程，2s 探活（Popen.poll）存活才关旧窗，启动即败保留旧窗。
@@ -441,14 +440,9 @@ class MainWindow(QMainWindow):
             self.chat_tabs.save_sessions()
 
     def closeEvent(self, event: QCloseEvent) -> None:
-        """关闭时一次性保存窗口几何、四处分隔栏状态与会话记录快照，
-        并记录自身根为「最后关闭的项目」（2026-0905-2025 计划）。"""
+        """关闭时一次性保存窗口几何、四处分隔栏状态与会话记录快照。"""
         # 面板隐藏时先恢复可见再保存：避免把 0 尺寸写入持久化（启动始终显示）
         self._save_layout_state()
-        # 最后关闭的工作区根（closeEvent 为全关窗路径唯一收口，后关者胜）；
-        # 空白窗口无根可记，跳过——空窗会话不冲刷上次项目现场
-        if self._workspace_root is not None:
-            self.recent_projects.set_last_closed(self._workspace_root)
         super().closeEvent(event)
 
     # ------------------------------------------------------------------
@@ -546,8 +540,9 @@ class MainWindow(QMainWindow):
                 return
         target = Path(path).resolve()
         if not target.is_dir():
-            # 防 main.py resolve_workspace_root 静默回退项目根：新窗开错根 +
-            # 旧窗被关的双重灾难（对话框仅保证选中时刻存在，TOCTOU 兜底）
+            # 防新窗落空 + 旧窗被关的双重灾难：main.py 对无效 folder 起空白
+            # 窗口（2026-0905-2347 计划），换根前必须本地先校验
+            # （对话框仅保证选中时刻存在，TOCTOU 兜底）
             self.statusBar().showMessage(
                 "文件夹不存在，未做任何更改", self.STATUS_MSG_TIMEOUT_MS)
             return
