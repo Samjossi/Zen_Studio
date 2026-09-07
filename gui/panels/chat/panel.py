@@ -472,9 +472,13 @@ class ChatPanel(QWidget):
 
         layout = QVBoxLayout(self)
         layout.addWidget(card, 1)
-        # 面板外边距：卡片不贴窗口边缘与 splitter 把手（苹果风卡片间距）；
-        # 下边距 6px + 状态栏定高 26px = 底部总间距 32px（一体化设计）
-        layout.setContentsMargins(6, 6, 6, 6)
+        # 面板外边距（2026-0908-0010 计划方案 A）：左/上 6px 不贴窗口边缘与
+        # splitter 把手（苹果风卡片间距）；右/下有意取 0——卡片右缘与
+        # QTabWidget 右上角「＋」角控件右缘齐平，卡片底缘与终端/已变更
+        # 卡片底缘齐平（ChatTabs 层 6px + 状态栏定高 26px = 底部总间距
+        # 32px 一体化设计；本层再留 6px 会双层叠加成 38px 并致三栏底线
+        # 错位），切勿按「统一 6px」回改
+        layout.setContentsMargins(6, 6, 0, 0)
         layout.setSpacing(0)
 
     def _build_input_box(self) -> QWidget:
