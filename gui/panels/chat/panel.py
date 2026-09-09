@@ -1,72 +1,62 @@
 """聊天面板装配：上输出 + 下输入，连接 LLM 流式线程。
 
-多标签改造（2026-07-22，文档/修改记录/2026-0722-0756 计划 P3 任务 13）：
+多标签结构：
 - 自持 provider 实例（不再从共享 registry 取单例）：注册表工厂懒实例化
-  （2026-0730-0150 计划 D4——实例推迟到首轮对话/切换广播前经
-  _get_provider 即建即用，防"标签数 × 后端数"长驻进程膨胀；
-  实例建成后标签间完全隔离，D6 方案 A）
-- ModelBar 各标签自持：2026-0724-2354 计划由 ChatTabs 顶部全局单例
-  改为本面板输入区底行实例（纯视图）；选择状态每标签自持（本面板
-  ModelBar 为有效值唯一来源，2026-0803-0112 计划翻案广播语义），
-  ChatTabs 只留「新建注入值」；外部切换经 set_model_selection 同步
-  本面板 UI（阻断）与 provider
+  ——实例推迟到首轮对话/切换广播前经 _get_provider 即建即用，防
+  "标签数 × 后端数"长驻进程膨胀；实例建成后标签间完全隔离
+- ModelBar 各标签自持：本面板输入区底行实例（纯视图）；选择状态每标签
+  自持（本面板 ModelBar 为有效值唯一来源），ChatTabs 只留「新建注入
+  值」；外部切换经 set_model_selection 同步本面板 UI（阻断）与 provider
 - 审批请求统一提交全局审批队列（PERMISSION_QUEUE），多标签串行弹窗
 
-AI 活动信息路由（2026-07-31，文档/修改记录/2026-0731-1602 计划 T6）：
-- _on_chunk 新增 tool_call / tool_call_update / todo 三分支——只上屏，
+AI 活动信息路由：
+- _on_chunk 分 tool_call / tool_call_update / todo 三分支——只上屏，
   不入 _stream_buffer/_history（与 reasoning 同约束，防历史污染回传）；
   toolCallId→title 簿记补全状态行标题；轮次收尾 reset_activity_anchors
-  作废 todo 锚点（T5-4 防跨轮串位）
+  作废 todo 锚点（防跨轮串位）
 
-对话区双轨渲染（2026-08-03，文档/修改记录/2026-0803-0645 融合计划 D2-A）：
+对话区双轨渲染：
 - 构造时按 chat_renderer 设置选轨：cards = ChatTranscriptView 卡片折叠轨
-  （新，默认；QScrollArea + 块级 QWidget，KiloCode 式卡片）；classic =
+  （默认；QScrollArea + 块级 QWidget，KiloCode 式卡片）；classic =
   ChatOutput 旧轨（冻结保留即回退通道）；存量标签不热切换
-- 新轨路由差异：取消非 execute 工具的 output 剥除（全工具卡 body 承接，
-  §2.3-2）；in_progress 尾滚帧仅 execute + 200ms 节流（T8）；旧轨维持
-  剥除纪律且 execute 输出钳回末 20 行（1836 L2-3 规格，协议层 0645 起
-  放宽至软上限 1000 行，旧轨渲染规格由路由层钳制不变）
+- 新轨路由差异：取消非 execute 工具的 output 剥除（全工具卡 body 承接）；
+  in_progress 尾滚帧仅 execute + 200ms 节流；旧轨维持剥除纪律且 execute
+  输出钳回末 20 行（协议层软上限 1000 行，旧轨渲染规格由路由层钳制不变）
 
-会话活动时间线色块条（2026-07-31，文档/修改记录/2026-0731-1824 计划 T3；
-挂载点 2242 计划方案 F 迁移）：
+会话活动时间线色块条：
 - ActivityTimeline 细条与上下文用量徽章同行组成状态行（左条右徽），
   置输入区内输入框上方——随 splitter 拖拽移动，视觉恒在输出/输入分界
-  （原 1824 D2 卡片底部挂载废止；不进 splitter 的约束不变）；
-  _on_chunk 入口旁路分接 feed（不改动既有分支语义）；_on_finished/
-  _on_stopped 随 reset_activity_anchors 同位置 end_turn 作废段指针；
-  切后端新会话清条
+  （不进 splitter）；_on_chunk 入口旁路分接 feed（不改动既有分支语义）；
+  _on_finished/_on_stopped 随 reset_activity_anchors 同位置 end_turn
+  作废段指针；切后端新会话清条
 
-关闭异步化（2026-07-22，文档/修改记录/2026-0722-1117 计划 P2）：
+关闭异步化：
 - close() 两段式：GUI 段毫秒级（request_stop + 断信号 + 起 daemon
   清理线程），terminate/wait/deleteLater 全在线程段——GUI 零冻结
 - 线程段顺序先 terminate 后 wait：杀 acp 进程注入死讯解封 worker
   全部阻塞点（治"先干等 3s 才 terminate"的顺序倒置）
 
-左栏宽度根治（2026-07-24，文档/修改记录/2026-0724-2305 计划 T3/T7）：
-- 输入区底行新增发送/停止双态按钮：空闲=「发送」（等价 Enter，
-  空文本禁用），busy=「■ 停止」（直停本标签）；按钮常驻恒宽，
-  任何状态下 sizeHint 不变——替代原 ModelBar 停止按钮的显隐模式
-  （busy 显隐改变 sizeHint 触发 QSplitter 撑宽左栏的病根）
-- busy 期间 Esc 快捷键中断本标签生成（参考实现同效：theia「取消
-  (Esc)」、Multi_Cli_Studio Escape 中断）
+左栏宽度与发送/停止按钮：
+- 输入区底行发送/停止双态按钮：空闲=「发送」（等价 Enter，空文本禁用），
+  busy=「■ 停止」（直停本标签）；按钮常驻恒宽，任何状态下 sizeHint
+  不变——替代显隐模式（busy 显隐改变 sizeHint 会触发 QSplitter 撑宽
+  左栏）
+- busy 期间 Esc 快捷键中断本标签生成
 
-排队发送（原「插话」）与停止按钮（2026-08-06 0634 计划立项；
-2026-08-07 2305 计划更名 + 交互改造）：
-- 停止按钮修复（0634 D1）：_busy 簿记单点置位（_set_busy），停止钮
-  使能只由 _set_busy 管理——消除「busy UI 已立、worker 未建/已销毁」
-  竞态窗口内 worker 存在性代理守卫失效的误禁用根因
-- 排队发送（2305 计划 D2，0634「插话」更名 + 交互翻案）：busy 期间
-  Enter/「排队」钮登记待发——文本**驻留输入框**不清空不上屏（用户
-  持续看到「未发送」并可继续编辑，轮末以当时内容为准发出）；轮次
-  正常收尾立即自动发送。单条待发（c1 拍板：0634 的 FIFO 队列与
-  排队气泡整轨拆除）；清空输入框即取消待发
-- 三态收尾（2305 D3）：完成=自动发输入框待发内容 / 失败=解除待发
-  态草稿保留 / 停止=解除待发态（草稿本在输入框，零回滚操作）
-- 底行双常驻恒宽钮：「发送/排队/等待发送…」三态钮 +「■ 停止」
-  常驻钮；待发双指示（2305 D4）= 三态钮禁用态文案 + 输入框
-  pending 虚线 accent 描边（qss 动态属性）
+排队发送与停止按钮：
+- _busy 簿记单点置位（_set_busy），停止钮使能只由 _set_busy 管理——
+  消除「busy UI 已立、worker 未建/已销毁」竞态窗口内 worker 存在性
+  代理守卫失效的误禁用根因
+- 排队发送：busy 期间 Enter/「排队」钮登记待发——文本**驻留输入框**
+  不清空不上屏（用户持续看到「未发送」并可继续编辑，轮末以当时内容
+  为准发出）；轮次正常收尾立即自动发送。单条待发；清空输入框即取消待发
+- 三态收尾：完成=自动发输入框待发内容 / 失败=解除待发态草稿保留 /
+  停止=解除待发态（草稿本在输入框，零回滚操作）
+- 底行双常驻恒宽钮：「发送/排队/等待发送…」三态钮 +「■ 停止」常驻钮；
+  待发双指示 = 三态钮禁用态文案 + 输入框 pending 虚线 accent 描边
+  （qss 动态属性）
 
-会话记录持久化（2026-08-18，文档/修改记录/2026-0818-2350 计划 T2）：
+会话记录持久化：
 - export_session 导出「_replayed_history + _history」两段拼接（关闭时
   全量快照数据源）；replay_session 重放存档文字记录上屏（只读展示 +
   系统分隔行标注），重放段簿记 _replayed_history 供再导出——不进
@@ -131,21 +121,21 @@ class ChatPanel(QWidget):
     """单个 AI 会话标签页（独立 provider 实例，由 ChatTabs 托管）。"""
 
     #: 发送/停止状态变化（ChatTabs 按当前活动标签粒度联动禁用本标签
-    #: 三按钮与设置中心模型页，2026-0803-0112 计划 D4）
+    #: 三按钮与设置中心模型页）
     busy_changed = Signal(bool)
 
     #: 一轮对话结束（正常/失败/用户停止均触发；主窗口经 ChatTabs 转发
     #: 联动 Git 状态去抖刷新——ACP 子进程直接写盘不经窗口激活/查看器
-    #: 重载，补此事件源闭合，诊断报告 文档/修改记录/2026-0731-1256 方案 A）
+    #: 重载，补此事件源闭合）
     turn_finished = Signal()
 
-    #: 正文文件路径链接点击（1836 计划 L2-5）：载荷 (绝对路径, 行号|None)；
+    #: 正文文件路径链接点击：载荷 (绝对路径, 行号|None)；
     #: ChatTabs 转发 → 主窗口接查看器 open_file
     file_open_requested = Signal(str, object)
 
     #: 默认布局尺寸（px）：输出区 / 输入区（初排与 reset_layout 单点来源）。
-    #: 输入区 212 = 输入框原可视高度 180 + 底行按钮区约 32（T8 实测补偿，
-    #: 2026-0724-2305 计划：发送/停止按钮入底行后保持输入框可视行数不缩水）
+    #: 输入区 212 = 输入框原可视高度 180 + 底行按钮区约 32（发送/停止
+    #: 按钮入底行后保持输入框可视行数不缩水）
     DEFAULT_SPLITTER_SIZES = [550, 212]
 
     def __init__(
@@ -163,10 +153,10 @@ class ChatPanel(QWidget):
         :param version: 初始模型别名（None = provider 默认模型）
         :param workspace_root: 工作区根（provider cwd 与拖入文件 @相对路径 基准）
         :param parent: 父控件
-        :param effort: 初始推理强度（2026-0806 计划；None = 未定制，agent
-            默认强度生效；注入值归 ChatTabs 记忆表解析，后续切换见 set_effort）
-        :param terminal_bridge: ACP terminal/* GUI 桥（2026-0817-1554 计划
-            T5；None = 不声明 terminal 能力，agent Bash 在其内部进程执行）
+        :param effort: 初始推理强度（None = 未定制，agent 默认强度生效；
+            注入值归 ChatTabs 记忆表解析，后续切换见 set_effort）
+        :param terminal_bridge: ACP terminal/* GUI 桥（None = 不声明
+            terminal 能力，agent Bash 在其内部进程执行）
         """
         super().__init__(parent)
         self.setObjectName("SidePanel")  # 侧栏灰底分区（主题 qss 统一着色）
@@ -174,47 +164,45 @@ class ChatPanel(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self._history: list[Message] = []
         self._worker: ChatWorker | None = None
-        #: busy 簿记（0634 计划 D1）：_set_busy 单点置位；
-        #: _refresh_send_button 守卫改查本簿记——消除「busy UI 已立、
-        #: worker 未建/已销毁」竞态窗口（worker 存在性代理守卫失效导致
-        #: 停止按钮被误禁用的根因，§2.1 诊断）
+        #: busy 簿记：_set_busy 单点置位；_refresh_send_button 守卫改查
+        #: 本簿记——消除「busy UI 已立、worker 未建/已销毁」竞态窗口
+        #: （worker 存在性代理守卫失效导致停止按钮被误禁用的根因）
         self._busy = False
-        #: 排队发送待发标志（2305 计划 D2，替代 0634 FIFO 队列——c1
-        #: 拍板单条待发）：busy 期间登记后文本驻留输入框，轮次正常收尾
-        #: 立即自动发送；清空输入框自动取消；内存态不持久化
+        #: 排队发送待发标志（单条待发）：busy 期间登记后文本驻留输入框，
+        #: 轮次正常收尾立即自动发送；清空输入框自动取消；内存态不持久化
         self._pending_send = False
-        #: 开发中后端告知已上屏标记（2026-0814-0603 计划 T2）：切后端
-        #: 分支与 _send_turn 首发送补告共用本标记——切换告知后置位，
-        #: 防启动即落在该后端（无切换事件）时每次发送重复告知
+        #: 开发中后端告知已上屏标记：切后端分支与 _send_turn 首发送补告
+        #: 共用本标记——切换告知后置位，防启动即落在该后端（无切换事件）
+        #: 时每次发送重复告知
         self._dev_note_shown = False
         self._stream_buffer = ""
-        #: 已重放的存档历史（2026-0818-2350 计划 T2）：replay_session 置位；
-        #: 与 _history 分列——_history 回传 provider（ACP 系只取末条）、
-        #: 本字段只服务于导出再存档（重启多次记录不丢，导出时两段拼接）
+        #: 已重放的存档历史：replay_session 置位；与 _history 分列——
+        #: _history 回传 provider（ACP 系只取末条）、本字段只服务于导出
+        #: 再存档（重启多次记录不丢，导出时两段拼接）
         self._replayed_history: list[Message] = []
         self._has_seen_reasoning = False
-        #: 工具调用 title 簿记（toolCallId → title，1602 计划 T6）：
-        #: tool_call_update 帧常缺 title，状态行显示经此簿记补全；
-        #: _on_send 时随 _stream_buffer 一并清空
+        #: 工具调用 title 簿记（toolCallId → title）：tool_call_update 帧
+        #: 常缺 title，状态行显示经此簿记补全；_on_send 时随
+        #: _stream_buffer 一并清空
         self._tool_titles: dict[str, str] = {}
-        #: execute 工具命令簿记（toolCallId → command，1836 计划 L2-3）：
-        #: bash 输出卡 `$ ` 头数据源，兼作 execute 判定键（非 execute 工具
-        #: 的输出正文不上屏，防 read/edit 长文刷屏）
+        #: execute 工具命令簿记（toolCallId → command）：bash 输出卡 `$ `
+        #: 头数据源，兼作 execute 判定键（非 execute 工具的输出正文不上屏，
+        #: 防 read/edit 长文刷屏）
         self._tool_commands: dict[str, str] = {}
         #: 本标签最新一轮的上下文用量（usage_update 每轮一条，覆盖即
         #: 「最后一条 assistant 消息」语义）；None = 未收到/已切换后端
         self._usage: UsageStats | None = None
-        #: 轮次内用量轮询计时器（0117 计划 T3/D5）：_on_send 启动、
-        #: _on_finished/_on_stopped/切后端停止；tick 调 provider.poll_usage()，
-        #: 非 kimi 后端默认返回 None 空转成本可忽略（红线：不臆造数值）
+        #: 轮次内用量轮询计时器：_on_send 启动、_on_finished/_on_stopped/
+        #: 切后端停止；tick 调 provider.poll_usage()，非 kimi 后端默认返回
+        #: None 空转成本可忽略（红线：不臆造数值）
         self._usage_timer = QTimer(self)
         self._usage_timer.setInterval(2000)  # 对齐 usage.record 1~3s 写盘节奏
         self._usage_timer.timeout.connect(self._poll_usage_tick)
 
         chat_pack = get_theme_palette(load_settings()[KEY_THEME])["chat"]
-        # 双轨并存（0645 融合计划 D2-A）：cards 卡片折叠轨（新，默认）/
-        # classic 旧轨 ChatOutput（冻结保留，即回退通道）；构造时选轨，
-        # 存量标签不热切换（设置项 hint 已注明新建标签生效）
+        # 双轨并存：cards 卡片折叠轨（默认）/ classic 旧轨 ChatOutput
+        # （冻结保留，即回退通道）；构造时选轨，存量标签不热切换
+        # （设置项 hint 已注明新建标签生效）
         self._cards_track = load_settings()[KEY_CHAT_RENDERER] == CHAT_RENDERER_CARDS
         if self._cards_track:
             self.output = ChatTranscriptView(chat_pack, self)
@@ -223,32 +211,32 @@ class ChatPanel(QWidget):
                 chat_pack["reasoning_fg"], chat_pack["tool_fg"],
                 chat_pack["tool_error_fg"], chat_pack["user_bubble_bg"],
                 chat_pack["tool_output_bg"],
-                # L2-5 链接色复用 timeline_read_fg（VS Code textLink-foreground
+                # 链接色复用 timeline_read_fg（VS Code textLink-foreground
                 # 同源值，单一来源纪律不新增键）
                 chat_pack["timeline_read_fg"], self)
-        #: bash 运行中尾滚节流簿记（0645 计划 T8：tid → 末次上屏
-        #: time.monotonic()；200ms 内到达的快照帧丢弃，终态帧不经过本簿记）
+        #: bash 运行中尾滚节流簿记（tid → 末次上屏 time.monotonic()；
+        #: 200ms 内到达的快照帧丢弃，终态帧不经过本簿记）
         self._tail_last: dict[str, float] = {}
         self.timeline = ActivityTimeline(_timeline_colors(chat_pack), self)
         self.input = ChatInput(
             # 选区带色与 ChatOutput 同源（timeline_read_fg 复用，不新增主题键）
             chat_pack["timeline_read_fg"], self)
         self.input.set_workspace_root(workspace_root)
-        # 0438 计划 T2：输出区 @路径 引用存在性校验的工作区基准
+        # 输出区 @路径 引用存在性校验的工作区基准
         self.output.set_workspace_root(workspace_root)
-        # 图片附件行（0340 方案 B 计划 T2/T3）：状态行与输入框之间，
-        # chip 底色复用 user_bubble_bg（不新增主题键）；初态 hide
+        # 图片附件行：状态行与输入框之间，chip 底色复用 user_bubble_bg
+        # （不新增主题键）；初态 hide
         self.attachments = AttachmentStrip(chat_pack["user_bubble_bg"], self)
-        #: 发送时收集的附件簿记（失败/中断回滚恢复数据源，D6）
+        #: 发送时收集的附件簿记（失败/中断回滚恢复数据源）
         self._sent_attachments: list = []
         # 底行模型选择（纯视图）：注入初始选择后以回退后的有效值为准
         self.model_bar = ModelBar(self)
         self.model_bar.set_selection(backend, version)
         self._llm_name = self.model_bar.current_backend()
-        #: 用户显式选定的推理强度（2026-0806 计划；None = 未定制，不下发
+        #: 用户显式选定的推理强度（None = 未定制，不下发
         #: set_config_option）——_get_provider 懒实例化时的预选数据源
         self._effort_explicit: str | None = None
-        # D4 懒实例化：不预建实例；workspace_root 留存供工厂使用。
+        # 懒实例化：不预建实例；workspace_root 留存供工厂使用。
         # 启动一致性（预选模型写入实例）不暂存 pending——建实例时取
         # model_bar.current_version()（选择状态单一来源，语义不变）
         self._workspace_root = workspace_root
@@ -260,13 +248,13 @@ class ChatPanel(QWidget):
         self._build_layout()
         self._connect_signals()
         self._apply_usage_label_style(load_settings()[KEY_THEME])
-        self._apply_image_capability()  # 0340 方案 B：初始后端能力位注入
+        self._apply_image_capability()  # 初始后端能力位注入
 
     # ------------------------------------------------------------------
-    # provider 实例（注册表工厂懒实例化，D4；建成后每标签独立连接）
+    # provider 实例（注册表工厂懒实例化；建成后每标签独立连接）
     # ------------------------------------------------------------------
     def _get_provider(self, name: str) -> LanguageModel | None:
-        """按接口实现名取 provider 实例：未建则经注册表工厂即建即用（D4）。
+        """按接口实现名取 provider 实例：未建则经注册表工厂即建即用。
 
         spec 未注册或 available() 为 False 返回 None（调用方按「后端不可用」
         处理，语义同原"未检测到本机 agent CLI"）。首次实例化时鸭子类型接线：
@@ -282,22 +270,22 @@ class ChatPanel(QWidget):
         provider = spec.factory(workspace_root=self._workspace_root)
         if (set_handler := getattr(provider, "set_permission_handler", None)) is not None:
             set_handler(self._ask_permission)
-        # ACP terminal/* GUI 桥注入（2026-0817-1554 计划 T5）：鸭子类型，
-        # 无 set_terminal_handler 的 provider 静默跳过；桥为 None（无 GUI
-        # 的 headless 场景）时全后端 terminal 声明恒 false
+        # ACP terminal/* GUI 桥注入：鸭子类型，无 set_terminal_handler 的
+        # provider 静默跳过；桥为 None（无 GUI 的 headless 场景）时全后端
+        # terminal 声明恒 false
         if self._terminal_bridge is not None \
                 and (set_term := getattr(provider, "set_terminal_handler", None)) is not None:
             set_term(self._terminal_bridge.handle())
         version = self.model_bar.current_version()
         if version and (set_model := getattr(provider, "set_model", None)) is not None:
             set_model(version)
-        # 预选推理强度（2026-0806 计划）：仅用户显式定制过才下发——未定制
-        # 时 agent 默认强度生效（ModelBar UI 勾选默认项纯呈现，不据此下发）
+        # 预选推理强度：仅用户显式定制过才下发——未定制时 agent 默认强度
+        # 生效（ModelBar UI 勾选默认项纯呈现，不据此下发）
         if self._effort_explicit \
                 and (set_effort := getattr(provider, "set_effort", None)) is not None:
             set_effort(self._effort_explicit)
-        # kimi 子代理 wire 旁路开关（0813-1919 计划 T4）：鸭子类型注入，
-        # 无 set_subagent_sidecar 的 provider 静默跳过
+        # kimi 子代理 wire 旁路开关：鸭子类型注入，无 set_subagent_sidecar
+        # 的 provider 静默跳过
         if (set_sidecar := getattr(provider, "set_subagent_sidecar", None)) is not None:
             set_sidecar(load_settings()[KEY_KIMI_WIRE_SIDECAR])
         self._providers[name] = provider
@@ -321,10 +309,10 @@ class ChatPanel(QWidget):
         None = 未定制（agent 默认强度生效，不下发 set_config_option）；
         持久化与新建注入值归 ChatTabs，本方法不管。provider 未懒实例化时
         只簿记 _effort_explicit，实例建成时由 _get_provider 应用。
-        0455 动态化计划 D3/T4 值域校验：记忆值 ∉ 当前模型档位列表（跨
-        模型切换后旧档位失效，如 kimi 记忆 low 切到只支持 high/max 的
-        模型）→ 静默落未定制（agent/模型默认档生效），不写盘（记忆表
-        保持用户显式选择原值，切回支持的模型即恢复）。
+        值域校验：记忆值 ∉ 当前模型档位列表（跨模型切换后旧档位失效，
+        如 kimi 记忆 low 切到只支持 high/max 的模型）→ 静默落未定制
+        （agent/模型默认档生效），不写盘（记忆表保持用户显式选择原值，
+        切回支持的模型即恢复）。
         """
         self.model_bar.set_effort_selection(effort)
         effort = self._validate_effort(effort)
@@ -335,8 +323,8 @@ class ChatPanel(QWidget):
                 set_effort(effort)
 
     def _validate_effort(self, effort: str | None) -> str | None:
-        """记忆值域校验（0455 计划 D3）：effort ∈ 当前（接口, 模型）档位
-        列表才放行下发；失效/无强度轴 → None（未定制，默认档生效）。
+        """记忆值域校验：effort ∈ 当前（接口, 模型）档位列表才放行下发；
+        失效/无强度轴 → None（未定制，默认档生效）。
 
         数据源与 ModelBar 第四级菜单同源（resolve_efforts），保证「菜单
         可选值 = 可下发值」单一真值。
@@ -350,48 +338,48 @@ class ChatPanel(QWidget):
         return effort if effort in efforts else None
 
     def set_model_selection(self, backend: str, version: str | None) -> None:
-        """模型选择应用（本标签单面板入口，2026-0803-0112 计划复用为
-        每标签切换路径）：同步自身 ModelBar UI + 写自身 provider 实例。
+        """模型选择应用（本标签单面板入口，每标签切换路径）：同步自身
+        ModelBar UI + 写自身 provider 实例。
 
         UI 同步走 ModelBar.set_selection（全程阻断信号，不回环）；
         持久化与新建注入值归 ChatTabs，本方法不管。
         上下文不迁移（各后端会话各自独立），切后端时输出提示行。
-        D4：切换接口时旧实例 pop 后由 daemon 线程 close() 丢弃（2026-0730-2338
-        计划 D4 异步化，terminate 不再阻塞 GUI），防长驻进程随切换累积。
+        切换接口时旧实例 pop 后由 daemon 线程 close() 丢弃（terminate
+        不再阻塞 GUI），防长驻进程随切换累积。
         """
         self.model_bar.set_selection(backend, version)
         backend = self.model_bar.current_backend()  # 回退后的有效值（与 UI 一致）
         version = self.model_bar.current_version()
         if backend != self._llm_name:
             old = self._providers.pop(self._llm_name, None)
-            self._usage_timer.stop()  # 0117 D5：切后端停轮询，不残留空转
+            self._usage_timer.stop()  # 切后端停轮询，不残留空转
             # 旧后端会话用量不得残留到新后端：清零徽章（reset_session 语义点）
             self._usage = None
             self._refresh_usage_label()
-            self.timeline.clear()  # 新会话清空色块条（1824 计划 D5 随标签会话）
+            self.timeline.clear()  # 新会话清空色块条（随标签会话）
             if old is not None and getattr(old, "close", None) is not None:
-                # 切换路径与 close() 同策略（计划 2026-0730-2338 D4）：
-                # provider.close() 内 terminate()+wait(timeout=5) 为秒级
-                # 阻塞，挪 daemon 线程，GUI 不干等；旧实例已 pop 出
-                # _providers 不再被引用，无并发访问。快速切回旧后台时
-                # 新实例重新构造（独立子进程），与后台 close 无共享状态
+                # 切换路径与 close() 同策略：provider.close() 内
+                # terminate()+wait(timeout=5) 为秒级阻塞，挪 daemon 线程，
+                # GUI 不干等；旧实例已 pop 出 _providers 不再被引用，无
+                # 并发访问。快速切回旧后台时新实例重新构造（独立子进程），
+                # 与后台 close 无共享状态
                 threading.Thread(
                     target=_close_providers, args=([old],), daemon=True).start()
             self.output.append_message(
                 "系统", f"已切换到 {BACKEND_LABELS.get(backend, backend)} 后端，开始新会话")
             self._show_dev_note(backend)
         self._llm_name = backend
-        self._apply_image_capability()  # 0340 方案 B：能力位随后端切换刷新
+        self._apply_image_capability()  # 能力位随后端切换刷新
         provider = self._get_provider(backend)
         if provider is not None and isinstance(version, str):
             if (set_model := getattr(provider, "set_model", None)) is not None:
-                # 保持同步（计划 2026-0730-2338 D5 降级项）：provider 层无锁，
-                # 挪线程会与对话线程并发触达同一 ACP stdio 连接；正常亚秒级
+                # 保持同步：provider 层无锁，挪线程会与对话线程并发触达
+                # 同一 ACP stdio 连接；正常亚秒级
                 set_model(version)
 
     def _show_dev_note(self, backend: str) -> None:
-        """开发中后端如实告知（2026-0814-0603 计划 T2）：spec.dev_note
-        非空则对话流追加一条「系统」消息并置位已告知标记。
+        """开发中后端如实告知：spec.dev_note 非空则对话流追加一条「系统」
+        消息并置位已告知标记。
 
         纯本地 UI——无任何字节进 ACP 帧，不进 prompt、不污染上下文；
         成熟后端 dev_note=None 时 no-op，零行为变化。
@@ -408,7 +396,7 @@ class ChatPanel(QWidget):
             self.input.setPlaceholderText("正在停止…")
 
     def close(self) -> None:
-        """标签关闭清理（两段式，2026-0722-1117 计划 T6；评审修复轮加固）。
+        """标签关闭清理（两段式）。
 
         GUI 段（毫秒级，本方法体）：停轮次 + 断开 worker/busy 信号
         （迟到的收尾信号不再触碰已摘标签的 UI 与 ChatTabs 汇总）+
@@ -419,7 +407,7 @@ class ChatPanel(QWidget):
         wait 保留，但移入线程段。
         """
         self.request_stop()
-        self._usage_timer.stop()  # 0117 D5：标签销毁前停轮询（随 tab 生命周期）
+        self._usage_timer.stop()  # 标签销毁前停轮询（随 tab 生命周期）
         worker = self._worker
         providers = list(self._providers.values())
         if worker is not None:
@@ -452,9 +440,8 @@ class ChatPanel(QWidget):
         ChatOutput 透明融入卡片白底，输入框保留自身 6px 圆角嵌于卡内。
         输入区 = 状态行（时间线条 + 用量徽章）+ 输入框 + 底行（左：模型/
         版本双下拉；右：发送/停止双态按钮）。
-        活动时间线色块条于 2242 计划（方案 F）由卡片底部迁入输入区状态行
-        ——仍不进 splitter（子件会被拖拽均分，1824 计划 D2），细条定高
-        随输入区拖拽移动，视觉恒在输出/输入分界。
+        活动时间线色块条位于输入区状态行——不进 splitter（子件会被拖拽
+        均分），细条定高随输入区拖拽移动，视觉恒在输出/输入分界。
         """
         self._splitter = QSplitter(Qt.Orientation.Vertical)
         self._splitter.addWidget(self.output)
@@ -472,34 +459,30 @@ class ChatPanel(QWidget):
 
         layout = QVBoxLayout(self)
         layout.addWidget(card, 1)
-        # 面板外边距（2026-0908-0010 计划方案 A）：左/上 6px 不贴窗口边缘与
-        # splitter 把手（苹果风卡片间距）；右/下有意取 0——卡片右缘与
-        # QTabWidget 右上角「＋」角控件右缘齐平，卡片底缘与终端/已变更
-        # 卡片底缘齐平（ChatTabs 层 6px + 状态栏定高 26px = 底部总间距
-        # 32px 一体化设计；本层再留 6px 会双层叠加成 38px 并致三栏底线
-        # 错位），切勿按「统一 6px」回改
+        # 面板外边距：左/上 6px 不贴窗口边缘与 splitter 把手（苹果风卡片
+        # 间距）；右/下有意取 0——卡片右缘与 QTabWidget 右上角「＋」角
+        # 控件右缘齐平，卡片底缘与终端/已变更卡片底缘齐平（ChatTabs 层
+        # 6px + 状态栏定高 26px = 底部总间距 32px 一体化设计；本层再留
+        # 6px 会双层叠加成 38px 并致三栏底线错位），切勿按「统一 6px」回改
         layout.setContentsMargins(6, 6, 0, 0)
         layout.setSpacing(0)
 
     def _build_input_box(self) -> QWidget:
         """输入区容器：状态行 + 输入框 + 底行（左：模型/版本双下拉；右：发送/排队 + ■ 停止 双常驻钮）。
 
-        状态行（2026-0731-2242 计划方案 F，work plans 立项）：时间线色块条 +
-        上下文用量徽章同行（左条右徽），置输入框上方——随 splitter 拖拽与
-        输入区整体移动，视觉恒在输出/输入分界；定高不参与拉伸（仍守 1824
-        计划 D2：时间线条不进 splitter，子件会被拖拽均分）。
+        状态行：时间线色块条 + 上下文用量徽章同行（左条右徽），置输入框
+        上方——随 splitter 拖拽与输入区整体移动，视觉恒在输出/输入分界；
+        定高不参与拉伸（时间线条不进 splitter，子件会被拖拽均分）。
 
-        底行双下拉为 2026-0724-2354 计划 T3（原顶部全局模型行下移）；
-        双常驻恒宽钮为 0634 计划 D3（替代原「发送/停止」单双态钮——busy
-        期间停止/排队两动作并存）：宽度各按自身文本一次写死，任何状态下
-        sizeHint 不变——QSplitter 撑宽左栏病根纪律（2305）。
-        徽章移出底行后，底行回归纯操作行（模型选择 + 发送/排队/停止）。
+        底行双下拉由原顶部全局模型行下移而来；双常驻恒宽钮替代原
+        「发送/停止」单双态钮（busy 期间停止/排队两动作并存）：宽度各按
+        自身文本一次写死，任何状态下 sizeHint 不变——busy 显隐改
+        sizeHint 会触发 QSplitter 撑宽左栏。徽章在状态行，底行为纯操作行
+        （模型选择 + 发送/排队/停止）。
         """
-        # 上下文用量徽章（2026-0731-1412 计划 D1-A/D2-A）：纯文本百分比 +
-        # tooltip 明细；常驻占位恒宽（按 "~100%" 宽度一次写死——1454 起
-        # estimate 来源带 ~ 前缀），无数据时空文本——显隐不改 sizeHint
-        # （左栏宽度病根教训，2026-0724-2305）。2242 计划由底行迁入状态行
-        # 右侧，恒宽/对齐语义不变
+        # 上下文用量徽章：纯文本百分比 + tooltip 明细；常驻占位恒宽
+        # （按 "~100%" 宽度一次写死——estimate 来源带 ~ 前缀），无数据时
+        # 空文本——显隐不改 sizeHint（显隐改 sizeHint 会撑宽左栏）
         self._usage_label = QLabel(self)
         self._usage_label.setObjectName("chatUsageLabel")
         self._usage_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -507,7 +490,7 @@ class ChatPanel(QWidget):
             self._usage_label.fontMetrics().horizontalAdvance("~100%") + 8)
 
         # 状态行：左时间线条（横向延展）→ 右用量徽章（恒宽）；
-        # 行高由时间线条决定（约 30px，1824 计划已定），徽章随布局垂直居中
+        # 行高由时间线条决定（约 30px），徽章随布局垂直居中
         status_row = QHBoxLayout()
         status_row.addWidget(self.timeline, 1)
         status_row.addWidget(self._usage_label)
@@ -517,8 +500,7 @@ class ChatPanel(QWidget):
         self._send_button.setObjectName("chatSendButton")
         self._send_button.setToolTip("发送消息（Enter）")
         # 恒宽按「发送/排队/等待发送…」三态文本最大者一次写死
-        # （2305 纪律现状手法平移；「等待发送…」为 0807-2305 计划 D4 新增
-        # 待发指示态，宽度略增仍在底行预算内）
+        # （「等待发送…」为待发指示态）
         text_width = max(
             self._send_button.fontMetrics().horizontalAdvance("发送"),
             self._send_button.fontMetrics().horizontalAdvance("排队"),
@@ -526,8 +508,8 @@ class ChatPanel(QWidget):
         )
         self._send_button.setFixedWidth(text_width + 26)  # qss padding 11px*2 + border
 
-        # 「■ 停止」常驻钮（0634 计划 D3）：文本恒定故宽度恒定；仅 busy 可用
-        # （空闲禁用，busy 恒可用——D1 簿记保障），与「发送/排队」并存
+        # 「■ 停止」常驻钮：文本恒定故宽度恒定；仅 busy 可用（空闲禁用，
+        # busy 恒可用——_busy 簿记保障），与「发送/排队」并存
         self._stop_button = QPushButton("■ 停止", self)
         self._stop_button.setObjectName("chatStopButton")
         self._stop_button.setToolTip("停止当前生成（Esc）")
@@ -545,8 +527,8 @@ class ChatPanel(QWidget):
         box = QWidget(self)
         box_layout = QVBoxLayout(box)
         box_layout.addLayout(status_row)
-        # 附件行：状态行与输入框之间第 2 件（0340 计划 D1；垂直显隐，
-        # 宽度随父不设 stretch——左栏宽度零影响）
+        # 附件行：状态行与输入框之间第 2 件（垂直显隐，宽度随父不设
+        # stretch——左栏宽度零影响）
         box_layout.addWidget(self.attachments)
         box_layout.addWidget(self.input, 1)
         box_layout.addLayout(button_row)
@@ -560,26 +542,25 @@ class ChatPanel(QWidget):
         self._send_button.clicked.connect(self._on_send_button)
         self._stop_button.clicked.connect(self._on_stop_button)
         # 「发送/排队」钮使能跟随输入文本与附件（空闲=发送、busy=排队，
-        # 使能门槛一致，0634 计划 D3）
+        # 使能门槛一致）
         self.input.textChanged.connect(self._refresh_send_button)
-        # 图片附件化（0340 方案 B）：入口信号 → 附件行；附件行变化 →
-        # 发送键使能与空文本发送开关（D5）；超限拒绝 → 输出区系统提示；
-        # 能力外退化提示（D4 不静默，用户反馈 2026-08-01）
+        # 图片附件化：入口信号 → 附件行；附件行变化 → 发送键使能与空文本
+        # 发送开关；超限拒绝 → 输出区系统提示；能力外退化提示（不静默）
         self.input.image_attached.connect(self._on_image_attached)
         self.input.image_fallback.connect(self._on_image_fallback)
         self.attachments.changed.connect(self._on_attachments_changed)
         self.attachments.rejected.connect(
             lambda reason: self.output.append_message("系统", reason))
         self._refresh_send_button()  # 初始：空文本禁用发送
-        # T7：busy 期间 Esc 中断本标签（输入框内 Esc 无默认行为，安全占用）
+        # busy 期间 Esc 中断本标签（输入框内 Esc 无默认行为，安全占用）
         esc = QShortcut(QKeySequence(Qt.Key.Key_Escape), self)
         esc.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
         esc.activated.connect(self._on_esc_stop)
-        # L2-5：输出区文件路径链接点击 → 解析外抛（主窗口接查看器）
+        # 输出区文件路径链接点击 → 解析外抛（主窗口接查看器）
         self.output.anchorClicked.connect(self._on_output_link)
 
     def _on_output_link(self, url) -> None:
-        """文件链接点击（L2-5）：`file:路径#L行号` → 相对转绝对后外抛。
+        """文件链接点击：`file:路径#L行号` → 相对转绝对后外抛。
 
         链接由 output 冲刷时对反引号 `路径[:行号]` 片段生成；相对路径按
         工作区根解析，不存在也照常外抛（查看器自带「文件不存在」占位兜底）。
@@ -595,7 +576,7 @@ class ChatPanel(QWidget):
         self.file_open_requested.emit(str(p), line)
 
     # ------------------------------------------------------------------
-    # 底行双常驻钮路由（0634 计划 D3）与 Esc 中断（T7）
+    # 底行双常驻钮路由与 Esc 中断
     # ------------------------------------------------------------------
     def _on_send_button(self) -> None:
         """「发送/排队」钮：与 Enter 同一入口（busy 时 _on_send 自动登记待发）。"""
@@ -612,20 +593,19 @@ class ChatPanel(QWidget):
             self.request_stop()
 
     def _refresh_send_button(self) -> None:
-        """「发送/排队/等待发送…」三态钮（0807-2305 计划 D4/T6）：
-        空闲=「发送」、busy 无待发=「排队」（两态使能门槛一致：文本非空
-        **或**有附件，0340 D5 / 0634 D3）、busy 已待发=「等待发送…」
-        禁用态（文案即状态指示）。
+        """「发送/排队/等待发送…」三态钮：空闲=「发送」、busy 无待发=
+        「排队」（两态使能门槛一致：文本非空 **或**有附件）、busy 已待发=
+        「等待发送…」禁用态（文案即状态指示）。
 
-        D2-b 自动取消：待发态下输入框清空（文本与附件皆空）即解除待发。
-        停止钮不在此触碰——其使能只由 _set_busy 管理（D1 簿记守卫：
-        消除「busy UI 已立、worker 未建/已销毁」竞态窗口内 worker
-        存在性代理守卫失效导致停止被误禁用的根因，0634 计划 §2.1）。
+        自动取消：待发态下输入框清空（文本与附件皆空）即解除待发。
+        停止钮不在此触碰——其使能只由 _set_busy 管理（簿记守卫：消除
+        「busy UI 已立、worker 未建/已销毁」竞态窗口内 worker 存在性
+        代理守卫失效导致停止被误禁用的根因）。
         """
         has_content = (bool(self.input.toPlainText().strip())
                        or self.attachments.count() > 0)
         if self._pending_send and not has_content:
-            self._pending_send = False  # D2-b：清空输入框 = 取消排队待发
+            self._pending_send = False  # 清空输入框 = 取消排队待发
         if self._busy and self._pending_send:
             self._send_button.setText("等待发送…")
             self._send_button.setToolTip(
@@ -643,9 +623,9 @@ class ChatPanel(QWidget):
         self._apply_input_pending_style()
 
     def _apply_input_pending_style(self) -> None:
-        """输入框待发态指示（0807-2305 计划 D4/T6）：pending 动态属性
-        驱动 base.qss `#chatInput[pending="true"]` 虚线 accent 描边
-        （实线 accent 已被焦点态占用，虚线区分「待发」与「聚焦」）。"""
+        """输入框待发态指示：pending 动态属性驱动 base.qss
+        `#chatInput[pending="true"]` 虚线 accent 描边（实线 accent 已被
+        焦点态占用，虚线区分「待发」与「聚焦」）。"""
         pending = self._busy and self._pending_send
         self.input.setProperty("pending", pending)
         self.input.setToolTip(
@@ -655,11 +635,11 @@ class ChatPanel(QWidget):
         self.input.style().polish(self.input)
 
     # ------------------------------------------------------------------
-    # 图片附件（0340 方案 B 计划 T3：能力位注入 / 附件行变化）
+    # 图片附件（能力位注入 / 附件行变化）
     # ------------------------------------------------------------------
     def _supports_images(self) -> bool:
-        """当前后端图片附件能力（注册表 BackendSpec.supports_images，
-        T0 spike 实证填值；接口级判定，D9）。"""
+        """当前后端图片附件能力（注册表 BackendSpec.supports_images；
+        接口级判定）。"""
         spec = spec_of(self._llm_name)
         return bool(spec and spec.supports_images)
 
@@ -667,7 +647,7 @@ class ChatPanel(QWidget):
         """按当前后端能力位刷新图片入口语义（初始化与后端切换共用单点）。
 
         能力内：粘贴/拖入图片走附件化信号；
-        能力外：退化方案 D @路径 透传（D4）。
+        能力外：退化为 @路径 透传。
         """
         enabled = self._supports_images()
         self.input.set_image_attachments_enabled(enabled)
@@ -682,7 +662,7 @@ class ChatPanel(QWidget):
         self.attachments.add(path, mime_type, pasted)
 
     def _on_image_fallback(self) -> None:
-        """能力外后端图片退化提示（2026-08-01 用户反馈：D4 退化不得静默）。
+        """能力外后端图片退化提示（退化不得静默）。
 
         每次粘贴/拖入图片一条系统提示（与用户动作一一对应，不算刷屏）；
         @路径 退化行为本身不变——模型可自行读取该图片文件。
@@ -694,14 +674,14 @@ class ChatPanel(QWidget):
             f"切换至 Kimi / Kilo Code 后端可使用图片缩略图附件")
 
     def _on_attachments_changed(self) -> None:
-        """附件行变化 → 空文本发送开关（D5）与发送键使能。"""
+        """附件行变化 → 空文本发送开关与发送键使能。"""
         self.input.set_allow_empty_send(
             self.attachments.count() > 0 and self._supports_images())
         self._refresh_send_button()
 
     def _restore_sent_attachments(self) -> None:
-        """失败/中断回滚（0340 计划 D6）：已收集的附件恢复回附件行
-        （文件仍在盘上；AttachmentStrip.restore 静默跳过消失文件）。"""
+        """失败/中断回滚：已收集的附件恢复回附件行（文件仍在盘上；
+        AttachmentStrip.restore 静默跳过消失文件）。"""
         if self._sent_attachments:
             self.attachments.restore(self._sent_attachments)
             self._sent_attachments = []
@@ -717,7 +697,7 @@ class ChatPanel(QWidget):
         self.output.set_card_colors(
             chat_pack["user_bubble_bg"], chat_pack["tool_output_bg"],
             chat_pack["timeline_read_fg"])
-        if self._cards_track:  # 0645 计划 T9：diff 红绿（仅新轨消费）
+        if self._cards_track:  # diff 红绿（仅新轨消费）
             self.output.set_diff_colors(
                 chat_pack["diff_add_fg"], chat_pack["diff_del_fg"])
         self.timeline.set_colors(_timeline_colors(chat_pack))
@@ -725,16 +705,15 @@ class ChatPanel(QWidget):
         self._apply_usage_label_style(theme)
 
     # ------------------------------------------------------------------
-    # 上下文用量徽章（2026-0731-1412 计划：usage_update → 百分比徽章；
-    # 2242 计划方案 F 由输入区底行迁入状态行右侧，簿记/刷新语义不变）
+    # 上下文用量徽章（usage_update → 百分比徽章；位于状态行右侧）
     # ------------------------------------------------------------------
     def _refresh_usage_label(self) -> None:
         """按 _usage 簿记刷新徽章：无数据空文本（常驻占位不撤）；≥80% 热态变色。
 
-        口径标注（1454 计划 D3/T6）：estimate 来源加 `~` 前缀并在 tooltip
-        注明估算口径（transcript 文本 chars/4 粗估，非 agent 精确计量）；
-        transcript 来源（kimi 会话落盘记录真值）与 push 同形态显示，tooltip
-        注明数据来源分级，诚实呈现精度。
+        口径标注：estimate 来源加 `~` 前缀并在 tooltip 注明估算口径
+        （transcript 文本 chars/4 粗估，非 agent 精确计量）；transcript
+        来源（kimi 会话落盘记录真值）与 push 同形态显示，tooltip 注明
+        数据来源分级，诚实呈现精度。
         """
         stats = self._usage
         if stats is None:
@@ -783,8 +762,8 @@ class ChatPanel(QWidget):
         self._splitter.setSizes(self.DEFAULT_SPLITTER_SIZES)
 
     # ------------------------------------------------------------------
-    # 会话记录持久化（2026-0818-2350 计划 T2）：导出/重放文字对话；
-    # 恢复内容只上屏展示，不入 _history、不回传 provider
+    # 会话记录持久化：导出/重放文字对话；恢复内容只上屏展示，
+    # 不入 _history、不回传 provider
     # ------------------------------------------------------------------
     def export_session(self) -> SessionRecord | None:
         """导出本标签会话记录（关闭时全量快照的数据源）；空历史返回 None。
@@ -838,10 +817,9 @@ class ChatPanel(QWidget):
         同步返回 optionId（零 GUI、零阻塞，不触碰队列/QTimer）；ask 提交
         全局审批队列弹窗（黑名单命中附原因）。返回 None 由上层按拒绝兜底。
 
-        question 特判（0807-0148 计划 T4）：AskUserQuestion 类交互请求
-        走 QUESTION_BRIDGE 卡片内交互（按钮组激活）；decide_permission
-        对 question 恒返回 ask（T1），select_option_id 自动选答路径对
-        question 请求不可达。
+        question 特判：AskUserQuestion 类交互请求走 QUESTION_BRIDGE 卡片内
+        交互（按钮组激活）；decide_permission 对 question 恒返回 ask，
+        select_option_id 自动选答路径对 question 请求不可达。
         """
         decision, reason = decide_permission(params, load_settings()[KEY_PERMISSION_MODE])
         if decision == DECISION_ALLOW:
@@ -857,7 +835,7 @@ class ChatPanel(QWidget):
         return PERMISSION_QUEUE.ask(params, self, danger_reason=reason)
 
     # ------------------------------------------------------------------
-    # 发送与流式接收（含排队发送待发路由，0807-2305 计划 D2/D3）
+    # 发送与流式接收（含排队发送待发路由）
     # ------------------------------------------------------------------
     def _on_send(self, text: str) -> None:
         if self._busy:
@@ -867,11 +845,11 @@ class ChatPanel(QWidget):
         if provider is None:
             self.output.append_message("系统", f"后端不可用：{self._llm_name}（未检测到本机 agent CLI）")
             return
-        # 图片附件随消息携带（0340 方案 B 计划 T3）：能力守卫——切到
-        # 能力外后端后残留的附件不发送（_apply_image_capability 已提示）
+        # 图片附件随消息携带：能力守卫——切到能力外后端后残留的附件不
+        # 发送（_apply_image_capability 已提示）
         images = self.attachments.attachments() if self._supports_images() else []
         self.input.clear()
-        self.attachments.clear()  # 不删落盘文件（气泡卡回显依赖在盘，D7）
+        self.attachments.clear()  # 不删落盘文件（气泡卡回显依赖在盘）
         self._send_turn(text, images, provider)
 
     def _send_turn(
@@ -880,18 +858,18 @@ class ChatPanel(QWidget):
         images: list,
         provider: LanguageModel,
     ) -> None:
-        """一轮发送主流程（_on_send 直发与待发触发共用，0807-2305 计划 D2）。"""
+        """一轮发送主流程（_on_send 直发与待发触发共用）。"""
         if not self._dev_note_shown:
             # 启动即落在开发中后端（持久化恢复，无切换事件）：本标签
-            # 首次发送时补一条如实告知（2026-0814-0603 计划 T2）
+            # 首次发送时补一条如实告知
             self._show_dev_note(self._llm_name)
         self._set_busy(True)
         message: Message = {"role": "user", "content": text}
         if images:
             message["images"] = images
         self._history.append(message)
-        self._sent_attachments = images  # 失败/中断回滚恢复数据源（D6）
-        self.output.append_user_message(text, images)  # L2-1 气泡卡 + 缩略图
+        self._sent_attachments = images  # 失败/中断回滚恢复数据源
+        self.output.append_user_message(text, images)  # 气泡卡 + 缩略图
         self.output.begin_stream("AI")
         self._stream_buffer = ""
         self._has_seen_reasoning = False
@@ -906,18 +884,16 @@ class ChatPanel(QWidget):
         self._worker.finished_with_error.connect(self._on_finished)
         self._worker.stopped_by_user.connect(self._on_stopped)
         self._worker.start()
-        self._usage_timer.start()  # 0117 T3：轮次内用量轮询（kimi 尾部读 wire.jsonl）
+        self._usage_timer.start()  # 轮次内用量轮询（kimi 尾部读 wire.jsonl）
 
     # ------------------------------------------------------------------
-    # 排队发送（0807-2305 计划 D2/D3，0634「插话」更名 + 交互翻案）：
-    # 单条待发，文本驻留输入框不上屏；0634 的 FIFO 队列与排队气泡
-    # 三方法整轨拆除（c1 拍板）
+    # 排队发送：单条待发，文本驻留输入框不上屏
     # ------------------------------------------------------------------
     def _register_pending_send(self) -> None:
         """busy 期间 Enter/「排队」钮：登记待发——文本**不清空不上屏**，
-        驻留输入框（用户持续看到「未发送」；D2-a 不锁定可继续编辑，
-        轮末以当时输入框实际内容为准发出；附件随行同样驻留附件行）。
-        重复登记（已待发再按 Enter）→ 系统提示，不叠加（c1 单条待发）。"""
+        驻留输入框（用户持续看到「未发送」；不锁定可继续编辑，轮末以当时
+        输入框实际内容为准发出；附件随行同样驻留附件行）。
+        重复登记（已待发再按 Enter）→ 系统提示，不叠加（单条待发）。"""
         if self._pending_send:
             self.output.append_message(
                 "系统", "已有一条排队待发送，AI 完成后自动发出")
@@ -927,17 +903,16 @@ class ChatPanel(QWidget):
         self._refresh_placeholder()
 
     def _fire_pending_send(self) -> bool:
-        """轮次正常收尾：待发登记且输入框有内容 → 立即自动发送
-        （D2/D3：直发路径正式气泡上屏，发送成功才清空输入框——与
-        _on_send 直发路径清空时机一致）。无待发/已清空/后端不可用
-        返回 False（后端不可用时待发内容保留输入框不丢，按失败惯例
-        系统提示）。"""
+        """轮次正常收尾：待发登记且输入框有内容 → 立即自动发送（直发
+        路径正式气泡上屏，发送成功才清空输入框——与 _on_send 直发路径
+        清空时机一致）。无待发/已清空/后端不可用返回 False（后端不可用
+        时待发内容保留输入框不丢，按失败惯例系统提示）。"""
         if not self._pending_send:
             return False
         self._pending_send = False
         text = self.input.toPlainText().strip()
         if not text and self.attachments.count() == 0:
-            return False  # 轮末前已被清空取消（D2-b 保险，正常不可达）
+            return False  # 轮末前已被清空取消（保险，正常不可达）
         provider = self._get_provider(self._llm_name)
         if provider is None:
             self.output.append_message(
@@ -945,7 +920,7 @@ class ChatPanel(QWidget):
             return False
         images = self.attachments.attachments() if self._supports_images() else []
         self.input.clear()
-        self.attachments.clear()  # 不删落盘文件（气泡卡回显依赖在盘，D7）
+        self.attachments.clear()  # 不删落盘文件（气泡卡回显依赖在盘）
         self._send_turn(text, images, provider)
         return True
 
@@ -962,8 +937,8 @@ class ChatPanel(QWidget):
         self.input.setPlaceholderText(text)
 
     def _poll_usage_tick(self) -> None:
-        """轮次内用量轮询（0117 计划 T3/D1）：GUI 侧 QTimer 直调 provider
-        .poll_usage()，只读文件、与 ACP 连接零交互；非 None 即更新徽章簿记。
+        """轮次内用量轮询：GUI 侧 QTimer 直调 provider.poll_usage()，
+        只读文件、与 ACP 连接零交互；非 None 即更新徽章簿记。
         无数据（不支持的 backend/写盘延迟/文件残缺）→ 保持现状不刷新，
         绝不臆造估值（红线）。
         """
@@ -976,7 +951,7 @@ class ChatPanel(QWidget):
             self._refresh_usage_label()
 
     def _on_chunk(self, chunk: Chunk) -> None:
-        self.timeline.feed(chunk)  # 时间线色块条旁路分接（1824 计划 T3）
+        self.timeline.feed(chunk)  # 时间线色块条旁路分接
         if chunk.kind == "usage":
             # 上下文用量通知：只更新徽章簿记，不进输出区文本流、不入 _history
             if chunk.usage is not None:
@@ -998,7 +973,7 @@ class ChatPanel(QWidget):
         self.output.append_stream_chunk(chunk.text)
 
     def _on_activity_chunk(self, chunk: Chunk) -> None:
-        """AI 活动信息路由（1602 计划 T6）：tool_call / tool_call_update / todo。
+        """AI 活动信息路由：tool_call / tool_call_update / todo。
 
         只上屏，不入 _stream_buffer/_history（与 reasoning 同约束，防历史
         污染回传禁令）；与 text 同位处理思维链收尾（reasoning → 工具活动
@@ -1012,29 +987,28 @@ class ChatPanel(QWidget):
             if tid := payload.get("tool_call_id"):
                 if payload.get("title"):
                     self._tool_titles[tid] = payload["title"]
-                if payload.get("command"):  # execute 簿记（L2-3 输出卡数据源）
+                if payload.get("command"):  # execute 簿记（输出卡数据源）
                     self._tool_commands[tid] = payload["command"]
             self.output.append_tool_call(payload)
         elif chunk.kind == "tool_call_update":
             tid = payload.get("tool_call_id") or ""
-            # 更新帧常缺 title（F3 部分更新）：自簿记补全，缺省回退 id 短串
+            # 更新帧常缺 title（部分更新）：自簿记补全，缺省回退 id 短串
             if not payload.get("title"):
                 payload = {**payload,
                            "title": self._tool_titles.get(tid, tid[:8] or "?")}
-            # 0812-0918 计划 T2-2：execute 迟到 command 簿记——kimi 系
-            # 首帧空壳，command 随 update 帧经协议层提取迟到到达
-            # （execute_20260812_075201.json 实证）；setdefault 语义，
-            # 首帧已簿记者不覆盖。簿记建立后同帧/后续带 output 的帧过
+            # execute 迟到 command 簿记——kimi 系首帧空壳，command 随
+            # update 帧经协议层提取迟到到达；setdefault 语义，首帧已簿记
+            # 者不覆盖。簿记建立后同帧/后续带 output 的帧过
             # _allow_progress_frame 闸门并补 `$ ` 头（新旧两轨同闸门）
             if payload.get("command") and tid not in self._tool_commands:
                 self._tool_commands[tid] = payload["command"]
             if self._cards_track:
-                # 新轨（0645 计划 §2.3-2）：取消非 execute 工具的 output 剥除
-                # ——所有工具的 output 随载荷进渲染层，由对应卡 body 承接
-                # 0813-1919 计划 T3 闸门确认：带父指针的嵌套子帧与主流同
-                # 语义过闸——簿记键 tid 即层级全串（`父/子`）天然唯一，
-                # 节流/补 `$ ` 头无需特判（reasonix 实测子帧无 in_progress，
-                # kimi 旁路 v1 不合成 in_progress，本分支实为终态帧直通）
+                # 新轨：取消非 execute 工具的 output 剥除——所有工具的
+                # output 随载荷进渲染层，由对应卡 body 承接。
+                # 带父指针的嵌套子帧与主流同语义过闸——簿记键 tid 即层级
+                # 全串（`父/子`）天然唯一，节流/补 `$ ` 头无需特判
+                # （kimi 系子帧无 in_progress，旁路也不合成 in_progress，
+                # 本分支实为终态帧直通）
                 if payload.get("status") == "in_progress" \
                         and not self._allow_progress_frame(payload, tid):
                     return
@@ -1042,11 +1016,11 @@ class ChatPanel(QWidget):
                     payload = {**payload, "command": self._tool_commands[tid]}
                 self.output.append_tool_update(payload)
             else:
-                # 旧轨（冻结）：in_progress 不上屏；L2-3 bash 输出卡仅
-                # execute 工具（有 command 簿记者）放行输出正文并补 `$ ` 头，
-                # 其余工具长输出丢弃（防 read/edit 刷屏）；execute 输出钳回
-                # 末 20 行（1836 L2-3 规格——协议层 0645 起放宽至软上限
-                # 1000 行，旧轨渲染规格不变由本路由钳制）
+                # 旧轨（冻结）：in_progress 不上屏；bash 输出卡仅 execute
+                # 工具（有 command 簿记者）放行输出正文并补 `$ ` 头，其余
+                # 工具长输出丢弃（防 read/edit 刷屏）；execute 输出钳回
+                # 末 20 行（协议层软上限 1000 行，旧轨渲染规格不变由本
+                # 路由钳制）
                 if payload.get("output"):
                     if tid in self._tool_commands:
                         lines = payload["output"].split("\n")
@@ -1063,16 +1037,15 @@ class ChatPanel(QWidget):
     def _allow_progress_frame(self, payload: dict, tid: str) -> bool:
         """in_progress 帧放行判定（新轨）。
 
-        尾滚帧（§2.1 BashCard 运行中实时帧）：仅 execute 工具、仅带输出
-        帧，同 tid 200ms 节流（丢弃中间帧，终态帧不经本分支不受节流
-        影响）。0919 计划 T3：带 diff/摘要的迟到信息帧（kimi 系 edit 的
-        diff content 与 rawInput.path 在 in_progress 帧才发）不限工具
-        放行，DiffCard 补挂徽标/body/副标题。0806 计划 T1/T2：带
-        input_detail（迟到入参回填）或 images（出参图片通道）的帧同样
-        放行——否则协议层回填的入参永远到不了卡片（kimi 系 ReadMediaFile
-        首帧空壳场景）。0808-0627 计划 T1：带 todos（清单快照迟到回填）
-        的帧同位放行（kimi 系 TodoList 首帧空壳场景，与 input_detail/
-        images 同范式）。
+        尾滚帧（BashCard 运行中实时帧）：仅 execute 工具、仅带输出帧，
+        同 tid 200ms 节流（丢弃中间帧，终态帧不经本分支不受节流影响）。
+        带 diff/摘要的迟到信息帧（kimi 系 edit 的 diff content 与
+        rawInput.path 在 in_progress 帧才发）不限工具放行，DiffCard 补挂
+        徽标/body/副标题。带 input_detail（迟到入参回填）或 images（出参
+        图片通道）的帧同样放行——否则协议层回填的入参永远到不了卡片
+        （kimi 系 ReadMediaFile 首帧空壳场景）。带 todos（清单快照迟到
+        回填）的帧同位放行（kimi 系 TodoList 首帧空壳场景，与
+        input_detail/images 同范式）。
         """
         if payload.get("diff_hunks") or payload.get("summary"):
             return True
@@ -1095,20 +1068,19 @@ class ChatPanel(QWidget):
                 self._has_seen_reasoning = False
             self.output.append_stream_chunk(f"\n[请求失败] {error}")
             self._history.pop()  # 失败的用户消息不入历史
-            self._restore_sent_attachments()  # 附件恢复回附件行（0340 D6）
+            self._restore_sent_attachments()  # 附件恢复回附件行
         else:
             self._history.append({"role": "assistant", "content": self._stream_buffer})
             self._sent_attachments = []
-        self.output.reset_activity_anchors()  # todo 锚点轮次收尾作废（T5-4）
-        self.timeline.end_turn()  # 色块条段指针轮次收尾作废（1824 计划 T3）
+        self.output.reset_activity_anchors()  # todo 锚点轮次收尾作废
+        self.timeline.end_turn()  # 色块条段指针轮次收尾作废
         self.output.end_stream()
         self._worker = None
-        self._usage_timer.stop()  # 0117 D5：轮次收尾停轮询（收尾真值已由 chunk 兜底）
+        self._usage_timer.stop()  # 轮次收尾停轮询（收尾真值已由 chunk 兜底）
         self.turn_finished.emit()
-        # 0807-2305 D3 三态收尾：正常完成自动发输入框待发内容（接续轮
-        # busy 不间断）；失败解除待发态——草稿本在输入框零回滚成本 +
-        # 系统提示（防连环失败烧 token），下次正常发送成功后经本条
-        # 成功路径自动恢复接续
+        # 三态收尾：正常完成自动发输入框待发内容（接续轮 busy 不间断）；
+        # 失败解除待发态——草稿本在输入框零回滚成本 + 系统提示（防连环
+        # 失败烧 token），下次正常发送成功后经本条成功路径自动恢复接续
         if error:
             self._set_busy(False)
             if self._pending_send:
@@ -1122,47 +1094,45 @@ class ChatPanel(QWidget):
     def _on_stopped(self) -> None:
         """用户中断收尾（第三态）：整体回滚——中断轮不入历史；
         屏幕已输出内容不擦除（可复制兜底），追加停止标注。"""
-        self._usage_timer.stop()  # 0117 D5：中断即停轮询，不残留空转
+        self._usage_timer.stop()  # 中断即停轮询，不残留空转
         if self._has_seen_reasoning:
             self.output.end_reasoning()
             self._has_seen_reasoning = False
         self._history.pop()  # 回滚用户消息；半截回复随 _stream_buffer 丢弃
-        self._restore_sent_attachments()  # 附件恢复回附件行（0340 D6）
+        self._restore_sent_attachments()  # 附件恢复回附件行
         self.output.append_stream_chunk("\n⏹ 已手动停止")
-        self.output.reset_activity_anchors()  # todo 锚点轮次收尾作废（T5-4）
-        self.timeline.end_turn()  # 色块条段指针轮次收尾作废（1824 计划 T3）
+        self.output.reset_activity_anchors()  # todo 锚点轮次收尾作废
+        self.timeline.end_turn()  # 色块条段指针轮次收尾作废
         self.output.end_stream()
         self._worker = None
-        # 0807-2305 D3：停止即取消待发（对齐 kilocode abort 语义：
-        # 停=全停）；草稿本就在输入框，无需退回补偿（0634 的
-        # _drain_queue_to_input 路径随 FIFO 队列一并拆除）
+        # 停止即取消待发（对齐 kilocode abort 语义：停=全停）；草稿本就
+        # 在输入框，无需退回补偿
         self._pending_send = False
         self._set_busy(False)
         self.turn_finished.emit()
 
     def _set_busy(self, is_busy: bool) -> None:
-        self._busy = is_busy  # 簿记单点置位（0634 D1），先于一切 UI 动作
-        # 输入框保持可编辑（busy 期间 Enter=登记待发，0807-2305 D2）；
+        self._busy = is_busy  # 簿记单点置位，先于一切 UI 动作
+        # 输入框保持可编辑（busy 期间 Enter=登记待发）；
         # 全局 ModelBar 双下拉禁用归 ChatTabs 汇总处理
         self.busy_changed.emit(is_busy)
-        self._stop_button.setEnabled(is_busy)  # 停止仅 busy 可用（D1 保障）
+        self._stop_button.setEnabled(is_busy)  # 停止仅 busy 可用（簿记保障）
         # 「发送/排队/等待发送…」三态文案/使能集中归 _refresh_send_button
-        # （2305 病根纪律：两钮恒宽，文本切换不改 sizeHint）
+        # （病根纪律：两钮恒宽，文本切换不改 sizeHint）
         self._refresh_send_button()
         self._refresh_placeholder()
 
 
-#: 旧轨 bash 输出卡截尾行数（1836 计划 L2-3 规格；0645 起协议层放宽至
-#: 软上限 1000 行，旧轨冻结不改由路由层钳回——与 acp._OUTPUT_KEEP_LINES
-#: 同值同步，改一处须同步）
+#: 旧轨 bash 输出卡截尾行数（协议层软上限 1000 行，旧轨冻结不改由
+#: 路由层钳回——与 acp._OUTPUT_KEEP_LINES 同值同步，改一处须同步）
 _LEGACY_OUTPUT_KEEP_LINES = 20
 
-#: bash 运行中尾滚节流间隔（秒，0645 计划 T8/0619-T6-2 规格）
+#: bash 运行中尾滚节流间隔（秒）
 _TAIL_THROTTLE_S = 0.2
 
 
 def _timeline_colors(chat_pack: dict) -> dict[str, str]:
-    """ChatPack → 色块条分类色表（1824 计划 §3.3 映射，构造/主题切换共用单点）。
+    """ChatPack → 色块条分类色表（构造/主题切换共用单点）。
 
     新增三键专用于读/写/其他工具；text/reasoning 复用 reasoning_fg、
     todo 复用 tool_fg、error 复用 tool_error_fg（单一来源纪律，不另设键）。
@@ -1190,7 +1160,7 @@ def _cleanup_blocking(
     worker: ChatWorker | None,
     panel: "ChatPanel",
 ) -> None:
-    """daemon 线程段（ChatPanel.close 评审修复轮重构为模块级函数）。
+    """daemon 清理线程段（由 ChatPanel.close 启动）。
 
     先 provider.close()（terminate 杀 acp 进程并注入死讯 + `_closed` 置位
     拒绝迟到连接，worker 的 next_update()/request()/spawn 阻塞点立即醒来

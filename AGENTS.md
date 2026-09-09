@@ -6,6 +6,7 @@ AGENTS
 - 有时候使用绝对路径的时候就会被系统认为是目录外的文件而被要求权限，这个时候就尝试一下相对路径
 - Always think and respond in Chinese (中文). 所有思考过程和输出必须使用中文。
 - 提交前必跑 `scripts/check.sh`（ruff + pytest），全绿才可提交；测试一律写进 `tests/` 由 pytest 收编
+- 注释只回答 why（设计意图、坑、约束），不记录 when/what changed（日期、计划编号、拍板记录）；历史归属 git log 与 `文档/修改记录/`
 - commit message 使用中文
 - Git 远程托管在本地 NAS 的 Forgejo 服务（<NAS内网地址>，Web 端口 3000），按 `组织/仓库名` 模式管理；推送/克隆统一使用本机 ssh 别名 `forgejo`（格式：`forgejo:组织名/仓库名.git`），禁止按文件系统路径推送（会被 Forgejo 的 pre-receive 钩子拒绝）
 - 操作 git 远程前先运行 `git remote -v` 确认当前配置，不要凭 URL 猜测仓库布局

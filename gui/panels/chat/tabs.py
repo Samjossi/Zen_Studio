@@ -1,48 +1,44 @@
 """AI 会话标签容器：新建注入值 + 多标签 ChatPanel（上限 4）。
 
-多标签改造（2026-07-22，文档/修改记录/2026-0722-0756 计划 P3）：
-- 每标签一个独立 ChatPanel + 独立 provider 实例（D6 方案 A：每标签
-  独立 kimi acp 连接，完全隔离、并行无锁竞争）
-- ModelBar 为每标签底行实例（2026-0724-2354 计划，纯视图组件）
+多标签结构：
+- 每标签一个独立 ChatPanel + 独立 provider 实例（每标签独立 kimi acp
+  连接，完全隔离、并行无锁竞争）
+- ModelBar 为每标签底行实例（纯视图组件）
 
-异构后台选择（2026-08-03，文档/修改记录/2026-0803-0112 计划，翻案
-2026-0724-2354 计划 D5「全部标签共享同一选择 + 广播」）：
+异构后台选择（每标签自持，不广播）：
 - 选择状态每标签自持：(backend, version) 的有效值唯一来源是各标签的
   ModelBar（回退后的有效值以 ModelBar 为准）；本容器不再广播同步
-- 容器只留「新建注入值」：_backend/_version 语义收缩为「下一个新建
-  标签的初始选择 + 重启默认」，来源 = 最近一次用户显式切换（任一入口）；
-  零标签时菜单/设置中心切换只更新该注入值（等价改造前语义）
-- 持久化一期语义不变：KEY_MODEL_BACKEND 与记忆表写「最近使用值」，
-  不做每标签三元组持久化（二期候选）
+- 容器只留「新建注入值」：_backend/_version 语义 = 「下一个新建标签的
+  初始选择 + 重启默认」，来源 = 最近一次用户显式切换（任一入口）；
+  零标签时菜单/设置中心切换只更新该注入值
+- 持久化：KEY_MODEL_BACKEND 与记忆表写「最近使用值」，不做每标签
+  三元组持久化
 - 菜单/设置中心驱动切换只作用于当前活动标签，不再「一键洗全部会话」
-- busy 粒度收窄：各标签独立禁用自身三按钮（原「任一忙禁全部」是为防
+- busy 粒度收窄：各标签独立禁用自身三按钮（「任一忙禁全部」是为防
   广播切换打断响应中标签，广播废除后失去依据）；busy_changed 对外
   改报「当前活动标签忙闲」（主窗口联动设置中心模型页禁用）
-- 标签标题恒为「会话 N」（2026-08-03 用户决策，翻案 D6「会话 N ·
-  后台名」拼接）：后台辨识归各标签底部 ModelBar，不占标签标题
+- 标签标题恒为「会话 N」：后台辨识归各标签底部 ModelBar，不占标签标题
 - 停止归各标签本地：输入区底行发送/停止双态按钮直停本标签
-  （2026-0724-2305 计划 T5，替代原全局停止按钮 + _route_stop 路由）
 
-推理强度四级（2026-08-06 一期静态声明；0455 动态化计划翻案为模型级
-云端动态化）：
+推理强度四级（模型级云端动态化）：
 - ModelBar 第四级 effort_changed 信号由本容器收敛：注入值 _effort
   更新 + model_efforts 记忆表写盘（与 model_versions 同构）+ 本标签
   provider 鸭子类型 set_effort 即时生效；切后台/接口/模型路径按（新）
   接口记忆表解析并应用（None = 未定制，agent 默认强度生效）
-- 记忆表键结构不变（D3：仍接口 → 值，不引入接口+模型复合键）；
-  记忆值值域校验归 ChatPanel.set_effort 下发前（∉ 当前模型档位 →
-  静默落默认档，不写盘——切回支持的模型记忆自动恢复）
+- 记忆表键为接口 → 值，不引入接口+模型复合键；记忆值值域校验归
+  ChatPanel.set_effort 下发前（∉ 当前模型档位 → 静默落默认档，
+  不写盘——切回支持的模型记忆自动恢复）
 
-全关与关闭卡顿治理（2026-07-22，文档/修改记录/2026-0722-1117 计划）：
+全关与关闭卡顿治理：
 - 标签可全部关闭（不再保底一个）；零标签时 QStackedWidget 切到占位页
   （提示文案 + 居中「新建会话」按钮）；选择状态在本容器不随标签消失，
   新建标签时注入恢复（替代原「ModelBar 全局常驻」语义）
 - 序号语义：非全关不复用已关闭序号（防「会话 2」指代漂移）；
-  全部关闭即 _tab_seq 重置，再新建从「会话 1」开始（用户决策）
+  全部关闭即 _tab_seq 重置，再新建从「会话 1」开始
 - 关闭异步化：_close_tab 立即摘标签返回；terminate/wait 等重等待
   全部移入 ChatPanel 的 daemon 清理线程，GUI 线程零阻塞
 
-会话记录持久化（2026-08-18，文档/修改记录/2026-0818-2350 计划 T3）：
+会话记录持久化：
 - 关闭时 save_sessions 全量快照落盘（config/sessions/<hash8>.json，
   按工作区分文件）；用户主动关闭的标签不在快照中，下次启动不恢复
 - 启动时 restore_sessions 按存档重建标签并重放文字记录（只读展示、
@@ -87,23 +83,20 @@ class ChatTabs(QWidget):
     selection_changed = Signal(str, object)
 
     #: 任一标签一轮对话结束（转发 ChatPanel.turn_finished；主窗口联动
-    #: Git 状态去抖刷新，诊断报告 文档/修改记录/2026-0731-1256 方案 A）
+    #: Git 状态去抖刷新）
     turn_finished = Signal()
 
     #: 正文文件路径链接点击（转发 ChatPanel.file_open_requested，载荷
-    #: (绝对路径, 行号|None)；主窗口接查看器 open_file，1836 计划 L2-5）
+    #: (绝对路径, 行号|None)；主窗口接查看器 open_file）
     file_open_requested = Signal(str, object)
 
-    #: 标签数上限（用户决策 D1：约束长驻 kimi acp 进程数与 token 消耗）
+    #: 标签数上限（约束长驻 kimi acp 进程数与 token 消耗）
     MAX_TABS = 4
 
-    #: 左栏最小宽度（px，2026-0806-0401 计划 D4/T4 单一来源）：
-    #: 0634 计划 D3 由 320 上调——底行新增「■ 停止」常驻钮（双钮并存）
-    #: 抬高静态下限；T5 实测底行（双下拉 + 发送/排队 + ■ 停止）静态
-    #: 下限 456px（offscreen 探针，2026-08-06），拍板值 400 低于实测，
-    #: 按计划「实测 >400 以实测为准」回填 460（实测 + 4px 余量，0401
-    #: 计划 320≥315 同法）；MainWindow 构造处 setMinimumWidth +
-    #: splitter setCollapsible(0, False) 双闸，用户拖到 460 即触底
+    #: 左栏最小宽度（px，单一来源）：底行（双下拉 + 发送/排队 + ■ 停止）
+    #: 静态下限 offscreen 探针量得 456px，取 460 含 4px 余量；
+    #: MainWindow 构造处 setMinimumWidth + splitter setCollapsible(0, False)
+    #: 双闸，用户拖到 460 即触底
     MIN_WIDTH = 460
 
     def __init__(self, workspace_root: str, parent: QWidget | None = None) -> None:
@@ -117,7 +110,7 @@ class ChatTabs(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self._workspace_root = workspace_root
         #: ACP terminal/* GUI 桥（main_window 装配后经 set_terminal_bridge
-        #: 注入；None = 全后端 terminal: false，2026-0817-1554 计划 T5）
+        #: 注入；None = 全后端 terminal: false）
         self._terminal_bridge: object | None = None
         self._tab_seq = 0  # 序号：非全关不复用（防指代漂移）；全关即重置
         self._busy_panels: set[ChatPanel] = set()
@@ -128,7 +121,7 @@ class ChatTabs(QWidget):
 
         self._tabs = QTabWidget(self)
         # 主题接线：base.qss #ChatTabs 段（透明 tab + 激活 accent 下划线，
-        # 对齐 #TerminalTabs 范式；2026-0722-1725 走查 F1）
+        # 对齐 #TerminalTabs 范式）
         self._tabs.setObjectName("ChatTabs")
         self._tabs.setTabsClosable(True)
         self._tabs.setDocumentMode(True)
@@ -148,8 +141,8 @@ class ChatTabs(QWidget):
         layout = QVBoxLayout(self)
         layout.addWidget(self._stack, 1)
         # 面板级 6px 外边距体系（对齐 viewer/terminal 面板；下边距 6px 同
-        # 终端面板）；顶部模型行已于 2026-0724-2354 计划移除（选择下移
-        # 各标签输入区底行），上边距与左右对齐面板级 6px
+        # 终端面板）；顶部模型行已移除（选择下移各标签输入区底行），
+        # 上边距与左右对齐面板级 6px
         layout.setContentsMargins(6, 6, 6, 6)
         layout.setSpacing(0)
 
@@ -159,21 +152,19 @@ class ChatTabs(QWidget):
         # 与当前标签选择（设置中心展示值跟随）
         self._tabs.currentChanged.connect(self._on_current_changed)
 
-        self.add_tab()  # 首标签：等价改造前的单聊天面板
+        self.add_tab()  # 首标签：等价单聊天面板
 
     def _load_injection_value(self) -> None:
-        """新建注入值装载（2026-0803-0112 计划 D1）：语义 = 「下一个新建
-        标签的初始选择 + 重启默认」，来源 = 最近一次用户显式切换（任一
-        入口）。启动时从 settings 读取一次（「最近使用值」持久化，一期
-        语义不变）。模型记忆表（2026-0731-0052 计划 D1/D4）：启动模型取
-        当前接口的记忆值，无记忆 = None（未定制，UI 落该接口模型列表
-        首项）。"""
+        """新建注入值装载：语义 = 「下一个新建标签的初始选择 + 重启默认」，
+        来源 = 最近一次用户显式切换（任一入口）。启动时从 settings 读取
+        一次（「最近使用值」持久化）。模型记忆表：启动模型取当前接口的
+        记忆值，无记忆 = None（未定制，UI 落该接口模型列表首项）。"""
         settings = load_settings()
         self._backend: str | None = settings.get(KEY_MODEL_BACKEND)
         self._version: str | None = settings[KEY_MODEL_VERSIONS].get(
             self._backend or "")
-        #: 推理强度注入值（2026-0806 计划）：当前接口的 model_efforts 记忆
-        #: 值；None = 未定制（agent 默认强度生效，UI 勾选接口默认项纯呈现）
+        #: 推理强度注入值：当前接口的 model_efforts 记忆值；
+        #: None = 未定制（agent 默认强度生效，UI 勾选接口默认项纯呈现）
         self._effort: str | None = settings[KEY_MODEL_EFFORTS].get(
             self._backend or "")
 
@@ -192,7 +183,7 @@ class ChatTabs(QWidget):
         return page
 
     # ------------------------------------------------------------------
-    # 选择状态查询（设置中心展示值经此回读，2026-0803-0112 计划 T5）
+    # 选择状态查询（设置中心展示值经此回读）
     # ------------------------------------------------------------------
     def current_backend(self) -> str | None:
         """当前有效后端：当前活动标签 ModelBar 的回退后有效值；
@@ -226,8 +217,7 @@ class ChatTabs(QWidget):
         """建标签主流程（add_tab 新建与 restore_sessions 存档恢复共用）。
 
         record 非 None = 存档恢复路径：backend/version 取存档值作构造注入
-        （不污染新建注入值），建成后 replay_session 重放文字记录上屏
-        （2026-0818-2350 计划 T3）。
+        （不污染新建注入值），建成后 replay_session 重放文字记录上屏。
         """
         if self._tabs.count() >= self.MAX_TABS:
             return
@@ -266,7 +256,7 @@ class ChatTabs(QWidget):
 
     def set_terminal_bridge(self, bridge: object | None) -> None:
         """注入 ACP terminal/* GUI 桥（main_window 装配后调用）：存量标签
-        即时补注，后续新建标签经构造参数透传（2026-0817-1554 计划 T5）。"""
+        即时补注，后续新建标签经构造参数透传。"""
         self._terminal_bridge = bridge
         for idx in range(self._tabs.count()):
             panel = self._tabs.widget(idx)
@@ -274,9 +264,8 @@ class ChatTabs(QWidget):
                 panel.set_terminal_bridge(bridge)
 
     def _tab_title(self, panel: ChatPanel) -> str:
-        """标签标题恒为「会话 N」（2026-08-03 用户决策）：异构后台后标题
-        曾拼后台显示名（D6「会话 N · Kimi」）以辨识标签，用户认定画蛇
-        添足予以去除——后台辨识归各标签底部 ModelBar，不占标签标题。"""
+        """标签标题恒为「会话 N」：标题不拼后台显示名——后台辨识归各
+        标签底部 ModelBar，不占标签标题。"""
         number = self._tab_numbers.get(panel, 0)
         return f"会话 {number}"
 
@@ -309,22 +298,21 @@ class ChatTabs(QWidget):
             f"已达标签上限 {self.MAX_TABS}" if at_max else "新建 AI 会话标签")
 
     # ------------------------------------------------------------------
-    # 模型选择（2026-0803-0112 计划：每标签自持，容器只留新建注入值；
-    # 翻案 2026-0724-2354 计划 D5「共享同一选择 + 广播」）
+    # 模型选择（每标签自持，容器只留新建注入值，不广播）
     # ------------------------------------------------------------------
     def _on_selection_changed(self, sender: ChatPanel, backend: str, version: object) -> None:
         """某标签底行下拉用户切换 → 本标签 provider 切换 + 注入值更新 +
         写盘。
 
-        不再广播其余标签——各标签选择独立（D1）。sender 必须为当前活动
-        标签才更新注入值与写盘：注入值语义 = 「最近一次用户显式切换」，
-        非活动标签不存在用户操作路径（ModelBar 菜单交互必使其所在标签
-        成为当前），校验仅作防御。
+        不再广播其余标签——各标签选择独立。sender 必须为当前活动标签才
+        更新注入值与写盘：注入值语义 = 「最近一次用户显式切换」，非活动
+        标签不存在用户操作路径（ModelBar 菜单交互必使其所在标签成为
+        当前），校验仅作防御。
 
-        载荷语义（2026-0731-0052 计划 D3/D4）：version 为 str = 用户显式
-        选定模型 → 写入记忆表（锁内合并，防多开覆盖）；version 为 None =
-        切后台/接口未指定 → 查该接口记忆（无记忆保持 None，UI 落首项，
-        不写记忆条目，保留跟随首项默认态）。
+        载荷语义：version 为 str = 用户显式选定模型 → 写入记忆表（锁内
+        合并，防多开覆盖）；version 为 None = 切后台/接口未指定 → 查该
+        接口记忆（无记忆保持 None，UI 落首项，不写记忆条目，保留跟随
+        首项默认态）。
         """
         if sender is not self._tabs.currentWidget():
             return
@@ -339,9 +327,9 @@ class ChatTabs(QWidget):
         # 本标签 provider 切换（原经广播路径完成；set_model_selection 内
         # ModelBar.set_selection 全程阻断信号，不回环、不重复写盘）
         sender.set_model_selection(backend, self._version)
-        # 推理强度（2026-0806 计划）：切后台/接口/模型后按（新）接口的
-        # 记忆表解析并应用——None = 未定制，agent 默认强度生效；同接口
-        # 内换模型时记忆值不变，重应用幂等
+        # 推理强度：切后台/接口/模型后按（新）接口的记忆表解析并应用——
+        # None = 未定制，agent 默认强度生效；同接口内换模型时记忆值不变，
+        # 重应用幂等
         self._effort = settings[KEY_MODEL_EFFORTS].get(backend)
         sender.set_effort(self._effort)
         # 设置中心展示值跟随当前标签（载荷用 ModelBar 回退后有效值，
@@ -351,10 +339,10 @@ class ChatTabs(QWidget):
             sender.model_bar.current_version())
 
     def _on_effort_changed(self, sender: ChatPanel, backend: str, effort: str) -> None:
-        """某标签底行第四级用户显式选定强度（2026-0806 计划）→ 注入值
-        更新 + 记忆表写盘 + 本标签 provider 即时生效。
+        """某标签底行第四级用户显式选定强度 → 注入值更新 + 记忆表写盘 +
+        本标签 provider 即时生效。
 
-        不广播其余标签（各标签选择独立，D1）；sender 必须为当前活动标签
+        不广播其余标签（各标签选择独立）；sender 必须为当前活动标签
         （与 _on_selection_changed 同款防御）。强度记忆表与模型记忆表
         同构（model_efforts，锁内合并防多开覆盖）。
         """
@@ -370,7 +358,7 @@ class ChatTabs(QWidget):
         载荷语义同 _on_selection_changed（str 写记忆 / None 查记忆）。
         零标签时只更新注入值与写盘，新建标签时注入生效（等价改造前
         「广播空列表 no-op」语义）；发送中（busy）由菜单/设置中心侧禁用
-        入口。其余标签不动——它们已是用户显式选择的独立会话（D3）。
+        入口。其余标签不动——它们已是用户显式选择的独立会话。
         """
         self._backend = backend
         settings = load_settings()
@@ -380,7 +368,7 @@ class ChatTabs(QWidget):
         else:
             self._version = settings[KEY_MODEL_VERSIONS].get(backend)
         update_settings({KEY_MODEL_BACKEND: backend})
-        # 推理强度注入值随接口记忆表解析（2026-0806 计划，与 _on_selection_changed 同款）
+        # 推理强度注入值随接口记忆表解析（与 _on_selection_changed 同款）
         self._effort = settings[KEY_MODEL_EFFORTS].get(backend)
         current = self._tabs.currentWidget()
         if not isinstance(current, ChatPanel):
@@ -398,8 +386,8 @@ class ChatTabs(QWidget):
             current.model_bar.current_version())
 
     # ------------------------------------------------------------------
-    # busy 粒度（2026-0803-0112 计划 D4：各标签独立禁用；busy_changed
-    # 改报「当前活动标签忙闲」；停止归各标签输入区双态按钮）
+    # busy 粒度（各标签独立禁用；busy_changed 改报「当前活动标签忙闲」；
+    # 停止归各标签输入区双态按钮）
     # ------------------------------------------------------------------
     def _on_tab_busy(self, panel: ChatPanel, is_busy: bool) -> None:
         """单标签忙碌态变化 → 只禁用本标签三按钮；若本标签为当前活动
@@ -414,7 +402,7 @@ class ChatTabs(QWidget):
 
     def _on_current_changed(self, index: int) -> None:
         """标签切换 → 重报当前标签忙闲与当前标签选择（设置中心模型页
-        禁用态与展示值跟随当前活动标签，2026-0803-0112 计划 T3/T5）。"""
+        禁用态与展示值跟随当前活动标签）。"""
         del index  # 以 currentWidget 为准（-1 零标签路径统一）
         current = self._tabs.currentWidget()
         if isinstance(current, ChatPanel):
@@ -427,8 +415,8 @@ class ChatTabs(QWidget):
             self.selection_changed.emit(self._backend, self._version)
 
     def is_busy(self) -> bool:
-        """当前活动标签响应中（设置中心模型页禁用依据，2026-0803-0112
-        计划 D4：原「任一标签响应中」随广播废除失去依据）。"""
+        """当前活动标签响应中（设置中心模型页禁用依据；「任一标签响应中」
+        在广播废除后失去依据）。"""
         current = self._tabs.currentWidget()
         return isinstance(current, ChatPanel) and current in self._busy_panels
 
@@ -464,8 +452,8 @@ class ChatTabs(QWidget):
             panel.reset_layout()
 
     # ------------------------------------------------------------------
-    # 会话记录持久化（2026-0818-2350 计划 T3）：关闭时全量快照保存，
-    # 启动时按存档重建标签并重放文字记录（只读展示）
+    # 会话记录持久化：关闭时全量快照保存，启动时按存档重建标签并重放
+    # 文字记录（只读展示）
     # ------------------------------------------------------------------
     def save_sessions(self) -> None:
         """关闭时保存会话记录（MainWindow.closeEvent 挂点）：全量快照 =
