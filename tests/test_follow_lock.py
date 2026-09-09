@@ -1,12 +1,11 @@
-"""2317 计划 T6 冒烟验证：双轨跟随锁行为断言（offscreen）。
+"""双轨跟随锁行为断言（收编自 scripts/test_follow_lock.py；2317 计划 T6 冒烟验证）。
 
 覆盖计划 §7 的 1/2/3/4/6 项（拖拽与窗口变形属手势/实机项，此处以
 setValue 模拟用户手势——valueChanged 方向判定正是唯一入口）。
 
-运行（项目根）：QT_QPA_PLATFORM=offscreen PYTHONPATH=. .venv/bin/python scripts/test_follow_lock.py
+需 offscreen 平台（tests/conftest.py 已统一注入 QT_QPA_PLATFORM=offscreen）。
 """
-import sys
-
+import pytest
 from PySide6.QtWidgets import QApplication
 
 from gui.panels.chat.output import ChatOutput
@@ -22,6 +21,12 @@ CHAT_PACK = {
     "diff_add_fg": "#22863a",
     "diff_del_fg": "#cb2431",
 }
+
+
+@pytest.fixture(scope="module")
+def qapp():
+    app = QApplication.instance() or QApplication([])
+    yield app
 
 
 def make_views():
@@ -49,58 +54,49 @@ def pump(app):
     app.processEvents()  # 新轨滚底经 singleShot(0) 延迟一跳
 
 
-def main() -> int:
-    app = QApplication(sys.argv)
-    failures = []
+def test_follow_lock_both_tracks(qapp):
     for name, view in make_views():
         bar = view.verticalScrollBar()
         fill(view)
-        pump(app)
+        pump(qapp)
         # 1. 锁定态：追加后贴底
         assert view._pinned, f"{name}: 初始应锁定"
         assert bar.value() == bar.maximum(), f"{name}: 锁定态追加后应贴底"
 
         # 2. 用户手势上翻（模拟：值减小）→ 解锁 + 悬浮钮浮现
         bar.setValue(bar.maximum() - 200)
-        pump(app)
+        pump(qapp)
         assert not view._pinned, f"{name}: 上翻后应解锁"
         assert view._back_to_bottom.isVisible(), f"{name}: 解锁后悬浮钮应浮现"
 
         # 3. 解锁态继续追加 → 视角不被下拉
         pos = bar.value()
         fill(view, 10)
-        pump(app)
+        pump(qapp)
         assert bar.value() == pos, (
             f"{name}: 解锁态追加后视角被下拉 {pos} -> {bar.value()}")
         assert not view._pinned, f"{name}: 解锁态追加后不应自动恢复"
 
         # 4. 滚回底部阈值内 → 恢复锁定 + 悬浮钮隐藏
         bar.setValue(bar.maximum())
-        pump(app)
+        pump(qapp)
         assert view._pinned, f"{name}: 回底后应恢复锁定"
         assert not view._back_to_bottom.isVisible(), f"{name}: 锁定后悬浮钮应隐藏"
 
         # 5. 再次解锁后点「回到底部」→ 回底 + 锁定
         bar.setValue(bar.maximum() - 200)
-        pump(app)
+        pump(qapp)
         assert not view._pinned, f"{name}: 再次上翻应解锁"
         view._back_to_bottom.click()
-        pump(app)
+        pump(qapp)
         assert view._pinned, f"{name}: 点回底钮后应锁定"
         assert bar.value() == bar.maximum(), f"{name}: 点回底钮后应贴底"
 
         # 6. P3：解锁态发送新消息 → 强制回底
         bar.setValue(bar.maximum() - 200)
-        pump(app)
+        pump(qapp)
         assert not view._pinned
         view.append_user_message("你好")
-        pump(app)
+        pump(qapp)
         assert view._pinned, f"{name}: 发送新消息应强制恢复锁定"
         assert bar.value() == bar.maximum(), f"{name}: 发送新消息应强制回底"
-
-        print(f"[OK] {name} 六项断言全过")
-    return 0 if not failures else 1
-
-
-if __name__ == "__main__":
-    sys.exit(main())

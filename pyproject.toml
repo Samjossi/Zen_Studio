@@ -17,5 +17,23 @@ dev = [
     # 文档/修改记录/2026-0731-2208_聊天区选区高亮偏下修复与视觉验证闭环经验.md §6.2）。
     # 仅 .temp/ 验证脚本 import，生产代码零引用，PyInstaller 按 import 链
     # 收编不会打进包，无需 spec 级排除。
+    "pytest>=9.1.1",
     "python-xlib>=0.33",
+    "ruff>=0.16.6",
 ]
+
+# 门禁配置（work plans/2026-0909-2244_测试门禁落地计划.md T1）
+[tool.ruff]
+exclude = [
+    "参考代码",
+    "markdown_it",
+    "mdurl",
+    "building",
+    ".temp",
+    ".tmp",
+]
+
+[tool.ruff.lint]
+select = ["E", "F", "W"]
+# E501 关闭：存量 270 条均为中文长注释/文档串，属项目既有风格，不做批量换行
+ignore = ["E501"]

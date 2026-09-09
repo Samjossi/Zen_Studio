@@ -24,7 +24,6 @@ utils/timeline/{colors,sizes,geometry}.ts，只读参考）：
 """
 from dataclasses import dataclass
 
-from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QPainter, QPainterPath
 from PySide6.QtWidgets import QToolTip, QWidget
 

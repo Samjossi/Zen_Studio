@@ -42,14 +42,15 @@ from typing import Iterator
 from core.paths import PROJECT_ROOT  # agent 工作目录限定于项目根
 from core.version import APP_VERSION
 from llm.base import Chunk, LanguageModel, Message, UsageStats
-# PermissionOption/ToolCallInfo 仅 re-export（llm/permission_policy 从此处取型）
+# PermissionOption/PermissionParams/ToolCallInfo 仅 re-export（llm/permission_policy 从此处取型），
+# 冗余名别名是 ruff 约定的显式 re-export 写法，勿当未用导入删除
 from llm.providers.acp import (
     AcpConnection,
     PermissionHandler,
-    PermissionOption,
-    PermissionParams,
+    PermissionOption as PermissionOption,
+    PermissionParams as PermissionParams,
     TerminalHandler,
-    ToolCallInfo,
+    ToolCallInfo as ToolCallInfo,
     build_client_capabilities,
     build_prompt_blocks,
     map_session_update,
