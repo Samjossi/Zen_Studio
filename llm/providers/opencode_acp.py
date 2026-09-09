@@ -38,6 +38,7 @@ llm/providers/acp.py 的公共实现 map_session_update（D4 上收——原四�
 逐行一致副本同一改动改四处必然漂移）。
 """
 import atexit
+import logging
 import os
 import shutil
 import subprocess
@@ -57,6 +58,8 @@ from llm.providers.acp import (
     build_prompt_blocks,
     map_session_update,
 )
+
+logger = logging.getLogger(__name__)
 
 OPENCODE_BIN = "opencode"
 
@@ -120,6 +123,7 @@ def list_opencode_models() -> list[str]:
                 if "/" in line.strip()
                 and not line.strip().startswith(GATEWAY_MODEL_PREFIX)]
     except (OSError, subprocess.SubprocessError):
+        logger.exception("opencode models 执行失败")
         return []
 
 
@@ -164,6 +168,7 @@ class OpenCodeAcpLLM(LanguageModel):
                 self._conn.request("session/set_config_option", {
                     "sessionId": self._session_id, "configId": "model", "value": alias}, timeout=10)
             except RuntimeError:
+                logger.exception("切换模型失败，降级为下轮重建会话")
                 self._session_id = None  # 降级：下轮重建会话并应用模型
 
     def reset_session(self) -> None:
@@ -253,6 +258,7 @@ class OpenCodeAcpLLM(LanguageModel):
                         "sessionId": self._session_id, "configId": "model",
                         "value": self._model}, timeout=10)
                 except RuntimeError:
+                    logger.exception("新会话应用预选模型失败")
                     pass  # 保持 agent 默认模型，不阻断对话
         return self._conn
 

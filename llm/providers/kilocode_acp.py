@@ -43,6 +43,7 @@ llm/providers/acp.py 的公共实现 map_session_update（D4 上收——原四�
 """
 import atexit
 import json
+import logging
 import os
 import re
 import shutil
@@ -63,6 +64,8 @@ from llm.providers.acp import (
     build_prompt_blocks,
     map_session_update,
 )
+
+logger = logging.getLogger(__name__)
 
 #: PATH 探测的候选二进制名（双名 symlink 同指同一二进制，计划 §2.1）
 KILOCODE_BIN_NAMES = ("kilocode", "kilo")
@@ -128,6 +131,7 @@ def list_kilocode_models() -> list[str]:
                 if "/" in line.strip()
                 and not line.strip().startswith(GATEWAY_MODEL_PREFIX)]
     except (OSError, subprocess.SubprocessError):
+        logger.exception("kilo models 模型枚举子进程调用失败")
         return []
 
 
@@ -162,6 +166,7 @@ def list_kilocode_efforts() -> dict[str, tuple[list[str], str | None]]:
         if proc.returncode != 0:
             return {}
     except (OSError, subprocess.SubprocessError):
+        logger.exception("kilo models --verbose 强度枚举子进程调用失败")
         return {}
     result: dict[str, tuple[list[str], str | None]] = {}
     alias: str | None = None
@@ -173,6 +178,7 @@ def list_kilocode_efforts() -> dict[str, tuple[list[str], str | None]]:
         try:
             entry = json.loads("\n".join(block))
         except json.JSONDecodeError:
+            logger.exception("kilo models --verbose 单块解析失败")
             return  # 单块漂移只丢该模型（R1 兜底）
         capabilities = entry.get("capabilities")
         if isinstance(capabilities, dict) and capabilities.get("reasoning") is False:
@@ -235,6 +241,7 @@ class KiloCodeAcpLLM(LanguageModel):
                 self._conn.request("session/set_config_option", {
                     "sessionId": self._session_id, "configId": "model", "value": alias}, timeout=10)
             except RuntimeError:
+                logger.exception("kilocode 切换模型会话内即时生效失败")
                 self._session_id = None  # 降级：下轮重建会话并应用模型
 
     def set_effort(self, value: str) -> None:
@@ -253,6 +260,7 @@ class KiloCodeAcpLLM(LanguageModel):
                     "sessionId": self._session_id, "configId": "effort",
                     "value": value}, timeout=10)
             except RuntimeError:
+                logger.exception("kilocode 切换推理强度会话内即时生效失败")
                 pass  # 降级：保持会话与当前强度，新会话时应用 _effort
 
     def reset_session(self) -> None:
@@ -342,6 +350,7 @@ class KiloCodeAcpLLM(LanguageModel):
                         "sessionId": self._session_id, "configId": "model",
                         "value": self._model}, timeout=10)
                 except RuntimeError:
+                    logger.exception("kilocode 新会话应用预选模型失败")
                     pass  # 保持 agent 默认模型，不阻断对话
             if self._effort:  # 新会话应用预选推理强度（2026-0806 计划）
                 try:
@@ -349,6 +358,7 @@ class KiloCodeAcpLLM(LanguageModel):
                         "sessionId": self._session_id, "configId": "effort",
                         "value": self._effort}, timeout=10)
                 except RuntimeError:
+                    logger.exception("kilocode 新会话应用预选推理强度失败")
                     pass  # 保持 agent 默认强度，不阻断对话
         return self._conn
 

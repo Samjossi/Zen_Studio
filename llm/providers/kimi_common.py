@@ -9,10 +9,13 @@ $KIMI_CODE_HOME/bin → ~/.kimi-code/bin），`kimi_available` 判断可用性�
 现仅服务 ACP 传输层。
 """
 import json
+import logging
 import os
 import shutil
 import subprocess
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 KIMI_BIN = "kimi"
 
@@ -56,6 +59,7 @@ def load_kimi_provider_catalog() -> dict:
         data = json.loads(proc.stdout)
         return data if isinstance(data, dict) else {}
     except (OSError, subprocess.SubprocessError, json.JSONDecodeError):
+        logger.exception("kimi provider list --json 执行失败")
         return {}
 
 

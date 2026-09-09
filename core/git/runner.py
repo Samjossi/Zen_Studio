@@ -5,8 +5,11 @@
 """
 from __future__ import annotations
 
+import logging
 import shutil
 import subprocess
+
+logger = logging.getLogger(__name__)
 
 #: 单条 git 命令超时（秒）：防大仓库/网络文件系统卡死 UI
 TIMEOUT_S = 2.0
@@ -31,6 +34,7 @@ def run_git(repo_dir: str, *args: str) -> str | None:
             timeout=TIMEOUT_S,
         )
     except (OSError, subprocess.TimeoutExpired):
+        logger.exception("git 命令执行失败")
         return None
     if proc.returncode != 0:
         return None

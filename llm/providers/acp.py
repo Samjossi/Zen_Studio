@@ -14,10 +14,10 @@ PermissionHandler/_TurnMessage）是 ACP 协议层产物，不属 kimi 专有，
 import base64
 import difflib
 import json
+import logging
 import queue
 import re
 import subprocess
-import sys
 import threading
 from collections.abc import Callable
 from pathlib import Path
@@ -33,6 +33,8 @@ from llm.base import (
     UsageStats,
 )
 from core.paths import workspace_display_path
+
+logger = logging.getLogger(__name__)
 
 _ACP_TIMEOUT_S = 30  # initialize / session/new / set_config_option 等控制请求超时
 
@@ -72,6 +74,7 @@ def build_prompt_blocks(message: Message, workspace_root: str | None = None) -> 
         try:
             data = base64.b64encode(Path(img["path"]).read_bytes()).decode()
         except OSError:
+            logger.exception("附图读盘失败，跳过该图续发其余块")
             continue
         blocks.append({"type": "image", "data": data, "mimeType": img["mime_type"]})
         path_lines.append(
@@ -1186,7 +1189,7 @@ class AcpConnection:
             try:
                 handler.on_connection_dead()
             except Exception as e:  # noqa: BLE001 — 死讯路径异常不外溢
-                print(f"[{self._agent_name}] 终端处理器死讯清理异常: {e}", file=sys.stderr)
+                logger.exception(f"[{self._agent_name}] 终端处理器死讯清理异常: {e}")
         with self._write_lock:
             self._pending_waits.clear()
 
@@ -1198,7 +1201,7 @@ class AcpConnection:
         try:
             obj = json.loads(line)
         except json.JSONDecodeError:
-            print(f"[{self._agent_name}] 非 JSON 帧: {line[:200]}", file=sys.stderr)
+            logger.exception(f"[{self._agent_name}] 非 JSON 帧: {line[:200]}")
             return
         if "method" in obj and "id" in obj:
             self._handle_reverse(obj)  # 反向请求须及时应答，防 agent 阻塞
@@ -1227,7 +1230,7 @@ class AcpConnection:
                 try:
                     option_id = self._permission_handler(params)
                 except Exception as e:  # noqa: BLE001 — handler 异常不阻塞 agent，兜底拒绝
-                    print(f"[{self._agent_name}] 审批处理器异常: {e}", file=sys.stderr)
+                    logger.exception(f"[{self._agent_name}] 审批处理器异常: {e}")
                 if option_id is None:  # 用户取消/超时/handler 异常 → 兜底拒绝
                     option_id = self._pick_option(options, "reject_once")
             else:
@@ -1266,6 +1269,7 @@ class AcpConnection:
                     params.get("terminalId") or "",
                     lambda result, rid=request_id: self._complete_wait(rid, result))
             except Exception as e:  # noqa: BLE001 — handler 异常不阻塞 agent
+                logger.exception(f"[{self._agent_name}] wait_for_exit 登记异常: {e}")
                 with self._write_lock:
                     self._pending_waits.discard(request_id)
                 self._reply_error(request_id, -32603, f"wait_for_exit 失败：{e}")
@@ -1285,6 +1289,7 @@ class AcpConnection:
                 handler.release(params.get("terminalId") or "")
                 result = {}
         except Exception as e:  # noqa: BLE001 — handler 异常回 -32603，防 agent 永久阻塞
+            logger.exception(f"[{self._agent_name}] {method} 处理器异常: {e}")
             self._reply_error(request_id, -32603, f"{method} 失败：{e}")
             return
         with self._write_lock:
@@ -1303,6 +1308,7 @@ class AcpConnection:
             try:
                 self._send({"jsonrpc": "2.0", "id": request_id, "result": result})
             except (OSError, ValueError):
+                logger.exception("wait_for_exit 应答写帧失败")
                 pass  # 连接将死：死讯注入路径已兜底
 
     def _reply_error(self, request_id: int, code: int, message: str) -> None:
@@ -1312,6 +1318,7 @@ class AcpConnection:
                 self._send({"jsonrpc": "2.0", "id": request_id,
                             "error": {"code": code, "message": message}})
             except (OSError, ValueError):
+                logger.exception("反向请求错误应答写帧失败")
                 pass
 
     @staticmethod
@@ -1374,6 +1381,7 @@ class AcpConnection:
                 self._send({"jsonrpc": "2.0", "method": "session/cancel",
                             "params": {"sessionId": session_id}})
         except (OSError, ValueError):
+            logger.exception("session/cancel 写入失败")
             return False  # 写入失败说明连接将死，chat 路径按 dead 收尾
         return True
 
@@ -1405,6 +1413,7 @@ class AcpConnection:
             try:
                 self._proc.wait(timeout=5)
             except subprocess.TimeoutExpired:
+                logger.exception("agent 进程 terminate 超时，强制 kill")
                 self._proc.kill()
         self.is_alive = False
         self._inject_dead()

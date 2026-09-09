@@ -16,6 +16,7 @@ wait_for_exit 为回调式长阻塞语义，不占 reader 线程（连接层异�
 handle() 取独立句柄视图——terminalId 全局唯一（ai-term-N 递增），
 死讯清理按句柄归属集隔离，多 chat 标签 × 多 provider 并发互不串扰。
 """
+import logging
 import os
 import threading
 from collections.abc import Callable
@@ -25,6 +26,8 @@ from PySide6.QtCore import QThread, QTimer
 
 from gui.panels.terminal.panel import TerminalPanel, _Session
 from gui.settings import KEY_TERMINAL_AI_TAB_CLOSE_DELAY_S, load_settings
+
+logger = logging.getLogger(__name__)
 
 #: 输出尾部缓冲上限（字节）：超出保留尾部并置 truncated（T1 契约的截断策略）
 _TAIL_BYTES = 64 * 1024
@@ -265,4 +268,5 @@ class AgentTerminalBridge:
             try:
                 cb({"exitCode": exit_code, "signal": None})
             except Exception:  # noqa: BLE001 — 单回调异常不波及其余
+                logger.exception("wait_for_exit 回调执行失败")
                 pass

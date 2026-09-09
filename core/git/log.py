@@ -17,10 +17,13 @@
 """
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 
 from core.git import runner
 from core.git.ansi import parse_segments, resolve_key
+
+logger = logging.getLogger(__name__)
 
 #: 提交条数上限：超出时尾部追加截断提示（1507 计划 D4；1542 沿用）
 MAX_COUNT = 500
@@ -203,6 +206,7 @@ def count_commits(repo_root: str) -> int | None:
     try:
         return int(out.strip())
     except ValueError:
+        logger.exception("提交总数解析失败")
         return None
 
 

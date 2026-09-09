@@ -34,6 +34,6 @@ exclude = [
 ]
 
 [tool.ruff.lint]
-select = ["E", "F", "W"]
+select = ["E", "F", "W", "BLE"]
 # E501 关闭：存量 270 条均为中文长注释/文档串，属项目既有风格，不做批量换行
 ignore = ["E501"]

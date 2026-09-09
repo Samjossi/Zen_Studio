@@ -11,11 +11,14 @@ GUI 层（文件树右键、Markdown 渲染页右键）共享同一启动器实�
 subprocess.Popen 非阻塞（丢弃标准输出/错误，不管子进程生命周期），
 禁止 os.system / run 阻塞 UI。
 """
+import logging
 import shutil
 import subprocess
 import sys
 from collections.abc import Callable
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 #: macOS 回退探测：Typora 标准安装位置
 _MACOS_TYPORA_APP = Path("/Applications/Typora.app")
@@ -68,6 +71,7 @@ class TyporaLauncher:
                 stderr=subprocess.DEVNULL,
             )
         except OSError as e:
+            logger.exception("Typora 调起失败")
             return str(e)
         return None
 

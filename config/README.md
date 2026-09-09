@@ -24,6 +24,7 @@ Zen Studio 的**开发态**运行时配置存放地。本目录内数据文件�
 | `config/window_state/default.json` | 全局默认布局：最近关闭窗口双写、后写胜，供新工作区首开与空白窗口继承 | `gui/window_state.py` |
 | `config/sessions/<hash8>.json` | 会话记录存档（各聊天标签文字对话），按工作区根哈希分文件 | `gui/panels/chat/session_store.py` |
 | `config/sockets/<hash8>.sock` | 一窗一根占用登记套接字（QLocalServer 按工作区根哈希 listen；进程退出残留的陈旧套接字由下次启动探测自愈清理） | `gui/root_ownership.py` |
+| `config/logs/zen-studio.log` | 运行日志（INFO 级，文件 + stderr 双输出，无轮转；打包态 stderr 不可见，此文件为唯一出错观测面，见 `2026-0909-2349_吞错无日志整改落地计划.md`） | `main.py` `setup_logging()` 初始化，各模块 `logging.getLogger(__name__)` |
 
 ## 3. 并发与写盘纪律
 

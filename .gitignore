@@ -13,6 +13,8 @@ config/window_state/
 config/recent_projects.json
 config/settings.lock
 config/.*.tmp
+# 运行日志（吞错无日志整改 T1，出错观测面，不入库）
+config/logs/
 
 # 密钥（严禁提交）
 api_key/

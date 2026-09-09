@@ -26,6 +26,7 @@ dream-acp-v1.md 为真值来源（其上游即 acp.py 与四后台实测）。
 session/update 映射统一走公共实现 map_session_update（1602 计划 D4 上收）。
 """
 import atexit
+import logging
 import os
 import shutil
 import sys
@@ -43,6 +44,8 @@ from llm.providers.acp import (
     build_prompt_blocks,
     map_session_update,
 )
+
+logger = logging.getLogger(__name__)
 
 DREAM_BIN = "dream"
 
@@ -91,6 +94,7 @@ def list_dream_models() -> list[str]:
     try:
         return list(_DREAM_MODELS)
     except Exception:  # noqa: BLE001 — R2：全 try 兜底空列表
+        logger.exception("枚举 Dream 模型失败")
         return []
 
 
@@ -138,6 +142,7 @@ class DreamAcpLLM(LanguageModel):
                 self._conn.request("session/set_config_option", {
                     "sessionId": self._session_id, "configId": "model", "value": alias}, timeout=10)
             except RuntimeError:
+                logger.exception("切换模型失败，降级为下轮重建会话")
                 self._session_id = None  # 降级：下轮重建会话并应用模型
 
     def set_effort(self, value: str) -> None:
@@ -156,6 +161,7 @@ class DreamAcpLLM(LanguageModel):
                     "sessionId": self._session_id, "configId": "effort",
                     "value": value}, timeout=10)
             except RuntimeError:
+                logger.exception("切换推理强度失败，降级为新会话生效")
                 pass  # 降级：保持会话与当前强度，新会话时应用 _effort
 
     def reset_session(self) -> None:
@@ -245,6 +251,7 @@ class DreamAcpLLM(LanguageModel):
                         "sessionId": self._session_id, "configId": "model",
                         "value": self._model}, timeout=10)
                 except RuntimeError:
+                    logger.exception("新会话应用预选模型失败")
                     pass  # 保持 agent 默认模型，不阻断对话
             if self._effort:  # 新会话应用预选推理强度（2026-0812-1752 计划）
                 try:
@@ -252,6 +259,7 @@ class DreamAcpLLM(LanguageModel):
                         "sessionId": self._session_id, "configId": "effort",
                         "value": self._effort}, timeout=10)
                 except RuntimeError:
+                    logger.exception("新会话应用预选推理强度失败")
                     pass  # 保持 agent 默认强度，不阻断对话
         return self._conn
 

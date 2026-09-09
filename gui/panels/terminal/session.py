@@ -4,6 +4,7 @@
 进程退出 → `process_exited`。terminate 幂等 + atexit 纪律（防残留）。
 """
 import atexit
+import logging
 import os
 import select
 import threading
@@ -12,6 +13,8 @@ from ptyprocess import PtyProcess
 from PySide6.QtCore import QCoreApplication, QObject, Signal
 
 from core.paths import PROJECT_ROOT
+
+logger = logging.getLogger(__name__)
 
 
 class PtySession(QObject):
@@ -81,6 +84,7 @@ class PtySession(QObject):
                     try:
                         proc.terminate(force=True)
                     except Exception:  # noqa: BLE001 — 退出期异常无需上屏
+                        logger.exception("终止 pty 子进程失败")
                         pass
 
     def is_alive(self) -> bool:
@@ -98,6 +102,7 @@ class PtySession(QObject):
             try:
                 proc.write(data)
             except OSError:
+                logger.exception("pty 写入失败")
                 pass
 
     def resize(self, row_count: int, column_count: int) -> None:
@@ -108,6 +113,7 @@ class PtySession(QObject):
             try:
                 proc.setwinsize(max(1, row_count), max(1, column_count))
             except OSError:
+                logger.exception("pty 调整窗口尺寸失败")
                 pass
 
     # ------------------------------------------------------------------
@@ -159,6 +165,7 @@ class PtySession(QObject):
                     if not proc.isalive():
                         code = proc.wait()
                 except Exception:  # noqa: BLE001 — 退出码不可得时按 -1
+                    logger.exception("读取子进程退出码失败")
                     # 显式 None 判断：exitstatus 为 0（正常退出）时不能用 or -1 兜底
                     return_code = getattr(proc, "exitstatus", None)
                     code = return_code if return_code is not None else -1

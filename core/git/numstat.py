@@ -6,7 +6,11 @@ numstat 每行 `新增\\t删除\\t路径`；二进制文件为 `-\\t-\\t路径`�
 """
 from __future__ import annotations
 
+import logging
+
 from core.git.runner import run_git
+
+logger = logging.getLogger(__name__)
 
 
 def parse_numstat_z(text: str) -> dict[str, tuple[int, int]]:
@@ -33,6 +37,7 @@ def parse_numstat_z(text: str) -> dict[str, tuple[int, int]]:
         try:
             added, deleted = int(added_s), int(deleted_s)
         except ValueError:
+            logger.exception("numstat 条目行数解析失败")
             continue  # 二进制文件（-  -  path）跳过
         if path:
             result[path] = (added, deleted)

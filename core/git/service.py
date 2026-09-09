@@ -12,10 +12,13 @@
 """
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
 from core.git import numstat, runner, status
+
+logger = logging.getLogger(__name__)
 
 #: 目录聚合状态优先级（大者胜出，见 _build_dir_status）。
 #: deleted 不在表内：删除不冒泡（对齐 VS Code propagate 语义——已删文件
@@ -252,6 +255,7 @@ class GitStatusService:
                 rest = f.read()
             data = head + rest
         except OSError:
+            logger.exception("未跟踪文件行数统计读取失败")
             return None
         # 与 git 行数口径一致：按换行符计数，末尾无换行的尾行也算一行
         lines = data.count(b"\n")
@@ -269,4 +273,5 @@ class GitStatusService:
         try:
             return str(Path(abs_path).resolve().relative_to(self._repo_root))
         except ValueError:
+            logger.exception("绝对路径换算相对仓库根路径失败")
             return None

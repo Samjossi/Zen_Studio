@@ -16,6 +16,7 @@
 打开项目只经两条显式路径：命令行 folder 参数 / 窗内「打开文件夹」。
 """
 import argparse
+import logging
 import os
 import sys
 from datetime import datetime
@@ -35,8 +36,29 @@ from gui.theme import apply_theme
 #: 挂载下写解包目录必抛 OSError，见 文档/修改记录/2026-0725-1234 计划 T3）
 SCREENSHOT_DIR = (USER_CONFIG_DIR / "screenshots") if IS_FROZEN else (PROJECT_ROOT / ".tmp")
 
+#: 运行日志文件：开发态项目内 config/logs/；打包态落用户数据根
+#: （config/logs/ 已入 .gitignore，见 2026-0909-2349 计划 T1）
+LOG_FILE = USER_CONFIG_DIR / "logs" / "zen-studio.log"
+
 #: 窗口图标注册尺寸（assets/logo/ 成套件取 16–256；512 留给 .desktop 与高分屏）
 LOGO_ICON_SIZES = (16, 24, 32, 48, 64, 128, 256)
+
+
+def setup_logging() -> None:
+    """统一日志初始化（2026-0909-2349 计划 T1）：INFO 级，文件 + stderr 双输出。
+
+    须在 main() 最先调用；各模块一律 `logging.getLogger(__name__)`，
+    禁止二次 basicConfig。打包态 stderr 不可见，日志文件是唯一观测面。
+    """
+    LOG_FILE.parent.mkdir(exist_ok=True, parents=True)
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+        handlers=[
+            logging.FileHandler(LOG_FILE, encoding="utf-8"),
+            logging.StreamHandler(sys.stderr),
+        ],
+    )
 
 
 def build_app_icon() -> QIcon:
@@ -101,6 +123,7 @@ def setup_screenshot(window: MainWindow, interval: int, on_start: bool) -> QTime
 
 
 def main() -> None:
+    setup_logging()
     # 启动时一次性净化 LD_LIBRARY_PATH 的 IDE 私有条目（bootloader 前插的
     # _internal）：此后一切用户子进程（终端/ACP/Typora/新窗）自然继承干净
     # 环境；glibc 启动时已缓存链接搜索路径，运行期改写不影响自身 dlopen

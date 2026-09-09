@@ -56,7 +56,7 @@ class PygmentsHighlighter(QSyntaxHighlighter):
         """按文件名探测 lexer，整文档 lexing 生成区间缓存并触发重绘。"""
         try:
             lexer = get_lexer_for_filename(filename)
-        except Exception:  # ClassNotFound 等：未知类型按纯文本
+        except Exception:  # noqa: BLE001 — ClassNotFound 等：未知类型按纯文本（例行回退，非故障）
             lexer = TextLexer()
         spans: list[tuple[int, int, QTextCharFormat]] = []
         pos = 0

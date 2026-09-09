@@ -33,6 +33,7 @@ ID 帧同构的 update dict（tid 拼 `父/子` 全串），经队列注入轮�
 """
 import atexit
 import json
+import logging
 import queue
 import threading
 import time
@@ -56,6 +57,8 @@ from llm.providers.acp import (
     map_session_update,
 )
 from llm.providers.kimi_common import _find_bin
+
+logger = logging.getLogger(__name__)
 
 #: wire.jsonl usage.record 异步写盘等待上限（2026-07-31 实测：response 到达
 #: 时 llm.request 已写但 usage.record 尚未落盘，约 1~3s 后异步写入）
@@ -88,6 +91,7 @@ def _session_dir_of(session_id: str) -> Path | None:
             if entry.get("sessionId") == session_id and entry.get("sessionDir"):
                 return Path(entry["sessionDir"])
     except (OSError, json.JSONDecodeError):
+        logger.exception("session_index.jsonl 反查会话目录失败")
         return None
     return None
 
@@ -108,6 +112,7 @@ def _read_wire_usage(session_dir: Path) -> tuple[int, UsageStats | None]:
                    for line in wire.read_text(encoding="utf-8").strip().splitlines()
                    if line.strip()]
     except (OSError, json.JSONDecodeError):
+        logger.exception("wire.jsonl 全量读取失败")
         return 0, None
     usage_records = [r for r in records
                      if r.get("type") == "usage.record" and r.get("usageScope") == "turn"]
@@ -145,6 +150,7 @@ def _read_wire_usage_tail(session_dir: Path) -> UsageStats | None:
             f.seek(max(0, size - _WIRE_TAIL_BYTES))
             tail = f.read()
     except OSError:
+        logger.exception("wire.jsonl 尾部窗口读取失败")
         return None
     lines = tail.split(b"\n")
     if size > _WIRE_TAIL_BYTES and lines:
@@ -274,6 +280,7 @@ def _dir_ctime(path: Path) -> float:
     try:
         return path.stat().st_ctime
     except OSError:
+        logger.exception("目录 stat 失败，排序排末位")
         return float("inf")
 
 
@@ -304,6 +311,7 @@ class _WireSidecar(threading.Thread):
             self._known_dirs = {
                 p.name for p in self._agents_dir.iterdir() if p.is_dir()}
         except OSError:
+            logger.exception("旁路目录基线快照失败，按空基线降级")
             self._known_dirs = set()
         self._wire_path: Path | None = None
         self._wire_offset = 0
@@ -326,6 +334,7 @@ class _WireSidecar(threading.Thread):
             try:
                 self._poll()
             except Exception:  # noqa: BLE001 — 旁路任何异常静默降级，不连累主轮次
+                logger.exception("kimi 子代理 wire 旁路异常，旁路关闭")
                 return
             self._stop_flag.wait(_SIDECAR_POLL_S)
 
@@ -343,6 +352,7 @@ class _WireSidecar(threading.Thread):
             current = {p.name: p for p in self._agents_dir.iterdir()
                        if p.is_dir() and p.name.startswith("agent-")}
         except OSError:
+            logger.exception("子代理目录发现失败，本轮跳过")
             return
         new = [p for name, p in current.items() if name not in self._known_dirs]
         if not new:
@@ -373,6 +383,7 @@ class _WireSidecar(threading.Thread):
         try:
             record = json.loads(raw)
         except json.JSONDecodeError:
+            logger.exception("wire 行 JSON 解析失败（累计计入熔断阈值）")
             self._parse_failures += 1
             self._broken = self._parse_failures >= _SIDECAR_PARSE_FAIL_LIMIT
             return
@@ -454,6 +465,7 @@ class KimiAcpLLM(LanguageModel):
                 self._conn.request("session/set_config_option", {
                     "sessionId": self._session_id, "configId": "model", "value": alias}, timeout=10)
             except RuntimeError:
+                logger.exception("即时切换模型失败，降级为下次新会话生效")
                 self._session_id = None  # 降级：下轮重建会话并应用模型
 
     def set_effort(self, value: str) -> None:
@@ -474,6 +486,7 @@ class KimiAcpLLM(LanguageModel):
                     "sessionId": self._session_id, "configId": "thinking",
                     "value": value}, timeout=10)
             except RuntimeError:
+                logger.exception("即时切换推理强度失败，降级为新会话时应用")
                 pass  # 降级：保持会话与当前强度，新会话时应用 _effort
 
     def reset_session(self) -> None:
@@ -568,6 +581,7 @@ class KimiAcpLLM(LanguageModel):
                         "sessionId": self._session_id, "configId": "model",
                         "value": self._model}, timeout=10)
                 except RuntimeError:
+                    logger.exception("新会话应用预选模型失败，保持 agent 默认模型")
                     pass  # 保持 agent 默认模型，不阻断对话
             if self._effort:  # 新会话应用预选推理强度（2026-0806 计划）
                 try:
@@ -575,6 +589,7 @@ class KimiAcpLLM(LanguageModel):
                         "sessionId": self._session_id, "configId": "thinking",
                         "value": self._effort}, timeout=10)
                 except RuntimeError:
+                    logger.exception("新会话应用预选强度失败，保持 agent 默认强度")
                     pass  # 保持 agent 默认强度，不阻断对话
         return self._conn
 
