@@ -1,11 +1,13 @@
 """终端选区控制器：纯逻辑（零 Qt 依赖，可单测）。
 
-选区语义：可视快照行坐标 (y, x)，端点含端格；锚点=按下处，活动端点=拖拽处。
-退化为点的点击不建选区；视图迁移（滚动/推屏/resize/换屏）由 widget 负责清除。
+选区语义：缓冲区绝对行坐标 (y, x)（绝对行号定义见 TerminalScreen.abs_window），
+端点含端格；锚点=按下处，活动端点=拖拽处。绝对行号在推屏/滚动下稳定，
+故滚动与新输出不再使选区失效；仅 resize 重排/换屏/历史清空由 widget 负责清除。
+退化为点的点击不建选区。
 """
 from typing import TypeAlias
 
-#: 网格单元坐标 (y, x)：可视快照行坐标，端点含端格
+#: 网格单元坐标 (y, x)：缓冲区绝对行坐标，端点含端格
 Cell: TypeAlias = tuple[int, int]
 
 
@@ -65,21 +67,21 @@ class SelectionController:
         return ((self._anchor, self._end) if self._anchor <= self._end
                 else (self._end, self._anchor))
 
-    def extract_text(self, snapshot: list) -> str:
+    def extract_text(self, rows: list) -> str:
         """选区纯文本：归一化阅读序 + 跨行拼接 + 行尾 rstrip（网格补空白不带上屏）。
 
-        :param snapshot: 可视快照（screen.snapshot(scroll_offset) 的产物，
-                         元素为 [(char, style), ...] 行列表）
+        :param rows: 选区行内容，须恰好覆盖归一化后 [y0, y1] 各行
+                     （screen.abs_rows(y0, y1 + 1) 的产物；若因回滚溢出被
+                     clamp，首行仍按 x0 截切——溢出场景下为可接受的近似）。
         """
         if not self.has_selection():
             return ""
-        (y0, x0), (y1, x1) = self.normalized()
-        y1 = min(y1, len(snapshot) - 1)  # resize 竞态保护
+        (_, x0), (_, x1) = self.normalized()
         lines: list[str] = []
-        for y in range(y0, y1 + 1):
-            row = snapshot[y]
-            start_col = x0 if y == y0 else 0
-            end_col = x1 + 1 if y == y1 else len(row)  # 端点含端格 → 半开 +1
+        last = len(rows) - 1
+        for i, row in enumerate(rows):
+            start_col = x0 if i == 0 else 0
+            end_col = x1 + 1 if i == last else len(row)  # 端点含端格 → 半开 +1
             lines.append("".join(ch for ch, _ in row[start_col:end_col]).rstrip())
         return "\n".join(lines)
 

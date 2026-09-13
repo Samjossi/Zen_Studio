@@ -16,10 +16,38 @@ class _TolerantScreen(pyte.HistoryScreen):
     pyte 经 HistoryScreen._make_wrapper 以 `private=True` 调用
     `select_graphic_rendition(*attrs)`（不接受 kwargs）→ TypeError。
     此处吞掉 private 关键字后按正常 SGR 处理。
+
+    另为维护"缓冲区绝对行号"补两个 pyte 没有的追踪量：
+
+    - `pushed_lines`：累计滚入 history.top 的行数。history.top 是有界 deque，
+      溢出时静默丢顶行，pyte 不留痕；用该计数反推拼接缓冲区的绝对行号基线
+      （base = pushed_lines - len(history.top)），使已有内容的绝对行号在
+      推屏与溢出时都保持稳定（选区跨滚动复制的根基）。只覆盖 index()：
+      next_page 仅在 history.position < size 时被 before_event 触发，而本程序
+      从不分页（prev_page 无入口），position 恒等于 size，该路径不可达。
+    - `history_generation`：reset / ED 3 清空历史时递增。清空后旧绝对行号
+      整体失效，widget 据此作废选区。
     """
+
+    def __init__(self, *args, **kwargs) -> None:
+        # 须先于 super().__init__ 赋值：pyte 构造链会经 reset → _reset_history 触达这两个属性
+        self.pushed_lines = 0
+        self.history_generation = 0
+        super().__init__(*args, **kwargs)
 
     def select_graphic_rendition(self, *attrs: int, private: bool = False, **kwargs) -> None:
         super().select_graphic_rendition(*attrs)
+
+    def index(self) -> None:
+        top_bottom = self.margins or pyte.screens.Margins(0, self.lines - 1)
+        will_push = self.cursor.y == top_bottom[1]
+        super().index()
+        if will_push:
+            self.pushed_lines += 1
+
+    def _reset_history(self) -> None:
+        super()._reset_history()
+        self.history_generation += 1
 
 
 @dataclass(frozen=True)
@@ -85,12 +113,61 @@ class TerminalScreen:
         """回滚区行数（顶部滚出历史的行数）。"""
         return len(self._screen.history.top)
 
+    @property
+    def history_generation(self) -> int:
+        """历史清空代数（reset / ED 3 时递增）；选区据此判定绝对行号失效。"""
+        return self._screen.history_generation
+
+    def abs_window(self) -> tuple[int, int]:
+        """绝对行号有效区间 [起, 止)：拼接缓冲区（回滚 + 当前屏）全段。
+
+        绝对行号以"自创建起累计滚入回滚的行数"为锚，推屏与回滚溢出均不改变
+        已有内容的行号（选区跨滚动稳定的前提）。
+        """
+        top = len(self._screen.history.top)
+        base = self._screen.pushed_lines - top
+        return base, base + top + self._screen.lines
+
+    def visible_to_abs(self, y: int, scroll_offset: int) -> int:
+        """可视行 → 绝对行号（scroll_offset 为回滚行数，0=跟随当前屏）。"""
+        base, _ = self.abs_window()
+        return base + len(self._screen.history.top) - scroll_offset + y
+
+    def abs_to_visible(self, row: int, scroll_offset: int) -> int:
+        """绝对行号 → 可视行（结果可越出 [0, line_count)，调用方自行裁剪）。"""
+        base, _ = self.abs_window()
+        return row - base - len(self._screen.history.top) + scroll_offset
+
+    def abs_rows(self, start: int, end: int) -> list[list[tuple[str, CellStyle]]]:
+        """绝对行号区间 [start, end) 的行内容（clamp 进 abs_window，空区间返回 []）。"""
+        base, stop = self.abs_window()
+        start, end = max(start, base), min(end, stop)
+        if start >= end:
+            return []
+        all_rows = (list(self._screen.history.top)
+                    + [self._screen.buffer[y] for y in range(self._screen.lines)])
+        return [self._convert_row(all_rows[i])
+                for i in range(start - base, end - base)]
+
+    def _convert_row(self, line) -> list[tuple[str, CellStyle]]:
+        """pyte 行（dict[x] → Char）→ 定长 (字符, CellStyle) 行，未写入格补空白。"""
+        row: list[tuple[str, CellStyle]] = []
+        for x in range(self._screen.columns):
+            ch = line.get(x)
+            if ch is None:
+                row.append(BLANK_CELL)
+            else:
+                row.append((ch.data, CellStyle(
+                    fg=ch.fg, bg=ch.bg, bold=ch.bold,
+                    reverse=ch.reverse, underline=ch.underscore)))
+        return row
+
     def snapshot(self, offset: int = 0) -> list[list[tuple[str, CellStyle]]]:
         """屏幕快照：offset=0 当前屏；offset=N 向上回滚 N 行。
 
         返回 line_count 行 × column_count 列的 (字符, CellStyle) 网格，不足补空白。
         """
-        line_count, column_count = self._screen.lines, self._screen.columns
+        line_count = self._screen.lines
         buffer = self._screen.buffer
         if offset > 0:
             # 回滚视图：历史行 + 当前屏头部拼接取窗口
@@ -100,20 +177,9 @@ class TerminalScreen:
         else:
             view = [buffer[y] for y in range(line_count)]
 
-        rows: list[list[tuple[str, CellStyle]]] = []
-        for line in view:
-            row: list[tuple[str, CellStyle]] = []
-            for x in range(column_count):
-                ch = line.get(x)
-                if ch is None:
-                    row.append(BLANK_CELL)
-                else:
-                    row.append((ch.data, CellStyle(
-                        fg=ch.fg, bg=ch.bg, bold=ch.bold,
-                        reverse=ch.reverse, underline=ch.underscore)))
-            rows.append(row)
+        rows: list[list[tuple[str, CellStyle]]] = [self._convert_row(line) for line in view]
         while len(rows) < line_count:  # 历史不足一屏时前补空行
-            rows.insert(0, [BLANK_CELL] * column_count)
+            rows.insert(0, [BLANK_CELL] * self._screen.columns)
         return rows
 
     def to_plain_text(self) -> str:

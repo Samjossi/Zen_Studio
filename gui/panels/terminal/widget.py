@@ -4,8 +4,11 @@
 刷新节流 30ms 聚合（帧率封顶 ~33fps，防大量输出刷屏卡顿）。
 阶段二新增：空会话占位绘制、查找命中高亮、Ctrl+F/右键菜单请求信号（均只发事件，
 决策在 panel，保持层间单向依赖）。
-阶段三新增：鼠标拖选选区（可视快照行坐标，滚动即清除）、Ctrl+Shift+C 复制 /
+阶段三新增：鼠标拖选选区、Ctrl+Shift+C 复制 /
 Ctrl+Shift+V 粘贴（写剪贴板无副作用、粘贴与键盘输入同路径，均 widget 自治）。
+选区采用缓冲区绝对行坐标（定义见 TerminalScreen.abs_window）：推屏、滚动、
+拖拽边缘自动滚动均不使选区失效，长输出可跨滚动区整体拖选复制；仅 resize
+列数变化/字号变化/换屏/键盘输入时清除，reset/ED 3 清空历史经代数比对作废。
 2026-07-21 新增：复制/粘贴快捷键反转开关（set_swap_copy_paste，设置菜单勾选项
 经 panel 即时注入；反转后 Ctrl+C/V 复制粘贴、Ctrl+Shift+C/V 回落 VT100 转换）。
 2026-07-22 修复：字符格宽改 QFontMetricsF 浮点度量（文档/修改记录/2026-0722-2013）——
@@ -68,8 +71,15 @@ class TerminalWidget(QWidget):
         self._placeholder = ""  # 空会话占位文本（screen 为 None 时绘制）
         self._search_runs: list[tuple[int, int, int]] = []  # 查找命中段 (y, x0, x1)
         self._search_current = -1  # 当前命中索引
-        # 选区状态机（纯逻辑外置 SelectionController；可视快照行坐标，滚动即清除）
+        # 选区状态机（纯逻辑外置 SelectionController；缓冲区绝对行坐标，
+        # 推屏/滚动不失效，resize/换屏/输入时清除）
         self._selection = SelectionController()
+        self._sel_generation = 0  # 按下时的历史清空代数（reset/ED 3 后选区作废）
+        # 拖拽边缘自动滚动：鼠标按住停在上/下边缘外时定时续滚并扩选
+        self._last_drag_pos = None
+        self._autoscroll_timer = QTimer(self)
+        self._autoscroll_timer.setInterval(50)
+        self._autoscroll_timer.timeout.connect(self._autoscroll_tick)
         # 复制/粘贴快捷键反转标志（panel 装配注入；默认 False = Ctrl+Shift+C/V 复制粘贴）
         self._swap_copy_paste = False
 
@@ -138,10 +148,10 @@ class TerminalWidget(QWidget):
         self.update()
 
     def notify_data(self) -> None:
-        """新数据到达（panel 接线调用）：滚动条跟随 + 节流刷新。"""
-        if self._scroll_offset == 0:
-            # 跟随底部时新输出会推屏，选区指向的内容漂移 → 清除
-            self.clear_selection()
+        """新数据到达（panel 接线调用）：滚动条跟随 + 节流刷新。
+
+        选区为绝对行坐标，推屏不使其失效，此处无需清除。
+        """
         self._refresh_scrollbar()
         if not self._refresh_timer.isActive():
             self._refresh_timer.start()
@@ -170,15 +180,25 @@ class TerminalWidget(QWidget):
         return self._selection.has_selection()
 
     def clear_selection(self) -> None:
-        """清除选区（幂等）；滚动/输入/新数据推屏/换屏/resize 时调用。"""
+        """清除选区（幂等）；resize/换屏/输入/粘贴/历史清空时调用。"""
+        self._stop_autoscroll()
         if self._selection.clear():
             self.update()
 
+    def _selection_stale(self) -> bool:
+        """选区是否已失效：无屏幕，或历史被清空（reset/ED 3）致绝对行号失效。"""
+        return (self._screen is None
+                or self._screen.history_generation != self._sel_generation)
+
     def selected_text(self) -> str:
         """选区纯文本：归一化阅读序 + 跨行拼接 + 行尾 rstrip（网格补空白不带上屏）。"""
-        if self._screen is None:
+        if not self._selection.has_selection():
             return ""
-        return self._selection.extract_text(self._screen.snapshot(self._scroll_offset))
+        if self._selection_stale():
+            self.clear_selection()
+            return ""
+        (y0, _), (y1, _) = self._selection.normalized()
+        return self._selection.extract_text(self._screen.abs_rows(y0, y1 + 1))
 
     def copy_selection(self) -> None:
         """复制选区到剪贴板（快捷键与右键菜单共用入口；复制后保留选区）。"""
@@ -195,10 +215,15 @@ class TerminalWidget(QWidget):
                     self._scrollbar.setValue(self._scrollbar.maximum())
 
     def _pos_to_cell(self, pos) -> tuple[int, int]:
-        """像素坐标 → 网格 (y, x)，clamp 进网格（拖入滚动条区不越界）。"""
+        """像素坐标 → 可视网格 (y, x)，clamp 进网格（拖入滚动条区不越界）。"""
         row_count, column_count = self.get_grid_size()
         return SelectionController.pos_to_cell(
             pos.x(), pos.y(), self._cell_width, self._cell_height, row_count, column_count)
+
+    def _pos_to_abs_cell(self, pos) -> tuple[int, int]:
+        """像素坐标 → 选区坐标 (绝对行, x)：可视行按当前回滚偏移换算。"""
+        y, x = self._pos_to_cell(pos)
+        return self._screen.visible_to_abs(y, self._scroll_offset), x
 
     # ------------------------------------------------------------------
     # 网格尺寸
@@ -261,17 +286,19 @@ class TerminalWidget(QWidget):
         self.update()
 
     def wheelEvent(self, event: QWheelEvent) -> None:
-        self.clear_selection()  # 回滚即视图迁移，选区坐标失效
+        # 选区为绝对行坐标，回滚不再使其失效，高亮随内容钉住
         if self._scrollbar.isVisible():
             self._scrollbar.setValue(self._scrollbar.value() - event.angleDelta().y() // 40)
         event.accept()
 
     # ------------------------------------------------------------------
-    # 鼠标选区（事件转发 SelectionController；左键拖选，退化为点击则清除）
+    # 鼠标选区（事件转发 SelectionController；左键拖选，退化为点击则清除；
+    # 拖到上/下边缘外时自动滚动并持续扩选）
     # ------------------------------------------------------------------
     def mousePressEvent(self, event) -> None:
         if event.button() == Qt.MouseButton.LeftButton and self._screen is not None:
-            self._selection.press(self._pos_to_cell(event.position().toPoint()))
+            self._sel_generation = self._screen.history_generation
+            self._selection.press(self._pos_to_abs_cell(event.position().toPoint()))
             self.update()
             return
         super().mousePressEvent(event)
@@ -280,16 +307,45 @@ class TerminalWidget(QWidget):
         # 未开 mouseTracking：move 仅在按住按键时到达，拖拽场景够用
         if (self._selection.has_anchor()
                 and event.buttons() & Qt.MouseButton.LeftButton):
-            if self._selection.drag(self._pos_to_cell(event.position().toPoint())):
+            pos = event.position().toPoint()
+            self._last_drag_pos = pos
+            if pos.y() < 0 or pos.y() >= self.height():
+                # 拖出文本区：立即滚动一次，并启动定时器持续滚动扩选
+                self._autoscroll_tick()
+                self._autoscroll_timer.start()
+            else:
+                self._autoscroll_timer.stop()
+            if self._selection.drag(self._pos_to_abs_cell(pos)):
                 self.update()
             return
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event) -> None:
+        self._stop_autoscroll()
         if event.button() == Qt.MouseButton.LeftButton and self._selection.release():
             self.update()
             return
         super().mouseReleaseEvent(event)
+
+    def _autoscroll_tick(self) -> None:
+        """拖拽停在边缘时的定时滚动：按超出量调速，并用边缘行续扩选区。"""
+        pos = self._last_drag_pos
+        if not self._selection.has_anchor() or pos is None or self._screen is None:
+            self._stop_autoscroll()
+            return
+        overflow = -pos.y() if pos.y() < 0 else pos.y() - (self.height() - 1)
+        if overflow <= 0:
+            self._autoscroll_timer.stop()
+            return
+        step = 1 + min(overflow // max(1, int(self._cell_height)), 5)
+        bar = self._scrollbar
+        bar.setValue(bar.value() - step if pos.y() < 0 else bar.value() + step)
+        if self._selection.drag(self._pos_to_abs_cell(pos)):
+            self.update()
+
+    def _stop_autoscroll(self) -> None:
+        self._autoscroll_timer.stop()
+        self._last_drag_pos = None
 
     # ------------------------------------------------------------------
     # 键盘输入
@@ -401,16 +457,27 @@ class TerminalWidget(QWidget):
                 x += run
 
     def _paint_selection(self, painter: QPainter, snapshot: list, column_count: int) -> None:
-        """选区高亮（文本之后、查找与光标之前）：前景色淡染，明暗主题通用。"""
+        """选区高亮（文本之后、查找与光标之前）：前景色淡染，明暗主题通用。
+
+        选区为绝对行坐标，此处只画与当前可视窗口相交的部分。
+        """
         if not self._selection.has_selection():
             return
+        if self._selection_stale():
+            self.clear_selection()
+            return
         (sel_y0, sel_x0), (sel_y1, sel_x1) = self._selection.normalized()
+        vis_y0 = max(0, self._screen.abs_to_visible(sel_y0, self._scroll_offset))
+        vis_y1 = min(len(snapshot) - 1, self._screen.abs_to_visible(sel_y1, self._scroll_offset))
+        if vis_y0 > vis_y1:  # 选区整体滚出可视区
+            return
         sel_color = QColor(self._palette.default_fg)
         sel_color.setAlphaF(0.28)
-        for sel_y in range(sel_y0, min(sel_y1, len(snapshot) - 1) + 1):
-            start_col = sel_x0 if sel_y == sel_y0 else 0
-            end_col = sel_x1 + 1 if sel_y == sel_y1 else column_count  # 端点含端格
-            painter.fillRect(start_col * self._cell_width, sel_y * self._cell_height,
+        for vis_y in range(vis_y0, vis_y1 + 1):
+            abs_y = self._screen.visible_to_abs(vis_y, self._scroll_offset)
+            start_col = sel_x0 if abs_y == sel_y0 else 0
+            end_col = sel_x1 + 1 if abs_y == sel_y1 else column_count  # 端点含端格
+            painter.fillRect(start_col * self._cell_width, vis_y * self._cell_height,
                              (end_col - start_col) * self._cell_width, self._cell_height, sel_color)
 
     def _paint_search_runs(self, painter: QPainter) -> None:
