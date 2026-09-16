@@ -320,6 +320,16 @@ QToolButton:disabled {
     font-size: 26px;
 }
 
+/* 文件树悬浮刷新钮：复刻「回到底部」钮的圆形实体化范式（背景/hover
+ * 吃全局 QToolButton 规则），尺寸由代码 setFixedSize(32,32) 锁定，
+ * border-radius 取一半成圆，padding 清零；⟳ U+27F3 字形偏方，22px
+ * 与 26px 的 ⏷ 视觉墨盒相当 */
+#FileTreeRefreshButton {
+    padding: 0;
+    border-radius: 16px;
+    font-size: 22px;
+}
+
 /* 终端头部栏按钮：padding 收敛保持头部紧凑（替代旧 setFixedHeight(22)
  * 锁高——固定高度内容盒仅 14px 致中文截顶，2026-0722-1815 计划 P2）；
  * 作用域内仅「清屏」一个 QPushButton，无误伤面 */

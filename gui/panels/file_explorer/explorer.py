@@ -12,13 +12,15 @@
 from collections.abc import Callable
 from pathlib import Path
 
-from PySide6.QtCore import QDir, QItemSelectionModel, QMimeData, QUrl, Signal, Qt
+from PySide6.QtCore import QDir, QEvent, QItemSelectionModel, QMimeData, QUrl, Signal, Qt
 from PySide6.QtGui import QDrag
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QFileSystemModel,
+    QGraphicsOpacityEffect,
     QHBoxLayout,
     QLabel,
+    QToolButton,
     QTreeView,
     QVBoxLayout,
     QWidget,
@@ -29,6 +31,16 @@ from gui.panels.file_explorer.actions import ExplorerActions
 from gui.panels.file_explorer.model import GitStatusProxyModel
 from gui.settings import KEY_THEME
 from gui.theme import load_settings
+
+
+#: 悬浮刷新钮与面板右下缘的间距（样式复刻对话栏「回到底部」钮）
+_REFRESH_BTN_MARGIN = 16
+
+#: 悬浮刷新钮直径（圆形钮，内嵌顺时针环形箭头 ⟳ U+27F3）
+_REFRESH_BTN_SIZE = 32
+
+#: 悬浮刷新钮常态透明度：低调不挡树内容，hover 时恢复 1.0
+_REFRESH_BTN_OPACITY = 0.5
 
 
 class _DragOutTreeView(QTreeView):
@@ -116,6 +128,29 @@ class FileExplorer(QWidget):
         layout.addWidget(self.tree)
         # 面板外边距：树卡片不贴窗口边缘与 splitter 把手（苹果风卡片间距）
         layout.setContentsMargins(6, 6, 6, 6)
+
+        self._build_refresh_button()
+
+    def _build_refresh_button(self) -> None:
+        """悬浮刷新钮：watcher 漏事件时树滞留旧结构而菜单入口太隐蔽，
+        故常驻右下角低调圆形钮（样式复刻对话栏「回到底部」钮），
+        点击即调 refresh() 强制重建。"""
+        self._refresh_btn = QToolButton(self)  # parent 挂面板自身，浮于树之上
+        self._refresh_btn.setObjectName("FileTreeRefreshButton")
+        self._refresh_btn.setText("⟳")
+        self._refresh_btn.setToolTip("刷新文件树")
+        self._refresh_btn.setFixedSize(_REFRESH_BTN_SIZE, _REFRESH_BTN_SIZE)
+        self._refresh_btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+        self._refresh_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._refresh_btn.clicked.connect(self.refresh)
+        # 整体半透明（QGraphicsOpacityEffect 整钮含符号一起变淡，
+        # 不碰主题色键、四主题通吃；Enter/Leave 经 eventFilter 恢复与回落）
+        self._refresh_btn_opacity = QGraphicsOpacityEffect(self._refresh_btn)
+        self._refresh_btn_opacity.setOpacity(_REFRESH_BTN_OPACITY)
+        self._refresh_btn.setGraphicsEffect(self._refresh_btn_opacity)
+        self._refresh_btn.installEventFilter(self)
+        self._refresh_btn.show()
+        self._refresh_btn.raise_()
 
     def _build_model(self) -> None:
         """文件系统模型 + Git 状态着色代理装配。"""
@@ -225,6 +260,32 @@ class FileExplorer(QWidget):
                 selected.discard(file_path)
         if not expanded and not selected:
             self._refresh_restore = None
+
+    # ------------------------------------------------------------------
+    # 内部：悬浮刷新钮（定位 / hover 透明度）
+    # ------------------------------------------------------------------
+    def _place_refresh_button(self) -> None:
+        """悬浮刷新钮右下角定位（面板坐标系，浮于树之上）。"""
+        btn = self._refresh_btn
+        btn.move(self.width() - btn.width() - _REFRESH_BTN_MARGIN,
+                 self.height() - btn.height() - _REFRESH_BTN_MARGIN)
+        btn.raise_()
+
+    def resizeEvent(self, event) -> None:
+        """基类布局后重定位悬浮刷新钮。"""
+        super().resizeEvent(event)
+        self._place_refresh_button()
+
+    def eventFilter(self, watched, event) -> bool:
+        """悬浮刷新钮 hover 透明度：进入恢复 1.0，离开回落常态值。
+        （构造早期事件路径可能先于按钮创建触发本过滤器，
+        getattr 守卫防 AttributeError）"""
+        if watched is getattr(self, "_refresh_btn", None):
+            if event.type() == QEvent.Type.Enter:
+                self._refresh_btn_opacity.setOpacity(1.0)
+            elif event.type() == QEvent.Type.Leave:
+                self._refresh_btn_opacity.setOpacity(_REFRESH_BTN_OPACITY)
+        return super().eventFilter(watched, event)
 
     # ------------------------------------------------------------------
     # 内部：选中项辅助
