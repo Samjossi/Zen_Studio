@@ -10,6 +10,7 @@
 子包拆分：模型层见 model.py（Git 状态着色代理），右键动作见 actions.py。
 """
 from collections.abc import Callable
+import logging
 from pathlib import Path
 
 from PySide6.QtCore import QDir, QEvent, QItemSelectionModel, QMimeData, QUrl, Signal, Qt
@@ -31,6 +32,8 @@ from gui.panels.file_explorer.actions import ExplorerActions
 from gui.panels.file_explorer.model import GitStatusProxyModel
 from gui.settings import KEY_THEME
 from gui.theme import load_settings
+
+logger = logging.getLogger(__name__)
 
 
 #: 悬浮刷新钮与面板右下缘的间距（样式复刻对话栏「回到底部」钮）
@@ -73,6 +76,10 @@ class FileExplorer(QWidget):
     """目录文件浏览器（右栏面板）。"""
 
     file_opened = Signal(str)
+
+    #: 文件系统模型实例被重建后发射（refresh 换实例）：消费方须对
+    #: self.model 重新接线（旧实例上的连接随 deleteLater 一并失效）
+    model_rebuilt = Signal()
 
     #: 面板最小宽度（px）：根级最长文件名省略号截断/横向滚动条出现前的阈值
     #: （实测内容理想宽度 230px，定 240 含跨机器余量）；
@@ -154,21 +161,25 @@ class FileExplorer(QWidget):
 
     def _build_model(self) -> None:
         """文件系统模型 + Git 状态着色代理装配。"""
-        self.model = QFileSystemModel(self)
-        self.model.setRootPath(self.root_dir)
-        self.model.setReadOnly(False)  # 允许重命名编辑
+        self.model = self._create_model()
+        self.proxy = GitStatusProxyModel(self)
+        self.proxy.setSourceModel(self.model)
+
+    def _create_model(self) -> QFileSystemModel:
+        """创建并配置文件系统模型（初始装配与 refresh 重建共用，保证两路参数一致）。"""
+        model = QFileSystemModel(self)
+        model.setRootPath(self.root_dir)
+        model.setReadOnly(False)  # 允许重命名编辑
         # Qt 默认 filter（Dirs|Files|Drives|AllDirs|NoDot|NoDotDot）不含
         # Hidden，dotfile 永不入模型；IDE 须全量可见（含 .gitignore 与
         # .git/.venv/__pycache__/node_modules），见 文档/修改记录/2026-0730-1933 计划
-        self.model.setFilter(
+        model.setFilter(
             QDir.Filter.AllEntries
             | QDir.Filter.AllDirs
             | QDir.Filter.NoDotAndDotDot
             | QDir.Filter.Hidden
         )
-
-        self.proxy = GitStatusProxyModel(self)
-        self.proxy.setSourceModel(self.model)
+        return model
 
     def _build_tree(self) -> None:
         """树视图装配：拖出/选择/重命名策略 + 仅名称列。"""
@@ -214,20 +225,30 @@ class FileExplorer(QWidget):
         self.proxy.refresh_colors()
 
     def refresh(self) -> None:
-        """手动刷新文件树（视图菜单「刷新文件树」入口）。
+        """手动刷新文件树（视图菜单「刷新文件树」入口 + 右下角悬浮钮）。
 
         QFileSystemModel 依赖系统 watcher 增量更新，watcher 溢出
-        （inotify 上限/网络盘/外部批量改动）时状态会滞留；此处脱根重挂
-        强制全量重读，展开状态与选中项经 directoryLoaded 异步回填，
-        刷新后用户视角树形不变。
+        （inotify 上限/网络盘/外部批量改动）时状态会滞留；滞留的深层
+        节点 populated 标记存活（canFetchMore=False），脱根重挂只能重列
+        根层、救不回深层——故整体重建模型实例物理消灭节点缓存，
+        展开状态与选中项经 directoryLoaded 异步回填，刷新后用户视角树形不变。
         """
         expanded: set[str] = set()
         self._collect_expanded(self.tree.rootIndex(), expanded)
-        self._refresh_restore = (expanded, set(self._selected_paths()))
-        # 先脱根清 watcher/缓存节点，再重挂触发全量重读
-        self.model.setRootPath("")
-        self.model.setRootPath(self.root_dir)
+        selected = set(self._selected_paths())
+        self._refresh_restore = (expanded, selected)
+        logger.info(
+            "文件树手动刷新开始：重建模型实例，待回填展开 %d 项、选中 %d 项",
+            len(expanded), len(selected),
+        )
+
+        old_model = self.model
+        self.model = self._create_model()
+        self.model.directoryLoaded.connect(self._on_directory_loaded)
+        self.proxy.setSourceModel(self.model)
         self.tree.setRootIndex(self.proxy.mapFromSource(self.model.index(self.root_dir)))
+        old_model.deleteLater()  # 旧实例上的外部连接随之一并失效
+        self.model_rebuilt.emit()
 
     # ------------------------------------------------------------------
     # 内部：手动刷新的展开/选中状态回填
@@ -260,6 +281,7 @@ class FileExplorer(QWidget):
                 selected.discard(file_path)
         if not expanded and not selected:
             self._refresh_restore = None
+            logger.info("文件树手动刷新完成：展开/选中状态已回填")
 
     # ------------------------------------------------------------------
     # 内部：悬浮刷新钮（定位 / hover 透明度）

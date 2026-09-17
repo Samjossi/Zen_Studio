@@ -81,12 +81,18 @@ class GitStatusController(QObject):
         # 监视，AI ACP 子进程/终端 touch/其他编辑器引发的新建、删除、
         # 重命名、目录内容变更在此汇流；懒加载展开目录同样触发
         # rowsInserted/directoryLoaded，经 300ms 去抖天然合并
-        fs_model = file_explorer.model
+        self._wire_fs_model_signals()
+        # 手动刷新会重建模型实例（旧实例上的连接随之失效），须重新接线
+        self._explorer.model_rebuilt.connect(self._wire_fs_model_signals)
+        self.refresh()
+
+    def _wire_fs_model_signals(self) -> None:
+        """对当前文件系统模型接线结构变更 → 去抖汇流（模型重建后须重接）。"""
+        fs_model = self._explorer.model
         fs_model.rowsInserted.connect(lambda *_args: self._debounce.start())
         fs_model.rowsRemoved.connect(lambda *_args: self._debounce.start())
         fs_model.fileRenamed.connect(lambda *_args: self._debounce.start())
         fs_model.directoryLoaded.connect(lambda *_args: self._debounce.start())
-        self.refresh()
 
     @property
     def service(self) -> GitStatusService:

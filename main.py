@@ -19,10 +19,11 @@ import argparse
 import logging
 import os
 import sys
+import threading
 from datetime import datetime
 from pathlib import Path
 
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import QTimer, QtMsgType, qInstallMessageHandler
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
 
@@ -59,6 +60,62 @@ def setup_logging() -> None:
             logging.StreamHandler(sys.stderr),
         ],
     )
+    _bridge_uncaught_exceptions()
+    _bridge_qt_messages()
+
+
+def _bridge_uncaught_exceptions() -> None:
+    """未捕获异常桥进日志文件。
+
+    PySide6 槽函数内异常默认只往 stderr 打 traceback 后继续运行，
+    打包态彻底不可见——功能"静默没反应"却无法分辨是没触发还是抛了
+    异常。落日志后仍走原 hook 链，不改变进程行为。
+    """
+    def log_exception(exc_type, exc_value, exc_tb) -> None:
+        logging.getLogger("uncaught").critical(
+            "未捕获异常", exc_info=(exc_type, exc_value, exc_tb))
+        sys.__excepthook__(exc_type, exc_value, exc_tb)
+
+    def log_thread_exception(args) -> None:
+        logging.getLogger("uncaught").critical(
+            "线程未捕获异常（%s）",
+            args.thread.name if args.thread else "unknown",
+            exc_info=(args.exc_type, args.exc_value, args.exc_traceback),
+        )
+        threading.__excepthook__(args)
+
+    sys.excepthook = log_exception
+    threading.excepthook = log_thread_exception
+
+
+#: QtMsgType → logging 级别映射
+_QT_MSG_LEVELS = {
+    QtMsgType.QtDebugMsg: logging.DEBUG,
+    QtMsgType.QtInfoMsg: logging.INFO,
+    QtMsgType.QtWarningMsg: logging.WARNING,
+    QtMsgType.QtCriticalMsg: logging.ERROR,
+    QtMsgType.QtFatalMsg: logging.CRITICAL,
+}
+
+#: qInstallMessageHandler 不接管 Python 侧引用计数，须模块级持有防 GC
+_qt_message_handler_ref = None
+
+
+def _bridge_qt_messages() -> None:
+    """Qt 自身消息桥进日志文件。
+
+    Qt 的 qWarning（如文件系统监视 inotify_add_watch 失败）直接写
+    stderr、不经 Python logging，打包态不可见——这类"watcher 已失效"
+    的关键线索必须落日志文件，否则只能等用户肉眼发现界面异常。
+    """
+    global _qt_message_handler_ref
+    qt_logger = logging.getLogger("qt")
+
+    def handler(mode, _context, message: str) -> None:
+        qt_logger.log(_QT_MSG_LEVELS.get(mode, logging.WARNING), "%s", message)
+
+    qInstallMessageHandler(handler)
+    _qt_message_handler_ref = handler
 
 
 def build_app_icon() -> QIcon:
