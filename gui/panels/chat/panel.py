@@ -370,7 +370,10 @@ class ChatPanel(QWidget):
             self._show_dev_note(backend)
         self._llm_name = backend
         self._apply_image_capability()  # 能力位随后端切换刷新
-        provider = self._get_provider(backend)
+        # 封存后端不实例化 provider（不起 agent 子进程）；发送由
+        # _blocked_by_archive 拦停，实例留着也无消费者
+        spec = spec_of(backend)
+        provider = None if (spec is not None and spec.archived) else self._get_provider(backend)
         if provider is not None and isinstance(version, str):
             if (set_model := getattr(provider, "set_model", None)) is not None:
                 # 保持同步：provider 层无锁，挪线程会与对话线程并发触达
@@ -388,6 +391,21 @@ class ChatPanel(QWidget):
         if spec is not None and spec.dev_note:
             self.output.append_message("系统", spec.dev_note)
             self._dev_note_shown = True
+
+    def _blocked_by_archive(self) -> bool:
+        """封存后端发送拦停：当前接口 spec.archived 为真时追加封存口径
+        系统消息并返回 True（直发与待发两路径共用）。
+
+        必须先于 _get_provider 调用——封存后端不得惰性拉起 agent 子进程。
+        提示复用 spec.dev_note（切换时已展示一次）：拦停时的重复呈现是
+        用户发送动作的即时反馈，说明「为什么没发出去」，不算刷屏。
+        """
+        spec = spec_of(self._llm_name)
+        if spec is None or not spec.archived:
+            return False
+        self.output.append_message(
+            "系统", spec.dev_note or f"后端已封存：{self._llm_name}")
+        return True
 
     def request_stop(self) -> None:
         """停止当前轮次（输入区停止按钮 / Esc 触发），幂等。"""
@@ -671,7 +689,7 @@ class ChatPanel(QWidget):
         self.output.append_message(
             "系统",
             f"当前后端（{label}）不支持图片附件，已按 @路径 引用发送；"
-            f"切换至 Kimi / Kilo Code 后端可使用图片缩略图附件")
+            f"切换至 Kimi 后端可使用图片缩略图附件")
 
     def _on_attachments_changed(self) -> None:
         """附件行变化 → 空文本发送开关与发送键使能。"""
@@ -841,6 +859,8 @@ class ChatPanel(QWidget):
         if self._busy:
             self._register_pending_send()  # busy=登记待发（Enter 与按钮同入口）
             return
+        if self._blocked_by_archive():
+            return
         provider = self._get_provider(self._llm_name)
         if provider is None:
             self.output.append_message("系统", f"后端不可用：{self._llm_name}（未检测到本机 agent CLI）")
@@ -905,7 +925,7 @@ class ChatPanel(QWidget):
     def _fire_pending_send(self) -> bool:
         """轮次正常收尾：待发登记且输入框有内容 → 立即自动发送（直发
         路径正式气泡上屏，发送成功才清空输入框——与 _on_send 直发路径
-        清空时机一致）。无待发/已清空/后端不可用返回 False（后端不可用
+        清空时机一致）。无待发/已清空/后端不可用或已封存返回 False（后端不可用
         时待发内容保留输入框不丢，按失败惯例系统提示）。"""
         if not self._pending_send:
             return False
@@ -913,6 +933,8 @@ class ChatPanel(QWidget):
         text = self.input.toPlainText().strip()
         if not text and self.attachments.count() == 0:
             return False  # 轮末前已被清空取消（保险，正常不可达）
+        if self._blocked_by_archive():
+            return False
         provider = self._get_provider(self._llm_name)
         if provider is None:
             self.output.append_message(

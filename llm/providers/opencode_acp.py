@@ -13,11 +13,14 @@ session/prompt / 流式 update 全链路通过），流式更新走 ACP 标准
    （无 --json 旗标，计划 §2.2）；reasonix 自行解析 config.toml。原始目录
    本机实测 15 项，其中 7 项为 `opencode/` 前缀的 OpenCode Zen 官方模型
    （用户不使用），枚举时按 `GATEWAY_MODEL_PREFIX` 剔除，仅呈现已认证
-   直连 provider（本机 8 项，计划 2026-0730-2318 §2.2）。边界：OpenCode
+   直连 provider（本机 8 项，计划 2026-0730-2318 §2.2；2026-09-17 复测
+   总数与构成不变）。边界：OpenCode
    agent 默认模型 `opencode/big-pickle` 即 Zen 模型，过滤后菜单不含它，
    但用户不选模型时 provider 沿用 agent 默认（configOptions currentValue），
    对话不受影响；已持久化的 Zen 别名经 set_model 原样透传仍生效——
-   过滤仅作用于枚举呈现层（D6 红线 2 不破）。
+   过滤仅作用于枚举呈现层（D6 红线 2 不破）。注意 models.dev 缓存可能
+   滞留上游已退役别名（如 deepseek-chat/deepseek-reasoner，2026-07-24
+   上游停用）：枚举如实呈现，选中后能否调通取决于上游网关。
 2. bin 探测：两级链 PATH → `~/.opencode/bin/opencode`。OpenCode 无
    `OPENCODE_HOME` 类安装根环境变量（官方环境变量表只有 OPENCODE_CONFIG 等
    配置路径），故无 reasonix 的 $REASONIX_HOME/bin 中间级。

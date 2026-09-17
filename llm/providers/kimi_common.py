@@ -75,8 +75,11 @@ def efforts_from_catalog(data: dict) -> dict[str, tuple[list[str], str | None]]:
     0455 动态化计划 T1/G1：字段实测为 camelCase `supportEfforts` /
     `defaultEffort`（2026-08-06 实测，计划文档所记 snake_case 字段名以
     实测为准留痕修正）；服务端目录下发、CLI 重登录时刷新。
-    模型条目缺字段（如 kimi-for-coding 无 supportEfforts）→ 不产生条目
-    （该模型无强度轴，D1：不做静态兜底）。
+    条目可含 `overrides` 子表（用户在 config.toml 的
+    `[models."<alias>".overrides]` 固定元数据，managed 刷新不改写）：
+    按 CLI 运行时 effective 语义，overrides 优先于顶层字段并入后再读。
+    模型条目缺字段（如 kimi-for-coding-highspeed 无 supportEfforts）→
+    不产生条目（该模型无强度轴，D1：不做静态兜底）。
     """
     models = data.get("models")
     if not isinstance(models, dict):
@@ -85,6 +88,8 @@ def efforts_from_catalog(data: dict) -> dict[str, tuple[list[str], str | None]]:
     for alias, entry in models.items():
         if not isinstance(alias, str) or not isinstance(entry, dict):
             continue
+        if isinstance(overrides := entry.get("overrides"), dict):
+            entry = {**entry, **overrides}
         efforts = entry.get("supportEfforts")
         if not isinstance(efforts, list):
             continue

@@ -1,7 +1,7 @@
 # 后端CLI工具维护说明手册
 
 > 本文档汇总了团队常用 后端CLI工具的官方说明地址，供工程师在遇到疑惑时快速查阅。
-> 最后更新：2026-08-13（新增 §5 Zen Studio 私有通道登记：kimi wire 子代理旁路）
+> 最后更新：2026-09-17（§1 Kimi 安装地址漂移修正 + K2.8 备注；§2 OpenCode 旧 DeepSeek 别名实测；§3 Kilo Code 后端封存；§4 补 DeepSeek V4.1 Flash 备注）
 
 ---
 
@@ -19,12 +19,23 @@ Kimi 官方推出的 AI 编程代理，支持终端、VS Code 扩展及 API 接�
 
 **安装命令：**
 ```bash
-# 新版（Node.js，推荐）
-curl -fsSL https://www.kimi.com/code/install.sh | bash
+# 新版（Node.js，推荐）。2026-09-17 起官方安装地址为：
+curl -fsSL https://code.kimi.com/kimi-code/install.sh | bash
+# （旧地址 https://www.kimi.com/code/install.sh 已失效，返回 HTML 页面而非脚本）
+
+# 已安装实例升级
+kimi upgrade -y
 
 # 旧版（Python/uv，逐步停止维护）
 uv tool install kimi-cli
 ```
+
+> 模型备注（2026-09-17）：`kimi-for-coding` 已全量升级为 **K2.8 Preview**
+> （Model ID 不变；思考档位 low/high/max、默认 max；全会员档位 1M 上下文）。
+> 目录元数据由服务端在登录时下发：本机 config.toml 快照未自动刷新时，
+> 用 `[models."kimi-code/kimi-for-coding".overrides]` 固定新元数据
+> （managed 刷新不改写 overrides），或重新 `kimi login` 让目录权威刷新。
+> Zen Studio 侧 `efforts_from_catalog` 已按 effective 语义并入 overrides。
 
 > 提示：新版 Kimi Code CLI 已从 Python/uv 迁移至 Node.js，旧用户可通过 `kimi migrate` 一键迁移配置和会话历史。
 
@@ -48,9 +59,20 @@ curl -fsSL https://opencode.ai/install | bash
 npm i -g opencode-ai
 ```
 
+> 模型备注（2026-09-17 实测）：models.dev 缓存仍列出上游已退役别名——
+> `deepseek/deepseek-chat` 可调通（上游路由至 V4.1 Flash）；
+> `deepseek/deepseek-reasoner` 已失效（`model not found`，Zen Studio 会
+> 回落 agent 默认模型）。建议选用 `deepseek/deepseek-v4-flash` /
+> `deepseek/deepseek-v4-pro` 现行名。
+
 ---
 
 ## 3. Kilo Code
+
+> **⚠️ 已封存（2026-09-17）**：Zen Studio 内该后端转为个人维护状态，不再随项目更新与验证。
+> 界面中该后端保留菜单入口但发送被拦停；如需使用，请自行修改 `llm/registry.py`
+> 的 `kilocode-acp` 注册项（撤除 `archived` 标记）并重新编译。
+> 以下资料仅存档备查。
 
 开源（MIT）的 AI 编程 Agent，支持 VS Code、JetBrains 和 CLI，可接入 500+ 模型。
 
@@ -106,6 +128,12 @@ brew install esengine/reasonix/reasonix
 > 本机配置备注：2026-08-12 起 `~/.reasonix/config.toml` 已设 `[sandbox] bash = "off"`
 > （Ubuntu 24.04 AppArmor 默认策略拦截 bwrap 致沙箱不可用、bash 工具瘫痪，
 > 详见《文档/修改记录/2026-0812-0301_Reasonix沙箱不可用导致AI反复尝试bash问题调查报告.md》）。
+
+> 模型备注（2026-09-17）：DeepSeek 旧模型名 `deepseek-chat`/`deepseek-reasoner`
+> 已于 2026-07-24 被上游停用（分别对应 V4 Flash 非思考/思考模式）；2026-09-10
+> 发布 **V4.1 Flash**，过渡期 V4 Pro 请求被路由至 V4.1 Flash 并按 Flash 单价计费。
+> reasonix 无 CLI 枚举命令，新模型需手动写入 `~/.reasonix/config.toml` 的
+> `[[providers]]` 段才会出现在 Zen Studio 模型菜单。
 
 ---
 

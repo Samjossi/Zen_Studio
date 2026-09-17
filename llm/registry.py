@@ -86,6 +86,10 @@ class BackendSpec:
     #: 消息（panel 侧消费；纯本地 UI，不进 ACP 帧）。None = 成熟接口，
     #: 零行为变化
     dev_note: str | None = None
+    #: 封存标记：True = 接口保留注册与菜单入口但禁止使用——切换时经
+    #: dev_note 告知封存口径，发送路径拦停（panel 侧消费）。封存不删
+    #: provider 本体：解封即回本注册项撤标记重新编译
+    archived: bool = False
 
 
 # ----------------------------------------------------------------------
@@ -226,8 +230,10 @@ REGISTRY: dict[str, BackendSpec] = {
             efforts=("low", "high", "max"),
             default_effort="high",
             # 模型级档位（0455 计划 G1）：supportEfforts/defaultEffort
-            # 服务端目录下发；条目缺字段的模型（kimi-for-coding 等）无
-            # 强度轴（D1 不做静态兜底）
+            # 服务端目录下发；条目缺字段的模型（kimi-for-coding-highspeed
+            # 等）无强度轴（D1 不做静态兜底）；kimi-for-coding 的档位经
+            # config.toml overrides 固定（K2.8 Preview 元数据，managed
+            # 刷新前的过渡手段，efforts_from_catalog 并入后读取）
             list_efforts=lambda: efforts_from_catalog(_kimi_catalog()),
         ),
         BackendSpec(
@@ -272,7 +278,7 @@ REGISTRY: dict[str, BackendSpec] = {
             name="kilocode-acp",
             label="Kilo Code ACP",
             vendor="kilocode",
-            vendor_label="Kilo Code",
+            vendor_label="Kilo Code（已封存）",
             available=kilocode_available,
             list_models=_cached_list_models("kilocode-acp", list_kilocode_models),
             factory=KiloCodeAcpLLM,
@@ -286,6 +292,13 @@ REGISTRY: dict[str, BackendSpec] = {
             # 模型级档位（0455 计划 G2）：`kilo models --verbose` variants
             # keys 全量枚举；解析失败返回空 dict → 回退上方静态声明（D1）
             list_efforts=_cached_list_efforts("kilocode-acp", list_kilocode_efforts),
+            # 封存保留菜单入口（不用 available=False 隐藏——用户需能切到
+            # 本接口看到封存口径），发送由 panel 按 archived 拦停
+            dev_note=(
+                "Kilo Code 后端已封存：转为个人维护状态，不再随项目更新与"
+                "验证。如需使用，请自行修改 llm/registry.py 的 kilocode-acp "
+                "注册项（撤除 archived 标记）并重新编译。"),
+            archived=True,
         ),
         BackendSpec(
             name="dream-acp",
