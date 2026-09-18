@@ -330,6 +330,21 @@ QToolButton:disabled {
     font-size: 22px;
 }
 
+/* 文件树悬浮搜索钮：同刷新钮范式镜像到左下角；⌕ U+2315 贴文本基线
+ * 渲染且字形墨盒偏小——字号放大至 30px 补大小，不对称 padding（左 3 /
+ * 底 8）把墨心推回钮中心（像素实测校准，见 .temp/probe_btn_search.png） */
+#FileTreeSearchButton {
+    padding: 0 0 8px 3px;
+    border-radius: 16px;
+    font-size: 30px;
+}
+
+/* 文件树搜索栏无命中警示：红取 Git 状态色 deleted（#c0392b），四主题通用 */
+#FileTreeSearchBar[noMatch="true"] {
+    color: #c0392b;
+    border: 1px solid #c0392b;
+}
+
 /* 终端头部栏按钮：padding 收敛保持头部紧凑（替代旧 setFixedHeight(22)
  * 锁高——固定高度内容盒仅 14px 致中文截顶，2026-0722-1815 计划 P2）；
  * 作用域内仅「清屏」一个 QPushButton，无误伤面 */

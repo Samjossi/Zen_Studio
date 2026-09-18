@@ -11,6 +11,7 @@
 """
 from collections.abc import Callable
 import logging
+import os
 from pathlib import Path
 
 from PySide6.QtCore import QDir, QEvent, QItemSelectionModel, QMimeData, QUrl, Signal, Qt
@@ -21,6 +22,7 @@ from PySide6.QtWidgets import (
     QGraphicsOpacityEffect,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QToolButton,
     QTreeView,
     QVBoxLayout,
@@ -44,6 +46,19 @@ _REFRESH_BTN_SIZE = 32
 
 #: 悬浮刷新钮常态透明度：低调不挡树内容，hover 时恢复 1.0
 _REFRESH_BTN_OPACITY = 0.5
+
+#: 悬浮搜索钮与面板左下缘的间距（数值与刷新钮一致，独立命名便于单独微调）
+_SEARCH_BTN_MARGIN = 16
+
+#: 悬浮搜索钮直径（圆形钮，内嵌 ⌕ U+2315；字形墨盒偏小，qss 字号已放大补偿）
+_SEARCH_BTN_SIZE = 32
+
+#: 悬浮搜索钮常态透明度
+_SEARCH_BTN_OPACITY = 0.5
+
+#: 单次搜索命中上限：防爆兜底，大目录（.venv/node_modules 范围）遍历
+#: 到上限即截断，避免 UI 线程被 os.walk 长时间占用
+_SEARCH_MAX_RESULTS = 200
 
 
 class _DragOutTreeView(QTreeView):
@@ -137,6 +152,15 @@ class FileExplorer(QWidget):
         layout.setContentsMargins(6, 6, 6, 6)
 
         self._build_refresh_button()
+        self._reset_search_state()
+        self._build_search_bar()
+        self._build_search_button()
+        # 搜索范围快照随用户手动改选更新；程序化点亮（_drill_search_reveal）
+        # 也会改 currentIndex，须经 _search_revealing 标志排除，否则范围会
+        # 随命中位置收窄、后续输入搜不到快照外的匹配
+        self.tree.selectionModel().currentChanged.connect(self._on_tree_current_changed)
+        # refresh 重建模型后索引全失效，搜索状态须随之复位（搜索词保留）
+        self.model_rebuilt.connect(self._on_model_rebuilt_reset_search)
 
     def _build_refresh_button(self) -> None:
         """悬浮刷新钮：watcher 漏事件时树滞留旧结构而菜单入口太隐蔽，
@@ -158,6 +182,36 @@ class FileExplorer(QWidget):
         self._refresh_btn.installEventFilter(self)
         self._refresh_btn.show()
         self._refresh_btn.raise_()
+
+    def _build_search_button(self) -> None:
+        """悬浮搜索钮：与刷新钮同范式镜像到左下角，
+        点击展开/收起底部搜索栏（_toggle_search_bar）。"""
+        self._search_btn = QToolButton(self)  # parent 挂面板自身，浮于树之上
+        self._search_btn.setObjectName("FileTreeSearchButton")
+        self._search_btn.setText("⌕")
+        self._search_btn.setToolTip("搜索文件树")
+        self._search_btn.setFixedSize(_SEARCH_BTN_SIZE, _SEARCH_BTN_SIZE)
+        self._search_btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+        self._search_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._search_btn.clicked.connect(self._toggle_search_bar)
+        self._search_btn_opacity = QGraphicsOpacityEffect(self._search_btn)
+        self._search_btn_opacity.setOpacity(_SEARCH_BTN_OPACITY)
+        self._search_btn.setGraphicsEffect(self._search_btn_opacity)
+        self._search_btn.installEventFilter(self)
+        self._search_btn.show()
+        self._search_btn.raise_()
+
+    def _build_search_bar(self) -> None:
+        """底部搜索栏：默认隐藏的一行输入框，样式吃全局 QLineEdit 规则。
+        无命中经动态属性 noMatch 走 qss 警示色，不落硬编码色值。"""
+        self._search_bar = QLineEdit(self)
+        self._search_bar.setObjectName("FileTreeSearchBar")
+        self._search_bar.setPlaceholderText("搜索当前位置…")
+        self._search_bar.setClearButtonEnabled(True)
+        self._search_bar.hide()
+        self.layout().addWidget(self._search_bar)
+        self._search_bar.installEventFilter(self)
+        self._search_bar.textChanged.connect(self._on_search_text_changed)
 
     def _build_model(self) -> None:
         """文件系统模型 + Git 状态着色代理装配。"""
@@ -262,7 +316,9 @@ class FileExplorer(QWidget):
                 self._collect_expanded(index, out)
 
     def _on_directory_loaded(self, path: str) -> None:
-        """目录异步加载完成：接力回填手动刷新前的展开状态与选中项。"""
+        """目录异步加载完成：接力搜索定位钻取与手动刷新的展开/选中回填。"""
+        if self._search_pending is not None:
+            self._drill_search_reveal()
         if self._refresh_restore is None:
             return
         expanded, selected = self._refresh_restore
@@ -284,30 +340,195 @@ class FileExplorer(QWidget):
             logger.info("文件树手动刷新完成：展开/选中状态已回填")
 
     # ------------------------------------------------------------------
-    # 内部：悬浮刷新钮（定位 / hover 透明度）
+    # 内部：悬浮钮（定位 / hover 透明度）
     # ------------------------------------------------------------------
+    def _floating_bottom_offset(self) -> int:
+        """悬浮钮底部让位量：搜索栏展开时抬到栏顶之上，避免遮挡。"""
+        bar = getattr(self, "_search_bar", None)
+        if bar is not None and bar.isVisible():
+            return _SEARCH_BTN_MARGIN + bar.height()
+        return _SEARCH_BTN_MARGIN
+
     def _place_refresh_button(self) -> None:
         """悬浮刷新钮右下角定位（面板坐标系，浮于树之上）。"""
         btn = self._refresh_btn
         btn.move(self.width() - btn.width() - _REFRESH_BTN_MARGIN,
-                 self.height() - btn.height() - _REFRESH_BTN_MARGIN)
+                 self.height() - btn.height() - self._floating_bottom_offset())
+        btn.raise_()
+
+    def _place_search_button(self) -> None:
+        """悬浮搜索钮左下角定位（面板坐标系，浮于树之上）。"""
+        btn = self._search_btn
+        btn.move(_SEARCH_BTN_MARGIN,
+                 self.height() - btn.height() - self._floating_bottom_offset())
         btn.raise_()
 
     def resizeEvent(self, event) -> None:
-        """基类布局后重定位悬浮刷新钮。"""
+        """基类布局后重定位悬浮钮。"""
         super().resizeEvent(event)
         self._place_refresh_button()
+        self._place_search_button()
 
     def eventFilter(self, watched, event) -> bool:
-        """悬浮刷新钮 hover 透明度：进入恢复 1.0，离开回落常态值。
-        （构造早期事件路径可能先于按钮创建触发本过滤器，
+        """悬浮钮 hover 透明度（进入恢复 1.0，离开回落常态值）与
+        搜索栏按键（Esc 收起、Enter/Shift+Enter 循环命中）。
+        （构造早期事件路径可能先于控件创建触发本过滤器，
         getattr 守卫防 AttributeError）"""
         if watched is getattr(self, "_refresh_btn", None):
             if event.type() == QEvent.Type.Enter:
                 self._refresh_btn_opacity.setOpacity(1.0)
             elif event.type() == QEvent.Type.Leave:
                 self._refresh_btn_opacity.setOpacity(_REFRESH_BTN_OPACITY)
+        elif watched is getattr(self, "_search_btn", None):
+            if event.type() == QEvent.Type.Enter:
+                self._search_btn_opacity.setOpacity(1.0)
+            elif event.type() == QEvent.Type.Leave:
+                self._search_btn_opacity.setOpacity(_SEARCH_BTN_OPACITY)
+        elif watched is getattr(self, "_search_bar", None) \
+                and event.type() == QEvent.Type.KeyPress:
+            key = event.key()
+            if key == Qt.Key.Key_Escape:
+                self._toggle_search_bar()
+                self.tree.setFocus()
+                return True
+            if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+                backwards = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
+                self._step_search_match(-1 if backwards else 1)
+                return True
         return super().eventFilter(watched, event)
+
+    # ------------------------------------------------------------------
+    # 内部：搜索（范围 / 匹配 / 定位接力）
+    # ------------------------------------------------------------------
+    def _toggle_search_bar(self) -> None:
+        """展开/收起搜索栏；展开时对焦点位置做范围快照，收起时清空搜索状态。"""
+        if self._search_bar.isVisible():
+            self._search_bar.hide()
+            self._reset_search_state()
+            self._search_scope = None
+            self._set_search_no_match(False)
+        else:
+            self._search_scope = self._current_focus_dir()
+            self._search_bar.show()
+            self._search_bar.setFocus()
+        # 显隐改变让位量，悬浮钮立即重定位（面板自身无 resize 事件可等）
+        self.layout().activate()
+        self._place_refresh_button()
+        self._place_search_button()
+
+    def _reset_search_state(self) -> None:
+        """清空匹配列表、当前命中序号与定位挂起；不动搜索栏文本与范围快照。"""
+        self._search_matches: list[str] = []
+        self._search_cursor = -1
+        self._search_pending: str | None = None
+        self._search_revealing = False
+
+    def _on_model_rebuilt_reset_search(self) -> None:
+        """refresh 重建模型后索引全失效：匹配状态复位，搜索词保留待用户重搜。"""
+        self._reset_search_state()
+        self._set_search_no_match(False)
+
+    def _set_search_no_match(self, flag: bool) -> None:
+        """无命中警示：动态属性驱动 qss 变色，须 unpolish/polish 才生效。"""
+        self._search_bar.setProperty("noMatch", flag)
+        self._search_bar.style().unpolish(self._search_bar)
+        self._search_bar.style().polish(self._search_bar)
+
+    def _dir_of_path(self, path: str) -> str | None:
+        """路径 → 搜索目录：目录即自身，文件取父目录；无效返回 None。"""
+        if not path:
+            return None
+        p = Path(path)
+        if p.is_dir():
+            return str(p)
+        if p.parent.is_dir():
+            return str(p.parent)
+        return None
+
+    def _current_focus_dir(self) -> str:
+        """树当前焦点位置对应的搜索目录；无焦点回退根目录。"""
+        index = self.tree.currentIndex()
+        if index.isValid():
+            scope = self._dir_of_path(self._file_path(index))
+            if scope is not None:
+                return scope
+        return self.root_dir
+
+    def _on_tree_current_changed(self, current, _previous) -> None:
+        """用户手动改选时更新搜索范围快照（程序化点亮经标志位排除）。"""
+        if self._search_revealing:
+            return
+        bar = getattr(self, "_search_bar", None)
+        if bar is None or not bar.isVisible() or not current.isValid():
+            return
+        scope = self._dir_of_path(self._file_path(current))
+        if scope is not None:
+            self._search_scope = scope
+
+    def _search_scope_dir(self) -> str:
+        """搜索范围 = 搜索栏展开时的焦点快照（用户改选会更新），兜底根目录。"""
+        return getattr(self, "_search_scope", None) or self.root_dir
+
+    def _collect_matches(self, text: str) -> list[str]:
+        """范围目录下文件名大小写不敏感子串匹配（os.walk 先序，上限截断）。
+        直接扫文件系统而不查模型：懒加载下未展开目录的节点不在模型里。"""
+        needle = text.casefold()
+        matches: list[str] = []
+        for dirpath, dirnames, filenames in os.walk(self._search_scope_dir()):
+            for name in dirnames + filenames:
+                if needle in name.casefold():
+                    matches.append(os.path.join(dirpath, name))
+                    if len(matches) >= _SEARCH_MAX_RESULTS:
+                        return matches
+        return matches
+
+    def _on_search_text_changed(self, text: str) -> None:
+        """输入即重搜并定位首个命中；空串或无命中时复位/警示。"""
+        if not text:
+            self._reset_search_state()
+            self._set_search_no_match(False)
+            return
+        self._search_matches = self._collect_matches(text)
+        self._search_cursor = -1
+        self._search_pending = None
+        self._set_search_no_match(not self._search_matches)
+        if self._search_matches:
+            self._step_search_match(1)
+
+    def _step_search_match(self, step: int) -> None:
+        """循环定位下一个/上一个命中。"""
+        if not self._search_matches:
+            return
+        self._search_cursor = (self._search_cursor + step) % len(self._search_matches)
+        self._reveal_search_match(self._search_matches[self._search_cursor])
+
+    def _reveal_search_match(self, path: str) -> None:
+        """点亮命中项：懒加载下深层索引可能未就绪，
+        挂起为 _search_pending 由 directoryLoaded 接力钻取（_drill_search_reveal）。"""
+        self._search_pending = path
+        self._drill_search_reveal()
+
+    def _drill_search_reveal(self) -> None:
+        """向命中路径钻取一级：model.index(path) 对未加载层触发异步拉取，
+        未就绪返回无效索引等下一轮 directoryLoaded；就绪后展开祖先并点亮。"""
+        target = self._search_pending
+        if target is None:
+            return
+        src = self.model.index(target)
+        if not src.isValid():
+            return
+        index = self.proxy.mapFromSource(src)
+        parent = index.parent()
+        while parent.isValid():
+            self.tree.expand(parent)
+            parent = parent.parent()
+        self._search_revealing = True
+        try:
+            self.tree.setCurrentIndex(index)
+        finally:
+            self._search_revealing = False
+        self.tree.scrollTo(index)
+        self._search_pending = None
 
     # ------------------------------------------------------------------
     # 内部：选中项辅助
