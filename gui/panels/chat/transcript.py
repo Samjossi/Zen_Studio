@@ -44,6 +44,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from shiboken6 import isValid
 
 from gui.panels.chat.cards import (
     BodyHtml,
@@ -485,7 +486,9 @@ class ChatTranscriptView(QScrollArea):
         QTimer.singleShot(0, self._do_scroll)
 
     def _do_scroll(self) -> None:
-        if not self._pinned:
+        # singleShot(0, callable) 无接收者上下文，视图销毁后定时器照样
+        # 触发，须先验活 C++ 对象再触碰（panel.py 清理路径同款守卫）
+        if not isValid(self) or not self._pinned:
             return  # 用户上翻阅史（2317 计划 D1）：自动滚底让位
         bar = self.verticalScrollBar()
         self._in_programmatic_scroll = True
