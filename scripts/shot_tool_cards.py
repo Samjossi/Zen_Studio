@@ -27,7 +27,7 @@ from PySide6.QtGui import QColor, QPixmap
 from PySide6.QtWidgets import QApplication, QVBoxLayout, QWidget
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(PROJECT_ROOT))
+sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from gui.panels.chat.cards import (  # noqa: E402
     CardColors,
@@ -493,17 +493,17 @@ def _scenarios() -> list[tuple[str, list[dict], str, object]]:
             # kilocode 系（ACP 标准形态推定）：首帧即带 locations +
             # content diff 项 + rawInput——徽标/hunk/副标题首帧一次到位
             _tool_call("tc-editkilo", "Edit", "edit",
-                       {"filePath": "gui/panels/chat/cards.py",
+                       {"filePath": "src/gui/panels/chat/cards.py",
                         "oldString": "旧实现行", "newString": "新实现行"},
                        content=[{"type": "diff",
-                                 "path": "gui/panels/chat/cards.py",
+                                 "path": "src/gui/panels/chat/cards.py",
                                  "oldText": "上下文甲\n旧实现行\n上下文乙",
                                  "newText": "上下文甲\n新实现行\n上下文乙"}],
-                       locations=[{"path": "gui/panels/chat/cards.py"}]),
+                       locations=[{"path": "src/gui/panels/chat/cards.py"}]),
             _tool_update("tc-editkilo", "completed", kind="edit",
                          raw_output={"output": "Edit applied."}),
         ], "首帧即渲染徽标 +1 −1 与 hunk 三色；副标题取 locations[0].path"
-           " 两段式「cards.py · gui/panels/chat/」；✔", None),
+           " 两段式「cards.py · src/gui/panels/chat/」；✔", None),
         ("26_read_行数徽标与截断尾注", [
             # 通用形态：completed 输出 1005 行超软上限 1000（0645 D2），
             # read 保头截断（§2.4）
@@ -520,10 +520,10 @@ def _scenarios() -> list[tuple[str, list[dict], str, object]]:
             # _tool_call_summary search/fetch 分支副标题实证
             _tool_call("tc-search", "Grep", "search",
                        {"pattern": "_tool_call_summary",
-                        "path": "llm/providers"}),
+                        "path": "src/llm/providers"}),
             _tool_update("tc-search", "completed", kind="search",
                          raw_output={"output":
-                                     "llm/providers/acp.py:737:"
+                                     "src/llm/providers/acp.py:737:"
                                      "def _tool_call_summary(update: dict)"}),
             _tool_call("tc-fetch", "FetchURL", "fetch",
                        {"url": "https://example.com/acp-spec"}),

@@ -24,7 +24,7 @@ PROJECT_ROOT = os.path.dirname(SPECPATH)
 
 a = Analysis(
     [os.path.join(PROJECT_ROOT, "main.py")],
-    pathex=[PROJECT_ROOT],
+    pathex=[os.path.join(PROJECT_ROOT, "src")],
     binaries=[],
     datas=[
         # 运行时只读资源（对应 core/paths.py ASSETS_DIR；一族一目录，

@@ -26,4 +26,4 @@ Zen Studio 全部**运行时资产**的集中存放地，**会被 PyInstaller �
   1. 放入合适的既有子目录（或新建专目录）；
   2. 在 `building/zen-studio.spec` 的 `datas` 中补一条收编记录。
 - `fonts/思源宋体/`、`logo候选池/` 与 `readme/` **禁止**加入 `datas`，也禁止恢复整目录收编。
-- 运行时通过 `core/paths.py` 的路径常量访问本目录，禁止散落的手写路径推导。
+- 运行时通过 `src/core/paths.py` 的路径常量访问本目录，禁止散落的手写路径推导。

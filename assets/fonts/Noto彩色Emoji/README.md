@@ -11,7 +11,7 @@ Google Noto Color Emoji（CBDT 彩色位图格式），Zen Studio 的 **emoji �
 
 ## 运行时加载
 
-- 注册入口：`gui/theme.py` 的 `EMOJI_FONT_FILES`。
+- 注册入口：`src/gui/theme.py` 的 `EMOJI_FONT_FILES`。
 - 注册字体族名：`Noto Color Emoji`；**不设为任何控件的显式字体**——仅作
   Qt 回退链兜底（主字体缺字形时自动选用）。
 - 已知怪癖：`QRawFont.supportsCharacter` 对 CBDT 位图字体误报 False，

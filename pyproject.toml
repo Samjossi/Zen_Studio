@@ -26,8 +26,8 @@ dev = [
 [tool.ruff]
 exclude = [
     "参考代码",
-    "markdown_it",
-    "mdurl",
+    "src/markdown_it",
+    "src/mdurl",
     "building",
     ".temp",
     ".tmp",

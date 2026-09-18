@@ -3,7 +3,7 @@
 > **文档版本**：v1.0
 > **生效日期**：2026-08-03
 > **线协议**：ACP `protocolVersion: 1`（initialize 协商值；与本文档版本是两个层面，见「变更纪律」）
-> **真值来源**：Zen Studio `llm/providers/acp.py` 客户端实现 + Kimi / Reasonix / OpenCode / Kilo Code 四后台实测。协议真值来源是代码与实测，不是猜想。
+> **真值来源**：Zen Studio `src/llm/providers/acp.py` 客户端实现 + Kimi / Reasonix / OpenCode / Kilo Code 四后台实测。协议真值来源是代码与实测，不是猜想。
 
 ---
 

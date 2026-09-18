@@ -9,7 +9,7 @@
 
 ## 运行时加载
 
-- 注册入口：`gui/theme.py` 的 `MONO_FONT_FILES`，Regular / Bold 两档**全部注册**。
+- 注册入口：`src/gui/theme.py` 的 `MONO_FONT_FILES`，Regular / Bold 两档**全部注册**。
 - 注册字体族名：`Sarasa Term SC`。
 
 ## 许可证

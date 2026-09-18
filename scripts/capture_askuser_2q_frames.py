@@ -17,7 +17,7 @@ import sys
 import time
 from datetime import datetime
 
-sys.path.insert(0, ".")
+sys.path.insert(0, "src")
 
 from core.paths import PROJECT_ROOT
 from llm.providers.acp import AcpConnection

@@ -60,7 +60,7 @@ Zen Studio 的设计哲学是 **Agent 驱动**：代码修改一律经 AI agent 
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-详细布局与面板机制见 `gui/README.md`。
+详细布局与面板机制见 `src/gui/README.md`。
 
 ## 4. 技术栈与架构
 
@@ -77,18 +77,19 @@ Zen Studio 的设计哲学是 **Agent 驱动**：代码修改一律经 AI agent 
 关键架构约束：
 
 - **依赖方向单向**：`gui/`（前端）→ `llm/`（后端），`core/` 为零 Qt 依赖底层；包内不反向 import；
-- **版本单一来源**：`config/version.json` 的 `version` 字段（发版人工 +0.1，数据文件承载不硬编码），代码侧一律经 `core/version.py` 的 `APP_VERSION` 读取，`pyproject.toml` 版本为其副本；
+- **版本单一来源**：`config/version.json` 的 `version` 字段（发版人工 +0.1，数据文件承载不硬编码），代码侧一律经 `src/core/version.py` 的 `APP_VERSION` 读取，`pyproject.toml` 版本为其副本；
 - **AI 友好代码协议**：全库遵循 `维护手册/AI 友好代码协议-v1.2.0.md`（方法级拆分、docstring 决策留痕、禁止上帝对象）。
 
 ## 5. 目录结构
 
 | 路径 | 说明 |
 |:---|:---|
-| `main.py` | 入口：参数解析（工作区根 / 自动截图）→ 主题 → 主窗口 |
-| `gui/` | 全部图形界面代码（主窗口 / 菜单 / 五面板 / 主题 / 设置中心），详见 `gui/README.md` |
-| `llm/` | LLM 调用薄层（`LanguageModel` Protocol + ACP 注册表五后端：kimi / reasonix / OpenCode / Kilo Code / Dream），详见 `llm/README.md` |
+| `main.py` | 入口：参数解析（工作区根 / 自动截图）→ 主题 → 主窗口（顶部含 `src/` 引导段，源码包已迁入 `src/`） |
+| `src/gui/` | 全部图形界面代码（主窗口 / 菜单 / 五面板 / 主题 / 设置中心），详见 `src/gui/README.md` |
+| `src/llm/` | LLM 调用薄层（`LanguageModel` Protocol + ACP 注册表五后端：kimi / reasonix / OpenCode / Kilo Code / Dream），详见 `src/llm/README.md` |
 | `dream-acp/` | Dream 后台 ACP 协议文件夹：带版本号协议文档 + 最小示例 agent + spike 握手工具（自包含零依赖，将来整体迁出 Dream 项目作底本） |
-| `core/` | 底层设施：版本单一来源 / 路径解析 / Git 数据层 / 外部应用调起 |
+| `src/core/` | 底层设施：版本单一来源 / 路径解析 / Git 数据层 / 外部应用调起 |
+| `src/markdown_it/` `src/mdurl/` | vendored 运行时依赖（Markdown 渲染内核及其 URL 依赖，ruff 已排除） |
 | `assets/` | 主题 qss、自带字体（OFL）、Logo 成套件与候选池、`readme/` 文档素材（README 引用的截图与 GIF） |
 | `building/` | PyInstaller spec、AppImage 构建脚本与产物 |
 | `config/` | 版本单一来源（`version.json`）与运行时配置（settings / 最近项目 / 窗口状态，gitignored 数据） |
@@ -163,7 +164,7 @@ building/dist/zen-studio/zen-studio
 | `AGENTS.md` | AI / 工程师操作约束（仅操作项目目录、强制 `.venv`、中文响应等） |
 | `文档编写规范.md` | 文档命名、头部元信息、文件引用、符号约定（v3.1 强制约束型） |
 | `维护手册/AI 友好代码协议-v1.2.0.md` | 代码编写强制协议 |
-| `gui/README.md` `llm/README.md` | 两大核心包的详细机制说明 |
+| `src/gui/README.md` `src/llm/README.md` | 两大核心包的详细机制说明 |
 | `文档/修改记录/` | 全部实施计划与诊断报告归档（时间戳命名） |
 | `文档/选型记录/` | 技术选型论证归档 |
 

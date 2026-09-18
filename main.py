@@ -27,6 +27,11 @@ from PySide6.QtCore import QTimer, QtMsgType, qInstallMessageHandler
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
 
+# 开发态 src 引导：源码包已迁入 src/，脚本目录自动入 sys.path 的只有根，
+# 须显式补 src；frozen 态 import 由 PyInstaller pathex 与 PYZ 解决，
+# 本行 insert 一个不存在的路径无害（_MEIPASS 下无 src/，import 不走这里）
+sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
+
 from core.child_env import sanitize_environ
 from core.paths import IS_FROZEN, LOGO_DIR, PROJECT_ROOT, USER_CONFIG_DIR
 from gui import MainWindow

@@ -26,10 +26,10 @@ _MEIPASS = getattr(sys, "_MEIPASS", None)
 #: 消费方一律 import 本常量，禁止各自探测 sys.frozen / sys._MEIPASS
 IS_FROZEN = _MEIPASS is not None
 
-#: 项目根（开发态：本文件位于 core/，上一级即项目根）
+#: 项目根（开发态：本文件位于 src/core/，上两级即项目根）
 #: 打包态（PyInstaller frozen）：解包根 sys._MEIPASS
 PROJECT_ROOT = Path(
-    _MEIPASS if _MEIPASS else Path(__file__).resolve().parents[1]
+    _MEIPASS if _MEIPASS else Path(__file__).resolve().parents[2]
 )
 
 #: 资产根（assets/：字体 + Logo + 主题模板等只读资源，spec datas 按子目录收编）

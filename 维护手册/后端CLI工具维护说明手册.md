@@ -70,7 +70,7 @@ npm i -g opencode-ai
 ## 3. Kilo Code
 
 > **⚠️ 已封存（2026-09-17）**：Zen Studio 内该后端转为个人维护状态，不再随项目更新与验证。
-> 界面中该后端保留菜单入口但发送被拦停；如需使用，请自行修改 `llm/registry.py`
+> 界面中该后端保留菜单入口但发送被拦停；如需使用，请自行修改 `src/llm/registry.py`
 > 的 `kilocode-acp` 注册项（撤除 `archived` 标记）并重新编译。
 > 以下资料仅存档备查。
 
@@ -143,7 +143,7 @@ brew install esengine/reasonix/reasonix
 
 **机制**：Zen Studio 的 kimi-acp 后端在轮次内旁路读取会话落盘目录
 `~/.kimi-code/sessions/<工作区键>/<sessionId>/agents/agent-N/wire.jsonl`
-（子代理 wire），增量解析合成嵌套工具卡（实现：`llm/providers/kimi_acp.py`
+（子代理 wire），增量解析合成嵌套工具卡（实现：`src/llm/providers/kimi_acp.py`
 `_WireSidecar`；开关：config/settings.json `kimi_wire_sidecar`，默认开）。
 该通道是**客户端私有行为**，kimi-code 无任何格式契约，CLI 升级可能漂移。
 

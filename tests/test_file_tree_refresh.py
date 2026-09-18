@@ -125,7 +125,7 @@ def test_refresh_recovers_with_dead_watcher():
     env = os.environ.copy()
     env["LD_PRELOAD"] = str(shim_so)
     env["QT_QPA_PLATFORM"] = "offscreen"
-    env["PYTHONPATH"] = str(PROJECT_ROOT)
+    env["PYTHONPATH"] = str(PROJECT_ROOT / "src")
     result = subprocess.run(
         [sys.executable, str(FIXTURES / "refresh_dead_watcher_runner.py"), str(proj)],
         env=env, capture_output=True, text=True, timeout=120,

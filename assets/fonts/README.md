@@ -13,7 +13,7 @@
 
 ## 加载机制
 
-- 加载入口：`gui/theme.py`（`BUNDLED_FONT_FILES` / `MONO_FONT_FILES` / `EMOJI_FONT_FILES` 常量列出运行时注册的字重文件）。
+- 加载入口：`src/gui/theme.py`（`BUNDLED_FONT_FILES` / `MONO_FONT_FILES` / `EMOJI_FONT_FILES` 常量列出运行时注册的字重文件）。
 - 目录内**多于运行时注册量**的字重属正常——未注册字重是备用资产，不是冗余。
 - 许可证见各字体族目录内的 `LICENSE.txt`。
 
