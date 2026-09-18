@@ -129,3 +129,5 @@ def test_no_changes_empty_cache():
 def test_outside_repo_returns_none():
     svc = make_service({"a/x.py": st.MODIFIED})
     assert svc.status_of_dir("/elsewhere/a") is None, "仓库外路径 → None"
+    assert svc.status_of("/elsewhere/a/x.py") is None, "仓外文件状态 → None"
+    assert svc.numstat_of("/elsewhere/a/x.py") is None, "仓外文件统计 → None"

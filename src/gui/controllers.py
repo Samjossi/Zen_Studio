@@ -131,7 +131,10 @@ class GitStatusController(QObject):
 
     def _update_stats_label(self) -> None:
         """状态栏常驻区显示当前查看文件的 `+a -b` 统计。"""
-        line_stats = self._service.numstat_of(self._viewer.current_path or "")
+        # 无查看文件时不得传空串给 numstat_of：Path("").resolve() 会落成
+        # CWD（双击启动时 CWD=home），触发仓外路径换算
+        current = self._viewer.current_path
+        line_stats = self._service.numstat_of(current) if current else None
         self._stats_label.setText(f"+{line_stats[0]} -{line_stats[1]}  " if line_stats else "")
 
 

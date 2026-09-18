@@ -267,11 +267,11 @@ class GitStatusService:
     # 内部
     # ------------------------------------------------------------------
     def _rel(self, abs_path: str) -> str | None:
-        """绝对路径 → 相对仓库根路径；不在仓库内返回 None。"""
+        """绝对路径 → 相对仓库根路径；不在仓库内返回 None（预期分支，
+        调用方会传入仓外路径，如查看器打开根外文件，非故障不打日志）。"""
         if self._repo_root is None:
             return None
         try:
             return str(Path(abs_path).resolve().relative_to(self._repo_root))
         except ValueError:
-            logger.exception("绝对路径换算相对仓库根路径失败")
             return None
