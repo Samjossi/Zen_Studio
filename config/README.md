@@ -19,7 +19,6 @@ Zen Studio 的**开发态**运行时配置存放地。本目录内数据文件�
 | `config/settings.json` | 应用偏好：主题 / 字号 / 模型选择（`model_backend` + 按接口记忆的 `model_versions` 表）/ 审批默认档 | `src/gui/settings.py` 统一入口 |
 | `config/settings.lock` | `settings.json` 的 flock 文件锁（多开实例并发治理） | `src/gui/settings.py` |
 | `config/recent_projects.json` | 最近打开的工作区根历史（文件菜单「最近打开的项目」数据源） | `src/gui/recent_projects.py` |
-| `config/version.json` | 配置版本标记（内容为 `{"version": "1.0"}`；⚠️ 当前全库无代码读写，疑似早期遗留文件，待确认后清理） | —（暂无消费方） |
 | `config/window_state/<hash8>.json` | 窗口几何与分隔栏状态，按工作区根哈希分文件（VS Code `workspaceStorage` 语义） | `src/gui/window_state.py` |
 | `config/window_state/default.json` | 全局默认布局：最近关闭窗口双写、后写胜，供新工作区首开与空白窗口继承 | `src/gui/window_state.py` |
 | `config/sessions/<hash8>.json` | 会话记录存档（各聊天标签文字对话），按工作区根哈希分文件 | `src/gui/panels/chat/session_store.py` |

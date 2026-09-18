@@ -34,6 +34,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
 
 from core.child_env import sanitize_environ
 from core.paths import IS_FROZEN, LOGO_DIR, PROJECT_ROOT, USER_CONFIG_DIR
+from core.version import APP_VERSION
 from gui import MainWindow
 from gui.root_ownership import EXIT_ROOT_OCCUPIED, acquire_root_ownership
 from gui.theme import apply_theme
@@ -186,6 +187,8 @@ def setup_screenshot(window: MainWindow, interval: int, on_start: bool) -> QTime
 
 def main() -> None:
     setup_logging()
+    # 启动首行落版本：日志须能反查运行的是哪一版（完整版本含 git 构建号）
+    logging.getLogger("main").info("Zen Studio %s 启动", APP_VERSION)
     # 启动时一次性净化 LD_LIBRARY_PATH 的 IDE 私有条目（bootloader 前插的
     # _internal）：此后一切用户子进程（终端/ACP/Typora/新窗）自然继承干净
     # 环境；glibc 启动时已缓存链接搜索路径，运行期改写不影响自身 dlopen

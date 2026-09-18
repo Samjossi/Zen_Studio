@@ -15,7 +15,8 @@ Zen Studio 全部打包构建活动的专属目录（2026-07-25 收编，见 文
 | 文件/目录 | 说明 | 是否入库 |
 |:---|:---|:---:|
 | `building/build_appimage.sh` | **AppImage 唯一构建入口**：前置自查 → PyInstaller 构建 → AppDir 组装 → appimagetool → 冒烟验证；从任意目录调用均可（脚本内路径锚定，不依赖 CWD） | ✅ |
-| `building/zen-studio.spec` | PyInstaller spec：onedir 模式，`datas` 按子目录收编资产（`fonts/更纱黑体`、`fonts/思源黑体`、`themes`、`logo`、`config/version.json` 五条，详见 `assets/README.md` 收编纪律） | ✅ |
+| `building/zen-studio.spec` | PyInstaller spec：onedir 模式，顶部自算完整版本写出 `version.txt`，`datas` 按子目录收编资产（`fonts/更纱黑体`、`fonts/思源黑体`、`themes`、`logo`、`version.txt` 五条，详见 `assets/README.md` 收编纪律） | ✅ |
+| `building/version.py` | **版本中枢**：`pyproject.toml` 为唯一来源，构建号取 git 提交计数；`get` 打印完整版本（构建脚本捕获），`bump patch/minor/major` 改基础版本并刷新 `uv.lock` | ✅ |
 | `building/zen-studio.desktop` | AppDir 桌面入口文件（AppImage 集成用） | ✅ |
 | `building/build-fcitx5-qt6-plugin.sh` | fcitx5 Qt6 输入法插件编译脚本：编译与 wheel 内 Qt 同版本的插件并部署进 `.venv`（背景见 `文档/修改记录/2026-0731-1640_中文输入法fcitx5失效修复计划.md` 与诊断手册 V1.1） | ✅ |
 | `.build-tools/` | 插件编译工具链（aqt 下载的 Qt、fcitx5-qt 源码/构建区、产物归档 `dist/`） | ❌ gitignored |

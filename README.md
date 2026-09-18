@@ -77,7 +77,7 @@ Zen Studio 的设计哲学是 **Agent 驱动**：代码修改一律经 AI agent 
 关键架构约束：
 
 - **依赖方向单向**：`gui/`（前端）→ `llm/`（后端），`core/` 为零 Qt 依赖底层；包内不反向 import；
-- **版本单一来源**：`config/version.json` 的 `version` 字段（发版人工 +0.1，数据文件承载不硬编码），代码侧一律经 `src/core/version.py` 的 `APP_VERSION` 读取，`pyproject.toml` 版本为其副本；
+- **版本单一来源**：`pyproject.toml` 的 `version` 字段（三段基础版本，发版经 `building/version.py bump` 代改），构建号取 git 提交计数自动追加为四段完整版本；代码侧一律经 `src/core/version.py` 的 `APP_VERSION` 读取，打包侧经 spec 自算注入 `version.txt`；
 - **AI 友好代码协议**：全库遵循 `维护手册/AI 友好代码协议-v1.2.0.md`（方法级拆分、docstring 决策留痕、禁止上帝对象）。
 
 ## 5. 目录结构
@@ -92,7 +92,7 @@ Zen Studio 的设计哲学是 **Agent 驱动**：代码修改一律经 AI agent 
 | `src/markdown_it/` `src/mdurl/` | vendored 运行时依赖（Markdown 渲染内核及其 URL 依赖，ruff 已排除） |
 | `assets/` | 主题 qss、自带字体（OFL）、Logo 成套件与候选池、`readme/` 文档素材（README 引用的截图与 GIF） |
 | `building/` | PyInstaller spec、AppImage 构建脚本与产物 |
-| `config/` | 版本单一来源（`version.json`）与运行时配置（settings / 最近项目 / 窗口状态，gitignored 数据） |
+| `config/` | 运行时配置（settings / 最近项目 / 窗口状态，gitignored 数据；版本单一来源已迁至 `pyproject.toml`） |
 | `维护手册/` | 开发维护手册：AI 友好代码协议 / 视觉验证闭环开发指南 / 工具箱说明 / 虚拟环境创建约定 / 后端CLI工具维护说明手册 |
 | `scripts/` | 工具脚本（Logo 渲染等） |
 | `work charter/` `work plans/` `work options/` | 章程 / 计划 / 选型三级工作文档（当前批次已归档至 `文档/`） |

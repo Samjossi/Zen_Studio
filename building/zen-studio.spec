@@ -11,6 +11,10 @@
 - datas 按子目录收编五条（字体两族 + Logo 全套 + 主题模板 + 版本文件）；
   思源宋体（87M 未注册备用族）与 logo候选池（设计草稿）明确不打包——
   见 文档/修改记录/2026-0725-1053 计划 §4 打包内容清单
+- 版本自算注入：顶部按与 building/version.py 相同规则自算完整版本
+  （pyproject.toml 基础版本 + git 提交计数构建号），写出 version.txt
+  经 datas 收编进 bundle 根，冻结态 core/version.py 读取——spec 运行
+  环境独立，禁止 import 项目模块，同规则双实现
 - 未用 Qt 库经 a.binaries 显式过滤兜底——⚠️ 模块级 excludes 实证无效
   已回退：PySide6 6.x 钩子无视模块排除；过滤当前为防御性兜底
   （钩子按 import 依赖收编，误加模块进 import 链时过滤生效）
@@ -18,9 +22,34 @@
   产物图标由 building/zen-studio.desktop 承担
 """
 import os
+import subprocess
+import tomllib
 
 #: 项目根：SPECPATH = 本 spec 所在目录（building/），上一级即项目根
 PROJECT_ROOT = os.path.dirname(SPECPATH)
+
+
+def _full_version():
+    """与 building/version.py 同规则自算（spec 运行环境独立，不互相 import）：
+
+    基础版本读 pyproject.toml，构建号取 git 提交计数，非 git 环境退化为三段。
+    """
+    with open(os.path.join(PROJECT_ROOT, "pyproject.toml"), "rb") as f:
+        base = tomllib.load(f)["project"]["version"]
+    try:
+        build = subprocess.check_output(
+            ["git", "rev-list", "--count", "HEAD"], cwd=PROJECT_ROOT, text=True
+        ).strip()
+        return f"{base}.{build}"
+    except Exception:
+        return base
+
+
+#: 冻结态 core/version.py 读 bundle 内 version.txt（构建时已是完整版本）
+_VERSION_TXT = os.path.join(PROJECT_ROOT, ".temp", "build", "version.txt")
+os.makedirs(os.path.dirname(_VERSION_TXT), exist_ok=True)
+with open(_VERSION_TXT, "w", encoding="utf-8") as f:
+    f.write(_full_version() + "\n")
 
 a = Analysis(
     [os.path.join(PROJECT_ROOT, "main.py")],
@@ -37,9 +66,9 @@ a = Analysis(
         (os.path.join(PROJECT_ROOT, "assets/logo"), "assets/logo"),
         # QSS 主题模板（gui/theme.py THEME_TEMPLATE_FILE 消费的只读资源）
         (os.path.join(PROJECT_ROOT, "assets/themes"), "assets/themes"),
-        # 版本单一来源（core/version.py 加载器消费；2026-07-31 起版本号
-        # 不再硬编码进 PYZ 源码，必须随 datas 收编否则打包态读不到）
-        (os.path.join(PROJECT_ROOT, "config/version.json"), "config"),
+        # 版本文件（冻结态 core/version.py 读取；本 spec 顶部自算写出，
+        # 已是含构建号的完整版本，落 bundle 根即 frozen 态 PROJECT_ROOT）
+        (_VERSION_TXT, "."),
     ],
     hiddenimports=[],
     hookspath=[],
