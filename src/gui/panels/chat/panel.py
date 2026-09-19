@@ -41,7 +41,6 @@ AI 活动信息路由：
   busy=「■ 停止」（直停本标签）；按钮常驻恒宽，任何状态下 sizeHint
   不变——替代显隐模式（busy 显隐改变 sizeHint 会触发 QSplitter 撑宽
   左栏）
-- busy 期间 Esc 快捷键中断本标签生成
 
 排队发送与停止按钮：
 - _busy 簿记单点置位（_set_busy），停止钮使能只由 _set_busy 管理——
@@ -68,7 +67,6 @@ import time
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QThread, QTimer, Signal
-from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -408,7 +406,7 @@ class ChatPanel(QWidget):
         return True
 
     def request_stop(self) -> None:
-        """停止当前轮次（输入区停止按钮 / Esc 触发），幂等。"""
+        """停止当前轮次（输入区停止按钮触发），幂等。"""
         if self._worker is not None:
             self._worker.request_stop()
             self.input.setPlaceholderText("正在停止…")
@@ -530,7 +528,7 @@ class ChatPanel(QWidget):
         # busy 恒可用——_busy 簿记保障），与「发送/排队」并存
         self._stop_button = QPushButton("■ 停止", self)
         self._stop_button.setObjectName("chatStopButton")
-        self._stop_button.setToolTip("停止当前生成（Esc）")
+        self._stop_button.setToolTip("停止当前生成")
         self._stop_button.setFixedWidth(
             self._stop_button.fontMetrics().horizontalAdvance("■ 停止") + 26)
         self._stop_button.setEnabled(False)
@@ -570,10 +568,6 @@ class ChatPanel(QWidget):
         self.attachments.rejected.connect(
             lambda reason: self.output.append_message("系统", reason))
         self._refresh_send_button()  # 初始：空文本禁用发送
-        # busy 期间 Esc 中断本标签（输入框内 Esc 无默认行为，安全占用）
-        esc = QShortcut(QKeySequence(Qt.Key.Key_Escape), self)
-        esc.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
-        esc.activated.connect(self._on_esc_stop)
         # 输出区文件路径链接点击 → 解析外抛（主窗口接查看器）
         self.output.anchorClicked.connect(self._on_output_link)
 
@@ -594,7 +588,7 @@ class ChatPanel(QWidget):
         self.file_open_requested.emit(str(p), line)
 
     # ------------------------------------------------------------------
-    # 底行双常驻钮路由与 Esc 中断
+    # 底行双常驻钮路由
     # ------------------------------------------------------------------
     def _on_send_button(self) -> None:
         """「发送/排队」钮：与 Enter 同一入口（busy 时 _on_send 自动登记待发）。"""
@@ -602,11 +596,6 @@ class ChatPanel(QWidget):
 
     def _on_stop_button(self) -> None:
         """「■ 停止」常驻钮：busy 直停本标签（空闲禁用，正常不可达）。"""
-        if self._busy:
-            self.request_stop()
-
-    def _on_esc_stop(self) -> None:
-        """busy 期间 Esc = 点击停止（空闲时静默忽略）。"""
         if self._busy:
             self.request_stop()
 
@@ -947,13 +936,13 @@ class ChatPanel(QWidget):
         return True
 
     def _refresh_placeholder(self) -> None:
-        """输入框占位符：busy=「响应中…Enter 排队待发送 / ■ 停止或
-        Esc 中断」；空闲=常规提示；停止进行中提示不被覆盖。"""
+        """输入框占位符：busy=「响应中…Enter 排队待发送 / ■ 停止」；
+        空闲=常规提示；停止进行中提示不被覆盖。"""
         if self._busy:
             if self.input.placeholderText() == "正在停止…":
                 return
             label = BACKEND_LABELS.get(self._llm_name, "AI")
-            text = f"{label} 响应中…Enter 排队待发送 / ■ 停止或 Esc 中断"
+            text = f"{label} 响应中…Enter 排队待发送 / ■ 停止"
         else:
             text = "输入消息，Enter 发送 / Shift+Enter 换行"
         self.input.setPlaceholderText(text)
