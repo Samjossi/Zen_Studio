@@ -31,6 +31,7 @@ from llm.providers.kilocode_acp import (
 )
 from llm.providers.kimi_acp import KimiAcpLLM
 from llm.providers.kimi_common import (
+    display_names_from_catalog,
     efforts_from_catalog,
     kimi_available,
     load_kimi_provider_catalog,
@@ -81,6 +82,10 @@ class BackendSpec:
     #: 不做静态兜底，D1）。None = 该接口无动态数据源（纯静态兜底）。
     #: 经 _cached_list_efforts 同款进程级缓存包装，refresh_models() 同点失效
     list_efforts: Callable[[], dict[str, tuple[list[str], str | None]]] | None = None
+    #: 模型显示名枚举（别名 → displayName；惰性）。纯 UI 呈现数据：协议
+    #: 透传与持久化恒用别名（红线 2 不破）。None 或空 dict = 该接口无
+    #: 显示名数据源，UI 回退别名原文；有数据源但查无该别名同样回退别名
+    list_display_names: Callable[[], dict[str, str]] | None = None
     #: 开发中状态如实告知文案（2026-0814-0603 计划 T1）：非空时切到该
     #: 接口、以及持久化恢复后本标签首次发送，对话流各输出一条「系统」
     #: 消息（panel 侧消费；纯本地 UI，不进 ACP 帧）。None = 成熟接口，
@@ -171,7 +176,7 @@ def refresh_models(name: str | None = None) -> None:
 
 
 #: kimi 共享目录载荷（0455 计划 T1：注册段 list_models/list_efforts 均从
-#: 本缓存派生，一次子进程两路消费）
+#: 本缓存派生；显示名派生同缓存第三路消费，一次子进程三路消费）
 _kimi_catalog = _cached_raw("kimi-acp", load_kimi_provider_catalog)
 
 
@@ -216,9 +221,9 @@ REGISTRY: dict[str, BackendSpec] = {
             vendor="kimi",
             vendor_label="Kimi",
             available=kimi_available,
-            # 0455 动态化计划 T1：list_models 与 list_efforts 共享同一次
-            # `provider list --json` 调用（_kimi_catalog 缓存层合一），
-            # 模型别名与强度档位同源同载荷，防双倍子进程
+            # 0455 动态化计划 T1：list_models/list_efforts/list_display_names
+            # 共享同一次 `provider list --json` 调用（_kimi_catalog 缓存层
+            # 合一），别名、档位、显示名同源同载荷，防多倍子进程
             list_models=lambda: models_from_catalog(_kimi_catalog()),
             factory=KimiAcpLLM,
             # T0 spike：默认模型与 kimi-code/k3 均正确识图；空 text 块被拒
@@ -235,6 +240,10 @@ REGISTRY: dict[str, BackendSpec] = {
             # config.toml overrides 固定（K2.8 Preview 元数据，managed
             # 刷新前的过渡手段，efforts_from_catalog 并入后读取）
             list_efforts=lambda: efforts_from_catalog(_kimi_catalog()),
+            # 显示名与模型/档位同源同载荷（_kimi_catalog 第三路派生）；
+            # 服务端目录下发或 config.toml overrides 固定（K2.8 Preview
+            # 元数据即走 overrides），纯 UI 呈现，别名仍恒为协议/持久化值
+            list_display_names=lambda: display_names_from_catalog(_kimi_catalog()),
         ),
         BackendSpec(
             name="reasonix-acp",

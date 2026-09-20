@@ -618,10 +618,19 @@ class SettingsDialog(QDialog):
 
     def _fill_models(self, backend: str, version: str | None) -> None:
         """模型下拉框填充（缓存已就绪）：清空 → 逐别名灌入 → 定位持久化别名
-        （失效回退首项；只调接口级缓存，无跨后台共享模型表，D6 红线 1）。"""
+        （失效回退首项；只调接口级缓存，无跨后台共享模型表，D6 红线 1）。
+
+        呈现：item 文本优先显示名（spec.list_display_names 命中时，与
+        ModelBar 同款规则），userData 恒为别名——持久化读写与当前值
+        定位均走 userData，显示名纯 UI 呈现不进数据链路。
+        """
         self._model_combo.clear()
+        spec = spec_of(backend)
+        display_names = (
+            spec.list_display_names()
+            if spec is not None and spec.list_display_names is not None else {})
         for alias in self._models_cache.get(backend, []):
-            self._model_combo.addItem(alias, alias)
+            self._model_combo.addItem(display_names.get(alias) or alias, alias)
         version_index = self._model_combo.findData(version)
         if self._model_combo.count():
             self._model_combo.setCurrentIndex(max(version_index, 0))

@@ -101,6 +101,30 @@ def efforts_from_catalog(data: dict) -> dict[str, tuple[list[str], str | None]]:
     return result
 
 
+def display_names_from_catalog(data: dict) -> dict[str, str]:
+    """从 provider list 载荷解析模型显示名：别名 → displayName。
+
+    与 efforts_from_catalog 同源同载荷（0455 计划 T1 缓存层合一的第三路
+    派生）：条目先并入 `overrides` 子表（CLI effective 语义）再读
+    `displayName`；缺字段/非字符串的条目不产生映射——该模型 UI 回退
+    别名原文（注册表 list_display_names 空 dict 同款兜底语义）。
+    纯 UI 呈现数据，不进协议载荷与持久化（D6 红线 2 不破）。
+    """
+    models = data.get("models")
+    if not isinstance(models, dict):
+        return {}
+    result: dict[str, str] = {}
+    for alias, entry in models.items():
+        if not isinstance(alias, str) or not isinstance(entry, dict):
+            continue
+        if isinstance(overrides := entry.get("overrides"), dict):
+            entry = {**entry, **overrides}
+        display_name = entry.get("displayName")
+        if isinstance(display_name, str) and display_name:
+            result[alias] = display_name
+    return result
+
+
 def list_kimi_models() -> list[str]:
     """经 `kimi provider list --json` 解析可用模型别名；失败返回空列表。"""
     return models_from_catalog(load_kimi_provider_catalog())

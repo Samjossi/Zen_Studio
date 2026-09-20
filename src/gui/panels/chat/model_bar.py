@@ -77,6 +77,15 @@
 - 未定制语义：无记忆时勾选默认档（纯 UI 呈现，与 agent 默认一致），
   不下发 set_config_option；切接口/模型时第四级联动重建（先清后建 +
   回退默认项，D6 红线 4 同款）
+
+模型显示名呈现（2026-0920-0727 计划）：
+- 菜单项/按钮文本优先显示名（BackendSpec.list_display_names，kimi
+  provider list --json 的 displayName 经注册表 _kimi_catalog 同源
+  派生）；无显示名数据源/查无别名时回退原规则（菜单全文别名、按钮
+  '/' 末段）
+- action data/信号载荷/持久化值恒为别名（D6 红线 2 不破）；显示名
+  仅替换 text 呈现，别名溯源归菜单项 tooltip 与四按钮 tooltip 模型行
+  （显示名（完整别名）并列）
 """
 from PySide6.QtCore import Signal
 from PySide6.QtGui import QAction, QActionGroup
@@ -151,6 +160,10 @@ class ModelBar(QWidget):
         #: 同步改写，先清后建语义不变
         self._interfaces_vendor: str | None = None
         self._models_backend: str | None = None
+        #: 当前接口的别名 → 显示名映射（_refresh_models 重建时随菜单同点
+        #: 改写；空 dict = 无显示名数据源，菜单/按钮回退别名呈现）。
+        #: 纯 UI 呈现数据：action data/信号载荷/持久化值恒为别名
+        self._model_display_names: dict[str, str] = {}
         #: 第四级数据源接口名/模型别名与能力位（0455 动态化计划：重建
         #: 挂模型级——(backend, model) 二元组不变则跳过无谓重建，与
         #: _interfaces_vendor/_models_backend 同款 D3 语义）；
@@ -256,19 +269,30 @@ class ModelBar(QWidget):
         tooltip = "\n".join((
             f"后台：{vendor.text() if vendor else '无'}",
             f"接口：{interface.text() if interface else '无'}",
-            f"模型：{model.text() if model else '无'}",
+            f"模型：{self._model_tooltip_text(model)}",
             effort_line,
         ))
         for button in (self._vendor_button, self._interface_button,
                        self._model_button, self._effort_button):
             button.setToolTip(tooltip)
 
+    def _model_tooltip_text(self, model_action: QAction | None) -> str:
+        """tooltip 模型行：有显示名时与完整别名并列呈现（别名溯源可见）。"""
+        if model_action is None:
+            return "无"
+        alias = model_action.data()
+        display = self._model_display_names.get(alias)
+        if display:
+            return f"{display}（{alias}）"
+        return model_action.text()
+
     def _refresh_button_texts(self) -> None:
         """四按钮直显当前值短文本，宽度贴合文本（用户拍板口径）。
 
-        文本规则（D1/D4-A）：后台原文；接口剥 vendor 前缀；模型取 '/' 末段；
-        强度原文（协议值本身即短文本，2026-0806 计划）；无勾选项时回退
-        层级标签（空态不显示空串，T4）。
+        文本规则（D1/D4-A）：后台原文；接口剥 vendor 前缀；模型取显示名
+        （list_display_names 命中时，无则别名 '/' 末段）；强度原文（协议
+        值本身即短文本，2026-0806 计划）；无勾选项时回退层级标签（空态
+        不显示空串，T4）。
         宽度规则：各按钮 setFixedWidth(当前短文本宽 + 样式余量)——随选择
         变化即时贴合（短文本精简后差异小，取舍见模块 docstring）。
         与 _refresh_tooltips 同点调用、同生命周期。
@@ -283,9 +307,11 @@ class ModelBar(QWidget):
         interface_text = (
             short_interface_label(interface_action.text(), vendor_label)
             if interface_action is not None else "接口")
-        model_text = (
-            short_model_alias(model_action.text())
-            if model_action is not None else "模型")
+        model_text = "模型"
+        if model_action is not None:
+            model_alias = model_action.data()
+            model_text = (self._model_display_names.get(model_alias)
+                          or short_model_alias(model_alias))
         effort_text = (
             effort_action.text()
             if effort_action is not None else "推理强度")
@@ -441,17 +467,28 @@ class ModelBar(QWidget):
     def _refresh_models(self, backend: str | None) -> None:
         """模型菜单按接口重建（先清后建）：只调该接口的 spec.list_models()
         （模型目录挂接口级，D6 红线 1；别名按不透明字符串透传，红线 2）；
-        重建后默认勾选首项（静默）。"""
+        重建后默认勾选首项（静默）。
+
+        菜单项呈现：有显示名（spec.list_display_names 命中）用显示名、
+        tooltip 溯源完整别名；无显示名维持别名全文。action data 恒为别名
+        ——勾选定位、信号载荷、持久化不受呈现层影响。
+        """
         menu = self._model_button.menu()
         for action in list(self._model_group.actions()):
             self._model_group.removeAction(action)
         menu.clear()
+        self._model_display_names = {}
         spec = spec_of(backend or "")
         if spec is not None and spec.available():
+            if spec.list_display_names is not None:
+                self._model_display_names = spec.list_display_names()
             for alias in spec.list_models():
-                self._add_action(
+                display = self._model_display_names.get(alias)
+                action = self._add_action(
                     self._model_button, self._model_group,
-                    alias, alias, self._on_model_picked)
+                    display or alias, alias, self._on_model_picked)
+                if display is not None:
+                    action.setToolTip(alias)
         if self._model_group.actions():
             self._model_group.actions()[0].setChecked(True)
         self._models_backend = backend
