@@ -33,6 +33,8 @@ class ChangesPanel(QWidget):
 
     #: 双击文件行发射（绝对路径），供主窗口并入查看器打开管线
     file_opened = Signal(str)
+    #: 双击已修改（M）行发射（绝对路径），供主窗口打开变更对比视图
+    diff_opened = Signal(str)
     #: 双击已删除行发射（相对路径），供主窗口状态栏提示
     deleted_activated = Signal(str)
     #: 头部「−」按钮点击发射，显隐单一入口归主窗口
@@ -207,5 +209,7 @@ class ChangesPanel(QWidget):
         abs_path, file_status = payload
         if file_status == git_status.DELETED:
             self.deleted_activated.emit(item.text(0))
+        elif file_status == git_status.MODIFIED:
+            self.diff_opened.emit(abs_path)
         else:
             self.file_opened.emit(abs_path)

@@ -779,6 +779,10 @@ class MainWindow(QMainWindow):
         if self._git_graph_dialog is not None:
             # 提交历史图等宽文本区字号跟随全局（同查看器/终端先例）
             self._git_graph_dialog.refresh_font()
+        if self.git_controller is not None and \
+                (diff_dialog := self.git_controller.diff_dialog) is not None:
+            # 变更对比等宽文本区字号跟随全局（同提交历史图先例）
+            diff_dialog.refresh_font()
         self._sync_settings_dialog()
         self.statusBar().showMessage(f"字号：{size} pt", self.STATUS_MSG_SHORT_MS)
 

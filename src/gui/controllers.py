@@ -10,9 +10,10 @@ from collections.abc import Callable
 from pathlib import Path
 
 from PySide6.QtCore import QObject, QTimer
-from PySide6.QtWidgets import QLabel, QMainWindow, QSplitter, QStatusBar
+from PySide6.QtWidgets import QLabel, QMainWindow, QSplitter, QStatusBar, QWidget
 
 from core.git import GitStatusService
+from gui.diff_view_dialog import DiffViewDialog
 from gui.panels import FileExplorer, ViewerPanel
 from gui.panels.changes import ChangesPanel
 from gui.panels.chat import ChatTabs
@@ -70,6 +71,8 @@ class GitStatusController(QObject):
         self._stats_label = stats_label
         self._service = GitStatusService(file_explorer.root_dir)
         viewer_panel.set_git_service(self._service)
+        #: 变更对比对话框（非模态单例，双击已修改文件时惰性创建）
+        self._diff_dialog: DiffViewDialog | None = None
         self._wire_signals(collapse_handler)
         self._debounce = QTimer(self)
         self._debounce.setSingleShot(True)
@@ -98,11 +101,26 @@ class GitStatusController(QObject):
     def service(self) -> GitStatusService:
         return self._service
 
+    @property
+    def diff_dialog(self) -> DiffViewDialog | None:
+        """已创建的变更对比对话框（未创建为 None；供字号链重刷判定）。"""
+        return self._diff_dialog
+
+    def _open_diff_view(self, abs_path: str) -> None:
+        """双击已修改（M）文件 → 变更对比视图（惰性创建单例，同提交历史图先例）。"""
+        if self._diff_dialog is None:
+            parent = self.parent()
+            self._diff_dialog = DiffViewDialog(
+                self._service, parent if isinstance(parent, QWidget) else None)
+        self._diff_dialog.show_diff(abs_path)
+
     def _wire_signals(self, collapse_handler: Callable[[], None]) -> None:
         """三处事件源接线（变更面板联动 + 文件打开统计同步）。"""
-        # 变更面板：双击打开并入查看器管线；删除行双击 → 状态栏提示
+        # 变更面板：双击打开并入查看器管线；删除行双击 → 状态栏提示；
+        # 已修改行双击 → 变更对比视图
         self._changes.file_opened.connect(self._viewer.open_file)
         self._changes.file_opened.connect(lambda _path: self._update_stats_label())
+        self._changes.diff_opened.connect(self._open_diff_view)
         self._changes.deleted_activated.connect(
             lambda path: self._status_bar.showMessage(
                 f"文件已删除，待提交：{path}", self.HINT_TIMEOUT_MS))
