@@ -1,11 +1,12 @@
-"""Unified Diff 变更对比视图单元测试（work plans/2026-0924-1749 计划 T5）。
+"""Unified Diff 变更对比视图单元测试（1749 计划 T5 + 1914 计划 T4）。
 
-- unified_rows：增/删/改/无差异/超行数五类输入的 kind 序列断言（纯函数，
-  不依赖 Qt/git）
+- unified_rows：增/删/改/多 hunk/单行 hunk（无逗号形态）/无差异/超行数
+  输入的 kind 与 old_no/new_no 行号序列断言（纯函数，不依赖 Qt/git）
 - fetch_base_content：monkeypatch 注入假 run_git 测上游命中/HEAD 回退/
   双侧失败/二进制嗅探（不落真实 git 仓库，对齐 test_git_dir_status.py
   造服务范式）
-- DiffViewDialog：offscreen 构造 + 假服务注入，覆盖渲染着色与降级占位页
+- DiffViewDialog：offscreen 构造 + 假服务注入，覆盖表格化渲染（行号/
+  整行底色/hunk 蓝带）与降级占位页
 """
 from __future__ import annotations
 
@@ -17,37 +18,63 @@ from PySide6.QtWidgets import QApplication
 from core.diff_view import MAX_DIFF_LINES, unified_rows
 from core.git import content as git_content
 from gui.diff_view_dialog import DiffViewDialog
-from gui.theme import get_theme_palette
+from gui.theme import get_theme_palette, list_available_themes
 
 REPO = "/repo"  # 虚构仓库根（不落盘）
 
 
 # ----------------------------------------------------------------------
-# unified_rows（core 纯函数）
+# unified_rows（core 纯函数，含双侧行号）
 # ----------------------------------------------------------------------
 def kinds(rows):
-    return [kind for kind, _ in rows]
+    return [kind for kind, _, _, _ in rows]
 
 
 def test_modified_rows():
-    """改：del 紧跟 add，两端上下文行，hunk 头居首。"""
+    """改：del 紧跟 add，两端上下文行，hunk 头居首；行号双侧计数。"""
     rows = unified_rows("a\nb\nc", "a\nX\nc")
     assert kinds(rows) == ["hunk", "ctx", "del", "add", "ctx"]
-    assert rows[0][1].startswith("@@")
-    assert rows[2] == ("del", "-b")
-    assert rows[3] == ("add", "+X")
+    assert rows[0] == ("hunk", "@@ -1,3 +1,3 @@", None, None)
+    assert rows[1] == ("ctx", " a", 1, 1)
+    assert rows[2] == ("del", "-b", 2, None)
+    assert rows[3] == ("add", "+X", None, 2)
+    assert rows[4] == ("ctx", " c", 3, 3)
 
 
 def test_added_rows():
     rows = unified_rows("a", "a\nb")
-    assert kinds(rows) == ["hunk", "ctx", "add"]
-    assert rows[2] == ("add", "+b")
+    assert rows == [("hunk", "@@ -1 +1,2 @@", None, None),
+                    ("ctx", " a", 1, 1),
+                    ("add", "+b", None, 2)]
 
 
 def test_deleted_rows():
     rows = unified_rows("a\nb", "a")
-    assert kinds(rows) == ["hunk", "ctx", "del"]
-    assert rows[2] == ("del", "-b")
+    assert rows == [("hunk", "@@ -1,2 +1 @@", None, None),
+                    ("ctx", " a", 1, 1),
+                    ("del", "-b", 2, None)]
+
+
+def test_multi_hunk_counters_reinit():
+    """多 hunk：每个 hunk 头重置双侧计数器（context=1 强制分块）。"""
+    old = "\n".join(f"line{i}" for i in range(1, 21))
+    new_lines = old.splitlines()
+    new_lines[0] = "CHANGED1"
+    new_lines[19] = "CHANGED20"
+    rows = unified_rows(old, "\n".join(new_lines), context=1)
+    assert kinds(rows) == ["hunk", "del", "add", "ctx", "hunk", "ctx", "del", "add"]
+    assert rows[4][1] == "@@ -19,2 +19,2 @@"
+    assert rows[5] == ("ctx", " line19", 19, 19)
+    assert rows[6] == ("del", "-line20", 20, None)
+    assert rows[7] == ("add", "+CHANGED20", None, 20)
+
+
+def test_single_line_hunk_no_comma():
+    """单行 hunk 头 `@@ -1 +1 @@`（无逗号计数形态）行号同样正确。"""
+    rows = unified_rows("only", "changed")
+    assert rows == [("hunk", "@@ -1 +1 @@", None, None),
+                    ("del", "-only", 1, None),
+                    ("add", "+changed", None, 1)]
 
 
 def test_no_diff_returns_empty():
@@ -66,8 +93,8 @@ def test_header_lines_skipped_positionally():
     """文件头 ---/+++ 按位置跳过：内容行本身以 -- 开头不误判。"""
     rows = unified_rows("--x", "--y")
     assert kinds(rows) == ["hunk", "del", "add"]
-    assert rows[1] == ("del", "---x")
-    assert rows[2] == ("add", "+--y")
+    assert rows[1] == ("del", "---x", 1, None)
+    assert rows[2] == ("add", "+--y", None, 1)
 
 
 # ----------------------------------------------------------------------
@@ -113,6 +140,20 @@ def test_base_content_binary_returns_none(monkeypatch):
 
 
 # ----------------------------------------------------------------------
+# 主题包新键（1914 计划 T2）
+# ----------------------------------------------------------------------
+def test_chat_pack_diff_visual_keys_all_themes():
+    """六主题 chat 包均含整行底色/hunk 蓝带四新键，且亮暗双套值不同。"""
+    keys = ("diff_add_bg", "diff_del_bg", "diff_hunk_fg", "diff_hunk_bg")
+    combos = set()
+    for name in list_available_themes():
+        chat = get_theme_palette(name)["chat"]
+        assert all(key in chat for key in keys), name
+        combos.add(tuple(chat[key] for key in keys))
+    assert len(combos) == 2, "亮暗双套各一份（四亮主题共享亮套、两深主题共享暗套）"
+
+
+# ----------------------------------------------------------------------
 # DiffViewDialog（offscreen 构造 + 假服务注入）
 # ----------------------------------------------------------------------
 @pytest.fixture(scope="module")
@@ -135,7 +176,7 @@ def _patch_content(monkeypatch, base: str | None, worktree: str | None):
 
 
 def test_dialog_renders_colored_rows(qapp, monkeypatch):
-    """注入样例文本：del/add/hunk 入行序列，HTML 携带主题红绿色值。"""
+    """注入样例文本：行序列入表，HTML 携带行号、整行底色与 hunk 蓝带色值。"""
     _patch_content(monkeypatch, base="a\nb\nc", worktree="a\nX\nc")
     dialog = DiffViewDialog(_fake_service())
     dialog.show_diff(f"{REPO}/a.py")
@@ -143,22 +184,35 @@ def test_dialog_renders_colored_rows(qapp, monkeypatch):
     assert kinds(dialog._rows) == ["hunk", "ctx", "del", "add", "ctx"]
     chat = get_theme_palette(dialog._theme)["chat"]
     html = dialog._browser.toHtml()
-    assert chat["diff_del_fg"] in html, "删除行着色（红）"
-    assert chat["diff_add_fg"] in html, "新增行着色（绿）"
-    assert chat["reasoning_fg"] in html, "hunk 头着色（灰）"
+    assert "<table" in html, "表格化布局"
+    assert chat["diff_del_fg"] in html, "删除行前景（红）"
+    assert chat["diff_add_fg"] in html, "新增行前景（绿）"
+    assert chat["diff_del_bg"] in html, "删除行整行底色（浅红）"
+    assert chat["diff_add_bg"] in html, "新增行整行底色（浅绿）"
+    assert chat["diff_hunk_fg"] in html and chat["diff_hunk_bg"] in html, "hunk 蓝带"
+    assert 'colspan="3"' in html, "hunk 行跨三列"
     assert "-b" in html and "+X" in html
+    # 行号入格：del 行旧号 2、add 行新号 2（前缀行号均来自样例行序）
+    assert ">2</" in html, "行号单元格"
 
 
 def test_dialog_apply_theme_rerenders(qapp, monkeypatch):
-    """apply_theme 换主题后按新调色板重渲染（亮/暗色值跟随）。"""
+    """apply_theme 换暗主题后按新调色板重渲染（前景/底色均跟随）。
+
+    暗套底色为 #AARRGGBB 低透明叠底，Qt toHtml 序列化为 rgba(...) 形态，
+    故断言其展开式子串。
+    """
     _patch_content(monkeypatch, base="a\nb", worktree="a\nB")
     dialog = DiffViewDialog(_fake_service())
     dialog.show_diff(f"{REPO}/a.py")
     dialog.apply_theme("graphite")
     dark_chat = get_theme_palette("graphite")["chat"]
     html = dialog._browser.toHtml()
-    assert dark_chat["diff_add_fg"] in html, "暗主题新增行色值跟随"
-    assert dark_chat["diff_del_fg"] in html, "暗主题删除行色值跟随"
+    assert dark_chat["diff_add_fg"] in html, "暗主题新增行前景跟随"
+    assert dark_chat["diff_del_fg"] in html, "暗主题删除行前景跟随"
+    assert dark_chat["diff_hunk_fg"] in html, "暗主题 hunk 蓝字跟随"
+    assert "rgba(46,160,67" in html, "暗主题新增行底色（叠底 alpha 展开式）"
+    assert "rgba(248,81,73" in html, "暗主题删除行底色（叠底 alpha 展开式）"
 
 
 def test_dialog_not_enabled_placeholder(qapp, monkeypatch):

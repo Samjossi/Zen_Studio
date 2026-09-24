@@ -118,6 +118,14 @@ class ChatPack(TypedDict):
     #: 仅新轨卡片视图消费，四主题共享引用纪律不变）
     diff_add_fg: str
     diff_del_fg: str
+    #: 变更对比视图整行底色与 hunk 分块带四键（1914 计划 D2：
+    #: 三家参考实现共识——整行浅红/浅绿底色是「一眼认出 diff」的主信号，
+    #: 前景色只是辅助层；hunk 头蓝字蓝带不复用 reasoning_fg 灰，
+    #: 与上下文行拉开第二视觉层次）
+    diff_add_bg: str
+    diff_del_bg: str
+    diff_hunk_fg: str
+    diff_hunk_bg: str
 
 
 #: 标题栏配色包键（无边框自绘标题栏 TitleBar 专用，见 gui/title_bar.py；
@@ -226,6 +234,12 @@ CHAT_PACK: ChatPack = {
     "tool_output_bg": "#f5f5f7",
     "diff_add_fg": "#3a8437",
     "diff_del_fg": "#ed4831",
+    # 整行底色取 GitHub 亮色 diff 同族极浅实底（白底下 alpha 与实底等效，
+    # 实底规避 Qt 富文本 alpha 叠底渲染差异）
+    "diff_add_bg": "#e6ffec",
+    "diff_del_bg": "#ffebe9",
+    "diff_hunk_fg": "#1d4ed8",
+    "diff_hunk_bg": "#ddf4ff",
 }
 
 # ----------------------------------------------------------------------
@@ -309,6 +323,12 @@ CHAT_PACK_DARK: ChatPack = {
     "tool_output_bg": "#262628",
     "diff_add_fg": "#4ec971",
     "diff_del_fg": "#ff7b72",
+    # 深底下实底浅绿/浅红会过亮刺眼，取 GitHub 暗色 diff 同族
+    # #AARRGGBB 低透明叠底（经 input_bg 实底混合出浅染色）
+    "diff_add_bg": "#262ea043",
+    "diff_del_bg": "#1af85149",
+    "diff_hunk_fg": "#58a6ff",
+    "diff_hunk_bg": "#26388bfd",
 }
 
 # ----------------------------------------------------------------------

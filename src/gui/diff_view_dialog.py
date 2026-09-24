@@ -7,8 +7,9 @@
   外部并发改动不自动刷新（重开或点「刷新」，与提交历史图策略一致）
 - 数据链路：基准侧 content.fetch_base_content（@{upstream} 优先、HEAD
   兜底）vs 工作区 content.fetch_worktree_content → core.diff_view.
-  unified_rows 行序列 → QTextBrowser 逐行着色（色值取 chat 包
-  diff_add_fg/diff_del_fg，hunk 头复用 reasoning_fg 弱化）
+  unified_rows 行序列（含双侧行号）→ QTextBrowser 表格化渲染
+  （三列：旧行号|新行号|内容；del/add 整行浅红/浅绿底，hunk 跨列蓝带，
+  色值取 chat 包 diff_* 六键）
 - 降级走 QStackedWidget 占位页（非仓库/仓外文件/读取失败/基准侧无
   内容/文件过大/无差异），不弹任何错误框
 - 主题/字号链：apply_theme(theme) 保留为公共接口（热切换已随
@@ -146,25 +147,44 @@ class DiffViewDialog(QDialog):
         self._stack.setCurrentWidget(self._placeholder)
 
     def _render(self) -> None:
-        """逐行着色渲染：del 红 / add 绿 / hunk 灰 / ctx 默认色。
+        """表格化逐行渲染：旧行号 | 新行号 | 内容三列 + 整行底色 + hunk 蓝带。
 
-        <pre> 包裹保留缩进空白（同提交历史图富文本降级形态手法）。
+        整行浅红/浅绿底色是「一眼认出 diff」的主信号（三家参考实现共识，
+        文字前景色只是辅助层）；hunk 行跨三列蓝带蓝字与上下文拉开第二层次。
+        内容 cell 内嵌 <pre> 保留缩进空白（Qt 富文本子集实证通路）；
+        cellspacing/cellpadding 清零防整行底色断缝；行号列 width=1 收缩
+        贴内容列（HTML 表格最小宽技法），列间距由行号尾空格承担。
         """
         if self._rows is None:
             return
         chat = get_theme_palette(self._theme)["chat"]
-        colors = {
-            "del": chat["diff_del_fg"],
-            "add": chat["diff_add_fg"],
-            "hunk": chat["reasoning_fg"],
-        }
-        parts = []
-        for kind, text in self._rows:
-            color = colors.get(kind)
-            escaped = escape(text)
+        parts = ['<table cellspacing="0" cellpadding="0" width="100%">']
+        for kind, text, old_no, new_no in self._rows:
+            if kind == "hunk":
+                parts.append(
+                    f'<tr><td colspan="3" bgcolor="{chat["diff_hunk_bg"]}">'
+                    f'<pre><font color="{chat["diff_hunk_fg"]}">{escape(text)}</font></pre>'
+                    "</td></tr>")
+                continue
+            bg = {"del": chat["diff_del_bg"], "add": chat["diff_add_bg"]}.get(kind)
+            fg = {"del": chat["diff_del_fg"], "add": chat["diff_add_fg"]}.get(kind)
+            bg_attr = f' bgcolor="{bg}"' if bg else ""
+
+            def no_cell(no: int | None) -> str:
+                num = "" if no is None else str(no)
+                if num and fg:
+                    num = f'<font color="{fg}">{num}</font>'
+                # 尾空格充当列间距（cellpadding 清零后数字与邻列会粘连）
+                return f'<td{bg_attr} align="right" width="1"><pre>{num} </pre></td>'
+
+            content = escape(text)
+            if fg:
+                content = f'<font color="{fg}">{content}</font>'
             parts.append(
-                f'<span style="color:{color}">{escaped}</span>' if color else escaped)
-        self._browser.setHtml("<pre>" + "\n".join(parts) + "</pre>")
+                f"<tr>{no_cell(old_no)}{no_cell(new_no)}"
+                f'<td{bg_attr} width="100%"><pre>{content}</pre></td></tr>')
+        parts.append("</table>")
+        self._browser.setHtml("".join(parts))
 
     # ------------------------------------------------------------------
     # 主题/字号链
