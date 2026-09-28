@@ -12,6 +12,10 @@
   色值取 chat 包 diff_* 六键）
 - 单侧缺失按空文本对比：基准侧无该文件（新文件）→ 整篇全绿；工作区
   无该文件（盘上不存在）→ 整篇全红，信息行同步标注
+- 跳转查看器：「查看文件」按钮 + del/add 行行号锚点 →
+  viewer_jump_requested(绝对路径, 新侧行号|None)，由 GitStatusController
+  接 ViewerPanel.open_file 并置前主窗口；跳转后关闭本对话框
+  （子窗恒在父窗之上，不关闭会遮挡查看器目标行）
 - 降级走 QStackedWidget 占位页（非仓库/仓外文件/读取失败/文件过大/
   无差异），不弹任何错误框
 - 主题/字号链：apply_theme(theme) 保留为公共接口（热切换已随
@@ -23,7 +27,7 @@ from __future__ import annotations
 from html import escape
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QUrl, Signal
 from PySide6.QtGui import QFont, QResizeEvent, QShowEvent
 from PySide6.QtWidgets import (
     QApplication,
@@ -44,8 +48,47 @@ from gui.settings import KEY_THEME
 from gui.theme import get_mono_family, get_theme_palette, load_settings
 
 
+def first_change_line(rows: list[DiffRow] | None) -> int | None:
+    """首个变更行（del/add）映射到工作区的新侧行号；无法定位返回 None。
+
+    del 行自身无新侧行号，取其后首个新侧行号（删除位置的下文）；
+    文件尾全删时取上文最后新侧行号。「查看文件」按钮的落点。
+    """
+    if not rows:
+        return None
+    targets = _row_jump_targets(rows)
+    for (kind, _, _, _), target in zip(rows, targets):
+        if kind in ("del", "add") and target is not None:
+            return target
+    return None
+
+
+def _row_jump_targets(rows: list[DiffRow]) -> list[int | None]:
+    """逐行跳转目标（新侧行号）：add/ctx 取自身；del 取其后首个新侧行号
+    （文件尾全删取上文最后新侧行号）；hunk 行 None（不可跳转）。"""
+    own = [new_no for _, _, _, new_no in rows]
+    targets: list[int | None] = []
+    last_seen: int | None = None
+    for index, (kind, _, _, new_no) in enumerate(rows):
+        if kind == "hunk":
+            targets.append(None)
+        elif kind == "del":
+            nxt = next((n for n in own[index + 1:] if n is not None), None)
+            targets.append(nxt if nxt is not None else last_seen)
+        else:
+            targets.append(new_no)
+        if new_no is not None:
+            last_seen = new_no
+    return targets
+
+
 class DiffViewDialog(QDialog):
-    """变更对比弹窗：信息行（文件路径 + 对比基准）+ 二页栈（占位/差异视图）+ 刷新按钮。"""
+    """变更对比弹窗：信息行（文件路径 + 对比基准）+ 二页栈（占位/差异视图）
+    +「查看文件」/「刷新」按钮。"""
+
+    #: 跳转查看器请求（绝对路径, 新侧行号|None；载荷对齐对话区
+    #: file_open_requested 范式），controllers 接 ViewerPanel.open_file
+    viewer_jump_requested = Signal(str, object)
 
     def __init__(self, service: GitStatusService, parent: QWidget | None = None) -> None:
         """
@@ -70,16 +113,25 @@ class DiffViewDialog(QDialog):
         self._placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._browser = QTextBrowser(self)
         self._browser.setOpenExternalLinks(False)
+        # 行号锚点（diffjump:N）由 anchorClicked 自处理；置 False 防
+        # 默认 setSource 导航把 diff 内容覆盖掉
+        self._browser.setOpenLinks(False)
+        self._browser.anchorClicked.connect(self._on_anchor_clicked)
         self._browser.setReadOnly(True)
         self._stack = QStackedWidget(self)
         self._stack.addWidget(self._placeholder)
         self._stack.addWidget(self._browser)
+        self._jump_btn = QPushButton("查看文件(&V)", self)
+        self._jump_btn.setToolTip("在查看器中打开该文件并定位到首个变更行")
+        self._jump_btn.setEnabled(False)  # 待 reload 判定工作区文件在盘后启用
+        self._jump_btn.clicked.connect(self._on_jump_clicked)
         refresh_btn = QPushButton("刷新(&R)", self)
         refresh_btn.clicked.connect(self.reload)
 
         top = QHBoxLayout()
         top.setContentsMargins(0, 0, 0, 0)
         top.addWidget(self._info_label, 1)
+        top.addWidget(self._jump_btn, 0)
         top.addWidget(refresh_btn, 0)
         layout = QVBoxLayout(self)
         layout.addLayout(top)
@@ -114,6 +166,8 @@ class DiffViewDialog(QDialog):
         """重拉基准/工作区内容并重建差异；单侧缺失按空文本对比，读取失败走占位文案。"""
         if self._path is None:
             return
+        # 每次重拉先禁用「查看文件」，确认工作区文件在盘的分支再逐个启用
+        self._jump_btn.setEnabled(False)
         if not self._service.is_enabled:
             self._set_info("（非 git 仓库）")
             self._show_placeholder("当前工作区不在 git 仓库内。")
@@ -130,11 +184,16 @@ class DiffViewDialog(QDialog):
         worktree_missing = False
         if worktree is None:
             if (Path(repo_root) / rel).exists():
+                # 文件在盘但读不出（二进制/编码）：查看器自有二进制分流，
+                # 跳转仍可用
+                self._jump_btn.setEnabled(True)
                 self._show_placeholder("文件读取失败（可能为二进制或不支持的编码）。")
                 return
             # 盘上不存在（如暂存后被删）：按空文本对比，整篇全红
             worktree = ""
             worktree_missing = True
+        else:
+            self._jump_btn.setEnabled(True)
         base = git_content.fetch_base_content(repo_root, rel)
         if base is None:
             # base 为 None 无法区分「ref 中不存在」与「ref 中是二进制」，
@@ -180,6 +239,28 @@ class DiffViewDialog(QDialog):
         self._placeholder.setText(text)
         self._stack.setCurrentWidget(self._placeholder)
 
+    # ------------------------------------------------------------------
+    # 跳转查看器
+    # ------------------------------------------------------------------
+    def _on_jump_clicked(self) -> None:
+        """「查看文件」按钮：定位首个变更行（无行序列时从文件头打开）。"""
+        self._jump_to_viewer(first_change_line(self._rows))
+
+    def _on_anchor_clicked(self, url: QUrl) -> None:
+        """del/add 行行号锚点（diffjump:N）：定位该变更行。"""
+        scheme, _, line_text = url.toString().partition("diffjump:")
+        if scheme or not line_text.isdigit():
+            return
+        self._jump_to_viewer(int(line_text))
+
+    def _jump_to_viewer(self, line: int | None) -> None:
+        if self._path is None:
+            return
+        self.viewer_jump_requested.emit(self._path, line)
+        # 跳转后关闭：子窗恒在父窗之上，不关闭会遮挡查看器目标行；
+        # 非模态单例重开成本仅一次双击
+        self.close()
+
     def _render(self) -> None:
         """表格化逐行渲染：旧行号 | 新行号 | 内容三列 + 整行底色 + hunk 蓝带。
 
@@ -188,12 +269,20 @@ class DiffViewDialog(QDialog):
         内容 cell 内嵌 <pre> 保留缩进空白（Qt 富文本子集实证通路）；
         cellspacing/cellpadding 清零防整行底色断缝；行号列 width=1 收缩
         贴内容列（HTML 表格最小宽技法），列间距由行号尾空格承担。
+        del/add 行的行号渲染为 diffjump:N 锚点（点击跳查看器对应变更行），
+        锚点颜色走默认样式表 a.del/a.add 类选择器，抵消 Qt 默认链接色与
+        下划线、保持行号随行染色观感。
         """
         if self._rows is None:
             return
         chat = get_theme_palette(self._theme)["chat"]
+        self._browser.document().setDefaultStyleSheet(
+            "a { text-decoration: none; }\n"
+            f"a.add {{ color: {chat['diff_add_fg']}; }}\n"
+            f"a.del {{ color: {chat['diff_del_fg']}; }}")
+        targets = _row_jump_targets(self._rows)
         parts = ['<table cellspacing="0" cellpadding="0" width="100%">']
-        for kind, text, old_no, new_no in self._rows:
+        for (kind, text, old_no, new_no), target in zip(self._rows, targets):
             if kind == "hunk":
                 parts.append(
                     f'<tr><td colspan="3" bgcolor="{chat["diff_hunk_bg"]}">'
@@ -204,18 +293,28 @@ class DiffViewDialog(QDialog):
             fg = {"del": chat["diff_del_fg"], "add": chat["diff_add_fg"]}.get(kind)
             bg_attr = f' bgcolor="{bg}"' if bg else ""
 
-            def no_cell(no: int | None) -> str:
+            def no_cell(no: int | None, anchor: int | None = None) -> str:
                 num = "" if no is None else str(no)
-                if num and fg:
+                if num and anchor is not None:
+                    # 锚点行号色由默认样式表 a.del/a.add 承担，不再内嵌 font
+                    num = f'<a class="{kind}" href="diffjump:{anchor}">{num}</a>'
+                elif num and fg:
                     num = f'<font color="{fg}">{num}</font>'
                 # 尾空格充当列间距（cellpadding 清零后数字与邻列会粘连）
                 return f'<td{bg_attr} align="right" width="1"><pre>{num} </pre></td>'
+
+            if kind == "del":  # 删除行无新侧行号，锚点挂旧侧行号
+                cells = no_cell(old_no, target) + no_cell(new_no)
+            elif kind == "add":
+                cells = no_cell(old_no) + no_cell(new_no, target)
+            else:
+                cells = no_cell(old_no) + no_cell(new_no)
 
             content = escape(text)
             if fg:
                 content = f'<font color="{fg}">{content}</font>'
             parts.append(
-                f"<tr>{no_cell(old_no)}{no_cell(new_no)}"
+                f"<tr>{cells}"
                 f'<td{bg_attr} width="100%"><pre>{content}</pre></td></tr>')
         parts.append("</table>")
         self._browser.setHtml("".join(parts))

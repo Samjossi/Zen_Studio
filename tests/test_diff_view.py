@@ -6,20 +6,20 @@
   双侧失败/二进制嗅探（不落真实 git 仓库，对齐 test_git_dir_status.py
   造服务范式）
 - DiffViewDialog：offscreen 构造 + 假服务注入，覆盖表格化渲染（行号/
-  整行底色/hunk 蓝带）、单侧缺失空文本对比（新文件全绿/删除全红）
-  与降级占位页
+  整行底色/hunk 蓝带）、单侧缺失空文本对比（新文件全绿/删除全红）、
+  跳转查看器（按钮/行号锚点 → viewer_jump_requested + 关窗）与降级占位页
 """
 from __future__ import annotations
 
 from types import SimpleNamespace
 
 import pytest
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QUrl
 from PySide6.QtWidgets import QApplication
 
 from core.diff_view import MAX_DIFF_LINES, unified_rows
 from core.git import content as git_content
-from gui.diff_view_dialog import DiffViewDialog
+from gui.diff_view_dialog import DiffViewDialog, first_change_line
 from gui.theme import get_theme_palette, list_available_themes
 
 REPO = "/repo"  # 虚构仓库根（不落盘）
@@ -288,3 +288,94 @@ def test_dialog_outside_repo_placeholder(qapp, monkeypatch):
     dialog.show_diff("/elsewhere/a.py")
     assert dialog._stack.currentWidget() is dialog._placeholder
     assert "不在当前仓库" in dialog._placeholder.text()
+
+
+# ----------------------------------------------------------------------
+# 跳转查看器（first_change_line 纯函数 + 按钮/锚点信号 + 启用规则 + 关窗）
+# ----------------------------------------------------------------------
+def test_first_change_line_modified():
+    """改：首个变更行是 del，取其下文首个新侧行号。"""
+    assert first_change_line(unified_rows("a\nb\nc", "a\nX\nc")) == 2
+
+
+def test_first_change_line_added_and_new_file():
+    assert first_change_line(unified_rows("a", "a\nb")) == 2
+    assert first_change_line(unified_rows("", "a\nb")) == 1, "新文件落第 1 行"
+
+
+def test_first_change_line_tail_deletion_falls_back():
+    """文件尾全删：下文无新侧行号，回退上文最后新侧行号。"""
+    assert first_change_line(unified_rows("a\nb", "a")) == 1
+
+
+def test_first_change_line_all_deleted_or_empty():
+    assert first_change_line(unified_rows("a\nb", "")) is None
+    assert first_change_line([]) is None
+    assert first_change_line(None) is None
+
+
+def _capture_jump(dialog: DiffViewDialog) -> list:
+    fired: list = []
+    dialog.viewer_jump_requested.connect(lambda p, line: fired.append((p, line)))
+    return fired
+
+
+def test_dialog_jump_button_emits_first_change_and_closes(qapp, monkeypatch):
+    """「查看文件」按钮：发射 (路径, 首个变更行) 并关闭对话框。"""
+    _patch_content(monkeypatch, base="a\nb\nc", worktree="a\nX\nc")
+    dialog = DiffViewDialog(_fake_service())
+    dialog.show_diff(f"{REPO}/a.py")
+    assert dialog._jump_btn.isEnabled()
+    fired = _capture_jump(dialog)
+    dialog._jump_btn.click()
+    assert fired == [(f"{REPO}/a.py", 2)]
+    assert not dialog.isVisible(), "跳转后关闭（防子窗遮挡查看器目标行）"
+
+
+def test_dialog_jump_button_disabled_when_worktree_missing(qapp, monkeypatch, tmp_path):
+    """工作区文件盘上不存在（删除场景）：跳无可跳，按钮禁用。"""
+    _patch_content(monkeypatch, base="a\nb", worktree=None)
+    dialog = DiffViewDialog(_fake_service(repo_root=str(tmp_path)))
+    dialog.show_diff(str(tmp_path / "gone.py"))
+    assert not dialog._jump_btn.isEnabled()
+
+
+def test_dialog_jump_button_enabled_on_read_failure(qapp, monkeypatch, tmp_path):
+    """文件在盘但读不出（二进制）：查看器自有二进制分流，按钮可用且 line=None。"""
+    target = tmp_path / "a.bin"
+    target.write_bytes(b"PK\x00garbage")
+    _patch_content(monkeypatch, base="a", worktree=None)
+    dialog = DiffViewDialog(_fake_service(repo_root=str(tmp_path)))
+    dialog.show_diff(str(target))
+    assert dialog._jump_btn.isEnabled()
+    fired = _capture_jump(dialog)
+    dialog._jump_btn.click()
+    assert fired == [(str(target), None)]
+
+
+def test_dialog_line_anchor_emits_new_side_line(qapp, monkeypatch):
+    """行号锚点：HTML 携带 diffjump:N，点击发射对应新侧行号并关窗。"""
+    _patch_content(monkeypatch, base="a\nb\nc", worktree="a\nX\nc")
+    dialog = DiffViewDialog(_fake_service())
+    dialog.show_diff(f"{REPO}/a.py")
+    html = dialog._browser.toHtml()
+    chat = get_theme_palette(dialog._theme)["chat"]
+    assert 'href="diffjump:2"' in html, "del/add 行行号渲染为锚点"
+    # Qt 序列化把 a.del/a.add 类选择器色值内联为 span（class 属性不落盘）
+    assert f'<a href="diffjump:2"><span style=" color:{chat["diff_del_fg"]};">' in html
+    assert f'<a href="diffjump:2"><span style=" color:{chat["diff_add_fg"]};">' in html
+    fired = _capture_jump(dialog)
+    dialog._browser.anchorClicked.emit(QUrl("diffjump:3"))
+    assert fired == [(f"{REPO}/a.py", 3)]
+    assert not dialog.isVisible()
+
+
+def test_dialog_anchor_ignores_foreign_url(qapp, monkeypatch):
+    """非 diffjump 协议锚点不触发跳转（防御性解析）。"""
+    _patch_content(monkeypatch, base="a", worktree="b")
+    dialog = DiffViewDialog(_fake_service())
+    dialog.show_diff(f"{REPO}/a.py")
+    fired = _capture_jump(dialog)
+    dialog._browser.anchorClicked.emit(QUrl("https://example.com"))
+    assert not fired
+    assert dialog.isVisible()

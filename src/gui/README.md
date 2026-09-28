@@ -160,9 +160,11 @@ Git 数据层 `core/git/` 为零 Qt 依赖的纯 Python 包（subprocess 调系�
 | 要点 | 说明 |
 |:---|:---|
 | 列表 | 文件名（按状态着色，已删除加删除线）｜绿 `+N`｜红 `-N`；增减两列按内容收紧贴右；未跟踪文件逐条列出（`status --untracked-files=all`） |
-| 信号 | `file_opened(str)` 双击打开到查看器（绝对路径）/ `deleted_activated(str)` 删除行双击 → 状态栏提示 / `collapse_requested()` 头部「−」收起 |
+| 信号 | `diff_opened(str)` 双击已修改/未跟踪（M/U）行 → 变更对比视图 / `file_opened(str)` 双击忽略条目与冲突态 → 查看器（绝对路径）/ `deleted_activated(str)` 删除行双击 → 状态栏提示 / `collapse_requested()` 头部「−」收起 |
 | 头部栏 | 标题（含数量）+ 「−」收起按钮；显隐单一入口归主窗口（视图菜单勾选动作同步） |
 | 空态 | 非 Git 仓库 / 无变更 显示占位行 |
+
+变更对比弹窗 `DiffViewDialog`（`gui/diff_view_dialog.py`，非模态单例）：双击 M/U 行打开 Unified Diff 视图；单侧缺失按空文本对比（新文件全绿/已删除全红）；「查看文件」按钮与 del/add 行行号锚点发射 `viewer_jump_requested(绝对路径, 行号|None)`，经 `GitStatusController` 接 `ViewerPanel.open_file` 定位到首个/对应变更行，跳转后弹窗自动关闭（防子窗遮挡查看器目标行）。
 
 ## 10. 运行方式
 

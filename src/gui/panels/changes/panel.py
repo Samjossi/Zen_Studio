@@ -5,7 +5,8 @@
   已删除文件追加删除线字体
 - 右侧绿 `+N` / 红 `-N` 行数（不补零），两列按内容收紧宽度紧凑贴右；
   未跟踪文件由数据层逐条列出并补行数（status --untracked-files=all）
-- 双击文件行 → file_opened 绝对路径；删除行双击 → deleted_activated（文件已不存在）
+- 双击文件行：M/U（含已暂存新增 A 归并的 M）→ diff_opened 变更对比视图；
+  忽略条目/冲突态 → file_opened 查看器；删除行双击 → deleted_activated（文件已不存在）
 - 头部栏标题（含数量）+ 「−」收起按钮 → collapse_requested，显隐逻辑归主窗口
 - 空态占位行：changes=None 非 Git 仓库 / 空列表 无变更
 """
@@ -33,7 +34,7 @@ class ChangesPanel(QWidget):
 
     #: 双击文件行发射（绝对路径），供主窗口并入查看器打开管线
     file_opened = Signal(str)
-    #: 双击已修改（M）行发射（绝对路径），供主窗口打开变更对比视图
+    #: 双击已修改/未跟踪（M/U）行发射（绝对路径），供主窗口打开变更对比视图
     diff_opened = Signal(str)
     #: 双击已删除行发射（相对路径），供主窗口状态栏提示
     deleted_activated = Signal(str)
@@ -209,7 +210,9 @@ class ChangesPanel(QWidget):
         abs_path, file_status = payload
         if file_status == git_status.DELETED:
             self.deleted_activated.emit(item.text(0))
-        elif file_status == git_status.MODIFIED:
+        elif file_status in (git_status.MODIFIED, git_status.UNTRACKED):
+            # 未跟踪新文件与已修改同走对比视图：空基准 diff 整篇全绿，
+            # 同为新建/变更文件，双击去向保持一致
             self.diff_opened.emit(abs_path)
         else:
             self.file_opened.emit(abs_path)
