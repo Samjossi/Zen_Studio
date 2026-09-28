@@ -6,13 +6,15 @@
   双侧失败/二进制嗅探（不落真实 git 仓库，对齐 test_git_dir_status.py
   造服务范式）
 - DiffViewDialog：offscreen 构造 + 假服务注入，覆盖表格化渲染（行号/
-  整行底色/hunk 蓝带）与降级占位页
+  整行底色/hunk 蓝带）、单侧缺失空文本对比（新文件全绿/删除全红）
+  与降级占位页
 """
 from __future__ import annotations
 
 from types import SimpleNamespace
 
 import pytest
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication
 
 from core.diff_view import MAX_DIFF_LINES, unified_rows
@@ -162,10 +164,10 @@ def qapp():
     yield app
 
 
-def _fake_service(enabled: bool = True):
+def _fake_service(enabled: bool = True, repo_root: str = REPO):
     """对话框只读 is_enabled/repo_root 两个结论（构造注释契约），
     SimpleNamespace 即满足。"""
-    return SimpleNamespace(is_enabled=enabled, repo_root=REPO if enabled else None)
+    return SimpleNamespace(is_enabled=enabled, repo_root=repo_root if enabled else None)
 
 
 def _patch_content(monkeypatch, base: str | None, worktree: str | None):
@@ -222,19 +224,44 @@ def test_dialog_not_enabled_placeholder(qapp, monkeypatch):
     assert "git" in dialog._placeholder.text()
 
 
-def test_dialog_no_base_placeholder(qapp, monkeypatch):
-    """基准侧无内容（未跟踪/基准不存在）→ 占位页。"""
-    _patch_content(monkeypatch, base=None, worktree="a")
+def test_dialog_new_file_empty_base_all_added(qapp, monkeypatch):
+    """基准侧无该文件（新文件）→ 空基准对比：整篇全绿 + 信息行标注。"""
+    _patch_content(monkeypatch, base=None, worktree="a\nb")
     dialog = DiffViewDialog(_fake_service())
     dialog.show_diff(f"{REPO}/new.py")
-    assert dialog._stack.currentWidget() is dialog._placeholder
-    assert "基准" in dialog._placeholder.text()
+    assert dialog._stack.currentWidget() is dialog._browser
+    assert kinds(dialog._rows) == ["hunk", "add", "add"]
+    assert "新文件" in dialog._info_label.toolTip()
+    chat = get_theme_palette(dialog._theme)["chat"]
+    html = dialog._browser.toHtml()
+    assert chat["diff_add_bg"] in html, "整篇新增行绿底"
+    assert chat["diff_del_bg"] not in html, "无删除行红底"
 
 
-def test_dialog_worktree_read_failure_placeholder(qapp, monkeypatch):
-    _patch_content(monkeypatch, base="a", worktree=None)
-    dialog = DiffViewDialog(_fake_service())
+def test_dialog_deleted_file_empty_worktree(qapp, monkeypatch, tmp_path):
+    """工作区无此文件（盘上不存在，如暂存后被删）→ 空工作区对比：整篇全红。"""
+    _patch_content(monkeypatch, base="a\nb", worktree=None)
+    dialog = DiffViewDialog(_fake_service(repo_root=str(tmp_path)))
+    dialog.show_diff(str(tmp_path / "gone.py"))  # tmp_path 下确无此文件
+    assert dialog._stack.currentWidget() is dialog._browser
+    assert kinds(dialog._rows) == ["hunk", "del", "del"]
+    assert "已删除" in dialog._info_label.toolTip()
+
+
+def test_dialog_placeholder_centered(qapp, monkeypatch):
+    """占位页文案垂直水平居中（对齐常规占位页观感）。"""
+    dialog = DiffViewDialog(_fake_service(enabled=False))
     dialog.show_diff(f"{REPO}/a.py")
+    assert dialog._placeholder.alignment() == Qt.AlignmentFlag.AlignCenter
+
+
+def test_dialog_worktree_read_failure_placeholder(qapp, monkeypatch, tmp_path):
+    """文件在盘但读不出（二进制/编码失败）→ 维持读取失败占位。"""
+    target = tmp_path / "a.bin"
+    target.write_bytes(b"PK\x00garbage")
+    _patch_content(monkeypatch, base="a", worktree=None)
+    dialog = DiffViewDialog(_fake_service(repo_root=str(tmp_path)))
+    dialog.show_diff(str(target))
     assert dialog._stack.currentWidget() is dialog._placeholder
     assert "读取失败" in dialog._placeholder.text()
 

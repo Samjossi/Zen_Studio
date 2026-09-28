@@ -10,8 +10,10 @@
   unified_rows 行序列（含双侧行号）→ QTextBrowser 表格化渲染
   （三列：旧行号|新行号|内容；del/add 整行浅红/浅绿底，hunk 跨列蓝带，
   色值取 chat 包 diff_* 六键）
-- 降级走 QStackedWidget 占位页（非仓库/仓外文件/读取失败/基准侧无
-  内容/文件过大/无差异），不弹任何错误框
+- 单侧缺失按空文本对比：基准侧无该文件（新文件）→ 整篇全绿；工作区
+  无该文件（盘上不存在）→ 整篇全红，信息行同步标注
+- 降级走 QStackedWidget 占位页（非仓库/仓外文件/读取失败/文件过大/
+  无差异），不弹任何错误框
 - 主题/字号链：apply_theme(theme) 保留为公共接口（热切换已随
   2026-0820-1642 计划移除）；refresh_font() 挂 MainWindow.
   _apply_font_size 链（同查看器/提交历史图先例）
@@ -21,7 +23,8 @@ from __future__ import annotations
 from html import escape
 from pathlib import Path
 
-from PySide6.QtGui import QFont, QShowEvent
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QFont, QResizeEvent, QShowEvent
 from PySide6.QtWidgets import (
     QApplication,
     QDialog,
@@ -58,10 +61,13 @@ class DiffViewDialog(QDialog):
         self._path: str | None = None
         #: 缓存最近一次行序列（主题切换重渲染用，避免重复 spawn git）
         self._rows: list[DiffRow] | None = None
+        #: 信息行完整文案（ElideMiddle 省略前的原文，tooltip/重省略用）
+        self._info_text = ""
 
         self._info_label = QLabel(self)
         self._placeholder = QLabel(self)
         self._placeholder.setWordWrap(True)
+        self._placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._browser = QTextBrowser(self)
         self._browser.setOpenExternalLinks(False)
         self._browser.setReadOnly(True)
@@ -105,11 +111,11 @@ class DiffViewDialog(QDialog):
     # 数据
     # ------------------------------------------------------------------
     def reload(self) -> None:
-        """重拉基准/工作区内容并重建差异；任一环失败走占位文案。"""
+        """重拉基准/工作区内容并重建差异；单侧缺失按空文本对比，读取失败走占位文案。"""
         if self._path is None:
             return
         if not self._service.is_enabled:
-            self._info_label.setText("（非 git 仓库）")
+            self._set_info("（非 git 仓库）")
             self._show_placeholder("当前工作区不在 git 仓库内。")
             return
         repo_root = self._service.repo_root
@@ -118,17 +124,26 @@ class DiffViewDialog(QDialog):
         except ValueError:
             self._show_placeholder("文件不在当前仓库内。")
             return
-        self._info_label.setText(
-            f"{rel}　基准：@{{upstream}}（无上游时回退 HEAD）")
+        self._set_info(f"{rel}　基准：@{{upstream}}（无上游时回退 HEAD）")
 
         worktree = git_content.fetch_worktree_content(repo_root, rel)
+        worktree_missing = False
         if worktree is None:
-            self._show_placeholder("文件读取失败（可能为二进制或不支持的编码）。")
-            return
+            if (Path(repo_root) / rel).exists():
+                self._show_placeholder("文件读取失败（可能为二进制或不支持的编码）。")
+                return
+            # 盘上不存在（如暂存后被删）：按空文本对比，整篇全红
+            worktree = ""
+            worktree_missing = True
         base = git_content.fetch_base_content(repo_root, rel)
         if base is None:
-            self._show_placeholder("基准侧无该文件内容（文件可能未纳入版本管理）。")
-            return
+            # base 为 None 无法区分「ref 中不存在」与「ref 中是二进制」，
+            # 一律按新文件空基准处理（整篇全绿）；二进制误判仅表现为
+            # 全绿呈现，可接受，不为边界加重数据层
+            base = ""
+            self._set_info(f"{rel}　基准：无（新文件，基准侧为空）")
+        if worktree_missing:
+            self._set_info(self._info_text + "　工作区：无（文件已删除）")
         if (len(base.splitlines()) > MAX_DIFF_LINES
                 or len(worktree.splitlines()) > MAX_DIFF_LINES):
             self._show_placeholder(f"文件过大，暂不支持对比（上限 {MAX_DIFF_LINES} 行）。")
@@ -140,6 +155,25 @@ class DiffViewDialog(QDialog):
         self._rows = rows
         self._render()
         self._stack.setCurrentWidget(self._browser)
+
+    def _set_info(self, text: str) -> None:
+        """信息行赋值入口：存全文（tooltip 全路径）+ 按当前宽度中间省略。"""
+        self._info_text = text
+        self._info_label.setToolTip(text)
+        self._elide_info()
+
+    def _elide_info(self) -> None:
+        """长路径中间省略：首段目录头与尾段文件名是定位关键，中段可省。"""
+        width = self._info_label.width()
+        if width < 50:  # 尚未布局完成（show 前），先放全文，resizeEvent 兜底
+            self._info_label.setText(self._info_text)
+            return
+        self._info_label.setText(self._info_label.fontMetrics().elidedText(
+            self._info_text, Qt.TextElideMode.ElideMiddle, width))
+
+    def resizeEvent(self, event: QResizeEvent) -> None:
+        super().resizeEvent(event)
+        self._elide_info()
 
     def _show_placeholder(self, text: str) -> None:
         self._rows = None
