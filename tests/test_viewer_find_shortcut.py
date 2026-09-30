@@ -2,7 +2,8 @@
 
 覆盖：
 - 焦点在查看面板内按 Ctrl+F 打开查找浮层且焦点入输入框；
-- 浮层打开时再按 Ctrl+F 保持打开并重回焦输入框（show_find 幂等）；
+- 浮层打开时再按 Ctrl+F 关闭浮层并清空命中（Ctrl+F 电门，与文件树搜索栏同范式）；
+- 菜单「查找」路径维持打开语义：浮层可见时调 show_find 保持打开并重回焦输入框；
 - Esc 关闭浮层并清空命中（既有行为回归）；
 - Markdown 阅览模式触发查找自动切源码模式再开浮层（对应 2026-0930-1353 计划 T2）。
 
@@ -60,7 +61,7 @@ def test_ctrl_f_opens_find_bar_and_focuses(qapp):
     panel.deleteLater()
 
 
-def test_ctrl_f_again_keeps_bar_and_esc_closes(qapp):
+def test_ctrl_f_toggles_bar_and_esc_closes(qapp):
     panel = make_panel()
     QTest.keyClick(panel.viewer, Qt.Key.Key_F, Qt.KeyboardModifier.ControlModifier)
     pump(100)
@@ -69,15 +70,24 @@ def test_ctrl_f_again_keeps_bar_and_esc_closes(qapp):
     pump(100)
     assert len(panel._find_matches) == 2, "当前文档命中数异常"
 
-    # 焦点回查看器后再按 Ctrl+F：浮层保持打开，焦点重回输入框
+    # 菜单「查找」路径维持打开语义：可见时调 show_find 保持打开并重回焦
     panel.viewer.setFocus()
     pump(50)
+    panel.show_find()
+    pump(100)
+    assert panel._find_bar.isVisible(), "菜单路径不应关闭浮层"
+    assert QApplication.focusWidget() is panel._find_bar.input, "菜单路径未重回焦输入框"
+
+    # 再按 Ctrl+F：电门关闭浮层、清空命中、焦点归还查看器
+    QTest.keyClick(panel._find_bar.input, Qt.Key.Key_F, Qt.KeyboardModifier.ControlModifier)
+    pump(100)
+    assert not panel._find_bar.isVisible(), "再按 Ctrl+F 未关闭浮层"
+    assert panel._find_matches == [], "电门关闭后命中未清空"
+
+    # 关闭态再按 Ctrl+F 重开；Esc 关闭（既有行为回归）
     QTest.keyClick(panel.viewer, Qt.Key.Key_F, Qt.KeyboardModifier.ControlModifier)
     pump(100)
-    assert panel._find_bar.isVisible(), "再按 Ctrl+F 不应关闭浮层"
-    assert QApplication.focusWidget() is panel._find_bar.input, "再按未重回焦输入框"
-
-    # Esc 关闭（既有行为回归）
+    assert panel._find_bar.isVisible(), "关闭态再按 Ctrl+F 未重开浮层"
     QTest.keyClick(panel._find_bar.input, Qt.Key.Key_Escape)
     pump(100)
     assert not panel._find_bar.isVisible(), "Esc 未关闭浮层"

@@ -11,7 +11,7 @@ externally_reloaded 供主窗口联动刷新 Git 状态。
 查找浮层（2026-07-20，见 文档/修改记录/2026-0720-0510 计划任务 5.1）：
 右上角悬浮（不占布局，对齐终端查找浮层形态），当前文档搜索 + 命中高亮
 （经 CodeViewer.set_search_highlights，与当前行高亮合并上屏）+ 上一个/下一个；
-面板内 Ctrl+F 或编辑菜单「查找」按焦点分发进入，Esc 关闭。
+面板内 Ctrl+F 开关（电门）或编辑菜单「查找」按焦点分发进入，Esc 关闭。
 
 图片预览（2026-07-29，见 文档/修改记录/2026-0729-1102_图片文件预览功能实施计划）：
 QStackedLayout 双页——文本页 CodeViewer（兼占位提示）/ 图片页 ImageViewer，
@@ -567,11 +567,19 @@ class ViewerPanel(QWidget):
         self._find_bar.input.textChanged.connect(self._update_search)
         self._find_bar.step_requested.connect(self._find_step)
         self._find_bar.close_requested.connect(self._hide_find)
-        # Ctrl+F 打开查找浮层：上下文限定面板及子控件，焦点在查看面板内
-        # 才生效，不抢占终端等面板的同名快捷键；show_find 幂等，再按重回焦
+        # Ctrl+F 查找浮层电门（同文件树搜索栏范式）：可见再按即关、不可见则开。
+        # 上下文限定面板及子控件，焦点在查看面板内才生效，
+        # 不抢占终端等面板的同名快捷键
         self._find_shortcut = QShortcut(QKeySequence("Ctrl+F"), self)
         self._find_shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
-        self._find_shortcut.activated.connect(self.show_find)
+        self._find_shortcut.activated.connect(self._toggle_find)
+
+    def _toggle_find(self) -> None:
+        """Ctrl+F 电门：浮层可见 → 关（同 Esc 出口）；不可见 → 开。"""
+        if self._find_bar.isVisible():
+            self._hide_find()
+        else:
+            self.show_find()
 
     def show_find(self) -> None:
         """打开查找浮层（编辑菜单「查找」焦点分发入口）；图片/媒体/PDF 页降级弱提示，

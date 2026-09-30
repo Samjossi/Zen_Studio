@@ -57,7 +57,7 @@ _KEY_SEQUENCES: dict[int, bytes] = {
 class TerminalWidget(QWidget):
     """自绘终端：字符网格 + 光标 + 键盘 → VT100 + 回滚滚动。"""
 
-    #: 请求打开查找浮层（Ctrl+F；panel 决策，拦截在 VT100 转换之前）
+    #: 请求开关查找浮层（Ctrl+F 电门；panel 决策，拦截在 VT100 转换之前）
     find_requested = Signal()
     #: 请求上下文菜单（global 坐标；菜单内容与动作由 panel 决策）
     context_menu_requested = Signal(object)

@@ -186,7 +186,7 @@ class TerminalPanel(QWidget):
         self._btn_next.clicked.connect(lambda: self._step_tab(1))
         # widget 只发原始事件，会话决策全在本层（单向依赖）
         self.terminal.context_menu_requested.connect(self._on_context_menu)
-        self.terminal.find_requested.connect(self._show_find)
+        self.terminal.find_requested.connect(self._toggle_find)
 
     # ------------------------------------------------------------------
     # 事件过滤：终端区首次有效尺寸触发首个会话启动（浮层定位/按键归 FindBar 自管）
@@ -436,6 +436,13 @@ class TerminalPanel(QWidget):
     # ------------------------------------------------------------------
     # 查找浮层（最小版：当前屏搜索 + 命中高亮 + 上一个/下一个）
     # ------------------------------------------------------------------
+    def _toggle_find(self) -> None:
+        """Ctrl+F 电门（同文件树搜索栏范式）：浮层可见 → 关（同 Esc 出口）；不可见 → 开。"""
+        if self._find_bar.isVisible():
+            self._hide_find()
+        else:
+            self._show_find()
+
     def _show_find(self) -> None:
         self._find_bar.show_and_focus()
         self._update_search()

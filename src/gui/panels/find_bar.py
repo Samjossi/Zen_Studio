@@ -2,7 +2,7 @@
 
 抽取自两面板近乎逐行复制的两套实现（2026-07-21，AFCP 整改任务 2.4）：
 外观（布局/尺寸/半透明输入框）、宿主右上角定位（resize 自动重定位）、
-▲/▼/× 与 Enter/Esc 按键分发为单一实现；搜索语义（命中收集/高亮/步进）
+▲/▼/× 与 Enter/Esc/Ctrl+F 按键分发为单一实现；搜索语义（命中收集/高亮/步进）
 仍归宿主面板——经 textChanged 直连与 step/close 信号注入，层间单向依赖。
 """
 from PySide6.QtCore import QEvent, QObject, Qt, Signal
@@ -110,6 +110,12 @@ class FindBar(QFrame):
         elif watched is self.input and event.type() == QEvent.Type.KeyPress:
             key = event.key()
             if key == Qt.Key.Key_Escape:
+                self.close_requested.emit()
+                return True
+            # 输入框内 Ctrl+F 与 Esc 同出口（关浮层）：焦点在输入框时够不到
+            # 面板侧 Ctrl+F 电门（终端面板无 QShortcut 路径，全靠本分支）
+            if (key == Qt.Key.Key_F
+                    and event.modifiers() & Qt.KeyboardModifier.ControlModifier):
                 self.close_requested.emit()
                 return True
             if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
