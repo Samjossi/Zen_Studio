@@ -15,7 +15,7 @@ import os
 from pathlib import Path
 
 from PySide6.QtCore import QDir, QEvent, QItemSelectionModel, QMimeData, QUrl, Signal, Qt
-from PySide6.QtGui import QDrag
+from PySide6.QtGui import QDrag, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QFileSystemModel,
@@ -155,6 +155,7 @@ class FileExplorer(QWidget):
         self._reset_search_state()
         self._build_search_bar()
         self._build_search_button()
+        self._build_search_shortcut()
         # 搜索范围快照随用户手动改选更新；程序化点亮（_drill_search_reveal）
         # 也会改 currentIndex，须经 _search_revealing 标志排除，否则范围会
         # 随命中位置收窄、后续输入搜不到快照外的匹配
@@ -189,7 +190,7 @@ class FileExplorer(QWidget):
         self._search_btn = QToolButton(self)  # parent 挂面板自身，浮于树之上
         self._search_btn.setObjectName("FileTreeSearchButton")
         self._search_btn.setText("⌕")
-        self._search_btn.setToolTip("搜索文件树")
+        self._search_btn.setToolTip("搜索文件树 (Ctrl+F)")
         self._search_btn.setFixedSize(_SEARCH_BTN_SIZE, _SEARCH_BTN_SIZE)
         self._search_btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
         self._search_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -200,6 +201,14 @@ class FileExplorer(QWidget):
         self._search_btn.installEventFilter(self)
         self._search_btn.show()
         self._search_btn.raise_()
+
+    def _build_search_shortcut(self) -> None:
+        """Ctrl+F 展开/收起搜索栏（与悬浮钮同一电门）。
+        上下文限定面板及子控件：焦点在文件树内才生效，
+        不抢占终端等面板的同名快捷键。"""
+        self._search_shortcut = QShortcut(QKeySequence("Ctrl+F"), self)
+        self._search_shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        self._search_shortcut.activated.connect(self._toggle_search_bar)
 
     def _build_search_bar(self) -> None:
         """底部搜索栏：默认隐藏的一行输入框，样式吃全局 QLineEdit 规则。

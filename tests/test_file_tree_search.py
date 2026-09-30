@@ -5,7 +5,8 @@
 - 范围解析：选中目录搜其下、选中文件搜父目录、无选中搜根；
 - 文件名大小写不敏感子串匹配、命中上限截断、命中项展开点亮；
 - Enter/Shift+Enter 循环命中、Esc 收起、无命中警示属性；
-- refresh 重建模型后搜索状态复位（搜索词保留）。
+- refresh 重建模型后搜索状态复位（搜索词保留）；
+- Ctrl+F 快捷键展开/收起搜索栏（对应 2026-0930-1314 计划 T2）。
 
 临时数据按 AGENTS.md 纪律落项目内 .temp/，不用系统临时目录。
 """
@@ -16,6 +17,7 @@ from pathlib import Path
 import pytest
 from PySide6.QtCore import QEvent, QEventLoop, Qt, QTimer
 from PySide6.QtGui import QKeyEvent
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 
 from gui.panels.file_explorer.explorer import _SEARCH_MAX_RESULTS, FileExplorer
@@ -216,4 +218,47 @@ def test_model_rebuilt_resets_search_state(qapp):
     assert explorer._search_cursor == -1
     assert explorer._search_pending is None
     assert explorer._search_bar.text() == "hello", "搜索词应保留"
+    explorer.deleteLater()
+
+
+def press_ctrl_f(widget) -> None:
+    QTest.keyClick(widget, Qt.Key.Key_F, Qt.KeyboardModifier.ControlModifier)
+
+
+def test_ctrl_f_shortcut_opens_bar_and_focuses(qapp):
+    proj = fresh_workdir("shortcut_open")
+    explorer = make_explorer(proj)
+    select_path(explorer, proj / "subdir")
+    explorer.activateWindow()
+    explorer.tree.setFocus()
+    pump(100)
+
+    assert not explorer._search_bar.isVisible()
+    press_ctrl_f(explorer.tree)
+    pump(100)
+    assert explorer._search_bar.isVisible(), "Ctrl+F 未展开搜索栏"
+    assert QApplication.focusWidget() is explorer._search_bar, "展开后焦点未入搜索框"
+    assert explorer._search_scope == str(proj / "subdir"), "快捷键展开未做范围快照"
+    explorer.deleteLater()
+
+
+def test_ctrl_f_shortcut_toggles_off_from_input(qapp):
+    proj = fresh_workdir("shortcut_toggle")
+    explorer = make_explorer(proj)
+    explorer.activateWindow()
+    explorer.tree.setFocus()
+    pump(100)
+    press_ctrl_f(explorer.tree)
+    pump(100)
+    assert explorer._search_bar.isVisible()
+    explorer._search_bar.setText("hello")
+    wait_search_settled(explorer)
+    assert explorer._search_matches
+
+    # 焦点在搜索输入框内再按 Ctrl+F：快捷键同样生效，电门收起并清空状态
+    press_ctrl_f(explorer._search_bar)
+    pump(100)
+    assert not explorer._search_bar.isVisible(), "输入框聚焦时再按 Ctrl+F 未收起搜索栏"
+    assert explorer._search_matches == [], "收起后匹配状态未清空"
+    assert explorer._search_scope is None
     explorer.deleteLater()
