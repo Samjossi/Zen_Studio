@@ -146,6 +146,14 @@ def _plain_of(text: str) -> str:
     return _html_unescape(_TAG_RE.sub("", text))
 
 
+def _selectable(label: QLabel) -> QLabel:
+    """开鼠标拖选复制：QLabel 默认仅键盘可选，卡片文本（问答对、todo
+    条目、标题等）用户有整段复制诉求；选中色经 base.qss 全局 selection
+    规则沿控件树继承，无需逐卡配。"""
+    label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+    return label
+
+
 class _ElidedLabel(QLabel):
     """单行省略标签：长文本按可用宽 ElideRight 截断上屏，tooltip 落全文。
 
@@ -159,6 +167,7 @@ class _ElidedLabel(QLabel):
     def __init__(self, text: str = "", parent=None) -> None:
         super().__init__(parent)
         self._full_text = ""
+        _selectable(self)
         if text:
             self.setText(text)
 
@@ -606,7 +615,7 @@ class ToolCard(CollapsibleCard):
     def _add_input_detail(self, detail: str) -> None:
         """通用入参区（D3）：body 末弱化灰小块，「尽可能全」的兜底保证。"""
         self._input_detail_attached = True
-        label = QLabel("入参", self)
+        label = _selectable(QLabel("入参", self))
         label.setStyleSheet(f"color: {self._colors.tool_fg}; font-size: 90%;")
         text = BodyText(detail, mono=True)
         text.setStyleSheet(
@@ -628,7 +637,7 @@ class BashCard(ToolCard):
         self._set_command(payload.get("command") or "")
         self._output = BodyText(mono=True)
         self.add_body_widget(self._output)
-        self._note = QLabel(self)
+        self._note = _selectable(QLabel(self))
         self._note.setStyleSheet(f"color: {self._colors.tool_fg};")
         self._note.setVisible(False)
         self.add_body_widget(self._note)
@@ -727,7 +736,7 @@ class DiffCard(ToolCard):
         if self._diff_attached:
             return
         if diff_stat := payload.get("diff_stat"):
-            badge = QLabel(self)
+            badge = _selectable(QLabel(self))
             add, _, delete = diff_stat.partition(" ")
             badge.setText(
                 f'<span style="color:{self._colors.diff_add_fg}">{_html_escape(add)}</span>'
@@ -786,7 +795,7 @@ class TextOutputCard(ToolCard):
         self._output = BodyText(mono=True)
         self._output.setVisible(False)
         self.add_body_widget(self._output)
-        self._note = QLabel(self)
+        self._note = _selectable(QLabel(self))
         self._note.setStyleSheet(f"color: {self._colors.tool_fg};")
         self._note.setVisible(False)
         self.add_body_widget(self._note)
@@ -803,7 +812,7 @@ class TextOutputCard(ToolCard):
                 self._note.setVisible(True)
         if total:
             # 行数徽标常驻标题行右侧（复制钮旁，与 DiffCard 徽标同位同手法）
-            badge = QLabel(f"{total} 行", self)
+            badge = _selectable(QLabel(f"{total} 行", self))
             badge.setStyleSheet(f"color: {self._colors.tool_fg};")
             self._header_layout.insertWidget(
                 self._header_layout.indexOf(self._status_label), badge)
@@ -880,7 +889,7 @@ class SubagentCard(ToolCard):
         高度由 _fit_children_height 显式拟合）。"""
         if self._children_layout is not None:
             return
-        self._children_label = QLabel("子代理活动", self)
+        self._children_label = _selectable(QLabel("子代理活动", self))
         self._children_label.setStyleSheet(
             f"color: {self._colors.tool_fg}; font-size: 90%;")
         self._children_host = QWidget(self)
@@ -996,7 +1005,7 @@ class QuestionCard(ToolCard):
         self._options_box: QWidget | None = None  # 激活中的选项按钮组
         self._ensure_rows(payload.get("questions") or [])
         if not self._qa_rows:
-            self._pending = QLabel("等待用户回答…", self)
+            self._pending = _selectable(QLabel("等待用户回答…", self))
             self._pending.setStyleSheet(f"color: {self._colors.tool_fg};")
             self.add_body_widget(self._pending)
         # 卡片内交互注册（T4：QUESTION_BRIDGE 按 tool_call_id 定位本卡）；
@@ -1023,7 +1032,7 @@ class QuestionCard(ToolCard):
         box_layout = QVBoxLayout(box)
         box_layout.setContentsMargins(0, 2, 0, 0)
         box_layout.setSpacing(4)
-        hint = QLabel("请选择：", box)
+        hint = _selectable(QLabel("请选择：", box))
         hint.setStyleSheet(f"color: {self._colors.tool_fg};")
         box_layout.addWidget(hint)
         buttons: list[QPushButton] = []
@@ -1036,7 +1045,7 @@ class QuestionCard(ToolCard):
             box_layout.addWidget(button)
         # 自由作答引导（0807-0445 方案 B，与 QuestionDialog 同一文案来源）：
         # ACP 通道回传不了自由文本，引导用户 Skip 后走正文输入
-        other_hint = QLabel(OTHER_HINT_TEXT, box)
+        other_hint = _selectable(QLabel(OTHER_HINT_TEXT, box))
         other_hint.setWordWrap(True)
         other_hint.setStyleSheet(f"color: {self._colors.tool_fg};")
         box_layout.addWidget(other_hint)
@@ -1065,12 +1074,12 @@ class QuestionCard(ToolCard):
         for question in questions:
             if any(q == question for q, _ in self._qa_rows):
                 continue
-            q_label = QLabel(f"❓ {question}", self)
+            q_label = _selectable(QLabel(f"❓ {question}", self))
             q_label.setWordWrap(True)
             font = q_label.font()
             font.setBold(True)
             q_label.setFont(font)
-            a_label = QLabel("等待用户回答…", self)
+            a_label = _selectable(QLabel("等待用户回答…", self))
             a_label.setWordWrap(True)
             a_label.setStyleSheet(f"color: {self._colors.tool_fg};")
             self.add_body_widget(q_label)
@@ -1221,12 +1230,12 @@ class McpCard(ToolCard):
     _attach_input_detail = False
 
     def _build_body(self, payload: dict) -> None:
-        in_label = QLabel("入参", self)
+        in_label = _selectable(QLabel("入参", self))
         in_label.setStyleSheet(f"color: {self._colors.tool_fg}; font-size: 90%;")
         self.add_body_widget(in_label)
         self._input = BodyText(payload.get("input_detail") or "（无）", mono=True)
         self.add_body_widget(self._input)
-        self._out_label = QLabel("出参", self)
+        self._out_label = _selectable(QLabel("出参", self))
         self._out_label.setStyleSheet(f"color: {self._colors.tool_fg}; font-size: 90%;")
         self._out_label.setVisible(False)
         self.add_body_widget(self._out_label)
@@ -1410,7 +1419,7 @@ class TodoListCard(McpCard):
         """清单区构建（入参与出参之间；迟到回填场景首次调用）。"""
         if self._todo_layout is not None:
             return
-        self._todo_label = QLabel("清单", self)
+        self._todo_label = _selectable(QLabel("清单", self))
         self._todo_label.setStyleSheet(
             f"color: {self._colors.tool_fg}; font-size: 90%;")
         self._todo_host = QWidget(self)
@@ -1557,11 +1566,11 @@ class TodoCard(QFrame):
             f" border-radius: 6px; }}")
         icon = QLabel("📋", self)
         icon.setStyleSheet(f"color: {colors.tool_fg};")
-        self._title = QLabel("任务清单", self)
+        self._title = _selectable(QLabel("任务清单", self))
         title_font = self._title.font()
         title_font.setBold(True)
         self._title.setFont(title_font)
-        self._subtitle = QLabel(self)
+        self._subtitle = _selectable(QLabel(self))
         self._subtitle.setStyleSheet(f"color: {colors.tool_fg};")
         header = QHBoxLayout()
         header.setContentsMargins(6, 4, 6, 4)
