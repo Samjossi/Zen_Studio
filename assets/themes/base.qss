@@ -267,6 +267,12 @@ QPushButton {
     padding: 3px 11px;
 }
 
+/* 查找浮层 ↑↓× 小钮：24px 定宽被全局水平 padding 挤到内容盒 2px，
+   字形整体裁剪不可见，须清零 padding（1353 计划） */
+#FindBar QPushButton {
+    padding: 0;
+}
+
 QPushButton:hover {
     background-color: $button_hover_bg;
     border-color: $border_hover;

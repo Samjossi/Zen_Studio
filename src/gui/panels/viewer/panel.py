@@ -35,7 +35,8 @@ Markdown 阅览/源码双模式开关（2026-08-06，见 文档/修改记录/202
 新增「动态标签 + ToggleSwitch」开关组（仅 Markdown 页可见，镜像图片/PDF 按钮组
 按页显隐先例），关=阅览模式（渲染页，蓝）/ 开=源码模式（复用文本页只读
 CodeViewer + Pygments 高亮，蛋黄色；仅显示源码不可编辑）；打开新 md 复位
-到阅览模式（不跨文件记忆）；源码模式下查找浮层自动恢复可用。
+到阅览模式（不跨文件记忆）；源码模式下查找浮层自动恢复可用；阅览模式下
+触发查找（Ctrl+F/菜单）自动切源码再开浮层（1353 计划），无需手动拨开关。
 
 PDF 预览（2026-07-29，见 文档/修改记录/2026-0729-1212_PDF文件预览功能实施计划）：
 QStackedLayout 第五页 PdfViewer（QPdfView 连续滚动渲染），.pdf 直进 PDF 页；
@@ -573,13 +574,20 @@ class ViewerPanel(QWidget):
         self._find_shortcut.activated.connect(self.show_find)
 
     def show_find(self) -> None:
-        """打开查找浮层（编辑菜单「查找」焦点分发入口）；图片/媒体/渲染页降级弱提示。"""
+        """打开查找浮层（编辑菜单「查找」焦点分发入口）；图片/媒体/PDF 页降级弱提示，
+        Markdown 渲染页自动切源码模式后照常打开（1353 计划：省去用户手动拨开关）。"""
         if self._stack.currentWidget() is self.image_viewer:
             return self._show_hint("图片不支持查找")
         if self._stack.currentWidget() is self.media_viewer:
             return self._show_hint("媒体文件不支持查找")
         if self._stack.currentWidget() is self.markdown_view:
-            return self._show_hint("Markdown 渲染页不支持查找")
+            if not self._md_switch_box.isVisible():
+                return self._show_hint("Markdown 渲染页不支持查找")
+            # 复用开关槽上屏源码（同步完成）；源码读取失败时槽内已提示且停在渲染页
+            self._md_switch.setChecked(True)
+            if self._stack.currentWidget() is self.markdown_view:
+                return
+            self._show_hint("已切换到源码模式")
         if self._stack.currentWidget() is self.pdf_viewer:
             return self._show_hint("PDF 页不支持查找")
         self._find_bar.show_and_focus()

@@ -3,7 +3,8 @@
 覆盖：
 - 焦点在查看面板内按 Ctrl+F 打开查找浮层且焦点入输入框；
 - 浮层打开时再按 Ctrl+F 保持打开并重回焦输入框（show_find 幂等）；
-- Esc 关闭浮层并清空命中（既有行为回归）。
+- Esc 关闭浮层并清空命中（既有行为回归）；
+- Markdown 阅览模式触发查找自动切源码模式再开浮层（对应 2026-0930-1353 计划 T2）。
 
 临时数据按 AGENTS.md 纪律落项目内 .temp/，不用系统临时目录。
 """
@@ -81,4 +82,48 @@ def test_ctrl_f_again_keeps_bar_and_esc_closes(qapp):
     pump(100)
     assert not panel._find_bar.isVisible(), "Esc 未关闭浮层"
     assert panel._find_matches == [], "关闭后命中未清空"
+    panel.deleteLater()
+
+
+def make_md_panel() -> ViewerPanel:
+    shutil.rmtree(WORKDIR, ignore_errors=True)
+    WORKDIR.mkdir(parents=True)
+    target = WORKDIR / "note.md"
+    target.write_text("# 标题\n\nhello markdown\n\n再来一句 hello\n")
+    panel = ViewerPanel(workspace_root=str(WORKDIR))
+    panel.resize(500, 400)
+    panel.show()
+    panel.open_file(str(target))
+    panel.activateWindow()
+    pump(200)
+    return panel
+
+
+def assert_auto_switch_to_source(panel: ViewerPanel) -> None:
+    assert panel._md_switch.isChecked(), "触发查找未自动切到源码模式"
+    assert panel._md_mode_label.text() == "源码模式"
+    assert panel._stack.currentWidget() is panel.viewer, "当前页未切到源码 CodeViewer"
+    assert panel._find_bar.isVisible(), "自动切源码后查找浮层未打开"
+    panel._find_bar.input.setText("hello")
+    pump(100)
+    assert len(panel._find_matches) == 2, "源码模式下未搜到文档内容"
+
+
+def test_md_preview_ctrl_f_auto_switches_to_source(qapp):
+    panel = make_md_panel()
+    assert panel._stack.currentWidget() is panel.markdown_view, "md 默认应进阅览渲染页"
+    assert panel._md_switch_box.isVisible()
+    assert not panel._md_switch.isChecked()
+
+    QTest.keyClick(panel.markdown_view, Qt.Key.Key_F, Qt.KeyboardModifier.ControlModifier)
+    pump(100)
+    assert_auto_switch_to_source(panel)
+    panel.deleteLater()
+
+
+def test_md_preview_menu_find_auto_switches_to_source(qapp):
+    panel = make_md_panel()
+    panel.show_find()  # 菜单「查找」分发路径同一入口
+    pump(100)
+    assert_auto_switch_to_source(panel)
     panel.deleteLater()

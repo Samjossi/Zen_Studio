@@ -1,8 +1,8 @@
 # Markdown 阅览模式查找自动切源码 + FindBar 按钮字形修复落地计划
 
-> **状态**：草稿（待用户审阅）
-> **范围**：`src/gui/panels/viewer/panel.py`、`assets/themes/base.qss`、`tests/test_viewer_find_shortcut.py`（或就近新增测试文件）
-> **时间**：2026-09-30 13:53（设计）/ 2026-09-30 13:57（修订：用户拍板两项待定决策）/ 待定（实施）(UTC+8)
+> **状态**：已实施
+> **范围**：`src/gui/panels/viewer/panel.py`、`assets/themes/base.qss`、`tests/test_viewer_find_shortcut.py`
+> **时间**：2026-09-30 13:53（设计）/ 2026-09-30 13:57（修订：用户拍板两项待定决策）/ 2026-09-30 14:10（实施）/ 2026-09-30 14:17（附录：备选字形备查）(UTC+8)
 > **优先级**：中
 > **前置文档**：
 > - `work plans/2026-0930-1314_文件树与查看面板Ctrl+F查找快捷键落地计划.md`（查看面板 Ctrl+F 入口）
@@ -87,3 +87,25 @@
 ```
 git checkout -- src/gui/panels/viewer/panel.py assets/themes/base.qss tests/
 ```
+
+
+## 7. 实施微调说明与视觉验证留痕
+
+- 实施与方案无偏差。T1 额外补一道防线：`setChecked(True)` 后若源码读取失败（槽内已提示），当前页仍是渲染页，此时直接 return 不开浮层，避免对陈旧文本页误搜。
+- T2 测试落在 `tests/test_viewer_find_shortcut.py`（Ctrl+F 路径 + 菜单路径两用例，共用断言辅助）。
+- T4 视觉验证：探针 `.temp/probe_findbar_1353/probe.py` 输出六主题 × 查看/终端两面板共 12 张截图（同目录 `viewer_*.png` / `terminal_*.png`），逐张目验通过——↑↓× 字形全部可见，颜色服从主题（浅底深字/深底浅字），无 emoji 彩色字形问题，**▲/▼/× 预案未启用**。
+- T5 门禁：隐私扫描 ✔、lint ✔、113 项测试全过（111 既有 + 2 新增）。
+
+
+## 8. 附：上下按钮备选字形（未来换款备查）
+
+现用字形为箭头式 ↑/↓（配 × 关闭）。若未来想换三角款式，候选（上/下成对）：
+
+| 款式 | 字形（上/下） | 说明 |
+| --- | --- | --- |
+| 空心大三角 | △ ▽ | 轮廓款，视觉最轻 |
+| 实心大三角 | ▲ ▼ | 原预案款，最醒目 |
+| 实心小三角 | ▴ ▾ | 小尺寸实心，紧凑 |
+| 空心小三角 | ▵ ▿ | 小尺寸空心，最秀气 |
+
+改动点唯一：`src/gui/panels/find_bar.py` 中 `prev_button`/`next_button` 的文本（单点替换，x 关闭钮不动）。选定款式后宜按 T4 同款探针六主题复验一遍字形渲染。
