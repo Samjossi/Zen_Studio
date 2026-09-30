@@ -22,7 +22,7 @@ Zen Studio 全部打包构建活动的专属目录（2026-07-25 收编，见 文
 | `.build-tools/` | 插件编译工具链（aqt 下载的 Qt、fcitx5-qt 源码/构建区、产物归档 `dist/`） | ❌ gitignored |
 | `building/build/` | PyInstaller 工作目录 + AppDir 组装区 | ❌ gitignored |
 | `building/dist/` | 构建产物：`zen-studio/`（onedir 中间产物）与 `Zen_Studio-x86_64.AppImage` | ❌ gitignored |
-| `building/tools/` | 打包工具链（`appimagetool`，缺失时构建脚本自动下载） | ❌ gitignored |
+| `building/tools/` | 打包工具链（`appimagetool` 缺失时自动下载；`runtime-x86_64` 缺失时从 appimagetool 内提取，均经哈希校验） | ❌ gitignored |
 
 ## 3. 用法
 

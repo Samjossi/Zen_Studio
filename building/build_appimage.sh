@@ -21,6 +21,10 @@ TOOL_URL="https://github.com/AppImage/appimagetool/releases/download/continuous/
 #: appimagetool 基线哈希（2026-07-25 首下记录，防 continuous 通道漂移/投毒；
 #: 有意升级时取新哈希更新本值——审计 W4）
 TOOL_SHA256="a6d71e2b6cd66f8e8d16c37ad164658985e0cf5fcaa950c90a482890cb9d13e0"
+#: type2 runtime 基线哈希（来源：从哈希校验通过的 appimagetool 内提取，
+#: 与官方 type2-runtime continuous 同构建；有意升级时同步更新——审计 W4）
+RUNTIME="$BUILDING_DIR/tools/runtime-x86_64"
+RUNTIME_SHA256="4448aff037fa32788d2fb8ac9a10bd9688cd95ffcebbda05d1962278d0fa8c47"
 
 echo "==> [1/5] 前置自查"
 # AppImage 挂载点环境清洗（2026-08-11）：在 Zen Studio AppImage 的集成终端
@@ -78,6 +82,22 @@ ACTUAL_SHA256="$(sha256sum "$TOOL" | cut -d' ' -f1)"
 [[ "$ACTUAL_SHA256" == "$TOOL_SHA256" ]] || {
     echo "❌ appimagetool 哈希不符（预期 $TOOL_SHA256，实测 $ACTUAL_SHA256）"
     echo "   若系官方更新，请人工核验后更新脚本 TOOL_SHA256 基线"
+    exit 1
+}
+# runtime 离线自备：appimagetool 打包时默认现场下载 type2 runtime，
+# 网络受限环境必败；改为本地 vendored 文件 + --runtime-file 喂入。
+# 缺失时从哈希校验通过的 appimagetool 自身提取（AppImage = runtime +
+# squashfs 拼接，--appimage-offset 给出分界线），全程无需联网
+if [[ ! -x "$RUNTIME" ]]; then
+    echo "    runtime 未就位，从 appimagetool 内提取"
+    OFFSET="$(APPIMAGE_EXTRACT_AND_RUN=1 "$TOOL" --appimage-offset)"
+    head -c "$OFFSET" "$TOOL" > "$RUNTIME"
+    chmod +x "$RUNTIME"
+fi
+ACTUAL_RUNTIME_SHA256="$(sha256sum "$RUNTIME" | cut -d' ' -f1)"
+[[ "$ACTUAL_RUNTIME_SHA256" == "$RUNTIME_SHA256" ]] || {
+    echo "❌ runtime 哈希不符（预期 $RUNTIME_SHA256，实测 $ACTUAL_RUNTIME_SHA256）"
+    echo "   若系官方更新，请人工核验后更新脚本 RUNTIME_SHA256 基线"
     exit 1
 }
 
@@ -143,10 +163,18 @@ cp "assets/logo/logo_256.png" "$APPDIR/zen-studio.png"
 
 echo "==> [4/5] appimagetool 打包"
 export ARCH=x86_64
-if ! "$TOOL" "$APPDIR" "$APPIMAGE"; then
+# OWD 锚定相对路径解析基准：appimagetool 二进制以 OWD 而非 CWD 解析
+# 相对路径；FUSE 直跑时 runtime 会自动设置，extract-and-run 兜底下
+# 不会设置，缺省导致误报 AppDir「no such file or directory」
+export OWD="$PROJECT_ROOT"
+# 喂给 appimagetool 的参数必须全为 ASCII 相对路径：其捆绑 glib 环境
+# locale 缺失回退 ASCII，argv 含中文（如绝对路径经 珍藏软件/）即
+# 「Option parsing failed: Invalid byte sequence in conversion input」
+RUNTIME_REL="building/tools/runtime-x86_64"
+if ! "$TOOL" --runtime-file "$RUNTIME_REL" "$APPDIR" "$APPIMAGE"; then
     echo "    直接运行失败，尝试 extract-and-run 兜底（无 FUSE 环境）"
     APPIMAGE_EXTRACT_AND_RUN=1 "$TOOL" --appimage-extract-and-run \
-        "$APPDIR" "$APPIMAGE"
+        --runtime-file "$RUNTIME_REL" "$APPDIR" "$APPIMAGE"
 fi
 chmod +x "$APPIMAGE"
 
