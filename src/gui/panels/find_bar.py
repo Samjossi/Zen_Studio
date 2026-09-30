@@ -2,11 +2,17 @@
 
 抽取自两面板近乎逐行复制的两套实现（2026-07-21，AFCP 整改任务 2.4）：
 外观（布局/尺寸/半透明输入框）、宿主右上角定位（resize 自动重定位）、
-▴/▾/× 与 Enter/Esc 按键分发为单一实现；搜索语义（命中收集/高亮/步进）
+▲/▼/× 与 Enter/Esc 按键分发为单一实现；搜索语义（命中收集/高亮/步进）
 仍归宿主面板——经 textChanged 直连与 step/close 信号注入，层间单向依赖。
 """
 from PySide6.QtCore import QEvent, QObject, Qt, Signal
-from PySide6.QtWidgets import QFrame, QHBoxLayout, QPushButton, QWidget
+from PySide6.QtWidgets import (
+    QFrame,
+    QGraphicsOpacityEffect,
+    QHBoxLayout,
+    QPushButton,
+    QWidget,
+)
 
 from gui.popups import TranslucentMenuLineEdit
 
@@ -18,16 +24,18 @@ FLOAT_MARGIN_TOP_PX = 6
 #: 步进/关闭按钮尺寸（px）
 BUTTON_WIDTH_PX = 24
 BUTTON_HEIGHT_PX = 22
+#: 按钮常态透明度：低调不抢眼，hover 时恢复 1.0（同文件树悬浮钮范式）
+BUTTON_OPACITY = 0.5
 
 
 class FindBar(QFrame):
-    """右上角悬浮查找条：输入框 + ▴/▾/×（初始隐藏，show_and_focus 打开）。
+    """右上角悬浮查找条：输入框 + ▲/▼/×（初始隐藏，show_and_focus 打开）。
 
     宿主职责：input.textChanged 接搜索槽；step_requested 接环形步进；
     close_requested 接「隐藏 + 清高亮 + 焦点归还」。
     """
 
-    #: 上一个/下一个请求（-1/+1；▴▾ 按钮与输入框 Enter 同一出口）
+    #: 上一个/下一个请求（-1/+1；▲▼ 按钮与输入框 Enter 同一出口）
     step_requested = Signal(int)
     #: 关闭请求（× 按钮与输入框 Esc 同一出口）
     close_requested = Signal()
@@ -47,11 +55,20 @@ class FindBar(QFrame):
         self.input.setPlaceholderText(placeholder)
         self.input.setFixedWidth(INPUT_WIDTH_PX)
         self.input.installEventFilter(self)  # Enter=下一个 / Esc=关闭
-        prev_button = QPushButton("▴", self)
-        next_button = QPushButton("▾", self)
+        prev_button = QPushButton("▲", self)
+        next_button = QPushButton("▼", self)
         close_button = QPushButton("×", self)
+        #: 按钮 → 透明度效果映射（eventFilter hover 恢复用）
+        self._button_opacities: dict[QPushButton, QGraphicsOpacityEffect] = {}
         for button in (prev_button, next_button, close_button):
             button.setFixedSize(BUTTON_WIDTH_PX, BUTTON_HEIGHT_PX)
+            # 整体半透明（QGraphicsOpacityEffect 整钮含符号一起变淡，
+            # 不碰主题色键、六主题通吃；Enter/Leave 经 eventFilter 恢复与回落）
+            effect = QGraphicsOpacityEffect(button)
+            effect.setOpacity(BUTTON_OPACITY)
+            button.setGraphicsEffect(effect)
+            button.installEventFilter(self)
+            self._button_opacities[button] = effect
         prev_button.setToolTip("上一个")
         next_button.setToolTip("下一个")
         prev_button.clicked.connect(lambda: self.step_requested.emit(-1))
@@ -79,10 +96,17 @@ class FindBar(QFrame):
                   FLOAT_MARGIN_TOP_PX)
 
     def eventFilter(self, watched: QObject, event: QEvent) -> bool:
-        """宿主 resize → 重定位；输入框 Esc/Enter → close/step 信号。"""
+        """宿主 resize → 重定位；输入框 Esc/Enter → close/step 信号；
+        按钮 Enter/Leave → 透明度恢复 1.0 / 回落常态值。"""
         if watched is self._host:
             if event.type() == QEvent.Type.Resize and self.isVisible():
                 self._place()
+        elif watched in self._button_opacities:
+            effect = self._button_opacities[watched]
+            if event.type() == QEvent.Type.Enter:
+                effect.setOpacity(1.0)
+            elif event.type() == QEvent.Type.Leave:
+                effect.setOpacity(BUTTON_OPACITY)
         elif watched is self.input and event.type() == QEvent.Type.KeyPress:
             key = event.key()
             if key == Qt.Key.Key_Escape:
