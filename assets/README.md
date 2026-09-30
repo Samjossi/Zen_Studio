@@ -16,6 +16,7 @@ Zen Studio 全部**运行时资产**的集中存放地，**会被 PyInstaller �
 | `themes/` | QSS 主题模板（`base.qss`，gui/theme.py 消费的只读资源） | ✅ 打包 |
 | `logo/` | 正式 Logo 全套资产（母版 SVG + 八尺寸 PNG） | ✅ 打包 |
 | `logo候选池/` | Logo 设计草稿（历史候选方案存档） | ❌ **不打包** |
+| `icons/` | 通用矢量图标素材（SVG 母版，如 arrow_up/arrow_down），非本应用运行时资产，供手动迁移至其他项目取用 | ❌ **不打包** |
 | `readme/` | 根目录 `README.md` 引用的文档素材（界面截图、演示 GIF），非运行时资产 | ❌ **不打包** |
 
 ## 纪律

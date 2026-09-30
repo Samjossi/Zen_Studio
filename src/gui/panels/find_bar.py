@@ -2,7 +2,7 @@
 
 抽取自两面板近乎逐行复制的两套实现（2026-07-21，AFCP 整改任务 2.4）：
 外观（布局/尺寸/半透明输入框）、宿主右上角定位（resize 自动重定位）、
-↑/↓/× 与 Enter/Esc 按键分发为单一实现；搜索语义（命中收集/高亮/步进）
+▴/▾/× 与 Enter/Esc 按键分发为单一实现；搜索语义（命中收集/高亮/步进）
 仍归宿主面板——经 textChanged 直连与 step/close 信号注入，层间单向依赖。
 """
 from PySide6.QtCore import QEvent, QObject, Qt, Signal
@@ -21,13 +21,13 @@ BUTTON_HEIGHT_PX = 22
 
 
 class FindBar(QFrame):
-    """右上角悬浮查找条：输入框 + ↑/↓/×（初始隐藏，show_and_focus 打开）。
+    """右上角悬浮查找条：输入框 + ▴/▾/×（初始隐藏，show_and_focus 打开）。
 
     宿主职责：input.textChanged 接搜索槽；step_requested 接环形步进；
     close_requested 接「隐藏 + 清高亮 + 焦点归还」。
     """
 
-    #: 上一个/下一个请求（-1/+1；↑↓ 按钮与输入框 Enter 同一出口）
+    #: 上一个/下一个请求（-1/+1；▴▾ 按钮与输入框 Enter 同一出口）
     step_requested = Signal(int)
     #: 关闭请求（× 按钮与输入框 Esc 同一出口）
     close_requested = Signal()
@@ -47,8 +47,8 @@ class FindBar(QFrame):
         self.input.setPlaceholderText(placeholder)
         self.input.setFixedWidth(INPUT_WIDTH_PX)
         self.input.installEventFilter(self)  # Enter=下一个 / Esc=关闭
-        prev_button = QPushButton("↑", self)
-        next_button = QPushButton("↓", self)
+        prev_button = QPushButton("▴", self)
+        next_button = QPushButton("▾", self)
         close_button = QPushButton("×", self)
         for button in (prev_button, next_button, close_button):
             button.setFixedSize(BUTTON_WIDTH_PX, BUTTON_HEIGHT_PX)

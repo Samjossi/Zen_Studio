@@ -109,3 +109,5 @@ git checkout -- src/gui/panels/viewer/panel.py assets/themes/base.qss tests/
 | 空心小三角 | ▵ ▿ | 小尺寸空心，最秀气 |
 
 改动点唯一：`src/gui/panels/find_bar.py` 中 `prev_button`/`next_button` 的文本（单点替换，x 关闭钮不动）。选定款式后宜按 T4 同款探针六主题复验一遍字形渲染。
+
+> **已换款（2026-09-30）**：先后试「空心大三角 △▽」（用户目验嫌丑）后定款「实心小三角 ▴▾」（× 不动），同步更新 `find_bar.py` 内三处字形注释；T4 同款探针复跑六主题 × 两面板 12 张截图，逐张目验通过（字形可见、颜色服从主题），`check.sh` 全绿（113 项测试）。
