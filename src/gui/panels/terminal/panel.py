@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QMenu,
     QPushButton,
+    QSizePolicy,
     QTabBar,
     QToolButton,
     QVBoxLayout,
@@ -52,6 +53,10 @@ class TerminalPanel(QWidget):
     #: 面板最小高度（px）：头部栏约 28px + 约 5 行终端文本，
     #: 配合主窗口 middle_splitter.setCollapsible(1, False) 生效
     MIN_HEIGHT = 140
+
+    #: 标签总数上限（用户/AI 会话同口径）：防呆兜底线而非使用约束，
+    #: 正常用量远低于此；到顶「+」钮禁用、AI 会话 spawn 抛错回 ACP
+    MAX_TABS = 40
 
     def __init__(self, parent: QWidget | None = None, cwd: str | None = None,
                  auto_spawn: bool = True) -> None:
@@ -92,10 +97,18 @@ class TerminalPanel(QWidget):
         self._tab_bar.setExpanding(False)       # tab 不拉伸，左侧自然排列
         # 弃用原生溢出滚动箭头（其语义是"把哪边隐藏 tab 滚进视野"，标签带反向
         # 移动，用户实机反馈方向感反转）——改自定义 ◀ ▶ 直觉语义按钮：
-        # 点击直接选中左/右邻居 tab（2026-0818-1111 计划方案 B）；
-        # 关滚动后 tab 压缩宽度挤入可视区，文字省略号兜底
+        # 点击直接选中左/右邻居 tab（2026-0818-1111 计划方案 B）
         self._tab_bar.setUsesScrollButtons(False)
         self._tab_bar.setDrawBase(False)         # 不画基线，融入头部栏
+        # 防标签栏溢出顶宽布局（tab overflow）：默认 ElideNone 下 QTabBar 的
+        # minimumSizeHint 随标签数线性增长（每标签含完整标题+关闭钮），沿布局链
+        # 顶大中栏最小宽、压窄左栏。省略模式使单标签最小宽降为"省略号+关闭钮"，
+        # 水平 Ignored 策略令最小宽不再约束布局——标签多于可视宽时 Qt 在栏内
+        # 挤压省略而非外溢；完整标题由 setTabToolTip 悬停兜底
+        self._tab_bar.setElideMode(Qt.TextElideMode.ElideRight)
+        tab_policy = self._tab_bar.sizePolicy()
+        tab_policy.setHorizontalPolicy(QSizePolicy.Policy.Ignored)
+        self._tab_bar.setSizePolicy(tab_policy)
 
         # ◀ ▶ 切换按钮：QToolButton 复刻 _btn_new 接线，零固定尺寸走全局 qss
         self._btn_prev = QToolButton(self)
@@ -209,6 +222,9 @@ class TerminalPanel(QWidget):
 
     def _spawn(self) -> None:
         """新建用户会话：以当前网格尺寸 spawn（此刻控件尺寸已稳定），入栈并切为新 tab。"""
+        # 上限守卫：+ 钮/终端菜单/右键重开/首启自动四个入口全部收敛于此，单点拦截
+        if self._tab_bar.count() >= self.MAX_TABS:
+            return
         self._serial += 1
         self._spawn_entry(argv=None, cwd=self._cwd, title=f"终端{self._serial}")
 
@@ -222,6 +238,10 @@ class TerminalPanel(QWidget):
         侧生命周期管理。on_data/on_exited 为桥侧附加监听——在 start 之前
         接线（快命令首帧数据可能先于 spawn 返回到达，事后接线会丢输出）。
         """
+        # 满员拒绝：异常经桥 _invoke_gui 透传为 ACP -32603 错误应答，
+        # agent 收到明确失败原因而非永久阻塞（标签无界增长本身是布局隐患）
+        if self._tab_bar.count() >= self.MAX_TABS:
+            raise RuntimeError(f"终端数量已达上限（{self.MAX_TABS}）")
         return self._spawn_entry(argv=argv, cwd=cwd or self._cwd, title=title,
                                  on_data=on_data, on_exited=on_exited)
 
@@ -246,8 +266,11 @@ class TerminalPanel(QWidget):
         session.start(column_count, row_count, cwd=cwd, argv=argv)
         self._sessions.append(session_entry)
         idx = self._tab_bar.addTab(session_entry.title)
+        # 标签被挤压省略后完整标题的唯一可读出口（AI 会话标题为 🤖+命令名，长度不可控）
+        self._tab_bar.setTabToolTip(idx, session_entry.title)
         self._tab_bar.setCurrentIndex(idx)  # 触发 _switch_tab 完成绑定
         self._refresh_nav_buttons()
+        self._refresh_new_button()
         return session_entry
 
     def _switch_tab(self, idx: int) -> None:
@@ -281,6 +304,14 @@ class TerminalPanel(QWidget):
         self._btn_prev.setEnabled(enabled)
         self._btn_next.setEnabled(enabled)
 
+    def _refresh_new_button(self) -> None:
+        """「+」启停跟随标签上限（禁用+tooltip 提示模式仿 ChatTabs 的
+        _refresh_add_button）。"""
+        capped = self._tab_bar.count() >= self.MAX_TABS
+        self._btn_new.setEnabled(not capped)
+        self._btn_new.setToolTip(
+            f"终端数量已达上限（{self.MAX_TABS}）" if capped else "新建终端")
+
     def _close_tab(self, idx: int) -> None:
         """关闭会话：进程回收（幂等）+ 断信号 + 出栈；全关后进入空状态。"""
         if not (0 <= idx < len(self._sessions)):
@@ -292,6 +323,7 @@ class TerminalPanel(QWidget):
         self.session_closed.emit(session_entry)  # AI 桥清理（手关 AI tab 等价 kill+release）
         self._tab_bar.removeTab(idx)  # currentChanged 自然触发 _switch_tab（索引已对齐）
         self._refresh_nav_buttons()
+        self._refresh_new_button()
         if not self._sessions:
             self._serial = 0  # 全关归零：下一个新建重新从「终端1」开始
             self._switch_tab(-1)
