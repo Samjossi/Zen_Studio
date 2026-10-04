@@ -1,7 +1,7 @@
 """本地模型（local-acp）后端注册与枚举兜底测试（计划 2026-1004-2124 T6）。
 
 覆盖：
-- 注册表层：local-acp 注册项存在、vendor 分组「本地模型」、未封存、
+- 注册表层：local-acp 注册项存在、vendor 分组「Local」、未封存、
   纯文本能力声明与单档 auto 强度语义；
 - provider 层：探测链 LOCAL_HOME 级生效；`local` 二进制缺失时
   available=False、list_local_models 兜底空列表（不崩 UI 的 R2 纪律）；
@@ -19,7 +19,7 @@ def test_local_spec_registered():
     spec = spec_of("local-acp")
     assert spec is not None
     assert spec.vendor == "local"
-    assert spec.vendor_label == "本地模型"
+    assert spec.vendor_label == "Local"
     assert spec.archived is False
     assert spec.supports_images is False
     assert spec.efforts == ("auto",)

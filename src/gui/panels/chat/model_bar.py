@@ -86,6 +86,15 @@
 - action data/信号载荷/持久化值恒为别名（D6 红线 2 不破）；显示名
   仅替换 text 呈现，别名溯源归菜单项 tooltip 与四按钮 tooltip 模型行
   （显示名（完整别名）并列）
+
+接口按钮条件显隐：
+- 接口级是「一家厂商多接入实现」的扩展位（如某 CLI 同时有 ACP 与
+  HTTP 接法）——当前注册表各家均单接口，按钮点开恒为单选菜单，
+  故 ≤1 个时隐藏省一层无效点击，≥2 个时自动恢复显示，架构不动
+- 判定按接口总数而非可用数：「未检测到」不可用项本身是排错信息，
+  不随隐藏遮蔽
+- 纯视图层显隐：勾选/信号/持久化全走 QActionGroup 与注册表，不经
+  按钮，隐藏不影响任何选择逻辑
 """
 from PySide6.QtCore import Signal
 from PySide6.QtGui import QAction, QActionGroup
@@ -119,7 +128,8 @@ def short_model_alias(alias: str) -> str:
 
 class ModelBar(QWidget):
     """输入区底行左端：后台 + 接口 + 模型 + 推理强度四按钮（InstantPopup
-    菜单四级联动）。
+    菜单四级联动）；接口按钮在后台仅有单接口时隐藏（扩展位预留，≥2
+    自动恢复，见模块 docstring 末节）。
 
     数据源为注册表（llm.registry）：一级菜单 = vendor_groups() 的后台
     分组，二级菜单 = 当前后台的 BackendSpec 列表，三级菜单 = 当前接口的
@@ -461,6 +471,11 @@ class ModelBar(QWidget):
         default = self._first_enabled(self._interface_group)
         if default is not None:
             default.setChecked(True)
+        # 单接口隐藏、≥2 恢复（按总数判定：不可用项的「未检测到」标注
+        # 是排错信息，不随隐藏遮蔽）；挂此处与菜单重建同源同步，一切
+        # 触发重建的路径自动覆盖
+        self._interface_button.setVisible(
+            len(self._interface_group.actions()) > 1)
         self._interfaces_vendor = vendor
         self._refresh_models(self.current_backend())
 

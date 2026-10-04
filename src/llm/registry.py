@@ -337,7 +337,7 @@ REGISTRY: dict[str, BackendSpec] = {
             name="local-acp",
             label="Local ACP",
             vendor="local",
-            vendor_label="本地模型",
+            vendor_label="Local",
             available=local_available,
             # 枚举走 `local models` 子进程（Local_Cli 服务端扫描 model_dir
             # 的 *.gguf 产出），无静态表；兜底空列表纪律同各后台
