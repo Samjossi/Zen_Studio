@@ -1,0 +1,19 @@
+[project]
+name = "local-cli"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "pyside6>=6.11.1",
+]
+
+[project.scripts]
+local-cli = "local_cli.__main__:main"
+
+# 显式声明构建后端与包发现范围：项目根还有 参考代码/、文档/ 等中文目录，
+# setuptools 自动发现会误判为多顶层包，故用 include 白名单锁定 local_cli。
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["local_cli*"]

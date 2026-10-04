@@ -14,6 +14,7 @@ from llm.providers.dream_acp import DreamAcpLLM, dream_available, list_dream_mod
 from llm.providers.kilocode_acp import KiloCodeAcpLLM, kilocode_available, list_kilocode_models
 from llm.providers.kimi_acp import KimiAcpLLM
 from llm.providers.kimi_common import kimi_available, list_kimi_models
+from llm.providers.local_acp import LocalAcpLLM, list_local_models, local_available
 from llm.providers.opencode_acp import OpenCodeAcpLLM, list_opencode_models, opencode_available
 from llm.providers.reasonix_acp import ReasonixAcpLLM, list_reasonix_models, reasonix_available
 from llm.registry import (
@@ -70,6 +71,10 @@ __all__ = [
     "DreamAcpLLM",
     "dream_available",
     "list_dream_models",
+    # Local CLI 专有符号（非 Protocol 成员）
+    "LocalAcpLLM",
+    "local_available",
+    "list_local_models",
     # ACP 协议层定型（审批回环共用；现居 llm.providers.acp，此处 re-export）
     "PermissionHandler",
     "PermissionParams",

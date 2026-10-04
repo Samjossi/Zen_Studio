@@ -1,0 +1,17 @@
+# Python 虚拟环境
+.venv/
+
+# Python 缓存
+__pycache__/
+*.py[cod]
+
+# 编辑安装产物
+*.egg-info/
+
+# 参考代码（仅本地参考，不入库）
+参考代码/
+
+# 项目内临时文件（AGENTS.md 约定）
+.temp/
+tmp/
+cache/

@@ -37,6 +37,7 @@ from llm.providers.kimi_common import (
     load_kimi_provider_catalog,
     models_from_catalog,
 )
+from llm.providers.local_acp import LocalAcpLLM, list_local_models, local_available
 from llm.providers.opencode_acp import OpenCodeAcpLLM, list_opencode_models, opencode_available
 from llm.providers.reasonix_acp import ReasonixAcpLLM, list_reasonix_models, reasonix_available
 
@@ -331,6 +332,22 @@ REGISTRY: dict[str, BackendSpec] = {
                 "Dream ACP 为开发中的接口层，本身不含模型。当前回复由本机 "
                 "Dream CLI 服务端配置的模型生成（可能为 DeepSeek），界面所示 "
                 "dream-creator 不代表具体模型。"),
+        ),
+        BackendSpec(
+            name="local-acp",
+            label="Local ACP",
+            vendor="local",
+            vendor_label="本地模型",
+            available=local_available,
+            # 枚举走 `local models` 子进程（Local_Cli 服务端扫描 model_dir
+            # 的 *.gguf 产出），无静态表；兜底空列表纪律同各后台
+            list_models=_cached_list_models("local-acp", list_local_models),
+            factory=LocalAcpLLM,
+            # 当前接入的 GGUF 均为纯文本模型；日后接视觉 GGUF 实测后翻案
+            supports_images=False,
+            # 本地模型无强度目录，单档 auto 仅作状态呈现（同 dream 收敛语义）
+            efforts=("auto",),
+            default_effort="auto",
         ),
     )
 }

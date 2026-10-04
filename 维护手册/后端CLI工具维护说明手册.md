@@ -1,7 +1,7 @@
 # 后端CLI工具维护说明手册
 
 > 本文档汇总了团队常用 后端CLI工具的官方说明地址，供工程师在遇到疑惑时快速查阅。
-> 最后更新：2026-09-17（§1 Kimi 安装地址漂移修正 + K2.8 备注；§2 OpenCode 旧 DeepSeek 别名实测；§3 Kilo Code 后端封存；§4 补 DeepSeek V4.1 Flash 备注）
+> 最后更新：2026-10-04（新增 §5 本地模型（Local CLI）：安装/配置/排错与实测基线，2026-1004-2124 计划）
 
 ---
 
@@ -137,9 +137,59 @@ brew install esengine/reasonix/reasonix
 
 ---
 
-## 5. Zen Studio 私有通道登记（无协议契约，格式漂移自查）
+## 5. 本地模型（Local CLI）
 
-### 5.1 kimi wire.jsonl 子代理旁路（2026-08-13 登记）
+本项目自维护的本地 GGUF 模型后台，子项目源码在 Zen Studio 项目根 `Local_Cli/`
+（自 `参考代码/Dream_Cli/` 复制改名，2026-1004-2124 计划），协议面与
+`dream-acp/protocol/dream-acp-v1.md` 同源（ACP v1，stdio ndjson）。
+
+**体系结构**：Zen Studio（`local-acp` provider）→ 长驻 `local-cli acp` 子进程
+→ llama-server 子进程（OpenAI 兼容 HTTP，localhost 随机端口）→ GGUF 模型文件。
+
+**安装：**
+```bash
+# Local_Cli 本体（uv 工程，独立 .venv）
+cd Local_Cli && uv sync
+# 让 Zen Studio 探测到（探测链：PATH → $LOCAL_HOME/bin/local-cli → ~/.local-cli/bin/local-cli）
+ln -s "$PWD/.venv/bin/local-cli" ~/.local/bin/local-cli
+
+# 推理运行时 llama.cpp（CPU 构建示例；产物约定不放项目目录）
+git clone --depth 1 https://github.com/ggml-org/llama.cpp ~/opt/llama.cpp
+cmake -S ~/opt/llama.cpp -B ~/opt/llama.cpp/build -DCMAKE_BUILD_TYPE=Release \
+  -DLLAMA_BUILD_TESTS=OFF -DLLAMA_CURL=OFF
+cmake --build ~/opt/llama.cpp/build --target llama-server llama-cli -j "$(nproc)"
+```
+
+**配置**（`~/.local-cli/config.toml`，全部键可缺省）：
+
+| 键 | 默认 | 说明 |
+|:---|:---|:---|
+| `model_dir` | `~/models` | GGUF 模型目录，`local-cli models` 扫描此目录的 `*.gguf` |
+| `llama_server_bin` | 探测链：配置项 → `$LLAMA_SERVER_BIN` → PATH → `~/opt/llama.cpp/build/bin/llama-server` | llama-server 二进制路径 |
+| `backend` | `mock` | `mock`（演示，无模型）/ `gguf`（真实推理） |
+| `ctx_size` | `4096` | llama-server 上下文窗口 |
+| `threads` | 机器默认 | llama-server 推理线程数 |
+
+配置路径解析：`$LOCAL_CLI_CONFIG` 环境变量 → `~/.local-cli/config.toml` → 内置默认。
+
+**排错：**
+
+| 现象 | 排查 |
+|:---|:---|
+| 菜单「本地模型」标（未检测到） | `which local-cli`；桌面会话 PATH 不含 ~/.local/bin 时建 `~/.local-cli/bin/local-cli` 软链兜底 |
+| 模型列表为空 | `local-cli models` 直跑看报错；多为 `model_dir` 未配置或目录无 `.gguf` |
+| 对话报「模型未加载/配置缺失」 | Local CLI stderr 日志；手动 `llama-server --model <gguf>` 验证模型能否加载 |
+| 21 GB 级 MoE 加载慢/占内存 | 正常现象（实测冷载约 10 s、RSS 约 31 GB @ctx 4096）；内存紧张机型改用 9B 级模型 |
+
+**实测基线（2026-10-04，46 GB 内存无 GPU 机型，llama.cpp v0.5.0-dev CPU 构建）**：
+9B Q4_K_XL 加载约 3 s、RSS 7.7 GB；35B-A3B MXFP4 MoE 加载约 10 s、约 13 tok/s
+（8 线程）、RSS 30.8 GB（ctx 4096）。思维链经 SSE `reasoning_content` 独立字段下发。
+
+---
+
+## 6. Zen Studio 私有通道登记（无协议契约，格式漂移自查）
+
+### 6.1 kimi wire.jsonl 子代理旁路（2026-08-13 登记）
 
 **机制**：Zen Studio 的 kimi-acp 后端在轮次内旁路读取会话落盘目录
 `~/.kimi-code/sessions/<工作区键>/<sessionId>/agents/agent-N/wire.jsonl`
