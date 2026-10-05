@@ -15,4 +15,4 @@ AGENTS
 - 协议回归：`.venv/bin/python tools/spike_handshake.py`（应 43 过 / 0 挂；默认 mock 后端）
 - 补充验证：`.venv/bin/python tools/verify_extras.py`（应 31 过 / 0 挂）
 - GGUF 冒烟：`.venv/bin/python tools/smoke_gguf.py`（真实 llama-server 全链路，自带测试配置；模型目录非 `~/models` 时用 `LOCAL_CLI_MODEL_DIR` 指定。应 17 过 / 0 挂；工具轮落盘为软断言，模型不守围栏格式只警告不计挂）
-- 协议真值来源：Zen Studio 项目根的 `dream-acp/protocol/dream-acp-v1.md`（本目录即 `Local_Cli/`，从其视角为 `../dream-acp/protocol/dream-acp-v1.md`；线协议不变）；stdout 只写协议帧，日志一律 stderr
+- 协议真值来源：`协议/dream-acp-v1.md`（vendor 副本，上游为 Zen Studio 仓库 `dream-acp/protocol/dream-acp-v1.md`；上游演进时手动同步副本，两侧 diff 应恒为空；线协议不变）；stdout 只写协议帧，日志一律 stderr
