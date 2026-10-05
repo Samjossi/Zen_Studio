@@ -3,7 +3,7 @@
 以 dream_acp.py 为底本逐行同构改写：会话生命周期、审批回环、流式映射
 全部复用泛化连接层 AcpConnection（llm/providers/acp.py）。协议面以
 dream-acp/protocol/dream-acp-v1.md 为真值来源（Local CLI 与 Dream CLI
-共用同一套线协议；Local_Cli/ 子项目即由 Dream_Cli 复制改名而来）。
+共用同一套线协议；Local CLI 为独立仓库，由 Dream_Cli 复制改名而来）。
 
 与 dream_acp 的差异（均写在本文件 docstring，逐条可核对）：
 1. `_find_bin()` 三级范式：PATH → `$LOCAL_HOME/bin/local-cli` →
@@ -13,7 +13,7 @@ dream-acp/protocol/dream-acp-v1.md 为真值来源（Local CLI 与 Dream CLI
    静态表。dream 的静态表 `dream-creator` 是收敛期产物，不适用。
 3. 错误文案指向 Local CLI 自有配置体系（~/.local-cli/）。
 4. 思维链通道：llama-server 的 SSE 流携带独立 reasoning_content 字段，
-   由 Local_Cli 服务端映射为 agent_thought_chunk，客户端经公共
+   由 Local CLI 服务端映射为 agent_thought_chunk，客户端经公共
    map_session_update 直接上屏，本文件零特殊处理。
 
 session/update 映射统一走公共实现 map_session_update。
@@ -77,7 +77,7 @@ def local_available() -> bool:
 def list_local_models() -> list[str]:
     """spawn `local-cli models` 枚举本地 GGUF 模型别名；失败返回空列表。
 
-    输出契约：纯文本、每行一个模型别名（Local_Cli 服务端扫描 model_dir
+    输出契约：纯文本、每行一个模型别名（Local CLI 服务端扫描 model_dir
     下的 *.gguf 产出）。解析策略与 opencode 同款：逐行 strip、跳过空行；
     15s timeout 与 kimi/opencode 枚举同值。失败/超时/空输出 → 空列表
     （R2 兜底纪律：空列表 = 用 agent 默认模型，不崩 UI）。
@@ -320,7 +320,7 @@ class LocalAcpLLM(LanguageModel):
         """轮次内消息消费循环：update → Chunk；response/dead 收尾本轮。
 
         usage_update 是协议正式通道，经 map_session_update 直接产出 usage
-        Chunk 上屏；轮次收尾不做 transcript 估算。Local_Cli 侧暂无真实
+        Chunk 上屏；轮次收尾不做 transcript 估算。Local CLI 侧暂无真实
         用量数据时不发帧，徽章保持隐藏（不臆造上限）。
         """
         while True:

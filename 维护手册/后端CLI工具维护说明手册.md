@@ -139,17 +139,19 @@ brew install esengine/reasonix/reasonix
 
 ## 5. 本地模型（Local CLI）
 
-本项目自维护的本地 GGUF 模型后台，子项目源码在 Zen Studio 项目根 `Local_Cli/`
-（自 `参考代码/Dream_Cli/` 复制改名，2026-1004-2124 计划），协议面与
-`dream-acp/protocol/dream-acp-v1.md` 同源（ACP v1，stdio ndjson）。
+本项目自维护的本地 GGUF 模型后台，源码在独立仓库 Local CLI（2026-10-05
+自本仓库外迁，此前为项目根 `Local_Cli/` 子项目；更早自 `参考代码/Dream_Cli/`
+复制改名，2026-1004-2124 计划），协议面与
+`dream-acp/protocol/dream-acp-v1.md` 同源（ACP v1，stdio ndjson；
+外迁后 Local CLI 仓内 `协议/dream-acp-v1.md` 为 vendor 副本，本仓库仍为上游真值）。
 
 **体系结构**：Zen Studio（`local-acp` provider）→ 长驻 `local-cli acp` 子进程
 → llama-server 子进程（OpenAI 兼容 HTTP，localhost 随机端口）→ GGUF 模型文件。
 
 **安装：**
 ```bash
-# Local_Cli 本体（uv 工程，独立 .venv）
-cd Local_Cli && uv sync
+# Local CLI 本体（uv 工程，独立 .venv；独立仓库，克隆到本机任意位置）
+cd /path/to/Local_Cli && uv sync
 # 让 Zen Studio 探测到（探测链：PATH → $LOCAL_HOME/bin/local-cli → ~/.local-cli/bin/local-cli）
 ln -s "$PWD/.venv/bin/local-cli" ~/.local/bin/local-cli
 

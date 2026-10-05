@@ -32,7 +32,7 @@
 | `llm/providers/opencode_acp.py` | `OpenCodeAcpLLM`：OpenCode ACP 后端（同构；`opencode models` 纯文本枚举，Zen 官方 `opencode/` 前缀模型菜单层剔除） |
 | `llm/providers/kilocode_acp.py` | `KiloCodeAcpLLM`：Kilo Code ACP 后端（同构；`kilo models` 纯文本枚举，网关聚合 `kilo/` 前缀模型菜单层剔除） |
 | `llm/providers/dream_acp.py` | `DreamAcpLLM`：Dream ACP 后端（开发中接口层；与 ReasonixAcpLLM 逐行同构；模型收敛唯一别名 `dream-creator`、强度唯一档 `auto`，实际模型由 Dream CLI 服务端配置决定，IDE 零感知；协议真值来源 `dream-acp/protocol/dream-acp-v1.md`；开发中状态经注册表 `dev_note` 如实告知，文档/修改记录/2026-0814-0603 计划） |
-| `llm/providers/local_acp.py` | `LocalAcpLLM`：本地模型 ACP 后端（厂商分组「本地模型」；以 dream_acp.py 为底本逐行同构；探测链 PATH → `$LOCAL_HOME/bin/local-cli` → `~/.local-cli/bin/local-cli`；模型枚举走 `local-cli models` 子进程动态扫描 GGUF 目录，无静态表；服务端为项目根 `Local_Cli/` 子项目（llama-server orchestrator），协议真值来源同 dream-acp-v1.md） |
+| `llm/providers/local_acp.py` | `LocalAcpLLM`：本地模型 ACP 后端（厂商分组「本地模型」；以 dream_acp.py 为底本逐行同构；探测链 PATH → `$LOCAL_HOME/bin/local-cli` → `~/.local-cli/bin/local-cli`；模型枚举走 `local-cli models` 子进程动态扫描 GGUF 目录，无静态表；服务端为独立仓库 Local CLI（llama-server orchestrator，2026-10-05 自本仓库外迁），协议真值来源同 dream-acp-v1.md） |
 
 ## 3. 接口设计
 
@@ -60,7 +60,7 @@ class LanguageModel(Protocol):
 | `OpenCodeAcpLLM` | provider（`"opencode-acp"`，后台 OpenCode）：长驻 `opencode acp` 子进程，同构；模型目录经 `opencode models` 纯文本枚举，Zen 官方 `opencode/` 前缀模型在菜单层剔除 |
 | `KiloCodeAcpLLM` | provider（`"kilocode-acp"`，后台 Kilo Code）：长驻 `kilo acp` 子进程，同构；模型目录经 `kilo models` 纯文本枚举，网关聚合 `kilo/` 前缀模型在菜单层剔除 |
 | `DreamAcpLLM` | provider（`"dream-acp"`，后台 Dream，**开发中**）：长驻 `dream acp` 子进程，同构；纯接口层，模型/强度收敛为 `dream-creator`/`auto` 单值（服务端白名单硬校验，实际模型由 Dream CLI 服务端 `~/.dream/` 配置决定）；菜单标注「Dream ACP（开发中）」，切换/首发时经 `BackendSpec.dev_note` 在对话流输出如实告知（纯本地 UI，不进 ACP 帧） |
-| `LocalAcpLLM` | provider（`"local-acp"`，后台「本地模型」）：长驻 `local-cli acp` 子进程，同构；模型目录经 `local-cli models` 纯文本枚举（Local_Cli 扫描配置 `model_dir` 下的 `*.gguf`）；思维链由 llama-server SSE 的 `reasoning_content` 字段经服务端映射进 thought 通道；模型加载/配置类错误映射「检查 ~/.local-cli/config.toml」引导 |
+| `LocalAcpLLM` | provider（`"local-acp"`，后台「本地模型」）：长驻 `local-cli acp` 子进程，同构；模型目录经 `local-cli models` 纯文本枚举（Local CLI 扫描配置 `model_dir` 下的 `*.gguf`）；思维链由 llama-server SSE 的 `reasoning_content` 字段经服务端映射进 thought 通道；模型加载/配置类错误映射「检查 ~/.local-cli/config.toml」引导 |
 
 ### 3.1 上下文用量徽章：数据时机与各后端限制（2026-08-02，文档/修改记录/2026-0802-0117）
 
