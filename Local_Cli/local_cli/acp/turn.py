@@ -6,15 +6,19 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from typing import Any
 
 from local_cli.acp.session import AcpSession
+from local_cli.acp.tool_loop import ToolLoopRunner
 from local_cli.acp.transport import ReverseRequestBroker, StdioTransport
 from local_cli.model.base import LanguageModel
 from local_cli.model.mock import (
     MockIntent,
     MockLanguageModel,
 )
+from local_cli.toolkit.executor import ToolExecutor
+from local_cli.toolkit.parser import ToolCallParser
 
 
 class SessionUpdateType:
@@ -87,12 +91,16 @@ class TurnRunner:
         model: LanguageModel,
         session: AcpSession,
         prompt_text: str,
+        tools_enabled: bool,
+        tool_max_iterations: int,
     ) -> None:
         self._transport = transport
         self._broker = broker
         self._model = model
         self._session = session
         self._prompt_text = prompt_text
+        self._tools_enabled = tools_enabled
+        self._tool_max_iterations = tool_max_iterations
 
     # ------------------------------------------------------------------
     # 入口
@@ -112,7 +120,27 @@ class TurnRunner:
         if intent is MockIntent.TOOL_DEMO:
             self._run_tool_demo(request_id)
             return
+        if self._tools_enabled:
+            # 工具总开关下非常规演示意图一律进工具循环（含 Mock 常规回复：
+            # 无围栏块时单迭代收尾，帧序列与纯文本路径逐字节一致——计划 §3.5
+            # 的 Mock 关键词借此驱动真实循环做管道级回归）
+            self._run_tool_loop(request_id)
+            return
         self._run_normal(request_id)
+
+    def _run_tool_loop(self, request_id: int | str) -> None:
+        """委托 ToolLoopRunner：执行器绑定会话 cwd 沙盒，协作者显式接线。"""
+        runner = ToolLoopRunner(
+            transport=self._transport,
+            broker=self._broker,
+            model=self._model,
+            session=self._session,
+            prompt_text=self._prompt_text,
+            parser=ToolCallParser(),
+            executor=ToolExecutor(Path(self._session.cwd)),
+            max_iterations=self._tool_max_iterations,
+        )
+        runner.execute(request_id)
 
     # ------------------------------------------------------------------
     # 三条轮次路径

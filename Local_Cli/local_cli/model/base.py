@@ -18,6 +18,20 @@ class StreamChunk:
     text: str
 
 
+class ChatRole:
+    """消息角色取值（OpenAI 兼容线格式，魔法字符串命名常量）。"""
+    SYSTEM = "system"
+    USER = "user"
+    ASSISTANT = "assistant"
+
+
+@dataclass(frozen=True)
+class ChatMessage:
+    """一条对话消息：工具循环的轮次内上下文（system 之外的交替序列）由它组成。"""
+    role: str
+    content: str
+
+
 class LanguageModel(ABC):
     """流式生成契约：协议层只面向此接口编程。"""
 
@@ -36,6 +50,21 @@ class LanguageModel(ABC):
     @abstractmethod
     def stream_reply(self, prompt_text: str, model_alias: str) -> Iterator[StreamChunk]:
         """对一条用户文本做流式生成，逐段产出 StreamChunk。"""
+
+    def stream_chat(
+        self,
+        messages: list[ChatMessage],
+        system_text: str | None,
+        model_alias: str,
+    ) -> Iterator[StreamChunk]:
+        """对消息序列做流式生成；默认摊平成纯文本委托 stream_reply。
+
+        无消息概念的后端（Mock）零改动获得新契约：system_text 无从表达即
+        丢弃，单条 user 消息摊平后与原 prompt_text 逐字节一致——帧不变量
+        （tools_enabled 下 Mock 常规轮次出站帧与纯文本路径相同）靠此成立。
+        """
+        prompt_text = "\n".join(message.content for message in messages)
+        yield from self.stream_reply(prompt_text, model_alias)
 
     def take_usage(self) -> tuple[int, int] | None:
         """最近一次 stream_reply 的 (used, size)；无真实统计返回 None。

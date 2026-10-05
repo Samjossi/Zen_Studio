@@ -11,7 +11,11 @@
  4. prompt 收到 agent_thought_chunk（reasoning_content）与
     agent_message_chunk（content）双通道流式，usage_update 真实统计，end_turn 收尾
  5. cancel 即停（stopReason=cancelled）
- 6. 结束后无遗留 llama-server 进程（atexit 回收生效）
+ 6. 真实模型工具轮：prompt 明确要求 write_file 写 smoke_poem.md——硬断言
+    轮次完整收尾、连接不崩、正文通道无围栏起始标记（流式抑制，服务端行为
+    可控）；软断言文件真实落盘（模型是否遵守 tool_call 围栏格式不在服务端
+    掌控，落盘失败只警告不计挂）
+ 7. 结束后无遗留 llama-server 进程（atexit 回收生效）
 
 用法：
     .venv/bin/python tools/smoke_gguf.py [--alias Qwen3.5-9B-UD-Q4_K_XL] [-v]
@@ -30,8 +34,13 @@ import time
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TEMP_DIR = os.path.join(PROJECT_ROOT, ".temp")
 SMOKE_DIR = os.path.join(TEMP_DIR, "smoke_gguf")
+#: 真实模型工具轮的会话 cwd（独立目录：写盘副作用与常规轮次隔离，跑完自清）
+TOOL_ROUND_DIR = os.path.join(TEMP_DIR, "smoke_tool_round")
 CONFIG_PATH = os.path.join(TEMP_DIR, "test_config.toml")
 DEFAULT_BIN = os.path.join(PROJECT_ROOT, ".venv", "bin", "local-cli")
+
+#: 工具轮要求模型写入的文件名（prompt 与软断言共用同一名字，避免散写副本）
+TOOL_ROUND_FILE_NAME = "smoke_poem.md"
 
 #: 模型目录：`LOCAL_CLI_MODEL_DIR` 环境变量优先，缺省 ~/models——真实绝对路径
 #: 属本机隐私，只存在环境/用户配置里，不落代码库（隐私门禁红线，见 D5）
@@ -40,6 +49,9 @@ DEFAULT_ALIAS = "Qwen3.5-9B-UD-Q4_K_XL"
 
 _PASS = 0
 _FAIL = 0
+#: 软断言单独计数：模型指令遵循失败不该染红服务端回归（计划 §4.1）
+_SOFT_PASS = 0
+_SOFT_WARN = 0
 _VERBOSE = False
 
 
@@ -51,6 +63,18 @@ def check(name: str, ok: bool, detail: str = "") -> None:
     else:
         _FAIL += 1
         print(f"  FAIL  {name}" + (f"  —— {detail}" if detail else ""))
+
+
+def soft_check(name: str, ok: bool, detail: str = "") -> None:
+    """软断言：失败只警告不计挂（模型行为不在服务端掌控内）。"""
+    global _SOFT_PASS, _SOFT_WARN
+    if ok:
+        _SOFT_PASS += 1
+        print(f"  PASS(软)  {name}")
+    else:
+        _SOFT_WARN += 1
+        print(f"  ⚠️ WARN(软)  {name}（模型未遵循约定，非服务端故障）"
+              + (f"  —— {detail}" if detail else ""))
 
 
 def _info(msg: str) -> None:
@@ -113,6 +137,14 @@ class AgentPipe:
         self._proc.stdin.flush()
         return request_id
 
+    def reply(self, request_id, result: dict) -> None:
+        """应答 agent 反向请求（§3：审批回执）。"""
+        assert self._proc.stdin is not None
+        self._proc.stdin.write(json.dumps(
+            {"jsonrpc": "2.0", "id": request_id, "result": result},
+            ensure_ascii=False) + "\n")
+        self._proc.stdin.flush()
+
     def read_frame(self, timeout: float = 30.0) -> dict | None:
         try:
             return self._frames.get(timeout=timeout)
@@ -138,6 +170,37 @@ class AgentPipe:
             elif frame.get("id") == request_id and "method" not in frame:
                 response = frame
         return updates, response, first_chunk_seconds
+
+    def wait_tool_turn(self, request_id: int, timeout: float = 600.0):
+        """工具轮专用读一轮：审批反向请求自动应答 allow_once，否则 agent 干等超时。
+
+        返回 (updates, response, 审批往返次数, toolCallId 列表)——观测数据
+        原样带出，迭代次数与审批回环由调用方打印/断言。
+        """
+        updates, response = [], None
+        permission_roundtrips = 0
+        tool_call_ids: list[str] = []
+        deadline = time.monotonic() + timeout
+        while response is None:
+            frame = self.read_frame(max(1.0, deadline - time.monotonic()))
+            if frame is None:
+                raise TimeoutError(f"等待响应超时（id={request_id}）")
+            if frame.get("method") == "session/update":
+                update = (frame.get("params") or {}).get("update") or {}
+                updates.append(update)
+                if update.get("sessionUpdate") == "tool_call":
+                    tool_call_ids.append(str(update.get("toolCallId")))
+            elif frame.get("method") == "session/request_permission":
+                permission_roundtrips += 1
+                options = (frame.get("params") or {}).get("options") or []
+                allow_id = next((o["optionId"] for o in options
+                                 if o.get("kind") == "allow_once"), None)
+                _info(f"审批请求 {frame.get('id')} → 应答 {allow_id}")
+                self.reply(frame["id"], {
+                    "outcome": {"outcome": "selected", "optionId": allow_id}})
+            elif frame.get("id") == request_id and "method" not in frame:
+                response = frame
+        return updates, response, permission_roundtrips, tool_call_ids
 
     def close(self) -> None:
         self._proc.terminate()
@@ -180,6 +243,8 @@ def main() -> int:
     _write_test_config()
     shutil.rmtree(SMOKE_DIR, ignore_errors=True)
     os.makedirs(SMOKE_DIR, exist_ok=True)
+    shutil.rmtree(TOOL_ROUND_DIR, ignore_errors=True)
+    os.makedirs(TOOL_ROUND_DIR, exist_ok=True)
     env = dict(os.environ, LOCAL_CLI_CONFIG=CONFIG_PATH)
 
     print(f"== GGUF 冒烟（被测：{bin_path}，模型：{args.alias}）==")
@@ -262,11 +327,66 @@ def main() -> int:
             stop = ((resp or {}).get("result") or {}).get("stopReason")
             check("cancel 即停（stopReason=cancelled）", stop == "cancelled",
                   f"stopReason={stop}")
+
+            # -- 6. 真实模型工具轮 ---------------------------------------------
+            # 硬断言：轮次完整收尾 + 连接不崩；软断言：文件真实落盘——模型是否
+            # 遵循 tool_call 围栏格式不在服务端掌控（计划 §4.1：软断言失败只警告）
+            print("[6] 真实模型工具轮（软断言失败不计挂）")
+            rid = agent.send("session/new",
+                             {"cwd": TOOL_ROUND_DIR, "mcpServers": []})
+            resp = agent.read_frame()
+            tool_session = ((resp or {}).get("result") or {}).get("sessionId")
+            check("工具轮建会话成功（cwd=smoke_tool_round）",
+                  isinstance(tool_session, str), f"收到: {resp}")
+            # 显式切到同一别名：会话默认别名是字典序首个，不切会误加载 35B 实例
+            rid = agent.send("session/set_config_option", {
+                "sessionId": tool_session, "configId": "model",
+                "value": args.alias})
+            resp = agent.read_frame()
+            check("工具轮切换目标别名成功（复用已加载实例）",
+                  "error" not in (resp or {}), f"resp={resp}")
+            rid = agent.send("session/prompt", {
+                "sessionId": tool_session,
+                "prompt": [{"type": "text", "text": (
+                    f"请使用 write_file 工具把一首四行中文短诗写入文件 "
+                    f"{TOOL_ROUND_FILE_NAME}（就在当前工作目录，用相对路径）。"
+                    "写完后用一句话告诉我结果。")}]})
+            updates, resp, roundtrips, tool_call_ids = agent.wait_tool_turn(rid)
+            stop = ((resp or {}).get("result") or {}).get("stopReason")
+            check("工具轮完整收尾（stopReason 协议三态之一，连接不崩）",
+                  stop in ("end_turn", "cancelled", "error"), f"stopReason={stop}")
+            iterations = [int(tid.rsplit("-", 1)[-1])
+                          for tid in tool_call_ids if tid.rsplit("-", 1)[-1].isdigit()]
+            print(f"        观测：审批往返 {roundtrips} 次，"
+                  f"tool_call 帧 {len(tool_call_ids)} 个（迭代序号 {iterations}），"
+                  f"stopReason={stop}")
+            if _VERBOSE:
+                print(f"        正文: {_text_of(updates, 'agent_message_chunk')[:300]!r}")
+            # 硬断言：服务端流式过滤行为可控，正文通道不得出现围栏起始标记
+            check("工具轮正文通道无围栏起始标记（明文抑制生效）",
+                  "```tool_call" not in _text_of(updates, "agent_message_chunk"),
+                  f"正文: {_text_of(updates, 'agent_message_chunk')[:200]!r}")
+            poem_path = os.path.join(TOOL_ROUND_DIR, TOOL_ROUND_FILE_NAME)
+            poem_exists = os.path.isfile(poem_path) \
+                and os.path.getsize(poem_path) > 0
+            soft_check(f"文件 {TOOL_ROUND_FILE_NAME} 真实落盘且内容非空",
+                       poem_exists,
+                       "模型未按 §3.2 围栏格式输出 tool_call（指令遵循问题）")
+            if poem_exists:
+                with open(poem_path, encoding="utf-8") as poem_file:
+                    print(f"        落盘内容: {poem_file.read()[:200]!r}")
+            # 连接活性复检：同别名切换零成本（_ensure_server 同名即返回）
+            rid = agent.send("session/set_config_option", {
+                "sessionId": tool_session, "configId": "model",
+                "value": args.alias})
+            resp = agent.read_frame()
+            check("工具轮后连接仍可复用", "error" not in (resp or {}),
+                  f"resp={resp}")
         finally:
             agent.close()
 
-        # -- 6. 无孤儿进程 ---------------------------------------------------
-        print("[6] 进程回收")
+        # -- 7. 无孤儿进程 ---------------------------------------------------
+        print("[7] 进程回收")
         time.sleep(2)  # atexit 回收留一点宽限
         leaked = _llama_server_pids() - pids_before
         check("无遗留 llama-server 进程", not leaked, f"遗留 pid={leaked}")
@@ -275,8 +395,10 @@ def main() -> int:
                 os.kill(pid, 9)
     finally:
         shutil.rmtree(SMOKE_DIR, ignore_errors=True)
+        shutil.rmtree(TOOL_ROUND_DIR, ignore_errors=True)
 
-    print(f"\n== 结果：{_PASS} 过 / {_FAIL} 挂 ==")
+    print(f"\n== 结果：{_PASS} 过 / {_FAIL} 挂"
+          f"（软断言 {_SOFT_PASS} 过 / {_SOFT_WARN} 警告）==")
     return 1 if _FAIL else 0
 
 

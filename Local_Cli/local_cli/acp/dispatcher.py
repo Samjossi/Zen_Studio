@@ -65,12 +65,16 @@ class RpcDispatcher:
         sessions: SessionManager,
         model: LanguageModel,
         agent_name: str,
+        tools_enabled: bool,
+        tool_max_iterations: int,
     ) -> None:
         self._transport = transport
         self._broker = broker
         self._sessions = sessions
         self._model = model
         self._agent_name = agent_name
+        self._tools_enabled = tools_enabled
+        self._tool_max_iterations = tool_max_iterations
         self._handlers: dict[str, Callable[[IncomingRequest], dict[str, Any]]] = {
             RpcMethod.INITIALIZE: self._handle_initialize,
             RpcMethod.SESSION_NEW: self._handle_session_new,
@@ -145,6 +149,8 @@ class RpcDispatcher:
             model=self._model,
             session=session,
             prompt_text=prompt_text,
+            tools_enabled=self._tools_enabled,
+            tool_max_iterations=self._tool_max_iterations,
         )
         threading.Thread(
             target=runner.execute, args=(request.request_id,), daemon=True,

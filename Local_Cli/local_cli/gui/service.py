@@ -30,6 +30,7 @@ from local_cli.acp.dispatcher import RpcDispatcher
 from local_cli.acp.session import SessionManager
 from local_cli.acp.transport import ReverseRequestBroker, StdioTransport
 from local_cli.acp.turn import SessionUpdateType
+from local_cli.config import DEFAULT_TOOL_MAX_ITERATIONS, DEFAULT_TOOLS_ENABLED
 from local_cli.model.mock import DEMO_MODEL_ALIASES, MockLanguageModel
 
 
@@ -381,12 +382,15 @@ class GuiAcpService(QObject):
         kernel_in, kernel_out = MemoryPipe(), MemoryPipe()
         transport = GuiStdioTransport(kernel_in, kernel_out, self._emit_kernel_log)
         sessions = SessionManager(default_model_alias=self._model_alias)
+        # GUI 演示固定 Mock + 工具默认值（缺省即生效语义，同 CLI 的缺省配置）
         dispatcher = RpcDispatcher(
             transport=transport,
             broker=ReverseRequestBroker(transport),
             sessions=sessions,
             model=MockLanguageModel(),
             agent_name=AGENT_NAME,
+            tools_enabled=DEFAULT_TOOLS_ENABLED,
+            tool_max_iterations=DEFAULT_TOOL_MAX_ITERATIONS,
         )
         client = EmbeddedAcpClient(
             incoming=kernel_out, outgoing=kernel_in,

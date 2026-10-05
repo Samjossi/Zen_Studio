@@ -19,6 +19,9 @@ class AcpSession:
     model_alias: str
     #: 轮次取消信号：session/cancel 置位，轮次线程在 chunk 间消费并清除
     cancel_event: threading.Event = field(default_factory=threading.Event)
+    #: allow_always 记忆（§3.3）：本会话已「总是允许」的工具名集合；
+    #: 粒度=单会话×单工具，进程退出即失效（计划 §6：防止误授权面放大）
+    always_allowed_tools: set[str] = field(default_factory=set)
 
 
 class SessionManager:

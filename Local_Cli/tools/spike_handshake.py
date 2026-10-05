@@ -16,6 +16,9 @@
  6. 错误关键词「报错」→ stopReason="error"，非静默空回复（§2.4/A.3）
  7. set_config_option(configId="model") 两演示别名互切生效；
     未知别名报错不崩（§1.5）
+ 8. 真实工具循环（「协议工具」关键词，NORMAL 意图走 ToolLoopRunner）：
+    审批通过→文件真实落盘→completed→end_turn；拒绝→failed→追问；
+    allow_always 第二次免审批；tools_enabled=false 一键回退纯文本（§3.3/§3.5）
 
 用法：
     python3 tools/spike_handshake.py [--bin .venv/bin/local-cli] [-v]
@@ -33,6 +36,12 @@ import threading
 SPIKE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".spike_tmp")
 DEFAULT_BIN = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                            "..", ".venv", "bin", "local-cli")
+
+#: 真实工具循环回归的关键词与落盘文件（值与 local_cli/model/mock.py 的
+#: TRIGGER_PROTOCOL_TOOL_KEYWORD / PROTOCOL_TOOL_FILE_NAME 保持一致；
+#: spike 保持黑盒不 import 被测包，副本在此显式声明）
+PROTOCOL_TOOL_KEYWORD = "协议工具"
+PROTOCOL_TOOL_FILE_NAME = "protocol_tool_demo.txt"
 
 _PASS = 0
 _FAIL = 0
@@ -62,13 +71,13 @@ class AgentPipe:
     Zen Studio acp.py 的 reader 线程设计）。
     """
 
-    def __init__(self, bin_path: str) -> None:
+    def __init__(self, bin_path: str, extra_config: str = "") -> None:
         # 回归必须自包含：用户真实配置（~/.local-cli/config.toml 可能指向
         # gguf 后端）不得渗入被测 agent，强制注入 hermetic mock 配置
         os.makedirs(SPIKE_DIR, exist_ok=True)
         config_path = os.path.join(SPIKE_DIR, "spike_config.toml")
         with open(config_path, "w", encoding="utf-8") as f:
-            f.write('backend = "mock"\n')
+            f.write('backend = "mock"\n' + extra_config)
         env = {**os.environ, "LOCAL_CLI_CONFIG": config_path}
         self._proc = subprocess.Popen(
             [bin_path, "acp"], cwd=SPIKE_DIR,
@@ -329,6 +338,137 @@ def main() -> int:
         resp = agent.read_frame()
         check("报错后切回 demo-fast 仍可用（连接复用）",
               "error" not in (resp or {}))
+
+        # -- 8. 真实工具循环（Mock 协议工具关键词驱动 ToolLoopRunner） ----------
+        print("[8] 工具循环（协议工具）")
+        tool_file = os.path.join(SPIKE_DIR, PROTOCOL_TOOL_FILE_NAME)
+
+        def _find_option(reverse_frame, kind):
+            return next((o["optionId"] for o in
+                         ((reverse_frame.get("params") or {}).get("options") or [])
+                         if o.get("kind") == kind), None)
+
+        # 8a. 审批通过 → 文件真实落盘 → completed → end_turn
+        rid = agent.send("session/prompt", {
+            "sessionId": session_id,
+            "prompt": [{"type": "text", "text": f"演示{PROTOCOL_TOOL_KEYWORD}"}]})
+        updates, reverses, _ = agent.wait_turn(rid)
+        tool_call_update = next(
+            (u for u in updates if u.get("sessionUpdate") == "tool_call"), None)
+        check("真循环 tool_call 先行（id 为 tool-<session>-<迭代> 格式）",
+              isinstance(tool_call_update, dict)
+              and str(tool_call_update.get("toolCallId") or "").startswith("tool-"),
+              f"tool_call={tool_call_update}")
+        check("真循环收到 request_permission",
+              len(reverses) == 1
+              and reverses[0].get("method") == "session/request_permission",
+              f"reverses={reverses}")
+        agent.reply(reverses[0]["id"], {
+            "outcome": {"outcome": "selected",
+                        "optionId": _find_option(reverses[0], "allow_once")}})
+        updates2, _, resp = agent.wait_turn(rid)
+        check("真循环 allow → completed",
+              any(u.get("sessionUpdate") == "tool_call_update"
+                  and u.get("status") == "completed" for u in updates2),
+              f"updates={[(u.get('sessionUpdate'), u.get('status')) for u in updates2]}")
+        check("真循环 allow → 文件真实落盘且内容正确",
+              os.path.isfile(tool_file)
+              and open(tool_file, encoding="utf-8").read().strip() != "")
+        check("真循环 allow → end_turn 收尾",
+              ((resp or {}).get("result") or {}).get("stopReason") == "end_turn")
+        # 上屏抑制判定线：正文通道全程无围栏起始标记（IDE 只渲染工具卡片）
+        streamed_text = _text_of(updates, "agent_message_chunk") \
+            + _text_of(updates2, "agent_message_chunk")
+        check("真循环消息流不含围栏起始标记（明文抑制生效）",
+              "```tool_call" not in streamed_text,
+              f"streamed={streamed_text[:120]!r}")
+
+        # 8b. 拒绝 → failed → 追问文案 → 文件未建 → end_turn
+        if os.path.isfile(tool_file):
+            os.remove(tool_file)
+        rid = agent.send("session/prompt", {
+            "sessionId": session_id,
+            "prompt": [{"type": "text", "text": f"再演示{PROTOCOL_TOOL_KEYWORD}"}]})
+        updates, reverses, _ = agent.wait_turn(rid)
+        check("真循环 reject 仍收到反向请求（allow_once 不留记忆）",
+              len(reverses) == 1, f"reverses={reverses}")
+        agent.reply(reverses[0]["id"], {
+            "outcome": {"outcome": "selected",
+                        "optionId": _find_option(reverses[0], "reject_once")}})
+        updates2, _, resp = agent.wait_turn(rid)
+        check("真循环 reject → tool_call_update failed",
+              any(u.get("sessionUpdate") == "tool_call_update"
+                  and u.get("status") == "failed" for u in updates2))
+        check("真循环 reject → 放弃执行并向用户追问",
+              len(_text_of(updates2, "agent_message_chunk")) > 0)
+        check("真循环 reject → 文件未建",
+              not os.path.isfile(tool_file))
+        check("真循环 reject → end_turn 收尾",
+              ((resp or {}).get("result") or {}).get("stopReason") == "end_turn")
+
+        # 8c. allow_always：同会话第二次同工具免审批（§3.3 会话级记忆）
+        rid = agent.send("session/prompt", {
+            "sessionId": session_id,
+            "prompt": [{"type": "text", "text": f"演示{PROTOCOL_TOOL_KEYWORD}"}]})
+        updates, reverses, _ = agent.wait_turn(rid)
+        check("allow_always 首次仍弹审批",
+              len(reverses) == 1, f"reverses={reverses}")
+        agent.reply(reverses[0]["id"], {
+            "outcome": {"outcome": "selected",
+                        "optionId": _find_option(reverses[0], "allow_always")}})
+        updates2, _, resp = agent.wait_turn(rid)
+        check("allow_always 首次执行落盘",
+              any(u.get("sessionUpdate") == "tool_call_update"
+                  and u.get("status") == "completed" for u in updates2)
+              and os.path.isfile(tool_file))
+        if os.path.isfile(tool_file):
+            os.remove(tool_file)
+        rid = agent.send("session/prompt", {
+            "sessionId": session_id,
+            "prompt": [{"type": "text", "text": f"再演示{PROTOCOL_TOOL_KEYWORD}"}]})
+        updates, reverses, resp = agent.wait_turn(rid)
+        check("allow_always 第二次免审批（无反向请求，轮次直接收尾）",
+              not reverses and resp is not None,
+              f"reverses={reverses}")
+        check("allow_always 第二次仍真实执行（文件重建 + completed）",
+              os.path.isfile(tool_file)
+              and any(u.get("sessionUpdate") == "tool_call_update"
+                      and u.get("status") == "completed" for u in updates))
+        check("allow_always 第二次 end_turn 收尾",
+              ((resp or {}).get("result") or {}).get("stopReason") == "end_turn")
+
+        # 8d. tools_enabled=false 一键回退：围栏块按纯文本流式，无工具帧无审批
+        print("[8d] tools_enabled=false 回退")
+        agent_no_tools = AgentPipe(bin_path, extra_config="tools_enabled = false\n")
+        try:
+            rid = agent_no_tools.send("initialize", {
+                "protocolVersion": 1,
+                "clientCapabilities": {
+                    "fs": {"readTextFile": False, "writeTextFile": False},
+                    "terminal": False},
+                "clientInfo": {"name": "local-acp-spike", "version": "1.0"}})
+            agent_no_tools.read_frame()
+            rid = agent_no_tools.send("session/new",
+                                      {"cwd": SPIKE_DIR, "mcpServers": []})
+            resp = agent_no_tools.read_frame()
+            session_no_tools = ((resp or {}).get("result") or {}).get("sessionId")
+            if os.path.isfile(tool_file):
+                os.remove(tool_file)
+            rid = agent_no_tools.send("session/prompt", {
+                "sessionId": session_no_tools,
+                "prompt": [{"type": "text", "text": f"演示{PROTOCOL_TOOL_KEYWORD}"}]})
+            updates, reverses, resp = agent_no_tools.wait_turn(rid)
+            check("回退模式无 tool_call 帧且无审批请求",
+                  not reverses and not any(
+                      u.get("sessionUpdate") in ("tool_call", "tool_call_update")
+                      for u in updates),
+                  f"reverses={reverses}")
+            check("回退模式围栏块按纯文本上屏且 end_turn、文件未建",
+                  "```tool_call" in _text_of(updates, "agent_message_chunk")
+                  and ((resp or {}).get("result") or {}).get("stopReason") == "end_turn"
+                  and not os.path.isfile(tool_file))
+        finally:
+            agent_no_tools.close()
     finally:
         agent.close()
         shutil.rmtree(SPIKE_DIR, ignore_errors=True)

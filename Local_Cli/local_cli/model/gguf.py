@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import IO, Any, Iterator
 
 from local_cli.config import LocalCliConfig
-from local_cli.model.base import LanguageModel, StreamChunk
+from local_cli.model.base import ChatMessage, ChatRole, LanguageModel, StreamChunk
 
 _GGUF_SUFFIX = ".gguf"
 
@@ -83,12 +83,22 @@ class GgufLanguageModel(LanguageModel):
         return self._last_usage
 
     def stream_reply(self, prompt_text: str, model_alias: str) -> Iterator[StreamChunk]:
+        """无 system 的薄封装：纯文本轮次与工具未启用路径共用此入口。"""
+        yield from self.stream_chat(
+            [ChatMessage(role=ChatRole.USER, content=prompt_text)], None, model_alias)
+
+    def stream_chat(
+        self,
+        messages: list[ChatMessage],
+        system_text: str | None,
+        model_alias: str,
+    ) -> Iterator[StreamChunk]:
         self._last_usage = None
         with self._server_lock:
             self._ensure_server(model_alias)
             port = self._port
         assert port is not None
-        response = self._open_chat_stream(port, prompt_text)
+        response = self._open_chat_stream(port, messages, system_text)
         try:
             yield from self._iter_chunks(response)
         finally:
@@ -183,9 +193,19 @@ class GgufLanguageModel(LanguageModel):
     # ------------------------------------------------------------------
     # 对话流
     # ------------------------------------------------------------------
-    def _open_chat_stream(self, port: int, prompt_text: str) -> IO[bytes]:
+    def _open_chat_stream(
+        self,
+        port: int,
+        messages: list[ChatMessage],
+        system_text: str | None,
+    ) -> IO[bytes]:
+        # system 走消息数组首元而不是独立字段：OpenAI 兼容端点只认 messages
+        wire_messages = ([{"role": ChatRole.SYSTEM, "content": system_text}]
+                         if system_text else [])
+        wire_messages += [{"role": message.role, "content": message.content}
+                          for message in messages]
         payload = {
-            "messages": [{"role": "user", "content": prompt_text}],
+            "messages": wire_messages,
             "stream": True,
             # 让末帧携带 usage（prompt/completion/total token 数）
             "stream_options": {"include_usage": True},

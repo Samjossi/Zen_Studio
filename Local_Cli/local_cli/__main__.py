@@ -9,7 +9,11 @@ from local_cli import AGENT_NAME
 from local_cli.acp.dispatcher import RpcDispatcher
 from local_cli.acp.session import SessionManager
 from local_cli.acp.transport import ReverseRequestBroker, StdioTransport
-from local_cli.config import BACKEND_GGUF, load_config
+from local_cli.config import (
+    BACKEND_GGUF,
+    LocalCliConfig,
+    load_config,
+)
 from local_cli.model.base import LanguageModel
 from local_cli.model.gguf import GgufLanguageModel, list_gguf_aliases
 from local_cli.model.mock import MockLanguageModel
@@ -26,9 +30,8 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _build_model() -> LanguageModel:
+def _build_model(config: LocalCliConfig) -> LanguageModel:
     """按配置 backend 选模型实现；默认 mock（协议回归基线不破）。"""
-    config = load_config()
     if config.backend == BACKEND_GGUF:
         return GgufLanguageModel(config)
     return MockLanguageModel()
@@ -39,9 +42,10 @@ def run_acp() -> int:
     # SIGTERM 转成正常退出：atexit 才有机会回收 llama-server 子进程，
     # 否则 IDE/spike 的 terminate() 会让推理实例成孤儿
     signal.signal(signal.SIGTERM, lambda _signum, _frame: sys.exit(0))
+    config = load_config()
     transport = StdioTransport(agent_name=AGENT_NAME)
     broker = ReverseRequestBroker(transport)
-    model = _build_model()
+    model = _build_model(config)
     aliases = model.known_aliases()
     # 别名为空时默认别名给空串：GGUF 后端此时 is_available=False，
     # session/new 会先以 -32603 拦下，空串不会被真正用于推理
@@ -52,6 +56,8 @@ def run_acp() -> int:
         sessions=sessions,
         model=model,
         agent_name=AGENT_NAME,
+        tools_enabled=config.tools_enabled,
+        tool_max_iterations=config.tool_max_iterations,
     )
     return dispatcher.serve()
 

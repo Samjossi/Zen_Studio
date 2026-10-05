@@ -24,6 +24,9 @@ DEFAULT_CONFIG_PATH = Path.home() / ".local-cli" / "config.toml"
 DEFAULT_MODEL_DIR = "~/models"
 DEFAULT_BACKEND = "mock"
 DEFAULT_CTX_SIZE = 4096
+#: 工具循环总开关默认开（§3.5）；tool_max_iterations 是单轮次工具循环上限
+DEFAULT_TOOLS_ENABLED = True
+DEFAULT_TOOL_MAX_ITERATIONS = 5
 
 #: backend 取值：gguf 走 llama-server 推理，其余一律按 mock 处理
 BACKEND_GGUF = "gguf"
@@ -41,6 +44,10 @@ class LocalCliConfig:
     threads: int | None
     #: 配置项 llama_server_bin 原值（未配置为 None，走探测链）
     llama_server_bin: str | None
+    #: 工具循环总开关；关掉即回退纯文本旧行为（计划 §6 一键回退）
+    tools_enabled: bool
+    #: 单轮次内工具循环迭代上限，超限以说明性文本收尾 end_turn（§3.5）
+    tool_max_iterations: int
 
     def resolve_llama_server_bin(self) -> str | None:
         """探测链：配置项 → $LLAMA_SERVER_BIN → PATH → 惯例编译路径；全落空返回 None。"""
@@ -98,10 +105,22 @@ def load_config() -> LocalCliConfig:
         if isinstance(bin_raw, str) and bin_raw.strip() \
         else None
 
+    tools_enabled_raw = raw.get("tools_enabled")
+    tools_enabled = tools_enabled_raw \
+        if isinstance(tools_enabled_raw, bool) \
+        else DEFAULT_TOOLS_ENABLED
+
+    max_iterations_raw = raw.get("tool_max_iterations")
+    tool_max_iterations = max_iterations_raw \
+        if isinstance(max_iterations_raw, int) and max_iterations_raw > 0 \
+        else DEFAULT_TOOL_MAX_ITERATIONS
+
     return LocalCliConfig(
         model_dir=model_dir,
         backend=backend,
         ctx_size=ctx_size,
         threads=threads,
         llama_server_bin=llama_server_bin,
+        tools_enabled=tools_enabled,
+        tool_max_iterations=tool_max_iterations,
     )
