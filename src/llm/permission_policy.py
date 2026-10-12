@@ -42,9 +42,9 @@ DEFAULT_PERMISSION_MODE = MODE_AUTO_GUARDED
 
 #: 模式值 → (显示名, 说明)（设置中心 AI 权限页单选组文案单一来源）
 PERMISSION_MODE_LABELS: dict[str, tuple[str, str]] = {
-    MODE_CONFIRM_ALL: ("逐次确认", "所有工具调用都弹窗确认，最保守"),
+    MODE_CONFIRM_ALL: ("逐次确认", "所有工具调用都弹窗确认"),
     MODE_CONFIRM_EXECUTE: ("仅命令需确认", "读写文件自动放行，运行命令一律弹窗"),
-    MODE_AUTO_GUARDED: ("智能放行（推荐）", "普通调用自动放行，仅危险命令黑名单命中时弹窗"),
+    MODE_AUTO_GUARDED: ("智能放行（推荐）", "仅危险命令弹窗，其余自动放行"),
     MODE_AUTO_ALL: ("全部放行", "危险命令（rm -rf /、git push -f 等）也不再弹窗，高危"),
 }
 

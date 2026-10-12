@@ -9,11 +9,15 @@
 - 骨架：左导航（卡片化 QListWidget，base.qss QListView 段统一换肤）+
   右页标题区（标题/副标题/分隔线，currentRowChanged 骨架统一刷新）+
   堆叠页 + 底部「关闭」按钮；各页不再自带页顶说明（1510 计划 D4/D8）
-- 主题化：app 级 qss 覆盖标准控件；内联 style 不受其管辖的部分（hint 灰、
-  分隔线）由 apply_theme(theme) 收敛点按 muted_text/border 令牌重刷
+- 主题化：app 级 qss 覆盖标准控件；内联 style 不受其管辖的部分（hint 灰字、
+  问号提示图标、分隔线）由 apply_theme(theme) 收敛点按 muted_text/border
+  令牌重刷（图标圆圈描边与字形同色）
   （热切换已随 2026-0820-1642 计划移除，本方法保留为公共接口，构造期
   自检初始化；1510 计划 D6 否决的 QPalette 角色色方案已由该计划翻盘——
   gui/theme.apply_theme 现纳管 app 级 QPalette 兜底，见其 §4.1）
+- 说明文字两档：单行短句用 _make_hint 直接留在界面（即时状态提示必留，
+  藏着用户无法理解控件为何禁用）；成段机制说明收进 _make_hint_icon
+  问号图标 tooltip，默认不占版面
 - 字号化：页标题/黑名单等宽区字号**相对派生**自 app 全局字号（禁止绝对值
   写死——不随用户字号缩放，全局调大后标题反而比正文小），由
   apply_font_size() 收敛点重刷（挂 MainWindow._apply_font_size 链，同
@@ -137,15 +141,15 @@ _NOTIFY_BANNER_EVENTS = (
 #: 新增设置页 = 写 _build_xxx_page / _reload_xxx 两函数 + 此处加一行，
 #: 骨架与 reload 分发零改动（AFCP 3.4 常量化；同 menus/assembler.MODULES 先例）
 _PAGE_REGISTRY: tuple[tuple[str, str, str, str | None], ...] = (
-    ("AI 工具权限", "控制 AI 工具调用的审批粒度，切换即时生效。",
+    ("AI 工具权限", "控制 AI 工具调用的审批粒度。",
      "_build_permission_page", "_reload_permission"),
-    ("AI 模型", "选择 AI 后台、接口与模型；作用于当前活动会话标签，与聊天面板底行模型按钮双向同步。",
+    ("AI 模型", "选择 AI 后台、接口与模型。",
      "_build_model_page", "_reload_model"),
-    ("外观", "主题与字号即时应用全窗口（含各面板配色）。",
+    ("外观", "主题与字号即时生效。",
      "_build_appearance_page", "_reload_appearance"),
-    ("终端", "终端按键与 AI 标签行为配置，切换即时生效。",
+    ("终端", "终端按键与 AI 标签行为。",
      "_build_terminal_page", "_reload_terminal"),
-    ("通知", "AI 任务完成与交互提问时的声音提醒与顶部通知横幅。",
+    ("通知", "任务完成与交互提问的声音与横幅提醒。",
      "_build_notify_page", "_reload_notify"),
     ("高级", "配置文件查看与重置操作。",
      "_build_advanced_page", None),
@@ -179,6 +183,7 @@ class SettingsDialog(QDialog):
         #: hint 控件与分隔线集合：内联 style 不受 app 级 qss 管辖，
         #: apply_theme 统一按令牌重刷（1510 计划 D6/D10）
         self._hint_labels: list[QLabel] = []
+        self._hint_icons: list[QLabel] = []
         self._sep_frames: list[QFrame] = []
         self.setWindowTitle("设置中心")
         self.setMinimumSize(600, 420)
@@ -250,6 +255,12 @@ class SettingsDialog(QDialog):
         hint_qss = f"color: {tokens['muted_text']};"
         for label in self._hint_labels:
             label.setStyleSheet(hint_qss)
+        icon_qss = (
+            f"color: {tokens['muted_text']};"
+            f" border: 1px solid {tokens['muted_text']};"
+            " border-radius: 8px; padding: 0 4px;")
+        for icon in self._hint_icons:
+            icon.setStyleSheet(icon_qss)
         sep_qss = f"color: {tokens['border']};"
         for frame in self._sep_frames:
             frame.setStyleSheet(sep_qss)
@@ -378,7 +389,14 @@ class SettingsDialog(QDialog):
         layout.addRow("后台", self._vendor_combo)
         layout.addRow("接口", self._interface_combo)
         layout.addRow("模型", self._model_combo)
-        layout.addRow(self._make_hint("当前会话响应中暂不可切换。", page))
+        # 本页两条灰字是即时状态提示（随会话忙闲/窗口形态生效），非静态
+        # 说明，不纳入问号图标收纳——留着才能解释下拉为何禁用
+        busy_row = QHBoxLayout()
+        busy_row.addWidget(self._make_hint("当前会话响应中暂不可切换。", page))
+        busy_row.addStretch(1)
+        busy_row.addWidget(self._make_hint_icon(
+            "模型选择作用于当前活动会话标签，与聊天面板底行模型按钮双向同步。", page))
+        layout.addRow(busy_row)
         # 空白窗口降级（2026-0905-2044 计划）：无会话标签，模型选择无
         # 作用对象——三下拉禁用 + 原因提示。窗口实例生命周期内 chat_tabs
         # 恒 None 或恒非 None（空窗填充走换根关旧窗、起新进程），降级态
@@ -387,7 +405,7 @@ class SettingsDialog(QDialog):
             for combo in (self._vendor_combo, self._interface_combo, self._model_combo):
                 combo.setEnabled(False)
             layout.addRow(self._make_hint(
-                "空白窗口无会话标签，模型选择不可用；打开文件夹后生效。", page))
+                "空白窗口不可用；打开文件夹后生效。", page))
         self._vendor_combo.activated.connect(self._on_vendor_activated)
         self._interface_combo.activated.connect(self._on_interface_activated)
         self._model_combo.activated.connect(self._on_model_activated)
@@ -447,10 +465,13 @@ class SettingsDialog(QDialog):
         self._renderer_combo.addItem("卡片（折叠卡，推荐）", CHAT_RENDERER_CARDS)
         self._renderer_combo.addItem("经典（行文本流）", CHAT_RENDERER_CLASSIC)
         make_translucent_combo_popup(self._renderer_combo)
+        renderer_field = QHBoxLayout()
+        renderer_field.addWidget(self._renderer_combo, 1)
+        renderer_field.addWidget(self._make_hint_icon(
+            "对话区渲染切换对新建会话标签生效。", page))
         layout.addRow("主题", self._theme_combo)
         layout.addRow("字号", self._font_spin)
-        layout.addRow("对话区渲染", self._renderer_combo)
-        layout.addRow(self._make_hint("对话区渲染切换对新建会话标签生效。", page))
+        layout.addRow("对话区渲染", renderer_field)
         self._theme_combo.activated.connect(self._on_theme_activated)
         self._font_spin.valueChanged.connect(self._on_font_changed)
         self._renderer_combo.activated.connect(self._on_renderer_activated)
@@ -483,9 +504,12 @@ class SettingsDialog(QDialog):
         layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         self._swap_check = QCheckBox("Ctrl+C/V 复制粘贴", page)
         self._swap_check.toggled.connect(self._on_swap_toggled)
-        layout.addWidget(self._swap_check)
-        layout.addWidget(self._make_hint(
+        swap_row = QHBoxLayout()
+        swap_row.addWidget(self._swap_check)
+        swap_row.addStretch(1)
+        swap_row.addWidget(self._make_hint_icon(
             "勾选后：Ctrl+C/V 复制粘贴，Ctrl+Shift+C/V 发中断（SIGINT）/粘贴标记。", page))
+        layout.addLayout(swap_row)
         row = QHBoxLayout()
         row.addWidget(QLabel("AI 终端标签结束后停留时长：", page))
         self._close_delay_spin = QSpinBox(page)
@@ -495,9 +519,9 @@ class SettingsDialog(QDialog):
         self._close_delay_spin.valueChanged.connect(self._on_close_delay_changed)
         row.addWidget(self._close_delay_spin)
         row.addStretch(1)
-        layout.addLayout(row)
-        layout.addWidget(self._make_hint(
+        row.addWidget(self._make_hint_icon(
             "AI 命令结束后，终端标签停留此时长再自动关闭；设为 0 立即关闭。", page))
+        layout.addLayout(row)
         return page
 
     def _on_swap_toggled(self, checked: bool) -> None:
@@ -524,7 +548,14 @@ class SettingsDialog(QDialog):
         layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         self._notify_sound_check = QCheckBox("事件发生时播放提示音", page)
         self._notify_sound_check.toggled.connect(self._on_notify_sound_toggled)
-        layout.addWidget(self._notify_sound_check)
+        sound_check_row = QHBoxLayout()
+        sound_check_row.addWidget(self._notify_sound_check)
+        sound_check_row.addStretch(1)
+        sound_check_row.addWidget(self._make_hint_icon(
+            "可选范围为 assets/sounds/正在使用/ 下的 wav 文件（从备选池复制扩充）；\n"
+            "下拉框选中即自动试听一次，试听不受开关影响，正式提醒在开关开启时才会播放。",
+            page))
+        layout.addLayout(sound_check_row)
         self._notify_sound_combos: dict[str, QComboBox] = {}
         # 事件名标签列交 QFormLayout 按字号自适应宽度（写死像素在全局
         # 字号调大后放不下四个汉字会被裁掉）
@@ -543,12 +574,16 @@ class SettingsDialog(QDialog):
             form.addRow(label, field)
             self._notify_sound_combos[event] = combo
         layout.addLayout(form)
-        layout.addWidget(self._make_hint(
-            "可选范围为 assets/sounds/正在使用/ 下的 wav 文件（从备选池复制扩充）；"
-            "下拉框选中即自动试听一次，试听不受开关影响，正式提醒在开关开启时才会播放。", page))
         self._notify_banner_check = QCheckBox("事件发生时弹出顶部通知横幅", page)
         self._notify_banner_check.toggled.connect(self._on_notify_banner_toggled)
-        layout.addWidget(self._notify_banner_check)
+        banner_check_row = QHBoxLayout()
+        banner_check_row.addWidget(self._notify_banner_check)
+        banner_check_row.addStretch(1)
+        banner_check_row.addWidget(self._make_hint_icon(
+            "通知经系统桌面通知（notify-send）弹出，窗口最小化或被遮挡时也能送达，\n"
+            "样式与消退由桌面环境管理；用户手动中断不触发提醒；\n"
+            "试看不受开关影响，正式提醒在开关开启时才会弹出。", page))
+        layout.addLayout(banner_check_row)
         banner_form = QFormLayout()
         self._notify_banner_previews: dict[str, QPushButton] = {}
         for kind, label in _NOTIFY_BANNER_EVENTS:
@@ -561,10 +596,6 @@ class SettingsDialog(QDialog):
             banner_form.addRow(label, field)
             self._notify_banner_previews[kind] = preview_button
         layout.addLayout(banner_form)
-        layout.addWidget(self._make_hint(
-            "通知经系统桌面通知（notify-send）弹出，窗口最小化或被遮挡时也能送达，"
-            "样式与消退由桌面环境管理；用户手动中断不触发提醒；"
-            "试看不受开关影响，正式提醒在开关开启时才会弹出。", page))
         return page
 
     def _on_notify_sound_selected(self, key: str, combo: QComboBox) -> None:
@@ -611,10 +642,11 @@ class SettingsDialog(QDialog):
         reset_button.clicked.connect(self._ctx.reset_settings)
         button_row = QHBoxLayout()
         button_row.addWidget(open_button)
+        button_row.addWidget(self._make_hint_icon(
+            "配置文件为只读查看；修改请经 AI 落盘。", page))
         button_row.addWidget(reset_button)
         button_row.addStretch(1)
         layout.addLayout(button_row)
-        layout.addWidget(self._make_hint("配置文件为只读查看；修改请经 AI 落盘。", page))
         layout.addStretch(1)
         return page
 
@@ -785,6 +817,15 @@ class SettingsDialog(QDialog):
         label.setWordWrap(True)
         self._hint_labels.append(label)
         return label
+
+    def _make_hint_icon(self, tooltip: str, parent: QWidget | None = None) -> QLabel:
+        """问号提示图标：成段说明的收纳处，悬停出 tooltip（颜色由
+        apply_theme 按 muted_text 令牌重刷，圆圈描边同色）。"""
+        icon = QLabel("?", parent)
+        icon.setToolTip(tooltip)
+        icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._hint_icons.append(icon)
+        return icon
 
     def _make_separator(self, shape: QFrame.Shape) -> QFrame:
         """分隔线（颜色由 apply_theme 按 border 令牌重刷）。"""

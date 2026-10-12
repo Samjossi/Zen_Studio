@@ -18,7 +18,7 @@
 | `gui/main_window.py` | 主窗口：三栏布局（右栏再上下拆分）+ 状态栏 + 窗口几何/分隔栏状态持久化 + Git 状态事件驱动刷新 + 菜单槽函数（打开文件夹/字号/恢复布局等） |
 | `gui/controllers.py` | MainWindow 职责外移的控制器：`GitStatusController`（Git 服务编排/去抖/四面板扇出刷新）等组合成员，依赖构造注入 |
 | `gui/settings.py` | 通用配置持久化：读写 `config/settings.json`，"读全量 → 合并 → 写回"统一入口（主题/窗口几何/分隔栏/模型选择/工作区根共用；模型版本为按接口记忆的 `model_versions` 表） |
-| `gui/settings_dialog.py` | 设置中心对话框：左导航 + 右分页（页面注册表驱动），唯一偏好配置面；控件 change 即时持久化即时应用 |
+| `gui/settings_dialog.py` | 设置中心对话框：左导航 + 右分页（页面注册表驱动），唯一偏好配置面；控件 change 即时持久化即时应用；说明文字两档——短句灰字直留界面，成段说明收进问号图标 tooltip |
 | `gui/window_state.py` | 窗口状态持久化：读写 `config/window_state/<hash8>.json`（按工作区哈希分文件，`default.json` 供新工作区首开继承） |
 | `gui/root_ownership.py` | 一窗一根占用登记与唤活协议：`QLocalServer` 按工作区根 listen（`config/sockets/<hash8>.sock`），命中已占用根发唤活消息并以退出码 3 退出；陈旧套接字探测自愈（2026-08-31） |
 | `gui/recent_projects.py` | 最近打开的工作区根存取（`config/recent_projects.json`），文件菜单「最近打开的项目」子菜单消费 |
