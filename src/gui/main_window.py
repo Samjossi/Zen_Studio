@@ -90,12 +90,16 @@ from gui.settings import (
     KEY_FONT_SIZE,
     KEY_MODEL_BACKEND,
     KEY_MODEL_VERSIONS,
+    KEY_NOTIFY_BANNER_ENABLED,
+    KEY_NOTIFY_SOUND_ENABLED,
     KEY_TERMINAL_AI_TAB_CLOSE_DELAY_S,
     KEY_TERMINAL_SWAP_COPY_PASTE,
     KEY_THEME,
     SETTINGS_FILE,
     update_settings,
 )
+from gui.notification_banner import NotificationBanner
+from gui.sound_player import play_completion_sound
 from gui.settings_dialog import SettingsDialog
 from gui.theme import (
     apply_theme,
@@ -235,6 +239,8 @@ class MainWindow(QMainWindow):
         # 实时看输出可干预；不支持的 provider 声明恒 false（行为不变）
         # 自持引用：设置中心「结束后停留时长」变更需即时推送到桥（2026-08-18 §6）
         self._agent_terminal_bridge = AgentTerminalBridge(self.terminal_panel)
+        #: 任务完成顶部通知横幅（懒创建：从未触发完成提醒时不建）
+        self._notify_banner: NotificationBanner | None = None
         if workspace_root is None:
             # 空窗左栏：置灰占位（无根不建 ChatTabs——无会话存取、无 provider 连接）
             self.chat_tabs: ChatTabs | None = None
@@ -326,6 +332,7 @@ class MainWindow(QMainWindow):
         if self.chat_tabs is not None:
             self.chat_tabs.selection_changed.connect(self._on_modelbar_changed)
             self.chat_tabs.busy_changed.connect(self._on_chat_busy_changed)
+            self.chat_tabs.turn_completed.connect(self._on_turn_completed)
 
     def _init_statusbar(self) -> None:
         """状态栏：去尺寸把手 + 定高 + Git 统计常驻区 + 就绪消息。"""
@@ -820,6 +827,16 @@ class MainWindow(QMainWindow):
         禁用对齐，2026-0803-0112 计划 D4 粒度收窄）。"""
         if self._settings_dialog is not None:
             self._settings_dialog.set_model_enabled(not busy)
+
+    def _on_turn_completed(self, success: bool) -> None:
+        """AI 一轮真正收尾 → 按设置中心开关触发完成提醒（声音 + 顶部横幅）。"""
+        settings = load_settings()
+        if settings[KEY_NOTIFY_SOUND_ENABLED]:
+            play_completion_sound(success)
+        if settings[KEY_NOTIFY_BANNER_ENABLED]:
+            if self._notify_banner is None:
+                self._notify_banner = NotificationBanner(self)
+            self._notify_banner.show_completion(success)
 
     def open_settings_file(self) -> None:
         """在只读查看器中打开 settings.json（AI-first：修改经 AI 落盘）。"""

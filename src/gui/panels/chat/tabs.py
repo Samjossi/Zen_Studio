@@ -86,6 +86,11 @@ class ChatTabs(QWidget):
     #: Git 状态去抖刷新）
     turn_finished = Signal()
 
+    #: 任一标签一轮对话真正收尾（转发 ChatPanel.turn_completed，载荷
+    #: True=成功 / False=失败；不含用户中断与接续轮中途；主窗口联动
+    #: 完成提醒：声音 + 通知横幅）
+    turn_completed = Signal(bool)
+
     #: 正文文件路径链接点击（转发 ChatPanel.file_open_requested，载荷
     #: (绝对路径, 行号|None)；主窗口接查看器 open_file）
     file_open_requested = Signal(str, object)
@@ -235,6 +240,7 @@ class ChatTabs(QWidget):
         panel.model_bar.effort_changed.connect(
             lambda backend, effort, p=panel: self._on_effort_changed(p, backend, effort))
         panel.turn_finished.connect(self.turn_finished)
+        panel.turn_completed.connect(self.turn_completed)
         panel.file_open_requested.connect(self.file_open_requested)
         if self._backend is None:
             # 启动无持久化记录：注入值取首标签经 ModelBar 回退后的有效值

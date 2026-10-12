@@ -8,8 +8,9 @@
 
 要点：
 - 路径经 SPECPATH 推导项目根，从任意目录调用行为一致（不依赖 CWD）
-- datas 按子目录收编五条（字体两族 + Logo 全套 + 主题模板 + 版本文件）；
-  思源宋体（87M 未注册备用族）与 logo候选池（设计草稿）明确不打包——
+- datas 按子目录收编（字体三族 + Logo 全套 + 主题模板 + 提示音 + 版本文件）；
+  思源宋体（87M 未注册备用族）、logo候选池（设计草稿）与
+  sounds/备选池（提示音候选存档）明确不打包——
   见 文档/修改记录/2026-0725-1053 计划 §4 打包内容清单
 - 版本自算注入：顶部按与 building/version.py 相同规则自算完整版本
   （pyproject.toml 基础版本 + git 提交计数构建号），写出 version.txt
@@ -66,6 +67,9 @@ a = Analysis(
         (os.path.join(PROJECT_ROOT, "assets/logo"), "assets/logo"),
         # QSS 主题模板（gui/theme.py THEME_TEMPLATE_FILE 消费的只读资源）
         (os.path.join(PROJECT_ROOT, "assets/themes"), "assets/themes"),
+        # 任务完成提示音（gui/sound_player.py 消费；sounds/备选池 为候选
+        # 存档不打包，仅收编正在使用子目录）
+        (os.path.join(PROJECT_ROOT, "assets/sounds/正在使用"), "assets/sounds/正在使用"),
         # 版本文件（冻结态 core/version.py 读取；本 spec 顶部自算写出，
         # 已是含构建号的完整版本，落 bundle 根即 frozen 态 PROJECT_ROOT）
         (_VERSION_TXT, "."),

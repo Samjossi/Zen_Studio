@@ -63,6 +63,8 @@ from gui.settings import (
     KEY_CHAT_RENDERER,
     KEY_FONT_SIZE,
     KEY_MODEL_BACKEND,
+    KEY_NOTIFY_BANNER_ENABLED,
+    KEY_NOTIFY_SOUND_ENABLED,
     KEY_PERMISSION_MODE,
     KEY_TERMINAL_AI_TAB_CLOSE_DELAY_S,
     KEY_TERMINAL_SWAP_COPY_PASTE,
@@ -71,6 +73,7 @@ from gui.settings import (
     TERMINAL_AI_TAB_CLOSE_DELAY_MIN_S,
     update_settings,
 )
+from gui import sound_player
 from gui.theme import (
     WARNING_COLOR,
     get_label,
@@ -123,6 +126,8 @@ _PAGE_REGISTRY: tuple[tuple[str, str, str, str | None], ...] = (
      "_build_appearance_page", "_reload_appearance"),
     ("终端", "终端按键与 AI 标签行为配置，切换即时生效。",
      "_build_terminal_page", "_reload_terminal"),
+    ("通知", "AI 任务完成时的声音提醒与顶部通知横幅开关。",
+     "_build_notify_page", "_reload_notify"),
     ("高级", "配置文件查看与重置操作。",
      "_build_advanced_page", None),
 )
@@ -491,6 +496,45 @@ class SettingsDialog(QDialog):
                 self._ctx.STATUS_MSG_TIMEOUT_MS)
 
     # ------------------------------------------------------------------
+    # 通知页（任务完成声音提醒 + 顶部横幅；无 MainWindow 应用槽需求，
+    # 开关直写 update_settings，消费侧在触发点读持久化值）
+    # ------------------------------------------------------------------
+    def _build_notify_page(self) -> QWidget:
+        page = QWidget(self)
+        layout = QVBoxLayout(page)
+        layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        self._notify_sound_check = QCheckBox("任务完成时播放提示音", page)
+        self._notify_sound_check.toggled.connect(self._on_notify_sound_toggled)
+        layout.addWidget(self._notify_sound_check)
+        preview_row = QHBoxLayout()
+        preview_button = QPushButton("试听提示音", page)
+        preview_button.clicked.connect(lambda: sound_player.play_completion_sound(True))
+        preview_row.addWidget(preview_button)
+        preview_row.addStretch(1)
+        layout.addLayout(preview_row)
+        layout.addWidget(self._make_hint("试听不受开关影响；正式提醒在开关开启时才会播放。", page))
+        self._notify_banner_check = QCheckBox("任务完成时弹出顶部通知横幅", page)
+        self._notify_banner_check.toggled.connect(self._on_notify_banner_toggled)
+        layout.addWidget(self._notify_banner_check)
+        layout.addWidget(self._make_hint(
+            "横幅悬浮于窗口顶部，数秒后自动消退；用户手动中断不触发提醒。", page))
+        return page
+
+    def _on_notify_sound_toggled(self, checked: bool) -> None:
+        if not self._reloading:
+            update_settings({KEY_NOTIFY_SOUND_ENABLED: checked})
+            self._ctx.statusBar().showMessage(
+                f"通知：任务完成提示音 → {'开' if checked else '关'}",
+                self._ctx.STATUS_MSG_TIMEOUT_MS)
+
+    def _on_notify_banner_toggled(self, checked: bool) -> None:
+        if not self._reloading:
+            update_settings({KEY_NOTIFY_BANNER_ENABLED: checked})
+            self._ctx.statusBar().showMessage(
+                f"通知：任务完成通知横幅 → {'开' if checked else '关'}",
+                self._ctx.STATUS_MSG_TIMEOUT_MS)
+
+    # ------------------------------------------------------------------
     # 高级页（打开配置文件 / 恢复默认设置——破坏性沉底，按钮水平排列）
     # ------------------------------------------------------------------
     def _build_advanced_page(self) -> QWidget:
@@ -546,6 +590,10 @@ class SettingsDialog(QDialog):
     def _reload_terminal(self, settings) -> None:
         self._swap_check.setChecked(settings[KEY_TERMINAL_SWAP_COPY_PASTE])
         self._close_delay_spin.setValue(settings[KEY_TERMINAL_AI_TAB_CLOSE_DELAY_S])
+
+    def _reload_notify(self, settings) -> None:
+        self._notify_sound_check.setChecked(settings[KEY_NOTIFY_SOUND_ENABLED])
+        self._notify_banner_check.setChecked(settings[KEY_NOTIFY_BANNER_ENABLED])
 
     def _reload_model(self, settings) -> None:
         """模型页三级回显：后台（vendor 由 backend 经注册表推导，D2 不读

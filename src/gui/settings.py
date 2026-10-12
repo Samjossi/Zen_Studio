@@ -11,7 +11,7 @@ settings.json，update_settings 以 flock 串行化"读-合并-写"三步根治�
 写临时文件 + os.replace 原子覆盖防文件损坏；工作区根改由启动参数决定，
 不再持久化（KEY_WORKSPACE_ROOT 已删，存量旧键读取即丢弃自然失效）。
 
-键空间由 AppSettings 定型（11 个固定键），消费侧一律经 KEY_* 常量
+键空间由 AppSettings 定型（14 个固定键），消费侧一律经 KEY_* 常量
 引用键名，禁止裸字符串键（AFCP 3.1：数据结构显式）。startup_mode
 键已随启动恢复特性整体拆除（2026-0905-2347 计划：无参启动恒空白
 窗口，撤销 2026-0905-2025 计划），存量旧键读取即丢弃自然失效。
@@ -66,6 +66,10 @@ KEY_CHAT_RENDERER = "chat_renderer"
 #: kimi 子代理 wire 旁路开关（0813-1919 计划 T4；默认开，False 回退
 #: 纯 ACP 行为——子代理仅起止 + 成果摘要；格式漂移熔断时的手动回退通道）
 KEY_KIMI_WIRE_SIDECAR = "kimi_wire_sidecar"
+#: AI 任务完成提示音开关（gui/sound_player.py 消费）
+KEY_NOTIFY_SOUND_ENABLED = "notify_sound_enabled"
+#: AI 任务完成顶部通知横幅开关（gui/notification_banner.py 消费）
+KEY_NOTIFY_BANNER_ENABLED = "notify_banner_enabled"
 
 #: 对话区渲染轨值域（0645 融合计划 D2-A 双轨并存：cards 卡片轨默认 /
 #: classic 旧轨经典——旧轨冻结保留即回退通道，新轨稳定一个版本后再议下线）
@@ -95,7 +99,7 @@ DEFAULT_TERMINAL_AI_TAB_CLOSE_DELAY_S = 12
 
 
 class AppSettings(TypedDict):
-    """settings.json 全量结构（12 个固定键，均为用户偏好）。"""
+    """settings.json 全量结构（14 个固定键，均为用户偏好）。"""
 
     theme: str                   # 主题名（gui/theme.py 注册表键）
     font_size: int               # 全局 UI 字号（pt）
@@ -124,6 +128,10 @@ class AppSettings(TypedDict):
     #: kimi 子代理 wire 旁路开关（0813-1919 计划 T4：True 默认——
     #: 子代理内部活动经 wire.jsonl 旁路嵌套显示；False 回退纯 ACP）
     kimi_wire_sidecar: bool
+    #: AI 任务完成时播放提示音（True 默认）
+    notify_sound_enabled: bool
+    #: AI 任务完成时弹出顶部通知横幅（True 默认）
+    notify_banner_enabled: bool
 
 
 class AppSettingsPatch(TypedDict, total=False):
@@ -140,6 +148,8 @@ class AppSettingsPatch(TypedDict, total=False):
     permission_mode: str
     chat_renderer: str
     kimi_wire_sidecar: bool
+    notify_sound_enabled: bool
+    notify_banner_enabled: bool
 
 
 #: 默认值：文件缺失 / 字段缺失 / JSON 损坏时回退
@@ -155,6 +165,8 @@ DEFAULT_SETTINGS: AppSettings = {
     KEY_PERMISSION_MODE: DEFAULT_PERMISSION_MODE,
     KEY_CHAT_RENDERER: DEFAULT_CHAT_RENDERER,
     KEY_KIMI_WIRE_SIDECAR: True,
+    KEY_NOTIFY_SOUND_ENABLED: True,
+    KEY_NOTIFY_BANNER_ENABLED: True,
 }
 
 

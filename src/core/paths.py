@@ -41,6 +41,13 @@ LOGO_DIR = ASSETS_DIR / "logo"
 #: 主题模板专目录（assets/themes/：base.qss，gui/theme.py 消费的只读资源）
 THEMES_ASSETS_DIR = ASSETS_DIR / "themes"
 
+#: 提示音专目录（assets/sounds/：备选池子目录为候选存档不打包）
+SOUNDS_DIR = ASSETS_DIR / "sounds"
+
+#: 启用中的提示音（assets/sounds/正在使用/：done.wav / error.wav，
+#: gui/sound_player.py 消费；spec datas 按本子目录收编）
+SOUNDS_ACTIVE_DIR = SOUNDS_DIR / "正在使用"
+
 #: 用户数据根（可写：settings/recent_projects/window_state 等）
 #: 开发态：项目内 config/；打包态：${XDG_CONFIG_HOME:-~/.config}/zen-studio/
 #: XDG 规范：XDG_CONFIG_HOME 为相对路径时视为无效须忽略（审计 W5），

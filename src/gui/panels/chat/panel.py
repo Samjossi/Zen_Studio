@@ -127,6 +127,12 @@ class ChatPanel(QWidget):
     #: 重载，补此事件源闭合）
     turn_finished = Signal()
 
+    #: 一轮对话真正收尾（载荷 True=成功 / False=失败；与 turn_finished
+    #: 的差异：用户手动中断不发——中断是用户自己的操作无需提醒；待发
+    #: 接续轮中途不发，等会话闲下来才发）。主窗口经 ChatTabs 转发联动
+    #: 完成提醒（声音 + 通知横幅）
+    turn_completed = Signal(bool)
+
     #: 正文文件路径链接点击：载荷 (绝对路径, 行号|None)；
     #: ChatTabs 转发 → 主窗口接查看器 open_file
     file_open_requested = Signal(str, object)
@@ -1094,6 +1100,7 @@ class ChatPanel(QWidget):
         # 失败烧 token），下次正常发送成功后经本条成功路径自动恢复接续
         if error:
             self._set_busy(False)
+            self.turn_completed.emit(False)
             if self._pending_send:
                 self._pending_send = False
                 self.output.append_message(
@@ -1101,6 +1108,7 @@ class ChatPanel(QWidget):
                     "（草稿保留在输入框），可修改后手动发送")
         elif not self._fire_pending_send():
             self._set_busy(False)
+            self.turn_completed.emit(True)
 
     def _on_stopped(self) -> None:
         """用户中断收尾（第三态）：整体回滚——中断轮不入历史；
