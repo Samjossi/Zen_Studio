@@ -12,7 +12,8 @@
 （2026-07-29，见 文档/修改记录/2026-0729-1120_音视频播放功能实施计划 T1–T2）
 形态：内嵌 ViewerPanel 媒体页（QStackedLayout 与文本页/图片页切换）。
 能力：播放/暂停、进度拖动、时间标签、音量；纯音频显示文件名占位页；
-解码失败经 failed 信号上抛，由面板回落文本页占位提示。
+解码失败经 failed 信号上抛，由面板回落文本页占位提示；
+加载超时守卫兜底「后端停滞无任何信号」场景，音频失败降级系统播放器出声。
 
 设计原则（计划 §3.0 OOP 模块化）：控件自封装，对外仅暴露
 open_media / stop / apply_theme / failed 信号；不 import panel，
@@ -26,9 +27,10 @@ open_media / stop / apply_theme / failed 信号；不 import panel，
   core/filesystem/types.py 并按计划 §1 裁减为主流子集。
 - Multi_Cli_Studio：视频归类 binary-unsupported，零借鉴。
 """
+import logging
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QUrl, Signal
+from PySide6.QtCore import Qt, QTimer, QUrl, Signal
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -40,12 +42,18 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from gui.sound_player import play_system
+
+logger = logging.getLogger(__name__)
+
 #: 可播放视频扩展名（不含点；参考 PyGPT 表按计划 §1 裁减为主流子集）
 VIDEO_EXTS: frozenset[str] = frozenset({"mp4", "webm", "mov", "mkv", "avi"})
 #: 可播放音频扩展名（不含点；ogg 按计划归入音频）
 AUDIO_EXTS: frozenset[str] = frozenset({"mp3", "wav", "ogg", "flac"})
 #: 默认音量（0.0–1.0；计划 §3.2）
 DEFAULT_VOLUME = 0.7
+#: 加载超时（毫秒）：挂源后逾期未就绪判定后端停滞（无声卡/插件缺失的典型症状）
+_LOAD_TIMEOUT_MS = 5000
 
 
 class MediaViewer(QWidget):
@@ -65,6 +73,9 @@ class MediaViewer(QWidget):
         self._was_playing = False   # 拖动前播放态（松手恢复）
         self._autoplay = False      # 打开后待 LoadedMedia 自动播放（双击即播）
         self._is_audio = False
+        self._load_timer = None     # 加载超时守卫（懒创建，随播放器一起初始化）
+        self._current_path: Path | None = None  # 当前源（降级播放与日志用）
+        self._failed = False        # 同一轮打开只上抛一次失败（错误与超时可能并发）
 
         self._build_ui(palette)
 
@@ -146,6 +157,12 @@ class MediaViewer(QWidget):
         self._player.mediaStatusChanged.connect(self._on_media_status)
         self._player.errorOccurred.connect(self._on_error)
 
+        # 加载超时守卫：后端停滞时无任何信号上抛，超时是唯一兜底观测面
+        self._load_timer = QTimer(self)
+        self._load_timer.setSingleShot(True)
+        self._load_timer.timeout.connect(self._on_load_timeout)
+        logger.info("QtMultimedia 后端初始化完成")
+
     # ------------------------------------------------------------------
     # 对外接口
     # ------------------------------------------------------------------
@@ -157,17 +174,23 @@ class MediaViewer(QWidget):
         """
         self.stop()
         self._ensure_player()
+        self._current_path = path
+        self._failed = False
         self._is_audio = path.suffix.lower().lstrip(".") in AUDIO_EXTS
         self._view_stack.setCurrentWidget(self._audio_label if self._is_audio else self._video)
         if self._is_audio:  # 纯音频无画面：文件名占位页
             self._audio_label.setText(f"音频\n{path.name}")
         self._autoplay = True
         self._player.setSource(QUrl.fromLocalFile(str(path)))
+        self._load_timer.start(_LOAD_TIMEOUT_MS)
         self._btn_play.setEnabled(True)
+        logger.info("打开媒体文件：%s", path)
 
     def stop(self) -> None:
         """停播释放（生命周期红线：切换文件/回落占位/离开媒体页必调）。"""
         self._autoplay = False
+        if self._load_timer is not None:
+            self._load_timer.stop()
         if self._player is not None and self._player.source().isValid():
             self._player.stop()
             self._player.setSource(QUrl())
@@ -203,8 +226,10 @@ class MediaViewer(QWidget):
         from PySide6.QtMultimedia import QMediaPlayer
         if self._player.playbackState() == QMediaPlayer.PlaybackState.PlayingState:
             self._player.pause()
+            logger.info("暂停播放")
         else:
             self._player.play()
+            logger.info("开始播放")
 
     def _on_slider_pressed(self) -> None:
         """拖动开始：暂停并标记 seeking，防 positionChanged 回写打架。"""
@@ -248,17 +273,43 @@ class MediaViewer(QWidget):
     def _on_media_status(self, status) -> None:
         """LoadedMedia → 自动播放（若 open_media 置位）；InvalidMedia → 失败上抛。"""
         from PySide6.QtMultimedia import QMediaPlayer
+        logger.info("媒体状态变迁：%s", status)
         if status == QMediaPlayer.MediaStatus.LoadedMedia:
+            self._load_timer.stop()
             if self._autoplay:
                 self._autoplay = False
                 self._player.play()
         elif status == QMediaPlayer.MediaStatus.InvalidMedia:
             self._autoplay = False
-            self.failed.emit("无法解码（格式不受支持或缺少解码器）")
+            self._fail("无法解码（格式不受支持或缺少解码器）")
 
-    def _on_error(self, _error, message: str) -> None:
-        if message:  # 空串为错误清除，不上抛
-            self.failed.emit(message)
+    def _on_error(self, error, message: str) -> None:
+        if message:
+            logger.warning("媒体播放错误：%s（%s）", message, error)
+            self._fail(message)
+        else:  # 空串为错误清除，不上抛但留痕
+            logger.debug("媒体错误状态清除（%s）", error)
+
+    def _on_load_timeout(self) -> None:
+        """加载超时：后端停滞（未就绪也无错误信号），判定不可用并上抛。"""
+        self._autoplay = False
+        kind = "音频" if self._is_audio else "视频"
+        logger.warning(
+            "媒体加载超时（%d ms 未就绪）：%s", _LOAD_TIMEOUT_MS, self._current_path)
+        self._fail(f"{kind}加载超时：Qt 音频后端不可用或无输出设备")
+
+    def _fail(self, reason: str) -> None:
+        """失败统一出口：音频降级系统播放器保底出声，再经 failed 上抛回落占位。"""
+        if self._load_timer is not None:
+            self._load_timer.stop()
+        if self._failed:
+            return
+        self._failed = True
+        if self._is_audio and self._current_path is not None:
+            if play_system(self._current_path):
+                reason = f"{reason}，已降级系统播放器出声"
+                logger.warning("音频降级到系统播放器：%s", self._current_path)
+        self.failed.emit(reason)
 
     def _on_volume(self, value: int) -> None:
         if self._audio is not None:

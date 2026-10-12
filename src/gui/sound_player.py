@@ -85,16 +85,19 @@ def _play(path: Path) -> None:
         QTimer.singleShot(_STATUS_CHECK_MS, lambda: _fallback_if_failed(path))
     except (RuntimeError, OSError):
         # Qt 音频后端缺失时构造/播放抛 RuntimeError，降级系统播放器
-        _play_system(path)
+        play_system(path)
 
 
 def _fallback_if_failed(path: Path) -> None:
     if _effect is not None and _effect.status() == QSoundEffect.Status.Error:
-        _play_system(path)
+        play_system(path)
 
 
-def _play_system(path: Path) -> None:
-    """系统播放器兜底：aplay/paplay/play 择一（均无则静默放弃）。"""
+def play_system(path: Path) -> bool:
+    """系统播放器兜底：aplay/paplay/play 择一（均无则静默放弃，返回 False）。
+
+    导出给媒体查看器复用：Qt Multimedia 后端不可用时保底出声。
+    """
     _procs[:] = [p for p in _procs if p.poll() is None]  # 顺手收割已退出者
     for cmd in ("aplay", "paplay", "play"):
         exe = shutil.which(cmd)
@@ -102,4 +105,5 @@ def _play_system(path: Path) -> None:
             _procs.append(subprocess.Popen(
                 [exe, str(path)],
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
-            return
+            return True
+    return False
