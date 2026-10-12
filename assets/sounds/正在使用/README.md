@@ -7,15 +7,11 @@
 
 ## 当前文件
 
-| 文件 | 语义 | 备注 |
-|:---|:---|:---|
-| `done.wav` | 任务成功默认音 | 复制自备选池 `bip-bop-01.wav` |
-| `error.wav` | 任务失败默认音 | 复制自备选池 `nope-03.wav` |
-| `question.wav` | 交互提问默认音 | 复制自备选池 `alert-01.wav` |
-| `bip-bop-02.wav`、`bip-bop-03.wav` | 完成族备选 | 供挑选 |
-| `yup-01.wav` | 确认族备选 | 供挑选 |
-| `staplebops-06.wav` | 轻快族备选 | 供挑选 |
-| `nope-01.wav` | 失败族备选 | 供挑选 |
+- 语义默认音（设置出厂默认指向它们）：`done.wav`（任务成功，= `bip-bop-01.wav`）、
+  `error.wav`（任务失败，= `nope-03.wav`）、`question.wav`（交互提问，= `alert-01.wav`）
+- 备选池 45 个 wav 全量在此保留原族名副本，供用户自由挑选：
+  `alert-01..10`、`bip-bop-01..10`、`staplebops-01..07`、`nope-01..12`、`yup-01..06`
+  （五族语义见 `备选池/README.md` 库存表）
 
 ## 纪律
 
