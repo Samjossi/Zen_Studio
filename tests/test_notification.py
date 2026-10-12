@@ -1,12 +1,12 @@
-"""事件提醒（声音 + 顶部通知横幅）行为断言。
+"""事件提醒（声音 + 系统桌面通知）行为断言。
 
 覆盖：
 - 设置键默认值与 roundtrip（持久化文件隔离到 ./.temp/，不动真实配置）
 - ChatPanel.turn_completed 发射语义：成功/失败发，用户中断不发，
   待发接续轮中途不发；question_asked：question 请求发、普通请求不发
 - 声音事件 → 设置键 → 文件名映射与试听
-- NotificationBanner 显示/替换/自动消退（含提问态）
-- MainWindow 触发门控（mock 播放与横幅，不建真窗口）
+- 桌面通知（desktop_notifier）事件态映射、未知事件/命令缺失静默、命令形态
+- MainWindow 触发门控（mock 播放与通知发送，不建真窗口）
 
 offscreen 平台由 conftest 注入；注册表 monkeypatch 伪造，不起真实 CLI。
 """
@@ -21,7 +21,7 @@ import gui.panels.chat.model_bar as model_bar_mod
 import gui.settings as settings_mod
 import gui.sound_player as sound_player_mod
 from gui import main_window as main_window_mod
-from gui.notification_banner import NotificationBanner
+from gui import desktop_notifier
 from gui.panels.chat.panel import ChatPanel
 from gui.settings_dialog import SettingsDialog
 from gui.settings import (
@@ -280,74 +280,91 @@ def test_notify_combo_select_autoplays(qapp, isolated_settings, monkeypatch):
     assert load_settings()[KEY_NOTIFY_SOUND_QUESTION] == "yup-01.wav"
 
 
-# ----------------------------------------------------------------------
-# 通知横幅
-# ----------------------------------------------------------------------
-def test_banner_show_and_hide(qapp):
-    parent = QWidget()
-    parent.resize(1200, 800)
-    parent.show()
-    banner = NotificationBanner(parent)
-    banner.show_completion(True)
-    assert not banner.isHidden()
-    assert banner._title_label.text() == "任务完成"
-    assert banner._hide_timer.isActive()  # 自动消退计时已启动
-    # 顶部居中定位
-    assert banner.y() == 12
-    assert abs((parent.width() - banner.width()) // 2 - banner.x()) <= 1
-    banner.show_completion(False, "请求超时")
-    assert banner._title_label.text() == "任务失败"
-    assert banner._body_label.text() == "请求超时"
-    banner.hide_banner()
-    assert banner.isHidden()
-
-
-def test_banner_auto_fade_out(qapp):
-    parent = QWidget()
-    parent.resize(1200, 800)
-    parent.show()
-    banner = NotificationBanner(parent)
-    banner.show_completion(True)
-    QTest.qWait(4000 + 300 + 400)  # 展示时长 + 淡出时长 + 余量
-    assert banner.isHidden()
-
-
-def test_banner_question_kind(qapp):
-    """提问态：标题/默认正文区别于完成态，复用同一横幅单例替换语义。"""
-    parent = QWidget()
-    parent.resize(1200, 800)
-    parent.show()
-    banner = NotificationBanner(parent)
-    banner.show_notification("question")
-    assert not banner.isHidden()
-    assert banner._title_label.text() == "需要你的回答"
-    assert "提问" in banner._body_label.text()
-    banner.show_completion(True)  # 新通知替换旧内容
-    assert banner._title_label.text() == "任务完成"
-    banner.hide_banner()
+def test_banner_preview_buttons(qapp, isolated_settings):
+    """试看按钮：逐行触发对应事件态，且不受横幅开关影响（不经门控直发）。"""
+    update_settings({KEY_NOTIFY_BANNER_ENABLED: False})
+    shown: list[str] = []
+    dialog = _make_settings_dialog()
+    dialog._ctx.preview_notify_banner = lambda kind: shown.append(kind)
+    dialog.show()
+    for kind in ("success", "error", "question"):
+        dialog._notify_banner_previews[kind].click()
+    assert shown == ["success", "error", "question"]
+    assert load_settings()[KEY_NOTIFY_BANNER_ENABLED] is False  # 试看不改动开关
 
 
 # ----------------------------------------------------------------------
-# MainWindow 触发门控（假 self + mock 播放/横幅，不建真窗口）
+# 系统桌面通知（desktop_notifier；mock 发送点，不发真通知）
+# ----------------------------------------------------------------------
+def test_notifier_event_mapping(qapp, monkeypatch):
+    """事件态 → 标题/默认正文映射（三态文案沿用原软件内横幅）；detail 覆盖正文。"""
+    sent: list[tuple[str, str]] = []
+    monkeypatch.setattr(desktop_notifier, "_send",
+                        lambda title, body: sent.append((title, body)))
+    desktop_notifier.notify_completion(True)
+    desktop_notifier.notify_completion(False)
+    desktop_notifier.notify_event("question")
+    desktop_notifier.notify_event("success", "请求超时")
+    assert sent == [
+        ("任务完成", "AI 已完成本轮任务"),
+        ("任务失败", "AI 本轮请求失败"),
+        ("需要你的回答", "AI 发起了提问，请在对话卡片中作答"),
+        ("任务完成", "请求超时"),
+    ]
+
+
+def test_notifier_unknown_event_silent(qapp, monkeypatch):
+    sent: list[tuple[str, str]] = []
+    monkeypatch.setattr(desktop_notifier, "_send",
+                        lambda *a: sent.append(a))
+    desktop_notifier.notify_event("no_such_event")  # 未知事件静默跳过
+    assert sent == []
+
+
+def test_notifier_missing_command_silent(qapp, monkeypatch):
+    """极简环境无 notify-send：静默跳过，不抛异常。"""
+    monkeypatch.setattr(desktop_notifier, "shutil",
+                        SimpleNamespace(which=lambda cmd: None))
+    desktop_notifier.notify_event("success")
+
+
+def test_notifier_command_shape(qapp, monkeypatch):
+    """发送命令形态：notify-send -a 应用名 -t 驻留时长 [-i 图标] 标题 正文。"""
+    spawned: list[list[str]] = []
+
+    class _FakeProc:
+        def poll(self):
+            return 0
+
+    def _fake_popen(cmd, **_kw):
+        spawned.append(cmd)
+        return _FakeProc()
+
+    monkeypatch.setattr(desktop_notifier, "shutil",
+                        SimpleNamespace(which=lambda cmd: f"/usr/bin/{cmd}"))
+    monkeypatch.setattr(desktop_notifier, "subprocess",
+                        SimpleNamespace(Popen=_fake_popen, DEVNULL=None))
+    desktop_notifier.notify_event("error", "网络错误")
+    cmd = spawned[0]
+    assert cmd[0].endswith("notify-send")
+    assert cmd[-2:] == ["任务失败", "网络错误"]
+    assert "-a" in cmd and "Zen Studio" in cmd
+
+
+# ----------------------------------------------------------------------
+# MainWindow 触发门控（假 self + mock 播放/通知发送，不建真窗口）
 # ----------------------------------------------------------------------
 def test_main_window_gating(qapp, monkeypatch):
     played: list[bool] = []
     shown: list[bool] = []
     monkeypatch.setattr(main_window_mod, "play_completion_sound",
                         lambda ok: played.append(ok))
-
-    class FakeBanner:
-        def show_completion(self, success):
-            shown.append(success)
-
-    monkeypatch.setattr(main_window_mod, "NotificationBanner",
-                        lambda parent: FakeBanner())
-    fake_self = SimpleNamespace(_notify_banner=None)
-    fake_self._get_notify_banner = lambda: FakeBanner()
+    monkeypatch.setattr(main_window_mod, "notify_completion",
+                        lambda ok: shown.append(ok))
 
     monkeypatch.setattr(main_window_mod, "load_settings", lambda: {
         KEY_NOTIFY_SOUND_ENABLED: True, KEY_NOTIFY_BANNER_ENABLED: True})
-    main_window_mod.MainWindow._on_turn_completed(fake_self, True)
+    main_window_mod.MainWindow._on_turn_completed(SimpleNamespace(), True)
     assert played == [True]
     assert shown == [True]
 
@@ -355,7 +372,7 @@ def test_main_window_gating(qapp, monkeypatch):
     shown.clear()
     monkeypatch.setattr(main_window_mod, "load_settings", lambda: {
         KEY_NOTIFY_SOUND_ENABLED: False, KEY_NOTIFY_BANNER_ENABLED: False})
-    main_window_mod.MainWindow._on_turn_completed(fake_self, True)
+    main_window_mod.MainWindow._on_turn_completed(SimpleNamespace(), True)
     assert played == []
     assert shown == []
 
@@ -366,19 +383,12 @@ def test_main_window_question_gating(qapp, monkeypatch):
     shown: list[str] = []
     monkeypatch.setattr(main_window_mod, "play_event_sound",
                         lambda event: played.append(event))
-
-    class FakeBanner:
-        def show_notification(self, kind):
-            shown.append(kind)
-
-    monkeypatch.setattr(main_window_mod, "NotificationBanner",
-                        lambda parent: FakeBanner())
-    fake_self = SimpleNamespace(_notify_banner=None)
-    fake_self._get_notify_banner = lambda: FakeBanner()
+    monkeypatch.setattr(main_window_mod, "notify_event",
+                        lambda kind: shown.append(kind))
 
     monkeypatch.setattr(main_window_mod, "load_settings", lambda: {
         KEY_NOTIFY_SOUND_ENABLED: True, KEY_NOTIFY_BANNER_ENABLED: True})
-    main_window_mod.MainWindow._on_question_asked(fake_self)
+    main_window_mod.MainWindow._on_question_asked(SimpleNamespace())
     assert played == ["question"]
     assert shown == ["question"]
 
@@ -386,6 +396,15 @@ def test_main_window_question_gating(qapp, monkeypatch):
     shown.clear()
     monkeypatch.setattr(main_window_mod, "load_settings", lambda: {
         KEY_NOTIFY_SOUND_ENABLED: False, KEY_NOTIFY_BANNER_ENABLED: False})
-    main_window_mod.MainWindow._on_question_asked(fake_self)
+    main_window_mod.MainWindow._on_question_asked(SimpleNamespace())
     assert played == []
     assert shown == []
+
+
+def test_main_window_preview_banner(qapp, monkeypatch):
+    """试看横幅：不经开关门控，直发指定事件态（与试听先例对齐）。"""
+    shown: list[str] = []
+    monkeypatch.setattr(main_window_mod, "notify_event",
+                        lambda kind: shown.append(kind))
+    main_window_mod.MainWindow.preview_notify_banner(SimpleNamespace(), "success")
+    assert shown == ["success"]

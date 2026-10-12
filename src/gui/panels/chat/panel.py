@@ -130,12 +130,12 @@ class ChatPanel(QWidget):
     #: 一轮对话真正收尾（载荷 True=成功 / False=失败；与 turn_finished
     #: 的差异：用户手动中断不发——中断是用户自己的操作无需提醒；待发
     #: 接续轮中途不发，等会话闲下来才发）。主窗口经 ChatTabs 转发联动
-    #: 完成提醒（声音 + 通知横幅）
+    #: 完成提醒（声音 + 系统桌面通知）
     turn_completed = Signal(bool)
 
     #: AskUserQuestion 类交互请求到达（_ask_permission question 特判分支
     #: 发出，reader 线程 emit 经 Qt 队列到 GUI 线程）；主窗口经 ChatTabs
-    #: 转发联动提问提醒（声音 + 通知横幅）
+    #: 转发联动提问提醒（声音 + 系统桌面通知）
     question_asked = Signal()
 
     #: 正文文件路径链接点击：载荷 (绝对路径, 行号|None)；

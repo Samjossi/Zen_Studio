@@ -98,7 +98,7 @@ from gui.settings import (
     SETTINGS_FILE,
     update_settings,
 )
-from gui.notification_banner import NotificationBanner
+from gui.desktop_notifier import notify_completion, notify_event
 from gui.sound_player import play_completion_sound, play_event_sound
 from gui.settings_dialog import SettingsDialog
 from gui.theme import (
@@ -239,8 +239,6 @@ class MainWindow(QMainWindow):
         # 实时看输出可干预；不支持的 provider 声明恒 false（行为不变）
         # 自持引用：设置中心「结束后停留时长」变更需即时推送到桥（2026-08-18 §6）
         self._agent_terminal_bridge = AgentTerminalBridge(self.terminal_panel)
-        #: 任务完成顶部通知横幅（懒创建：从未触发完成提醒时不建）
-        self._notify_banner: NotificationBanner | None = None
         if workspace_root is None:
             # 空窗左栏：置灰占位（无根不建 ChatTabs——无会话存取、无 provider 连接）
             self.chat_tabs: ChatTabs | None = None
@@ -830,12 +828,12 @@ class MainWindow(QMainWindow):
             self._settings_dialog.set_model_enabled(not busy)
 
     def _on_turn_completed(self, success: bool) -> None:
-        """AI 一轮真正收尾 → 按设置中心开关触发完成提醒（声音 + 顶部横幅）。"""
+        """AI 一轮真正收尾 → 按设置中心开关触发完成提醒（声音 + 桌面通知）。"""
         settings = load_settings()
         if settings[KEY_NOTIFY_SOUND_ENABLED]:
             play_completion_sound(success)
         if settings[KEY_NOTIFY_BANNER_ENABLED]:
-            self._get_notify_banner().show_completion(success)
+            notify_completion(success)
 
     def _on_question_asked(self) -> None:
         """AI 发起 AskUserQuestion 交互 → 按同一组开关触发提问提醒。"""
@@ -843,13 +841,11 @@ class MainWindow(QMainWindow):
         if settings[KEY_NOTIFY_SOUND_ENABLED]:
             play_event_sound("question")
         if settings[KEY_NOTIFY_BANNER_ENABLED]:
-            self._get_notify_banner().show_notification("question")
+            notify_event("question")
 
-    def _get_notify_banner(self) -> NotificationBanner:
-        """横幅懒创建单例（首次提醒到来才构造）。"""
-        if self._notify_banner is None:
-            self._notify_banner = NotificationBanner(self)
-        return self._notify_banner
+    def preview_notify_banner(self, kind: str) -> None:
+        """设置中心「试看」入口：与试听同例，不经开关门控，直发指定事件态。"""
+        notify_event(kind)
 
     def open_settings_file(self) -> None:
         """在只读查看器中打开 settings.json（AI-first：修改经 AI 落盘）。"""

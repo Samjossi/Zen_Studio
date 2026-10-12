@@ -68,7 +68,7 @@ KEY_CHAT_RENDERER = "chat_renderer"
 KEY_KIMI_WIRE_SIDECAR = "kimi_wire_sidecar"
 #: AI 任务完成提示音开关（gui/sound_player.py 消费）
 KEY_NOTIFY_SOUND_ENABLED = "notify_sound_enabled"
-#: AI 任务完成顶部通知横幅开关（gui/notification_banner.py 消费）
+#: AI 任务完成桌面通知开关（gui/desktop_notifier.py 消费，notify-send 系统通知）
 KEY_NOTIFY_BANNER_ENABLED = "notify_banner_enabled"
 #: 各事件提示音文件名（assets/sounds/正在使用/ 下的 wav 文件名，
 #: 设置中心「通知」页下拉框挑选；持久化文件名而非路径以兼容打包）

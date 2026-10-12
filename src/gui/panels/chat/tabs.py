@@ -88,11 +88,11 @@ class ChatTabs(QWidget):
 
     #: 任一标签一轮对话真正收尾（转发 ChatPanel.turn_completed，载荷
     #: True=成功 / False=失败；不含用户中断与接续轮中途；主窗口联动
-    #: 完成提醒：声音 + 通知横幅）
+    #: 完成提醒：声音 + 系统桌面通知）
     turn_completed = Signal(bool)
 
     #: 任一标签 AskUserQuestion 类交互请求到达（转发 ChatPanel.question_asked；
-    #: 主窗口联动提问提醒：声音 + 通知横幅）
+    #: 主窗口联动提问提醒：声音 + 系统桌面通知）
     question_asked = Signal()
 
     #: 正文文件路径链接点击（转发 ChatPanel.file_open_requested，载荷

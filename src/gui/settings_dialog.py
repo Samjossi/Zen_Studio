@@ -124,6 +124,14 @@ _NOTIFY_SOUND_EVENTS = (
     ("question", "交互提问", KEY_NOTIFY_SOUND_QUESTION),
 )
 
+#: 通知页横幅试看行：(事件态, 行标签)——事件态须与 desktop_notifier.notify_event
+#: 的取值对齐（success/error/question），与提示音事件名（done/...）不同源
+_NOTIFY_BANNER_EVENTS = (
+    ("success", "任务成功"),
+    ("error", "任务失败"),
+    ("question", "交互提问"),
+)
+
 #: 页面注册表：(导航名, 副标题, 构建方法名, 重载方法名)；元组顺序即导航顺序。
 #: 副标题由骨架页标题区统一展示（各页不再自带页顶说明）。
 #: 新增设置页 = 写 _build_xxx_page / _reload_xxx 两函数 + 此处加一行，
@@ -541,8 +549,22 @@ class SettingsDialog(QDialog):
         self._notify_banner_check = QCheckBox("事件发生时弹出顶部通知横幅", page)
         self._notify_banner_check.toggled.connect(self._on_notify_banner_toggled)
         layout.addWidget(self._notify_banner_check)
+        banner_form = QFormLayout()
+        self._notify_banner_previews: dict[str, QPushButton] = {}
+        for kind, label in _NOTIFY_BANNER_EVENTS:
+            preview_button = QPushButton("试看", page)
+            preview_button.clicked.connect(
+                lambda _checked=False, k=kind: self._ctx.preview_notify_banner(k))
+            field = QHBoxLayout()
+            field.addStretch(1)  # 按钮右对齐，与上方试听行右缘取齐
+            field.addWidget(preview_button)
+            banner_form.addRow(label, field)
+            self._notify_banner_previews[kind] = preview_button
+        layout.addLayout(banner_form)
         layout.addWidget(self._make_hint(
-            "横幅悬浮于窗口顶部，数秒后自动消退；用户手动中断不触发提醒。", page))
+            "通知经系统桌面通知（notify-send）弹出，窗口最小化或被遮挡时也能送达，"
+            "样式与消退由桌面环境管理；用户手动中断不触发提醒；"
+            "试看不受开关影响，正式提醒在开关开启时才会弹出。", page))
         return page
 
     def _on_notify_sound_selected(self, key: str, combo: QComboBox) -> None:
