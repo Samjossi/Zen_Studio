@@ -133,6 +133,11 @@ class ChatPanel(QWidget):
     #: 完成提醒（声音 + 通知横幅）
     turn_completed = Signal(bool)
 
+    #: AskUserQuestion 类交互请求到达（_ask_permission question 特判分支
+    #: 发出，reader 线程 emit 经 Qt 队列到 GUI 线程）；主窗口经 ChatTabs
+    #: 转发联动提问提醒（声音 + 通知横幅）
+    question_asked = Signal()
+
     #: 正文文件路径链接点击：载荷 (绝对路径, 行号|None)；
     #: ChatTabs 转发 → 主窗口接查看器 open_file
     file_open_requested = Signal(str, object)
@@ -844,6 +849,7 @@ class ChatPanel(QWidget):
             return PERMISSION_QUEUE.ask(params, self)
         if is_question_request(params):
             tool_call_id = (params.get("toolCall") or {}).get("toolCallId") or ""
+            self.question_asked.emit()
             return QUESTION_BRIDGE.ask(params, tool_call_id, self)
         return PERMISSION_QUEUE.ask(params, self, danger_reason=reason)
 

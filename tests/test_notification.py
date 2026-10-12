@@ -1,11 +1,12 @@
-"""任务完成提醒（声音 + 顶部通知横幅）行为断言。
+"""事件提醒（声音 + 顶部通知横幅）行为断言。
 
 覆盖：
-- 新设置键默认值与 roundtrip（持久化文件隔离到 ./.temp/，不动真实配置）
+- 设置键默认值与 roundtrip（持久化文件隔离到 ./.temp/，不动真实配置）
 - ChatPanel.turn_completed 发射语义：成功/失败发，用户中断不发，
-  待发接续轮中途不发
-- NotificationBanner 显示/替换/自动消退
-- MainWindow._on_turn_completed 开关门控（mock 播放与横幅，不建真窗口）
+  待发接续轮中途不发；question_asked：question 请求发、普通请求不发
+- 声音事件 → 设置键 → 文件名映射与试听
+- NotificationBanner 显示/替换/自动消退（含提问态）
+- MainWindow 触发门控（mock 播放与横幅，不建真窗口）
 
 offscreen 平台由 conftest 注入；注册表 monkeypatch 伪造，不起真实 CLI。
 """
@@ -22,14 +23,19 @@ import gui.sound_player as sound_player_mod
 from gui import main_window as main_window_mod
 from gui.notification_banner import NotificationBanner
 from gui.panels.chat.panel import ChatPanel
+from gui.settings_dialog import SettingsDialog
 from gui.settings import (
     DEFAULT_SETTINGS,
     KEY_NOTIFY_BANNER_ENABLED,
+    KEY_NOTIFY_SOUND_DONE,
     KEY_NOTIFY_SOUND_ENABLED,
+    KEY_NOTIFY_SOUND_ERROR,
+    KEY_NOTIFY_SOUND_QUESTION,
     load_settings,
     update_settings,
 )
 from llm.registry import BackendSpec
+import gui.panels.chat.panel as panel_mod
 
 #: 持久化隔离目录（项目纪律：临时文件一律落 ./.temp/，禁用系统临时目录）
 _TEMP_DIR = Path(__file__).resolve().parents[1] / ".temp" / "test_notification"
@@ -87,6 +93,10 @@ def test_notify_keys_default_on(isolated_settings):
     assert settings[KEY_NOTIFY_BANNER_ENABLED] is True
     assert DEFAULT_SETTINGS[KEY_NOTIFY_SOUND_ENABLED] is True
     assert DEFAULT_SETTINGS[KEY_NOTIFY_BANNER_ENABLED] is True
+    # 各事件提示音文件名默认值
+    assert settings[KEY_NOTIFY_SOUND_DONE] == "done.wav"
+    assert settings[KEY_NOTIFY_SOUND_ERROR] == "error.wav"
+    assert settings[KEY_NOTIFY_SOUND_QUESTION] == "question.wav"
 
 
 def test_notify_keys_roundtrip(isolated_settings):
@@ -96,6 +106,21 @@ def test_notify_keys_roundtrip(isolated_settings):
     settings = load_settings()
     assert settings[KEY_NOTIFY_BANNER_ENABLED] is False
     assert settings[KEY_NOTIFY_SOUND_ENABLED] is False  # 前次写入不回弹
+
+
+def test_notify_sound_file_roundtrip(isolated_settings):
+    update_settings({KEY_NOTIFY_SOUND_QUESTION: "yup-01.wav"})
+    settings = load_settings()
+    assert settings[KEY_NOTIFY_SOUND_QUESTION] == "yup-01.wav"
+    assert settings[KEY_NOTIFY_SOUND_DONE] == "done.wav"  # 其余键不受影响
+
+
+def test_notify_sound_file_type_guard(isolated_settings):
+    """手改配置为非 str → 回退默认（load_settings 类型防御）。"""
+    settings_file = isolated_settings
+    settings_file.write_text(
+        '{"notify_sound_done": 123}', encoding="utf-8")
+    assert load_settings()[KEY_NOTIFY_SOUND_DONE] == "done.wav"
 
 
 # ----------------------------------------------------------------------
@@ -141,9 +166,37 @@ def test_turn_completed_not_mid_continuation(qapp, fake_registry, monkeypatch):
 
 
 # ----------------------------------------------------------------------
+# question_asked 发射语义
+# ----------------------------------------------------------------------
+def test_question_asked_on_question_request(qapp, fake_registry, monkeypatch):
+    """question 特判分支：进 QUESTION_BRIDGE 前发信号（mock 桥防阻塞）。"""
+    panel = _make_panel(qapp, str(Path(__file__).resolve().parents[1]))
+    monkeypatch.setattr(panel_mod.QUESTION_BRIDGE, "ask",
+                        lambda params, tcid, parent: "opt-1")
+    emitted: list[str] = []
+    panel.question_asked.connect(lambda: emitted.append("q"))
+    params = {"toolCall": {"toolCallId": "t1",
+                           "rawInput": {"questions": [{"question": "选哪个？"}]}}}
+    assert panel._ask_permission(params) == "opt-1"
+    assert emitted == ["q"]
+
+
+def test_question_asked_not_on_plain_request(qapp, fake_registry, isolated_settings):
+    """普通权限请求（非 question）不发提问信号。"""
+    panel = _make_panel(qapp, str(Path(__file__).resolve().parents[1]))
+    emitted: list[str] = []
+    panel.question_asked.connect(lambda: emitted.append("q"))
+    params = {"toolCall": {"toolCallId": "t2", "title": "Bash",
+                           "rawInput": {"command": "ls"}},
+              "options": [{"optionId": "allow-1", "kind": "allow_once"}]}
+    panel._ask_permission(params)  # auto_guarded 默认档非黑名单 → 自动放行
+    assert emitted == []
+
+
+# ----------------------------------------------------------------------
 # 声音播放（防抖 / 缺文件静默 / 无声环境不抛异常）
 # ----------------------------------------------------------------------
-def test_sound_debounce(qapp, monkeypatch):
+def test_sound_debounce(qapp, isolated_settings, monkeypatch):
     calls: list[Path] = []
     monkeypatch.setattr(sound_player_mod, "_play", lambda p: calls.append(p))
     monkeypatch.setattr(sound_player_mod, "_last_play_at", 0.0)
@@ -153,18 +206,78 @@ def test_sound_debounce(qapp, monkeypatch):
     assert calls[0].name == "done.wav"
 
 
-def test_sound_missing_file_silent(qapp, monkeypatch):
+def test_sound_event_file_mapping(qapp, isolated_settings, monkeypatch):
+    """事件 → 设置键 → 文件名：用户改选后播放路径跟随。"""
+    update_settings({KEY_NOTIFY_SOUND_QUESTION: "yup-01.wav"})
+    calls: list[Path] = []
+    monkeypatch.setattr(sound_player_mod, "_play", lambda p: calls.append(p))
+    monkeypatch.setattr(sound_player_mod, "_last_play_at", 0.0)
+    sound_player_mod.play_event_sound("question")
+    assert calls[0].name == "yup-01.wav"
+    monkeypatch.setattr(sound_player_mod, "_last_play_at", 0.0)
+    sound_player_mod.play_completion_sound(False)
+    assert calls[-1].name == "error.wav"
+
+
+def test_sound_unknown_event_silent(qapp, monkeypatch):
+    calls: list[Path] = []
+    monkeypatch.setattr(sound_player_mod, "_play", lambda p: calls.append(p))
+    sound_player_mod.play_event_sound("no_such_event")  # 未知事件静默跳过
+    assert calls == []
+
+
+def test_sound_missing_file_silent(qapp, isolated_settings, monkeypatch):
     monkeypatch.setattr(sound_player_mod, "SOUNDS_ACTIVE_DIR", _TEMP_DIR / "no_such_dir")
     monkeypatch.setattr(sound_player_mod, "_last_play_at", 0.0)
     sound_player_mod.play_completion_sound(False)  # 文件缺失静默跳过，不抛异常
 
 
-def test_sound_real_file_no_crash(qapp, monkeypatch):
+def test_sound_real_file_no_crash(qapp, isolated_settings, monkeypatch):
     """真实 wav 路径：offscreen/无声卡环境下 QSoundEffect→兜底链全程不抛异常。"""
     monkeypatch.setattr(sound_player_mod, "_last_play_at", 0.0)
     sound_player_mod.play_completion_sound(True)
     QTest.qWait(600)  # 覆盖 _STATUS_CHECK_MS 复查分支
     qapp.processEvents()
+
+
+# ----------------------------------------------------------------------
+# 设置中心「通知」页下拉框（选中即试听；reload 回读不播放）
+# ----------------------------------------------------------------------
+def _make_settings_dialog() -> SettingsDialog:
+    """桩 ctx 构建设置中心（模型页对 chat_tabs=None 有守卫，不起真后端）。"""
+
+    class _FakeBar:
+        def showMessage(self, *a, **k):
+            pass
+
+    ctx = QWidget()
+    ctx.statusBar = lambda: _FakeBar()
+    ctx.STATUS_MSG_TIMEOUT_MS = 2000
+    ctx.STATUS_MSG_LONG_MS = 5000
+    ctx.FONT_SIZE_MIN = 8
+    ctx.FONT_SIZE_MAX = 24
+    ctx.apply_model_selection = lambda *a: None
+    ctx.switch_theme = lambda *a: None
+    ctx.set_font_size = lambda *a: None
+    ctx.set_terminal_swap_copy_paste = lambda *a: None
+    ctx.set_chat_renderer = lambda *a: None
+    ctx.open_settings_file = lambda: None
+    ctx.reset_settings = lambda: None
+    ctx.chat_tabs = None
+    return SettingsDialog(ctx)
+
+
+def test_notify_combo_select_autoplays(qapp, isolated_settings, monkeypatch):
+    played: list[str] = []
+    monkeypatch.setattr(sound_player_mod, "play_preview",
+                        lambda filename: played.append(filename))
+    dialog = _make_settings_dialog()
+    dialog.show()  # reload 挂 showEvent（settings_dialog.showEvent），show 后控件态才回读
+    assert played == []  # reload 回读不播放
+    combo = dialog._notify_sound_combos["question"]
+    combo.setCurrentText("yup-01.wav")
+    assert played == ["yup-01.wav"]  # 选中即自动试听一次
+    assert load_settings()[KEY_NOTIFY_SOUND_QUESTION] == "yup-01.wav"
 
 
 # ----------------------------------------------------------------------
@@ -199,6 +312,21 @@ def test_banner_auto_fade_out(qapp):
     assert banner.isHidden()
 
 
+def test_banner_question_kind(qapp):
+    """提问态：标题/默认正文区别于完成态，复用同一横幅单例替换语义。"""
+    parent = QWidget()
+    parent.resize(1200, 800)
+    parent.show()
+    banner = NotificationBanner(parent)
+    banner.show_notification("question")
+    assert not banner.isHidden()
+    assert banner._title_label.text() == "需要你的回答"
+    assert "提问" in banner._body_label.text()
+    banner.show_completion(True)  # 新通知替换旧内容
+    assert banner._title_label.text() == "任务完成"
+    banner.hide_banner()
+
+
 # ----------------------------------------------------------------------
 # MainWindow 触发门控（假 self + mock 播放/横幅，不建真窗口）
 # ----------------------------------------------------------------------
@@ -215,6 +343,7 @@ def test_main_window_gating(qapp, monkeypatch):
     monkeypatch.setattr(main_window_mod, "NotificationBanner",
                         lambda parent: FakeBanner())
     fake_self = SimpleNamespace(_notify_banner=None)
+    fake_self._get_notify_banner = lambda: FakeBanner()
 
     monkeypatch.setattr(main_window_mod, "load_settings", lambda: {
         KEY_NOTIFY_SOUND_ENABLED: True, KEY_NOTIFY_BANNER_ENABLED: True})
@@ -227,5 +356,36 @@ def test_main_window_gating(qapp, monkeypatch):
     monkeypatch.setattr(main_window_mod, "load_settings", lambda: {
         KEY_NOTIFY_SOUND_ENABLED: False, KEY_NOTIFY_BANNER_ENABLED: False})
     main_window_mod.MainWindow._on_turn_completed(fake_self, True)
+    assert played == []
+    assert shown == []
+
+
+def test_main_window_question_gating(qapp, monkeypatch):
+    """提问提醒门控：与完成提醒共用同一组开关。"""
+    played: list[str] = []
+    shown: list[str] = []
+    monkeypatch.setattr(main_window_mod, "play_event_sound",
+                        lambda event: played.append(event))
+
+    class FakeBanner:
+        def show_notification(self, kind):
+            shown.append(kind)
+
+    monkeypatch.setattr(main_window_mod, "NotificationBanner",
+                        lambda parent: FakeBanner())
+    fake_self = SimpleNamespace(_notify_banner=None)
+    fake_self._get_notify_banner = lambda: FakeBanner()
+
+    monkeypatch.setattr(main_window_mod, "load_settings", lambda: {
+        KEY_NOTIFY_SOUND_ENABLED: True, KEY_NOTIFY_BANNER_ENABLED: True})
+    main_window_mod.MainWindow._on_question_asked(fake_self)
+    assert played == ["question"]
+    assert shown == ["question"]
+
+    played.clear()
+    shown.clear()
+    monkeypatch.setattr(main_window_mod, "load_settings", lambda: {
+        KEY_NOTIFY_SOUND_ENABLED: False, KEY_NOTIFY_BANNER_ENABLED: False})
+    main_window_mod.MainWindow._on_question_asked(fake_self)
     assert played == []
     assert shown == []

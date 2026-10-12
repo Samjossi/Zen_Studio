@@ -91,6 +91,10 @@ class ChatTabs(QWidget):
     #: 完成提醒：声音 + 通知横幅）
     turn_completed = Signal(bool)
 
+    #: 任一标签 AskUserQuestion 类交互请求到达（转发 ChatPanel.question_asked；
+    #: 主窗口联动提问提醒：声音 + 通知横幅）
+    question_asked = Signal()
+
     #: 正文文件路径链接点击（转发 ChatPanel.file_open_requested，载荷
     #: (绝对路径, 行号|None)；主窗口接查看器 open_file）
     file_open_requested = Signal(str, object)
@@ -241,6 +245,7 @@ class ChatTabs(QWidget):
             lambda backend, effort, p=panel: self._on_effort_changed(p, backend, effort))
         panel.turn_finished.connect(self.turn_finished)
         panel.turn_completed.connect(self.turn_completed)
+        panel.question_asked.connect(self.question_asked)
         panel.file_open_requested.connect(self.file_open_requested)
         if self._backend is None:
             # 启动无持久化记录：注入值取首标签经 ModelBar 回退后的有效值

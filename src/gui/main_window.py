@@ -99,7 +99,7 @@ from gui.settings import (
     update_settings,
 )
 from gui.notification_banner import NotificationBanner
-from gui.sound_player import play_completion_sound
+from gui.sound_player import play_completion_sound, play_event_sound
 from gui.settings_dialog import SettingsDialog
 from gui.theme import (
     apply_theme,
@@ -333,6 +333,7 @@ class MainWindow(QMainWindow):
             self.chat_tabs.selection_changed.connect(self._on_modelbar_changed)
             self.chat_tabs.busy_changed.connect(self._on_chat_busy_changed)
             self.chat_tabs.turn_completed.connect(self._on_turn_completed)
+            self.chat_tabs.question_asked.connect(self._on_question_asked)
 
     def _init_statusbar(self) -> None:
         """状态栏：去尺寸把手 + 定高 + Git 统计常驻区 + 就绪消息。"""
@@ -834,9 +835,21 @@ class MainWindow(QMainWindow):
         if settings[KEY_NOTIFY_SOUND_ENABLED]:
             play_completion_sound(success)
         if settings[KEY_NOTIFY_BANNER_ENABLED]:
-            if self._notify_banner is None:
-                self._notify_banner = NotificationBanner(self)
-            self._notify_banner.show_completion(success)
+            self._get_notify_banner().show_completion(success)
+
+    def _on_question_asked(self) -> None:
+        """AI 发起 AskUserQuestion 交互 → 按同一组开关触发提问提醒。"""
+        settings = load_settings()
+        if settings[KEY_NOTIFY_SOUND_ENABLED]:
+            play_event_sound("question")
+        if settings[KEY_NOTIFY_BANNER_ENABLED]:
+            self._get_notify_banner().show_notification("question")
+
+    def _get_notify_banner(self) -> NotificationBanner:
+        """横幅懒创建单例（首次提醒到来才构造）。"""
+        if self._notify_banner is None:
+            self._notify_banner = NotificationBanner(self)
+        return self._notify_banner
 
     def open_settings_file(self) -> None:
         """在只读查看器中打开 settings.json（AI-first：修改经 AI 落盘）。"""

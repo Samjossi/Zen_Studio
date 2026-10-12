@@ -19,6 +19,10 @@ from PySide6.QtWidgets import (
 from gui.settings import KEY_THEME, load_settings
 from gui.theme import WARNING_COLOR, get_theme_palette
 
+#: 提问态强调色：区别于成功的主题 accent 与失败的 WARNING_COLOR；
+#: 主题令牌无现成琥珀色，常量于此（深/浅底均可读的中性琥珀）
+_QUESTION_ACCENT = "#b7791f"
+
 #: 展示时长（毫秒）：到期后淡出隐藏
 _DISPLAY_MS = 4000
 #: 淡出动画时长（毫秒）
@@ -77,9 +81,20 @@ class NotificationBanner(QFrame):
         self.hide()
 
     def show_completion(self, success: bool, detail: str = "") -> None:
-        """展示任务完成/失败横幅（新通知替换旧内容并重置计时）。"""
+        """任务完成/失败横幅薄封装：映射到 success/error 事件。"""
+        self.show_notification("success" if success else "error", detail)
+
+    def show_notification(self, kind: str, detail: str = "") -> None:
+        """展示通知横幅（新通知替换旧内容并重置计时）。
+
+        :param kind: 事件态（success/error/question），决定标题、默认正文与强调色
+        """
         palette = get_theme_palette(load_settings()[KEY_THEME])
-        accent = palette["accent"] if success else WARNING_COLOR
+        accent, title, body = {
+            "success": (palette["accent"], "任务完成", "AI 已完成本轮任务"),
+            "error": (WARNING_COLOR, "任务失败", "AI 本轮请求失败"),
+            "question": (_QUESTION_ACCENT, "需要你的回答", "AI 发起了提问，请在对话卡片中作答"),
+        }.get(kind, (palette["accent"], "通知", ""))
         self.setStyleSheet(
             f"NotificationBanner {{ background: {palette['popup_bg']};"
             f" border: 1px solid {palette['popup_border']};"
@@ -87,9 +102,8 @@ class NotificationBanner(QFrame):
             f"QLabel {{ border: none; background: transparent; }}"
             f"#notificationBannerTitle {{ color: {accent}; font-weight: bold; }}"
         )
-        self._title_label.setText("任务完成" if success else "任务失败")
-        self._body_label.setText(
-            detail or ("AI 已完成本轮任务" if success else "AI 本轮请求失败"))
+        self._title_label.setText(title)
+        self._body_label.setText(detail or body)
         self._body_label.setStyleSheet(f"color: {palette['text']};")
 
         self._fade.stop()  # 重置淡出状态：复现时先恢复全不透明

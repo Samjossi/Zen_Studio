@@ -64,7 +64,10 @@ from gui.settings import (
     KEY_FONT_SIZE,
     KEY_MODEL_BACKEND,
     KEY_NOTIFY_BANNER_ENABLED,
+    KEY_NOTIFY_SOUND_DONE,
     KEY_NOTIFY_SOUND_ENABLED,
+    KEY_NOTIFY_SOUND_ERROR,
+    KEY_NOTIFY_SOUND_QUESTION,
     KEY_PERMISSION_MODE,
     KEY_TERMINAL_AI_TAB_CLOSE_DELAY_S,
     KEY_TERMINAL_SWAP_COPY_PASTE,
@@ -73,6 +76,7 @@ from gui.settings import (
     TERMINAL_AI_TAB_CLOSE_DELAY_MIN_S,
     update_settings,
 )
+from core.paths import SOUNDS_ACTIVE_DIR
 from gui import sound_player
 from gui.theme import (
     WARNING_COLOR,
@@ -113,6 +117,13 @@ _TITLE_FONT_DELTA_PT = 4
 #: 黑名单只读区固定高度（防展开撑变形；1510 计划 D13）
 _BLACKLIST_HEIGHT = 160
 
+#: 通知页事件行：(事件名, 行标签, 设置键)——下拉框构建/回读/持久化共用同一来源
+_NOTIFY_SOUND_EVENTS = (
+    ("done", "任务成功", KEY_NOTIFY_SOUND_DONE),
+    ("error", "任务失败", KEY_NOTIFY_SOUND_ERROR),
+    ("question", "交互提问", KEY_NOTIFY_SOUND_QUESTION),
+)
+
 #: 页面注册表：(导航名, 副标题, 构建方法名, 重载方法名)；元组顺序即导航顺序。
 #: 副标题由骨架页标题区统一展示（各页不再自带页顶说明）。
 #: 新增设置页 = 写 _build_xxx_page / _reload_xxx 两函数 + 此处加一行，
@@ -126,7 +137,7 @@ _PAGE_REGISTRY: tuple[tuple[str, str, str, str | None], ...] = (
      "_build_appearance_page", "_reload_appearance"),
     ("终端", "终端按键与 AI 标签行为配置，切换即时生效。",
      "_build_terminal_page", "_reload_terminal"),
-    ("通知", "AI 任务完成时的声音提醒与顶部通知横幅开关。",
+    ("通知", "AI 任务完成与交互提问时的声音提醒与顶部通知横幅。",
      "_build_notify_page", "_reload_notify"),
     ("高级", "配置文件查看与重置操作。",
      "_build_advanced_page", None),
@@ -496,42 +507,68 @@ class SettingsDialog(QDialog):
                 self._ctx.STATUS_MSG_TIMEOUT_MS)
 
     # ------------------------------------------------------------------
-    # 通知页（任务完成声音提醒 + 顶部横幅；无 MainWindow 应用槽需求，
-    # 开关直写 update_settings，消费侧在触发点读持久化值）
+    # 通知页（事件提示音 + 顶部横幅；无 MainWindow 应用槽需求，
+    # 开关与选音直写 update_settings，消费侧在触发点读持久化值）
     # ------------------------------------------------------------------
     def _build_notify_page(self) -> QWidget:
         page = QWidget(self)
         layout = QVBoxLayout(page)
         layout.setAlignment(Qt.AlignmentFlag.AlignTop)
-        self._notify_sound_check = QCheckBox("任务完成时播放提示音", page)
+        self._notify_sound_check = QCheckBox("事件发生时播放提示音", page)
         self._notify_sound_check.toggled.connect(self._on_notify_sound_toggled)
         layout.addWidget(self._notify_sound_check)
-        preview_row = QHBoxLayout()
-        preview_button = QPushButton("试听提示音", page)
-        preview_button.clicked.connect(lambda: sound_player.play_completion_sound(True))
-        preview_row.addWidget(preview_button)
-        preview_row.addStretch(1)
-        layout.addLayout(preview_row)
-        layout.addWidget(self._make_hint("试听不受开关影响；正式提醒在开关开启时才会播放。", page))
-        self._notify_banner_check = QCheckBox("任务完成时弹出顶部通知横幅", page)
+        self._notify_sound_combos: dict[str, QComboBox] = {}
+        # 事件名标签列交 QFormLayout 按字号自适应宽度（写死像素在全局
+        # 字号调大后放不下四个汉字会被裁掉）
+        form = QFormLayout()
+        for event, label, key in _NOTIFY_SOUND_EVENTS:
+            combo = QComboBox(page)
+            make_translucent_combo_popup(combo)
+            combo.currentTextChanged.connect(
+                lambda _text, k=key, c=combo: self._on_notify_sound_selected(k, c))
+            preview_button = QPushButton("试听", page)
+            preview_button.clicked.connect(
+                lambda _checked=False, c=combo: sound_player.play_preview(c.currentData() or ""))
+            field = QHBoxLayout()
+            field.addWidget(combo, 1)
+            field.addWidget(preview_button)
+            form.addRow(label, field)
+            self._notify_sound_combos[event] = combo
+        layout.addLayout(form)
+        layout.addWidget(self._make_hint(
+            "可选范围为 assets/sounds/正在使用/ 下的 wav 文件（从备选池复制扩充）；"
+            "下拉框选中即自动试听一次，试听不受开关影响，正式提醒在开关开启时才会播放。", page))
+        self._notify_banner_check = QCheckBox("事件发生时弹出顶部通知横幅", page)
         self._notify_banner_check.toggled.connect(self._on_notify_banner_toggled)
         layout.addWidget(self._notify_banner_check)
         layout.addWidget(self._make_hint(
             "横幅悬浮于窗口顶部，数秒后自动消退；用户手动中断不触发提醒。", page))
         return page
 
+    def _on_notify_sound_selected(self, key: str, combo: QComboBox) -> None:
+        """提示音下拉框选择 → 即时持久化文件名并自动试听一次
+        （itemData 为真实文件名，展示文本可能带「（缺失）」后缀，
+        故取 data 不取 text；reload 回读不触发播放）。"""
+        filename = combo.currentData()
+        if not self._reloading and filename:
+            update_settings({key: filename})
+            sound_player.play_preview(filename)
+            self._ctx.statusBar().showMessage(
+                f"通知：提示音 → {filename}",
+                self._ctx.STATUS_MSG_TIMEOUT_MS)
+
     def _on_notify_sound_toggled(self, checked: bool) -> None:
         if not self._reloading:
             update_settings({KEY_NOTIFY_SOUND_ENABLED: checked})
             self._ctx.statusBar().showMessage(
-                f"通知：任务完成提示音 → {'开' if checked else '关'}",
+                f"通知：提示音 → {'开' if checked else '关'}",
                 self._ctx.STATUS_MSG_TIMEOUT_MS)
 
     def _on_notify_banner_toggled(self, checked: bool) -> None:
         if not self._reloading:
             update_settings({KEY_NOTIFY_BANNER_ENABLED: checked})
             self._ctx.statusBar().showMessage(
-                f"通知：任务完成通知横幅 → {'开' if checked else '关'}",
+                f"通知：通知横幅 → {'开' if checked else '关'}",
                 self._ctx.STATUS_MSG_TIMEOUT_MS)
 
     # ------------------------------------------------------------------
@@ -594,6 +631,20 @@ class SettingsDialog(QDialog):
     def _reload_notify(self, settings) -> None:
         self._notify_sound_check.setChecked(settings[KEY_NOTIFY_SOUND_ENABLED])
         self._notify_banner_check.setChecked(settings[KEY_NOTIFY_BANNER_ENABLED])
+        # 下拉框先重建文件列表再定位持久化值；持久化值已不在目录内时
+        # 补「（缺失）」项并选中（不静默篡改用户选择，播放侧对缺失静默跳过）
+        files = sorted(p.name for p in SOUNDS_ACTIVE_DIR.glob("*.wav"))
+        for event, _label, key in _NOTIFY_SOUND_EVENTS:
+            combo = self._notify_sound_combos[event]
+            combo.clear()
+            for name in files:
+                combo.addItem(name, name)
+            current = settings[key]
+            index = combo.findData(current)
+            if index < 0:
+                combo.addItem(f"{current}（缺失）", current)
+                index = combo.count() - 1
+            combo.setCurrentIndex(index)
 
     def _reload_model(self, settings) -> None:
         """模型页三级回显：后台（vendor 由 backend 经注册表推导，D2 不读

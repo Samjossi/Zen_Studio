@@ -14,8 +14,8 @@ Zen Studio 全部**运行时资产**的集中存放地，**会被 PyInstaller �
 | `fonts/思源黑体/` | UI 正文/标题字体 | ✅ 打包 |
 | `fonts/思源宋体/` | 备用衬线字体（完全未注册，87M） | ❌ **不打包**（2026-0725-1053 计划修订二决策，文件留库不删） |
 | `themes/` | QSS 主题模板（`base.qss`，gui/theme.py 消费的只读资源） | ✅ 打包 |
-| `sounds/正在使用/` | AI 任务完成提示音（`done.wav`/`error.wav`，gui/sound_player.py 消费；源自 kilocode，MIT 许可） | ✅ 打包 |
-| `sounds/备选池/` | 提示音候选存档（供挑选替换，非运行时消费） | ❌ **不打包** |
+| `sounds/正在使用/` | 提示音启用目录（`done.wav`/`error.wav`/`question.wav` 语义默认音 + 若干族备选，gui/sound_player.py 消费；设置中心「通知」页从本目录挑选；源自 kilocode，MIT 许可） | ✅ 打包 |
+| `sounds/备选池/` | 提示音备用库存（复制进 `正在使用/` 后才可启用，非运行时消费） | ❌ **不打包** |
 | `logo/` | 正式 Logo 全套资产（母版 SVG + 八尺寸 PNG） | ✅ 打包 |
 | `logo候选池/` | Logo 设计草稿（历史候选方案存档） | ❌ **不打包** |
 | `icons/` | 通用矢量图标素材（SVG 母版，如 arrow_up/arrow_down），非本应用运行时资产，供手动迁移至其他项目取用 | ❌ **不打包** |

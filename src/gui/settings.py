@@ -70,6 +70,11 @@ KEY_KIMI_WIRE_SIDECAR = "kimi_wire_sidecar"
 KEY_NOTIFY_SOUND_ENABLED = "notify_sound_enabled"
 #: AI 任务完成顶部通知横幅开关（gui/notification_banner.py 消费）
 KEY_NOTIFY_BANNER_ENABLED = "notify_banner_enabled"
+#: 各事件提示音文件名（assets/sounds/正在使用/ 下的 wav 文件名，
+#: 设置中心「通知」页下拉框挑选；持久化文件名而非路径以兼容打包）
+KEY_NOTIFY_SOUND_DONE = "notify_sound_done"
+KEY_NOTIFY_SOUND_ERROR = "notify_sound_error"
+KEY_NOTIFY_SOUND_QUESTION = "notify_sound_question"
 
 #: 对话区渲染轨值域（0645 融合计划 D2-A 双轨并存：cards 卡片轨默认 /
 #: classic 旧轨经典——旧轨冻结保留即回退通道，新轨稳定一个版本后再议下线）
@@ -99,7 +104,7 @@ DEFAULT_TERMINAL_AI_TAB_CLOSE_DELAY_S = 12
 
 
 class AppSettings(TypedDict):
-    """settings.json 全量结构（14 个固定键，均为用户偏好）。"""
+    """settings.json 全量结构（17 个固定键，均为用户偏好）。"""
 
     theme: str                   # 主题名（gui/theme.py 注册表键）
     font_size: int               # 全局 UI 字号（pt）
@@ -132,6 +137,12 @@ class AppSettings(TypedDict):
     notify_sound_enabled: bool
     #: AI 任务完成时弹出顶部通知横幅（True 默认）
     notify_banner_enabled: bool
+    #: 任务成功提示音文件名（assets/sounds/正在使用/ 下，默认 done.wav）
+    notify_sound_done: str
+    #: 任务失败提示音文件名（默认 error.wav）
+    notify_sound_error: str
+    #: 交互提问（AskUserQuestion）提示音文件名（默认 question.wav）
+    notify_sound_question: str
 
 
 class AppSettingsPatch(TypedDict, total=False):
@@ -150,6 +161,9 @@ class AppSettingsPatch(TypedDict, total=False):
     kimi_wire_sidecar: bool
     notify_sound_enabled: bool
     notify_banner_enabled: bool
+    notify_sound_done: str
+    notify_sound_error: str
+    notify_sound_question: str
 
 
 #: 默认值：文件缺失 / 字段缺失 / JSON 损坏时回退
@@ -167,6 +181,9 @@ DEFAULT_SETTINGS: AppSettings = {
     KEY_KIMI_WIRE_SIDECAR: True,
     KEY_NOTIFY_SOUND_ENABLED: True,
     KEY_NOTIFY_BANNER_ENABLED: True,
+    KEY_NOTIFY_SOUND_DONE: "done.wav",
+    KEY_NOTIFY_SOUND_ERROR: "error.wav",
+    KEY_NOTIFY_SOUND_QUESTION: "question.wav",
 }
 
 
@@ -221,6 +238,10 @@ def load_settings() -> AppSettings:
         settings[KEY_TERMINAL_AI_TAB_CLOSE_DELAY_S] = max(
             TERMINAL_AI_TAB_CLOSE_DELAY_MIN_S,
             min(TERMINAL_AI_TAB_CLOSE_DELAY_MAX_S, close_delay))
+    # 类型防御：提示音文件名非 str（手改配置）回退默认
+    for key in (KEY_NOTIFY_SOUND_DONE, KEY_NOTIFY_SOUND_ERROR, KEY_NOTIFY_SOUND_QUESTION):
+        if not isinstance(settings[key], str):
+            settings[key] = DEFAULT_SETTINGS[key]
     # 异常/文件缺失路径同样脱离共享引用
     settings[KEY_MODEL_VERSIONS] = dict(settings[KEY_MODEL_VERSIONS])
     settings[KEY_MODEL_EFFORTS] = dict(settings[KEY_MODEL_EFFORTS])
