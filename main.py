@@ -16,6 +16,8 @@
 打开项目只经两条显式路径：命令行 folder 参数 / 窗内「打开文件夹」。
 """
 import argparse
+import atexit
+import faulthandler
 import logging
 import os
 import sys
@@ -188,7 +190,11 @@ def setup_screenshot(window: MainWindow, interval: int, on_start: bool) -> QTime
 def main() -> None:
     setup_logging()
     # 启动首行落版本：日志须能反查运行的是哪一版（完整版本含 git 构建号）
-    logging.getLogger("main").info("Zen Studio %s 启动", APP_VERSION)
+    logging.getLogger("main").info("Zen Studio %s 启动（PID %d）", APP_VERSION, os.getpid())
+    # 收尾完成标记：atexit 后进先出，本钩最先注册故最后执行——
+    # 它出现即代表 PTY/ACP 等全部收尾钩都跑完，进程是真的死透了
+    atexit.register(
+        lambda: logging.getLogger("main").info("Zen Studio 进程收尾完成（PID %d）", os.getpid()))
     # 启动时一次性净化 LD_LIBRARY_PATH 的 IDE 私有条目（bootloader 前插的
     # _internal）：此后一切用户子进程（终端/ACP/Typora/新窗）自然继承干净
     # 环境；glibc 启动时已缓存链接搜索路径，运行期改写不影响自身 dlopen
@@ -225,7 +231,16 @@ def main() -> None:
     if args.auto_screenshot:
         setup_screenshot(window, args.screenshot_interval, args.screenshot_on_start)
 
-    sys.exit(app.exec())
+    exit_code = app.exec()
+    # 退出落日志（含 PID）：自举双开场景终端混杂多实例输出，
+    # 无退出信息时用户无法区分「已关闭」与「后台残留」
+    logging.getLogger("main").info(
+        "Zen Studio 退出（PID %d，exit code %d）", os.getpid(), exit_code)
+    # 收尾看门狗：本行之后若 atexit/Qt 析构卡死（症状：终端须 ^C 才返回
+    # 提示符），10 秒后 dump 全部线程栈定位卡点；正常退出时看门狗
+    # 随进程消失不触发，零副作用
+    faulthandler.dump_traceback_later(10)
+    sys.exit(exit_code)
 
 
 if __name__ == "__main__":
