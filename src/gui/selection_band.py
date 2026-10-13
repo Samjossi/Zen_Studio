@@ -3,12 +3,18 @@
 背景：Qt 原生选区带 = QTextLine 整行高（含 leading），Qt 排版把 leading
 全部垫在行框底部；思源黑体 lineGap 6.5px@10pt 致带上缘留白 2px/下缘
 7px 视觉偏下（详见 `2026-0731-2055_Markdown预览选区高亮偏下诊断与修复计划.md`）。
-本模块提供两处 QTextBrowser 子类（Markdown 预览 / 聊天输出）共用的：
+本模块提供选区带自绘公共辅助：
 - SUPPRESSION_QSS——抑制原生带并保选中文字正文色（控件级 qss 声明
-  优先于 base.qss QMainWindow 继承规则，offscreen+真机双验证）；
+  优先于 base.qss QMainWindow 继承规则，offscreen+真机双验证；卡片轨
+  正文块将其并入 ID 选择器块内，防无选择器声明级联进右键菜单）；
 - selection_rects()——逐行算选区视口矩形（纵向=行 ascent+descent
   墨盒上下各加 SELECTION_PAD_Y 对称留白）；
 - paint_selection_band()——基类绘制后叠绘半透明圆角带。
+
+挂载点：Markdown 预览 `gui/panels/viewer/markdown_view.py`、旧轨聊天
+`gui/panels/chat/output.py` 与 `gui/panels/chat/input.py`、卡片轨正文块
+`gui/panels/chat/cards.py`（BodyHtml/BodyText，TextStreamBlock/
+SystemBlock/用户气泡体及各工具卡正文随之继承）。
 """
 from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QColor, QPainter, QTextCursor

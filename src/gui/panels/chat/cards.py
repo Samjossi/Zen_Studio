@@ -31,8 +31,9 @@ from html import unescape as _html_unescape
 from pathlib import Path
 
 from PySide6.QtCore import QEvent, QSize, Qt, QTimer, QUrl, Signal
-from PySide6.QtGui import QFont
+from PySide6.QtGui import QFont, QPalette
 from PySide6.QtWidgets import (
+    QApplication,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -47,6 +48,7 @@ from PySide6.QtWidgets import (
 
 from gui.theme import get_mono_family
 from gui.panels.chat.permission_dialog import OTHER_HINT_TEXT
+from gui.selection_band import SUPPRESSION_QSS, paint_selection_band
 from core.paths import PROJECT_ROOT
 
 #: body 限高内滚动上限（0645 §2.4：固定最大高度 + 块内滚动条，
@@ -268,7 +270,8 @@ class BodyText(_HugHeightMixin, QPlainTextEdit):
         # background 声明会沿父子链级联进 Qt 以本控件为父即时创建的
         # 标准右键菜单，覆盖主题底色致菜单全透明——禁无选择器写法
         self.setStyleSheet(
-            "#CardBodyText { background: transparent; border: none; }")
+            "#CardBodyText { background: transparent; border: none; "
+            + SUPPRESSION_QSS + " }")
         if mono:
             self.setFont(QFont(get_mono_family()))
         if text:
@@ -296,6 +299,16 @@ class BodyText(_HugHeightMixin, QPlainTextEdit):
             bar = self.verticalScrollBar()
             bar.setValue(bar.maximum())  # 尾滚语义：定格/刷新后视线在尾部
 
+    def paintEvent(self, event) -> None:
+        """基类绘制后叠绘选区对称带。
+
+        Qt 原生选区带 = 整行高（含 leading），思源黑体 leading 垫底
+        致高亮视觉偏下——抑制后按行墨盒对称自绘（详见 selection_band）。
+        """
+        super().paintEvent(event)
+        paint_selection_band(self, QApplication.palette().color(
+            QPalette.ColorRole.Highlight))
+
 
 class BodyHtml(_HugHeightMixin, QTextBrowser):
     """body 富文本只读块（diff 三色等需行级着色的场景；限高内滚动）。"""
@@ -320,13 +333,20 @@ class BodyHtml(_HugHeightMixin, QTextBrowser):
         # 右键菜单（0811 左栏右键菜单透明修复实证根因）
         self.setObjectName("CardBodyHtml")
         self.setStyleSheet(
-            "#CardBodyHtml { background: transparent; border: none; }")
+            "#CardBodyHtml { background: transparent; border: none; "
+            + SUPPRESSION_QSS + " }")
         if mono:
             self.setFont(QFont(get_mono_family()))
         self.anchorClicked.connect(self.link_clicked)
         if html:
             self.setHtml(html)
         self._init_hug(max_height, bottom_padding)
+
+    def paintEvent(self, event) -> None:
+        """基类绘制后叠绘选区对称带（同 BodyText，见该处注释）。"""
+        super().paintEvent(event)
+        paint_selection_band(self, QApplication.palette().color(
+            QPalette.ColorRole.Highlight))
 
 
 # ----------------------------------------------------------------------
