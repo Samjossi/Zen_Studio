@@ -76,7 +76,7 @@ def test_collapsed_hints_live_in_icon_tooltips(qapp, isolated_settings):
 
 
 def test_hint_icons_follow_theme_token(qapp, isolated_settings):
-    """图标内联 style 按 muted_text 令牌重刷（含圆圈描边同色）。"""
+    """图标内联 style 按 muted_text 令牌重刷（描边取 border 令牌）。"""
     dialog = _make_dialog()
     theme = load_settings()[KEY_THEME]
     dialog.apply_theme(theme)
@@ -85,6 +85,34 @@ def test_hint_icons_follow_theme_token(qapp, isolated_settings):
     for icon in dialog._hint_icons:
         assert expected in icon.styleSheet()
         assert icon.text() == "?"
+
+
+def test_hint_icons_circular_button_with_hover(qapp, isolated_settings):
+    """圆形化：固定 16×16 + border-radius 8px（正圆）；hover 淡强调色染
+    （rgba 由 accent 令牌派生）+ 描边换 accent。"""
+    dialog = _make_dialog()
+    theme = load_settings()[KEY_THEME]
+    dialog.apply_theme(theme)
+    tokens = get_theme_palette(theme)
+    for icon in dialog._hint_icons:
+        qss = icon.styleSheet()
+        assert "border-radius: 8px" in qss
+        assert ":hover" in qss
+        assert f"border: 1px solid {tokens['border']}" in qss
+        assert tokens["accent"] in qss
+        assert icon.width() == 16 and icon.height() == 16
+        assert icon.minimumSize() == icon.maximumSize()
+
+
+def test_tooltip_installer_idempotent(qapp):
+    """tooltip 透明化安装器幂等：重复调用不叠第二个过滤器。"""
+    import gui.popups as popups_mod
+
+    popups_mod.install_translucent_tooltips(qapp)
+    first = popups_mod._tooltip_filter
+    assert first is not None
+    popups_mod.install_translucent_tooltips(qapp)
+    assert popups_mod._tooltip_filter is first
 
 
 def test_retained_texts_simplified(qapp, isolated_settings):

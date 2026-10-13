@@ -78,6 +78,7 @@ from gui.menus.registry import (
 from gui.panels import FileExplorer, ViewerPanel
 from gui.panels.changes import ChangesPanel
 from gui.panels.chat import ChatTabs
+from gui.popups import install_translucent_tooltips
 from gui.panels.terminal import TerminalPanel
 from gui.panels.terminal.agent_bridge import AgentTerminalBridge
 from gui.panels.welcome import PlaceholderPanel, WelcomePanel
@@ -166,6 +167,10 @@ class MainWindow(QMainWindow):
             root_server.setParent(self)  # 生命周期随窗口（关闭即释放占用）
             root_server.newConnection.connect(self._on_root_connection)
         self.resize(1200, 800)
+        # tooltip 双框修复：app 级过滤器给 Qt 内部 QTipLabel 补透明属性
+        # （popups.py 方案 A 延伸；QTipLabel 无显式 new 点，启动挂载一次）
+        if (app := QApplication.instance()) is not None:
+            install_translucent_tooltips(app)
 
         #: 设置中心对话框（非模态单例，首次打开时惰性创建）
         self._settings_dialog: SettingsDialog | None = None

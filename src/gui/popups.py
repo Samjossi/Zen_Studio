@@ -33,10 +33,17 @@ QPlainTextEdit/QLineEdit）右键弹出的标准编辑菜单由 Qt 内部即时�
 样式表沿父子链级联，无选择器声明等价通配，会把 background: transparent
 灌进子代 QMenu、覆盖应用级主题底色致菜单全透明（cards.py
 BodyText/BodyHtml 实证根因）。静态守卫：scripts/check_qss_selector_guard.py。
+
+tooltip 双框（2026-10-13，设置中心问号图标反馈）：QToolTip 的深灰底
+白字圆角是规范 §6.11 钦定，真缺陷仍是矩形底座残留（同 QMenu 根因）。
+QTipLabel 由 Qt 内部即时创建、无显式 new 点，规约函数无从挂载——
+用 install_translucent_tooltips(app) 装 app 级事件过滤器，在 Polish/Show
+时机捕获 QTipLabel 批量补透明属性（方案 A 延伸）；MainWindow 启动挂载一次。
 """
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QEvent, QObject, Qt
 from PySide6.QtGui import QColor, QIcon
 from PySide6.QtWidgets import (
+    QApplication,
     QComboBox,
     QFrame,
     QLineEdit,
@@ -73,6 +80,36 @@ def make_translucent_combo_popup(combo: QComboBox) -> QComboBox:
             palette.setColor(role, QColor(0, 0, 0, 0))
         w.setPalette(palette)
     return combo
+
+
+class _TooltipTranslucencyFilter(QObject):
+    """app 级事件过滤器：捕获 Qt 内部即时创建的 QTipLabel（tooltip 窗口）。
+
+    QTipLabel 无显式 new 点，make_translucent_popup() 无从调用；在
+    Polish/Show 时机（首帧绘制前）补 WA_TranslucentBackground +
+    NoDropShadowWindowHint，消除矩形底座与矩形投影残留。
+    """
+
+    def eventFilter(self, watched: QObject, event) -> bool:
+        if (event.type() in (QEvent.Type.Polish, QEvent.Type.Show)
+                and watched.inherits("QTipLabel")):
+            make_translucent_popup(watched)
+        return False
+
+
+#: 安装器幂等凭据：过滤器实例模块级持有（防 GC + 防重复叠装）
+_tooltip_filter: _TooltipTranslucencyFilter | None = None
+
+
+def install_translucent_tooltips(app: QApplication) -> None:
+    """tooltip 双框修复：app 级安装 QTipLabel 透明化过滤器（幂等——
+    重复调用不叠第二个过滤器，MainWindow 启动挂载一次即可）。
+    """
+    global _tooltip_filter
+    if _tooltip_filter is not None:
+        return
+    _tooltip_filter = _TooltipTranslucencyFilter(app)
+    app.installEventFilter(_tooltip_filter)
 
 
 #: Qt 标准编辑菜单 action（objectName 稳定）→ 中文文案（应用未装载

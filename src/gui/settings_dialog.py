@@ -10,8 +10,8 @@
   右页标题区（标题/副标题/分隔线，currentRowChanged 骨架统一刷新）+
   堆叠页 + 底部「关闭」按钮；各页不再自带页顶说明（1510 计划 D4/D8）
 - 主题化：app 级 qss 覆盖标准控件；内联 style 不受其管辖的部分（hint 灰字、
-  问号提示图标、分隔线）由 apply_theme(theme) 收敛点按 muted_text/border
-  令牌重刷（图标圆圈描边与字形同色）
+  问号提示图标、分隔线）由 apply_theme(theme) 收敛点按 muted_text/border/
+  accent 令牌重刷（图标为 16×16 描边正圆，hover 淡强调色染，规范 §6.2 按钮体系）
   （热切换已随 2026-0820-1642 计划移除，本方法保留为公共接口，构造期
   自检初始化；1510 计划 D6 否决的 QPalette 角色色方案已由该计划翻盘——
   gui/theme.apply_theme 现纳管 app 级 QPalette 兜底，见其 §4.1）
@@ -57,7 +57,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 from PySide6.QtCore import QSize, Qt, QTimer
-from PySide6.QtGui import QFont
+from PySide6.QtGui import QColor, QFont
 
 from gui.popups import make_translucent_combo_popup
 from gui.settings import (
@@ -255,10 +255,17 @@ class SettingsDialog(QDialog):
         hint_qss = f"color: {tokens['muted_text']};"
         for label in self._hint_labels:
             label.setStyleSheet(hint_qss)
+        # 图标固定 16×16（_make_hint_icon），radius 8px = 直径减半成正圆；
+        # hover 淡强调色染对齐规范 §6.2 按钮范式，rgba 由 accent 令牌经
+        # QColor 派生（四主题各取本方强调色，禁止硬编码）
+        accent = QColor(tokens["accent"])
+        hover_bg = f"rgba({accent.red()}, {accent.green()}, {accent.blue()}, 0.07)"
         icon_qss = (
-            f"color: {tokens['muted_text']};"
-            f" border: 1px solid {tokens['muted_text']};"
-            " border-radius: 8px; padding: 0 4px;")
+            f"QLabel {{ color: {tokens['muted_text']};"
+            f" border: 1px solid {tokens['border']};"
+            " border-radius: 8px; background: transparent; }"
+            f" QLabel:hover {{ background-color: {hover_bg};"
+            f" border-color: {tokens['accent']}; }}")
         for icon in self._hint_icons:
             icon.setStyleSheet(icon_qss)
         sep_qss = f"color: {tokens['border']};"
@@ -819,11 +826,20 @@ class SettingsDialog(QDialog):
         return label
 
     def _make_hint_icon(self, tooltip: str, parent: QWidget | None = None) -> QLabel:
-        """问号提示图标：成段说明的收纳处，悬停出 tooltip（颜色由
-        apply_theme 按 muted_text 令牌重刷，圆圈描边同色）。"""
+        """问号提示图标：成段说明的收纳处，悬停出 tooltip。
+
+        固定 16×16 描边正圆按钮（规范 §6.2 体系；颜色与 hover 态由
+        apply_theme 按 border/muted_text/accent 令牌整段重刷）。
+        字形固定像素字号——圆圈尺寸恒定，字形随 app 全局字号放大必然
+        溢出描边（13pt 实测字形 17px > 16px 圈）。
+        """
         icon = QLabel("?", parent)
         icon.setToolTip(tooltip)
         icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        icon.setFixedSize(16, 16)
+        font = icon.font()
+        font.setPixelSize(11)
+        icon.setFont(font)
         self._hint_icons.append(icon)
         return icon
 

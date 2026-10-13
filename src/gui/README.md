@@ -18,14 +18,14 @@
 | `gui/main_window.py` | 主窗口：三栏布局（右栏再上下拆分）+ 状态栏 + 窗口几何/分隔栏状态持久化 + Git 状态事件驱动刷新 + 菜单槽函数（打开文件夹/字号/恢复布局等） |
 | `gui/controllers.py` | MainWindow 职责外移的控制器：`GitStatusController`（Git 服务编排/去抖/四面板扇出刷新）等组合成员，依赖构造注入 |
 | `gui/settings.py` | 通用配置持久化：读写 `config/settings.json`，"读全量 → 合并 → 写回"统一入口（主题/窗口几何/分隔栏/模型选择/工作区根共用；模型版本为按接口记忆的 `model_versions` 表） |
-| `gui/settings_dialog.py` | 设置中心对话框：左导航 + 右分页（页面注册表驱动），唯一偏好配置面；控件 change 即时持久化即时应用；说明文字两档——短句灰字直留界面，成段说明收进问号图标 tooltip |
+| `gui/settings_dialog.py` | 设置中心对话框：左导航 + 右分页（页面注册表驱动），唯一偏好配置面；控件 change 即时持久化即时应用；说明文字两档——短句灰字直留界面，成段说明收进问号图标 tooltip（16×16 描边正圆按钮，hover 淡强调色染） |
 | `gui/window_state.py` | 窗口状态持久化：读写 `config/window_state/<hash8>.json`（按工作区哈希分文件，`default.json` 供新工作区首开继承） |
 | `gui/root_ownership.py` | 一窗一根占用登记与唤活协议：`QLocalServer` 按工作区根 listen（`config/sockets/<hash8>.sock`），命中已占用根发唤活消息并以退出码 3 退出；陈旧套接字探测自愈（2026-08-31） |
 | `gui/recent_projects.py` | 最近打开的工作区根存取（`config/recent_projects.json`），文件菜单「最近打开的项目」子菜单消费 |
 | `gui/theme.py` | 主题体系：`THEME_META` 多主题注册表（云白/暖米/晴空/薄荷/暗色，按 light/dark 两族）+ qss 应用 + 自带双字体注册（思源黑体 / 更纱黑体）+ `GIT_STATUS_COLORS` Git 状态色表 |
 | `gui/title_bar.py` | 自定义标题栏（无边框窗口）：Logo + 标题文字 + 最小化/最大化/关闭三按钮 |
 | `gui/window_resize.py` | 无边框窗口八向边缘缩放热区（窗口级事件过滤器） |
-| `gui/popups.py` | 弹出浮层透明化：消除矩形窗口套圆角内容的双框观感 |
+| `gui/popups.py` | 弹出浮层透明化：消除矩形窗口套圆角内容的双框观感（QMenu/QComboBox 走规约函数；tooltip 由 `install_translucent_tooltips(app)` 事件过滤器覆盖，MainWindow 启动挂载） |
 | `gui/menus/` | 菜单栏子包：`registry.py` Action 注册表（`菜单.动作` 键名全局可寻址）/ `assembler.py` 装配器 / 每菜单一文件（file/edit/view/terminal/settings/help） |
 | `gui/panels/__init__.py` | 面板包初始化，对外导出 `FileExplorer`、`ViewerPanel` |
 | `gui/panels/find_bar.py` | 查找浮层组件：viewer 与 terminal 两面板共用的右上角悬浮查找条（搜索语义归宿主面板） |
