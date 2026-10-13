@@ -20,7 +20,7 @@ from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QColor, QPainter, QTextCursor
 
 #: 墨盒（ascent+descent）上下对称留白（px）
-SELECTION_PAD_Y = 3
+SELECTION_PAD_Y = 1
 #: 圆角半径（px；归零=直角带，与终端选区形态对齐——圆角贴片连排
 #: 易被误读为双层高亮）
 SELECTION_RADIUS = 0
