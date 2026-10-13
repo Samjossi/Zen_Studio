@@ -14,6 +14,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from PySide6.QtMultimedia import QSoundEffect
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QWidget
 
@@ -194,7 +195,7 @@ def test_question_asked_not_on_plain_request(qapp, fake_registry, isolated_setti
 
 
 # ----------------------------------------------------------------------
-# 声音播放（防抖 / 缺文件静默 / 无声环境不抛异常）
+# 声音播放（防抖 / 缺文件静默；一律打桩，禁止真实出声——见 tests/README.md）
 # ----------------------------------------------------------------------
 def test_sound_debounce(qapp, isolated_settings, monkeypatch):
     calls: list[Path] = []
@@ -233,11 +234,27 @@ def test_sound_missing_file_silent(qapp, isolated_settings, monkeypatch):
 
 
 def test_sound_real_file_no_crash(qapp, isolated_settings, monkeypatch):
-    """真实 wav 路径：offscreen/无声卡环境下 QSoundEffect→兜底链全程不抛异常。"""
+    """真实 wav 路径全链路不抛异常；QSoundEffect 换假后端——offscreen 不关
+    音频，真后端会真实外放（事故见 tests/README.md），故只验证链路不验证出声。"""
+    played: list[str] = []
+
+    class _FakeEffect:
+        def setSource(self, url) -> None:
+            played.append(url.toLocalFile())
+
+        def play(self) -> None:
+            pass
+
+        def status(self):
+            return QSoundEffect.Status.Ready  # 非 Error：不触发系统播放器兜底
+
+    monkeypatch.setattr(sound_player_mod, "QSoundEffect", _FakeEffect)
+    monkeypatch.setattr(sound_player_mod, "_effect", None)  # 清真实单例，强制走假后端
     monkeypatch.setattr(sound_player_mod, "_last_play_at", 0.0)
     sound_player_mod.play_completion_sound(True)
     QTest.qWait(600)  # 覆盖 _STATUS_CHECK_MS 复查分支
     qapp.processEvents()
+    assert played and played[0].endswith("done.wav")
 
 
 # ----------------------------------------------------------------------
