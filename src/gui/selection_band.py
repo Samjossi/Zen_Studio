@@ -9,7 +9,7 @@
   正文块将其并入 ID 选择器块内，防无选择器声明级联进右键菜单）；
 - selection_rects()——逐行算选区视口矩形（纵向=行 ascent+descent
   墨盒上下各加 SELECTION_PAD_Y 对称留白）；
-- paint_selection_band()——基类绘制后叠绘半透明圆角带。
+- paint_selection_band()——基类绘制后叠绘半透明直角带。
 
 挂载点：Markdown 预览 `gui/panels/viewer/markdown_view.py`、旧轨聊天
 `gui/panels/chat/output.py` 与 `gui/panels/chat/input.py`、卡片轨正文块
@@ -21,8 +21,9 @@ from PySide6.QtGui import QColor, QPainter, QTextCursor
 
 #: 墨盒（ascent+descent）上下对称留白（px）
 SELECTION_PAD_Y = 3
-#: 圆角半径（px）
-SELECTION_RADIUS = 3
+#: 圆角半径（px；归零=直角带，与终端选区形态对齐——圆角贴片连排
+#: 易被误读为双层高亮）
+SELECTION_RADIUS = 0
 #: 填充不透明度（0-255；半透明叠绘保文字可读）
 SELECTION_ALPHA = 110
 
@@ -87,7 +88,10 @@ def paint_selection_band(edit, color: QColor) -> None:
     painter.setPen(Qt.PenStyle.NoPen)
     painter.setBrush(band)
     for rect in rects:
-        painter.drawRoundedRect(rect, SELECTION_RADIUS, SELECTION_RADIUS)
+        if SELECTION_RADIUS:
+            painter.drawRoundedRect(rect, SELECTION_RADIUS, SELECTION_RADIUS)
+        else:
+            painter.drawRect(rect)
     painter.end()
 
 
