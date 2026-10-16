@@ -22,7 +22,6 @@ from PySide6.QtWidgets import (
     QGraphicsOpacityEffect,
     QHBoxLayout,
     QLabel,
-    QLineEdit,
     QToolButton,
     QTreeView,
     QVBoxLayout,
@@ -32,6 +31,7 @@ from PySide6.QtWidgets import (
 from core.git.service import GitStatusService
 from gui.panels.file_explorer.actions import ExplorerActions
 from gui.panels.file_explorer.model import GitStatusProxyModel
+from gui.popups import TranslucentMenuLineEdit
 from gui.settings import KEY_THEME
 from gui.theme import load_settings
 
@@ -213,7 +213,7 @@ class FileExplorer(QWidget):
     def _build_search_bar(self) -> None:
         """底部搜索栏：默认隐藏的一行输入框，样式吃全局 QLineEdit 规则。
         无命中经动态属性 noMatch 走 qss 警示色，不落硬编码色值。"""
-        self._search_bar = QLineEdit(self)
+        self._search_bar = TranslucentMenuLineEdit(self)
         self._search_bar.setObjectName("FileTreeSearchBar")
         self._search_bar.setPlaceholderText("搜索当前位置…")
         self._search_bar.setClearButtonEnabled(True)

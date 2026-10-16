@@ -23,7 +23,6 @@ from PySide6.QtWidgets import (
     QLabel,
     QPushButton,
     QStackedWidget,
-    QTextBrowser,
     QVBoxLayout,
     QWidget,
 )
@@ -32,6 +31,7 @@ from core.git import log as git_log
 from core.git.ansi import sgr_to_html
 from core.git.service import GitStatusService
 from gui.git_graph_view import GitGraphView
+from gui.popups import SimplifiedMenuTextBrowser
 from gui.settings import KEY_THEME
 from gui.theme import get_mono_family, get_theme_palette, load_settings
 
@@ -52,7 +52,7 @@ class GitGraphDialog(QDialog):
         self._info_label = QLabel(self)
         self._placeholder = QLabel(self)
         self._placeholder.setWordWrap(True)
-        self._fallback = QTextBrowser(self)  # 降级形态：彩色富文本（D3 回退）
+        self._fallback = SimplifiedMenuTextBrowser(self)  # 降级形态：彩色富文本（D3 回退）
         self._fallback.setOpenExternalLinks(False)
         self._view = GitGraphView(self)
         self._stack = QStackedWidget(self)

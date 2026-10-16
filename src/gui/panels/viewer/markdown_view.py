@@ -186,23 +186,24 @@ class MarkdownView(QTextBrowser):
         super().wheelEvent(event)
 
     # ------------------------------------------------------------------
-    # 右键菜单（单项「全选」）
+    # 右键菜单（「复制」「全选」两项）
     # ------------------------------------------------------------------
-    def _build_context_menu(self, pos) -> QMenu:
-        """装配右键菜单：单项「全选」（构建与弹出分离，可探针断言）。
+    def _build_context_menu(self) -> QMenu:
+        """装配右键菜单：「复制」「全选」两项（构建与弹出分离，可探针断言）。
 
-        精简决策（2026-0806-0659 计划 D1/D2）：只读查看器高频路径为
-        「全选 → Ctrl+C」，「全选」无前置条件随时可用，是右键菜单中唯一
-        不依赖选区状态的有效项；复制走 Ctrl+C（有选区时）。
+        只读查看器右键统一形态：复制仅在有选区时可用，全选恒可用；
+        Ctrl+C / Ctrl+A 快捷键与菜单项正交并存（Qt 内建按键处理不动）。
         """
         menu = QMenu(self)
         make_translucent_popup(menu)
+        action_copy = menu.addAction("复制", self.copy)
+        action_copy.setEnabled(self.textCursor().hasSelection())
         menu.addAction("全选", self.selectAll)
         return menu
 
     def contextMenuEvent(self, event) -> None:
-        """右键弹出单项「全选」菜单（见 gui/popups.py 透明化规约）。"""
-        menu = self._build_context_menu(event.pos())
+        """右键弹出「复制」「全选」菜单（见 gui/popups.py 透明化规约）。"""
+        menu = self._build_context_menu()
         menu.exec(event.globalPos())
         menu.deleteLater()
 

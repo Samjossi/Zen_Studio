@@ -48,6 +48,7 @@ from PySide6.QtWidgets import (
 
 from gui.theme import get_mono_family
 from gui.panels.chat.permission_dialog import OTHER_HINT_TEXT
+from gui.popups import exec_standard_context_menu
 from gui.selection_band import SUPPRESSION_QSS, paint_selection_band
 from core.paths import PROJECT_ROOT
 
@@ -309,6 +310,14 @@ class BodyText(_HugHeightMixin, QPlainTextEdit):
         paint_selection_band(self, QApplication.palette().color(
             QPalette.ColorRole.Highlight))
 
+    def contextMenuEvent(self, event) -> None:
+        """只读正文统一右键菜单：精简后恰为「复制」「全选」两项。
+
+        不覆写则回落 Qt 原生标准菜单（英文、带主题图标、含快捷键
+        显示后缀），与 AI 回复流式块的精简菜单形态不一致。
+        """
+        exec_standard_context_menu(self, event, simplify=True)
+
 
 class BodyHtml(_HugHeightMixin, QTextBrowser):
     """body 富文本只读块（diff 三色等需行级着色的场景；限高内滚动）。"""
@@ -347,6 +356,10 @@ class BodyHtml(_HugHeightMixin, QTextBrowser):
         super().paintEvent(event)
         paint_selection_band(self, QApplication.palette().color(
             QPalette.ColorRole.Highlight))
+
+    def contextMenuEvent(self, event) -> None:
+        """只读正文统一右键菜单（同 BodyText，见该处注释）。"""
+        exec_standard_context_menu(self, event, simplify=True)
 
 
 # ----------------------------------------------------------------------

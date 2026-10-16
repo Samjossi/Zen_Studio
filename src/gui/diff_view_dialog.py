@@ -36,7 +36,6 @@ from PySide6.QtWidgets import (
     QLabel,
     QPushButton,
     QStackedWidget,
-    QTextBrowser,
     QVBoxLayout,
     QWidget,
 )
@@ -44,6 +43,7 @@ from PySide6.QtWidgets import (
 from core.diff_view import MAX_DIFF_LINES, DiffRow, unified_rows
 from core.git import content as git_content
 from core.git.service import GitStatusService
+from gui.popups import SimplifiedMenuTextBrowser
 from gui.settings import KEY_THEME
 from gui.theme import get_mono_family, get_theme_palette, load_settings
 
@@ -111,7 +111,7 @@ class DiffViewDialog(QDialog):
         self._placeholder = QLabel(self)
         self._placeholder.setWordWrap(True)
         self._placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._browser = QTextBrowser(self)
+        self._browser = SimplifiedMenuTextBrowser(self)
         self._browser.setOpenExternalLinks(False)
         # 行号锚点（diffjump:N）由 anchorClicked 自处理；置 False 防
         # 默认 setSource 导航把 diff 内容覆盖掉

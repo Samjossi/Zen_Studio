@@ -62,7 +62,6 @@ from gui.panels.chat.file_links import (
     make_mention_checker,
 )
 from gui.panels.chat.reasoning_heading import split_heading
-from gui.popups import exec_standard_context_menu
 
 _STREAM_FLUSH_MS = 30  # 流式合帧节流间隔（1836 计划 D5 平移）
 
@@ -136,10 +135,6 @@ class TextStreamBlock(BodyHtml):
             fmt.setForeground(self._link_color)
             fmt.setUnderlineStyle(QTextCharFormat.UnderlineStyle.SingleUnderline)
             link_cursor.setCharFormat(fmt)
-
-    def contextMenuEvent(self, event) -> None:
-        """标准编辑菜单透明化 + 精简（左栏会话区：去图标/快捷键/link-copy）。"""
-        exec_standard_context_menu(self, event, simplify=True)
 
 
 class UserBubbleBlock(QFrame):

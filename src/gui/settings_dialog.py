@@ -51,7 +51,6 @@ from PySide6.QtWidgets import (
     QRadioButton,
     QSpinBox,
     QStackedWidget,
-    QTextEdit,
     QToolButton,
     QVBoxLayout,
     QWidget,
@@ -59,7 +58,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import QSize, Qt, QTimer
 from PySide6.QtGui import QColor, QFont
 
-from gui.popups import make_translucent_combo_popup
+from gui.popups import SimplifiedMenuTextEdit, make_translucent_combo_popup
 from gui.settings import (
     CHAT_RENDERER_CARDS,
     CHAT_RENDERER_CLASSIC,
@@ -323,7 +322,7 @@ class SettingsDialog(QDialog):
         # 初态折叠箭头（_blacklist_text 尚未建，不走 toggled 槽）
         self._blacklist_button.setText(f"▶ {self._blacklist_label}")
         layout.addWidget(self._blacklist_button, 0, Qt.AlignmentFlag.AlignLeft)
-        self._blacklist_text = QTextEdit(page)
+        self._blacklist_text = SimplifiedMenuTextEdit(page)
         self._blacklist_text.setReadOnly(True)
         self._blacklist_text.setFont(QFont(get_mono_family()))
         self._blacklist_text.setFixedHeight(_BLACKLIST_HEIGHT)

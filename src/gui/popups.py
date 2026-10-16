@@ -26,6 +26,11 @@ autoFillBackground(False) + Window/Base 角色全透明；容器面板
 QPlainTextEdit/QLineEdit）右键弹出的标准编辑菜单由 Qt 内部即时创建，
 不经过显式 new QMenu 的任何修复点，须用 exec_standard_context_menu()
 替代控件默认 contextMenuEvent（见 0751 第二轮修复计划 §2.1/§3.1）。
+统一形态规约：右键菜单一律带 simplify=True——只读控件精简后恰为
+「复制」「全选」两项（零散实例用 SimplifiedMenuTextBrowser /
+SimplifiedMenuTextEdit），可编辑控件保留完整编辑项、去图标并中文化
+（TranslucentMenuLineEdit / TranslucentMenuPlainTextEdit）；菜单项与
+Ctrl+C/Ctrl+A 快捷键正交并存（精简只去文本显示后缀，按键处理不动）。
 
 控件级 qss 规约（2026-08-11，左栏右键菜单透明修复）：文本类控件挂
 控件级 setStyleSheet 必须带选择器（#对象名 / 类选择器），禁止无选择器
@@ -49,6 +54,8 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMenu,
     QPlainTextEdit,
+    QTextBrowser,
+    QTextEdit,
     QWidget,
 )
 
@@ -160,7 +167,8 @@ def exec_standard_context_menu(widget: QWidget, event, simplify: bool = False) -
 
     菜单项一律取自控件内建 createStandardContextMenu()（不重建、不丢项），
     仅经 make_translucent_popup() 透明化后 exec；simplify=True 时再经
-    simplify_standard_menu() 精简（左栏会话区专用，其余调用方默认不动）。
+    simplify_standard_menu() 精简——只读控件精简后恰为「复制」「全选」
+    两项，可编辑控件保留完整编辑项仅去图标/中文化。
     （QLineEdit 版签名无 pos 参数，isinstance 分支兼容。）
     """
     if isinstance(widget, QLineEdit):
@@ -175,14 +183,46 @@ def exec_standard_context_menu(widget: QWidget, event, simplify: bool = False) -
 
 
 class TranslucentMenuLineEdit(QLineEdit):
-    """右键标准菜单透明化的 QLineEdit（查找框等零散实例直接用）。"""
+    """右键标准菜单透明化 + 精简（去图标/中文化）的 QLineEdit（查找框等零散实例直接用）。
+
+    可编辑控件保留撤销/剪切/粘贴等完整编辑项，精简只去图标与快捷键
+    显示后缀并中文化，不砍功能项。
+    """
 
     def contextMenuEvent(self, event) -> None:
-        exec_standard_context_menu(self, event)
+        exec_standard_context_menu(self, event, simplify=True)
 
 
 class TranslucentMenuPlainTextEdit(QPlainTextEdit):
-    """右键标准菜单透明化的 QPlainTextEdit（权限对话框详情等直接用）。"""
+    """右键标准菜单透明化 + 精简的 QPlainTextEdit（权限对话框详情等直接用，同 TranslucentMenuLineEdit）。"""
 
     def contextMenuEvent(self, event) -> None:
-        exec_standard_context_menu(self, event)
+        exec_standard_context_menu(self, event, simplify=True)
+
+
+class SimplifiedMenuTextBrowser(QTextBrowser):
+    """只读富文本展示：右键精简后恰为「复制」「全选」两项。
+
+    对话框等零散只读 QTextBrowser 直接用——不覆写则回落 Qt 原生
+    标准菜单（英文、带主题图标、含 Copy Link Location 与快捷键
+    显示后缀），与全局只读右键形态不一致。Ctrl+C / Ctrl+A 快捷键
+    与菜单项正交并存（控件内建按键处理不动）。
+    """
+
+    def contextMenuEvent(self, event) -> None:
+        exec_standard_context_menu(self, event, simplify=True)
+
+
+class SimplifiedMenuTextEdit(QTextEdit):
+    """只读纯文本展示：右键精简后恰为「复制」「全选」两项（同 SimplifiedMenuTextBrowser）。
+
+    构造即只读——该封装只用于展示场景；可编辑输入框请用
+    TranslucentMenuPlainTextEdit（保留完整编辑项）。
+    """
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self.setReadOnly(True)
+
+    def contextMenuEvent(self, event) -> None:
+        exec_standard_context_menu(self, event, simplify=True)
