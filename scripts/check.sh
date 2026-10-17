@@ -9,5 +9,8 @@ cd "$(dirname "$0")/.."
 echo "== 隐私扫描 =="
 bash scripts/privacy_scan.sh
 
+echo "== 可选中 QLabel 裸用守卫 =="
+uv run scripts/check_label_selectable_guard.py
+
 uv run ruff check
 QT_QPA_PLATFORM=offscreen uv run pytest tests/ -q

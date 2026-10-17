@@ -13,9 +13,9 @@
 """
 from PySide6.QtCore import QEvent, QObject, QPoint, Qt, QTimer
 from PySide6.QtGui import QContextMenuEvent, QKeyEvent
-from PySide6.QtWidgets import QApplication, QMenu
+from PySide6.QtWidgets import QApplication, QLabel, QMenu
 
-from gui.panels.chat.cards import BodyHtml, BodyText
+from gui.panels.chat.cards import BodyHtml, BodyText, _ElidedLabel
 from gui.panels.viewer.code_viewer import CodeViewer
 from gui.panels.viewer.markdown_view import MarkdownView
 from gui.popups import (
@@ -23,6 +23,7 @@ from gui.popups import (
     SimplifiedMenuTextEdit,
     TranslucentMenuLineEdit,
     TranslucentMenuPlainTextEdit,
+    make_label_selectable,
 )
 from gui.theme import get_theme_palette
 
@@ -69,6 +70,24 @@ def _popup_menu(widget, event):
     grabber.menus.clear()
     widget.contextMenuEvent(event)
     assert grabber.menus, f"{type(widget).__name__} 右键未弹出任何菜单"
+    return grabber.menus[-1]
+
+
+#: 投喂过右键的 QLabel 保活池：菜单 deleteLater 属延迟删除，若 label 在
+#: 延迟事件处理前被 GC，子代菜单随父销毁、残留事件再命中已释放内存，
+#: offscreen 下实测段错误；测试全程保活父控件即避开（生产 label 长存无此坑）。
+_kept_labels: list = []
+
+
+def _popup_label_menu(label, pos=None):
+    """QLabel 专用：右键必须经 sendEvent 派发——控件级事件过滤器只在
+    事件派发路径生效，直调 contextMenuEvent 会绕过过滤器测不到真路径。"""
+    _kept_labels.append(label)
+    grabber = _grabber_of(_app())
+    grabber.menus.clear()
+    event = _context_event(label, pos)
+    QApplication.sendEvent(label, event)
+    assert grabber.menus, f"{type(label).__name__} 右键未弹出任何菜单"
     return grabber.menus[-1]
 
 
@@ -217,3 +236,53 @@ class TestShortcutOrthogonal:
         assert viewer.textCursor().selectedText().replace(" ", "\n") == "alpha\nbeta"
         self._send_ctrl(viewer, Qt.Key.Key_C)
         assert QApplication.clipboard().text() == "alpha\nbeta"
+
+
+class TestSelectableLabelMenu:
+    """可选中 QLabel：右键恰为「复制」「全选」两项（事件过滤器路径）。
+
+    Qt 对开 TextSelectableByMouse 的 QLabel 内建英文原生标准菜单，
+    make_label_selectable 以控件级事件过滤器拦截改弹自制精简菜单。
+    """
+
+    def test_label_pair_and_copy_enablement(self):
+        _app()
+        label = make_label_selectable(QLabel("标题文本"))
+        menu = _popup_label_menu(label)
+        assert _texts(menu) == ["复制", "全选"]
+        _assert_simplified(menu)
+        assert not menu.actions()[0].isEnabled()  # 无选区复制置灰
+        assert menu.actions()[1].isEnabled()
+        label.setSelection(0, 2)
+        menu = _popup_label_menu(label)
+        assert _texts(menu) == ["复制", "全选"]
+        assert menu.actions()[0].isEnabled()
+
+    def test_empty_label_select_all_disabled(self):
+        _app()
+        label = make_label_selectable(QLabel(""))
+        menu = _popup_label_menu(label)
+        assert not menu.actions()[1].isEnabled()  # 文本为空全选置灰
+
+    def test_select_all_and_copy_behavior(self):
+        _app()
+        label = make_label_selectable(QLabel("标题文本"))
+        menu = _popup_label_menu(label)
+        menu.actions()[1].trigger()  # 全选
+        assert label.hasSelectedText()
+        assert label.selectedText() == "标题文本"
+        # 复制随选区启停：有选区后重弹菜单，复制项方可用（禁用项 trigger 无效）
+        menu = _popup_label_menu(label)
+        QApplication.clipboard().clear()
+        menu.actions()[0].trigger()  # 复制
+        assert QApplication.clipboard().text() == "标题文本"
+
+    def test_elided_label_integration(self):
+        """集成级：卡片标题实型 _ElidedLabel（收起态唯一右键入口）同形态。"""
+        _app()
+        title = _ElidedLabel("卡片标题")
+        title.resize(200, title.fontMetrics().height())
+        menu = _popup_label_menu(title)
+        assert _texts(menu) == ["复制", "全选"]
+        _assert_simplified(menu)
+        assert not menu.actions()[0].isEnabled()

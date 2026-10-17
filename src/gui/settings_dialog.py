@@ -58,7 +58,11 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import QSize, Qt, QTimer
 from PySide6.QtGui import QColor, QFont
 
-from gui.popups import SimplifiedMenuTextEdit, make_translucent_combo_popup
+from gui.popups import (
+    SimplifiedMenuTextEdit,
+    make_label_selectable,
+    make_translucent_combo_popup,
+)
 from gui.settings import (
     CHAT_RENDERER_CARDS,
     CHAT_RENDERER_CLASSIC,
@@ -639,8 +643,8 @@ class SettingsDialog(QDialog):
         page = QWidget(self)
         layout = QVBoxLayout(page)
         layout.setAlignment(Qt.AlignmentFlag.AlignTop)
-        path_label = QLabel(f"配置目录：{CONFIG_DIR}", page)
-        path_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        path_label = make_label_selectable(
+            QLabel(f"配置目录：{CONFIG_DIR}", page))
         path_label.setWordWrap(True)
         self._hint_labels.append(path_label)
         layout.addWidget(path_label)

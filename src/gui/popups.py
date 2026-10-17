@@ -44,13 +44,23 @@ tooltip 双框（2026-10-13，设置中心问号图标反馈）：QToolTip 的�
 QTipLabel 由 Qt 内部即时创建、无显式 new 点，规约函数无从挂载——
 用 install_translucent_tooltips(app) 装 app 级事件过滤器，在 Polish/Show
 时机捕获 QTipLabel 批量补透明属性（方案 A 延伸）；MainWindow 启动挂载一次。
+
+QLabel 右键菜单规约：Qt 对开 TextSelectableByMouse 的 QLabel 内建原生
+标准右键菜单（英文 Copy/Select All、带主题图标与快捷键显示后缀），而
+QLabel 没有 createStandardContextMenu()，exec_standard_context_menu()
+无从复用。可选中 QLabel 一律经 make_label_selectable() 创建/改造——
+开旗标同时装控件级事件过滤器拦截 ContextMenu 事件，改弹自制「复制」
+「全选」两项菜单，形态与只读精简规约一致。src/gui/ 内禁止裸调
+setTextInteractionFlags(TextSelectableByMouse)，静态守卫：
+scripts/check_label_selectable_guard.py。
 """
 from PySide6.QtCore import QEvent, QObject, Qt
-from PySide6.QtGui import QColor, QIcon
+from PySide6.QtGui import QColor, QGuiApplication, QIcon
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
     QFrame,
+    QLabel,
     QLineEdit,
     QMenu,
     QPlainTextEdit,
@@ -226,3 +236,53 @@ class SimplifiedMenuTextEdit(QTextEdit):
 
     def contextMenuEvent(self, event) -> None:
         exec_standard_context_menu(self, event, simplify=True)
+
+
+class _SelectableLabelMenuFilter(QObject):
+    """控件级事件过滤器：可选中 QLabel 右键改弹自制精简菜单。
+
+    Qt 对开 TextSelectableByMouse 的 QLabel 内建原生标准右键菜单（英文、
+    带主题图标与快捷键显示后缀），QLabel 又无 createStandardContextMenu()
+    可供 exec_standard_context_menu() 复用，只能拦截 ContextMenu 事件并
+    消费（return True）改弹自制菜单。以 label 为父随控件同生命周期，
+    天然防 GC 与重复叠装。
+    """
+
+    def eventFilter(self, watched: QObject, event) -> bool:
+        if event.type() == QEvent.Type.ContextMenu:
+            _exec_label_context_menu(watched, event)
+            return True
+        return False
+
+
+def _exec_label_context_menu(label: QLabel, event) -> None:
+    """弹自制「复制」「全选」两项菜单：无图标、无快捷键显示后缀，
+    复制随选区启停——与只读文本控件精简规约同形态。
+
+    动作经 triggered 连接而非 exec 返回值判定：offscreen 测试用
+    Show-即关探针截获菜单后 exec 恒返回 None，连接路径两种场景都可达。
+    """
+    menu = QMenu(label)
+    make_translucent_popup(menu)
+    copy_action = menu.addAction("复制")
+    copy_action.setEnabled(label.hasSelectedText())
+    copy_action.triggered.connect(
+        lambda: QGuiApplication.clipboard().setText(label.selectedText()))
+    select_all = menu.addAction("全选")
+    select_all.setEnabled(bool(label.text()))
+    select_all.triggered.connect(
+        lambda: label.setSelection(0, len(label.text())))
+    menu.exec(event.globalPos())
+    menu.deleteLater()
+
+
+def make_label_selectable(label: QLabel) -> QLabel:
+    """QLabel 可选中 + 右键精简菜单统一入口（唯一 choke point）。
+
+    开 TextSelectableByMouse 满足整段复制诉求，同时装控件级事件过滤器
+    把 Qt 内建的英文原生右键菜单换成自制「复制」「全选」两项菜单。
+    原样返回传入 label，便于创建处链式使用。
+    """
+    label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+    label.installEventFilter(_SelectableLabelMenuFilter(label))
+    return label

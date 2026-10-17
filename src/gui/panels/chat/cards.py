@@ -48,7 +48,7 @@ from PySide6.QtWidgets import (
 
 from gui.theme import get_mono_family
 from gui.panels.chat.permission_dialog import OTHER_HINT_TEXT
-from gui.popups import exec_standard_context_menu
+from gui.popups import exec_standard_context_menu, make_label_selectable
 from gui.selection_band import SUPPRESSION_QSS, paint_selection_band
 from core.paths import PROJECT_ROOT
 
@@ -150,11 +150,12 @@ def _plain_of(text: str) -> str:
 
 
 def _selectable(label: QLabel) -> QLabel:
-    """开鼠标拖选复制：QLabel 默认仅键盘可选，卡片文本（问答对、todo
-    条目、标题等）用户有整段复制诉求；选中色经 base.qss 全局 selection
-    规则沿控件树继承，无需逐卡配。"""
-    label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-    return label
+    """开鼠标拖选复制 + 右键精简菜单：QLabel 默认仅键盘可选，卡片文本
+    （问答对、todo 条目、标题等）用户有整段复制诉求；Qt 内建右键菜单为
+    英文原生形态，统一委托 popups.make_label_selectable 拦截改弹中文
+    精简两项。选中色经 base.qss 全局 selection 规则沿控件树继承，无需
+    逐卡配。"""
+    return make_label_selectable(label)
 
 
 class _ElidedLabel(QLabel):
