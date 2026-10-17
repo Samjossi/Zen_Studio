@@ -15,6 +15,11 @@
 `gui/panels/chat/output.py` 与 `gui/panels/chat/input.py`、卡片轨正文块
 `gui/panels/chat/cards.py`（BodyHtml/BodyText，TextStreamBlock/
 SystemBlock/用户气泡体及各工具卡正文随之继承）。
+
+覆写纪律：Qt 样式表整表替换——对正文块裸调 setStyleSheet 会丢抑制
+声明（原生偏下带回归并与自绘带双层叠加，2026-10-17 真机实证），
+附加样式一律走 cards.py `set_extra_style`/`_body_stylesheet`，
+`scripts/check_qss_selector_guard.py` 静态拦截裸覆写。
 """
 from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QColor, QPainter, QTextCursor

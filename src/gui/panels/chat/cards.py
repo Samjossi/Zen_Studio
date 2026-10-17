@@ -210,6 +210,21 @@ class _ElidedLabel(QLabel):
 # ----------------------------------------------------------------------
 # body 文本块（限高内滚动基础设施，0645 §2.4 统一挂载点）
 # ----------------------------------------------------------------------
+def _body_stylesheet(object_name: str, extra: str = "") -> str:
+    """正文块样式表单点拼接：抑制声明常驻，附加声明只经此汇入。
+
+    Qt 样式表是整表替换语义——对正文块裸调 setStyleSheet 覆写（上色/
+    斜体等）会冲掉 SUPPRESSION_QSS，原生偏下选区带回归并与自绘带
+    双层叠加（2026-10-17 用户真机截图实证）；故构造期样式与事后附加
+    样式统一走本函数，objectName 作 ID 选择器（0811 规约不变）。
+    """
+    sheet = (f"#{object_name} {{ background: transparent; border: none; "
+             + SUPPRESSION_QSS)
+    if extra:
+        sheet += " " + extra
+    return sheet + " }"
+
+
 class _HugHeightMixin:
     """内容高度自适应 + 上限封顶：doc 实际高 ≤ BODY_MAX_HEIGHT 时贴内容，
     超限封顶出块内滚动条（防单卡撑爆 QScrollArea 布局）。"""
@@ -270,14 +285,21 @@ class BodyText(_HugHeightMixin, QPlainTextEdit):
         # ID 选择器作用域（0811 左栏右键菜单透明修复）：无选择器的
         # background 声明会沿父子链级联进 Qt 以本控件为父即时创建的
         # 标准右键菜单，覆盖主题底色致菜单全透明——禁无选择器写法
-        self.setStyleSheet(
-            "#CardBodyText { background: transparent; border: none; "
-            + SUPPRESSION_QSS + " }")
+        self.setStyleSheet(_body_stylesheet(self.objectName()))
         if mono:
             self.setFont(QFont(get_mono_family()))
         if text:
             self.setPlainText(text)
         self._init_hug(max_height, bottom_padding)
+
+    def set_extra_style(self, extra: str) -> None:
+        """附加声明（颜色/斜体等）统一入口：重建整表，抑制声明常驻。
+
+        禁对本类裸调 setStyleSheet——整表替换会丢抑制声明（根因见
+        _body_stylesheet）；scripts/check_qss_selector_guard.py 静态
+        拦截。
+        """
+        self.setStyleSheet(_body_stylesheet(self.objectName(), extra))
 
     def _content_pixel_height(self) -> int:
         """QPlainTextDocumentLayout 的 size().height() 单位是块数（行数）非像素
@@ -341,15 +363,17 @@ class BodyHtml(_HugHeightMixin, QTextBrowser):
         # 同 BodyText：ID 选择器作用域，防无选择器 background 级联进
         # 右键菜单（0811 左栏右键菜单透明修复实证根因）
         self.setObjectName("CardBodyHtml")
-        self.setStyleSheet(
-            "#CardBodyHtml { background: transparent; border: none; "
-            + SUPPRESSION_QSS + " }")
+        self.setStyleSheet(_body_stylesheet(self.objectName()))
         if mono:
             self.setFont(QFont(get_mono_family()))
         self.anchorClicked.connect(self.link_clicked)
         if html:
             self.setHtml(html)
         self._init_hug(max_height, bottom_padding)
+
+    def set_extra_style(self, extra: str) -> None:
+        """附加声明统一入口（同 BodyText，禁裸 setStyleSheet，见该处）。"""
+        self.setStyleSheet(_body_stylesheet(self.objectName(), extra))
 
     def paintEvent(self, event) -> None:
         """基类绘制后叠绘选区对称带（同 BodyText，见该处注释）。"""
@@ -577,9 +601,7 @@ class ToolCard(CollapsibleCard):
     def _set_error_body(self, text: str) -> None:
         """failed 错误全文块（红色等宽，自动展开由 apply_update 统一）。"""
         body = BodyText(text, mono=True)
-        body.setStyleSheet(
-            f"#CardBodyText {{ background: transparent; border: none;"
-            f" color: {self._colors.tool_error_fg}; }}")
+        body.set_extra_style(f"color: {self._colors.tool_error_fg};")
         self.add_body_widget(body)
         self.enable_copy(lambda body=body: body.toPlainText())
 
@@ -651,9 +673,7 @@ class ToolCard(CollapsibleCard):
         label = _selectable(QLabel("入参", self))
         label.setStyleSheet(f"color: {self._colors.tool_fg}; font-size: 90%;")
         text = BodyText(detail, mono=True)
-        text.setStyleSheet(
-            f"#CardBodyText {{ background: transparent; border: none;"
-            f" color: {self._colors.tool_fg}; }}")
+        text.set_extra_style(f"color: {self._colors.tool_fg};")
         self.add_body_widget(label)
         self.add_body_widget(text)
 
@@ -710,9 +730,7 @@ class BashCard(ToolCard):
         # bash 失败：错误全文进输出区（红字），兼保留已滚出的输出上文语义
         detail = payload.get("error_detail") or payload.get("error")
         if detail:
-            self._output.setStyleSheet(
-                f"#CardBodyText {{ background: transparent; border: none;"
-                f" color: {self._colors.tool_error_fg}; }}")
+            self._output.set_extra_style(f"color: {self._colors.tool_error_fg};")
             self._output.set_text(detail)
         elif payload.get("output"):
             self._render_final(payload["output"], payload.get("output_total_lines"))
@@ -1560,9 +1578,8 @@ class ThinkingCard(CollapsibleCard):
         self._buffer = ""
         self._user_toggled = False
         self._text = BodyText()
-        self._text.setStyleSheet(
-            f"#CardBodyText {{ background: transparent; border: none;"
-            f" color: {colors.reasoning_fg}; font-style: italic; }}")
+        self._text.set_extra_style(
+            f"color: {colors.reasoning_fg}; font-style: italic;")
         self.add_body_widget(self._text)
         self.enable_copy(lambda: self._buffer)
         self.set_open(True)  # 流式展开

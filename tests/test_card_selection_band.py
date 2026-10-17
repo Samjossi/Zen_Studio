@@ -2,14 +2,22 @@
 
 思源黑体 leading 垫底使 Qt 原生选区带视觉偏下；正文块改用
 selection_band 自绘（行墨盒上下 ±SELECTION_PAD_Y 对称），本文件核对
-样式表抑制声明在位、自绘矩形纵向对称。
+样式表抑制声明在位、自绘矩形纵向对称，以及覆写路径（set_extra_style /
+各卡上色点位）不丢抑制声明。
 
 需 offscreen 平台（tests/conftest.py 已统一注入 QT_QPA_PLATFORM=offscreen）。
 """
 from PySide6.QtGui import QColor, QTextCursor
 from PySide6.QtWidgets import QApplication
 
-from gui.panels.chat.cards import BodyHtml, BodyText
+from gui.panels.chat.cards import (
+    BodyHtml,
+    BodyText,
+    CardColors,
+    OpenStateMap,
+    ThinkingCard,
+    make_tool_card,
+)
 from gui.panels.chat.transcript import TextStreamBlock
 from gui.selection_band import SELECTION_PAD_Y, selection_rects
 
@@ -88,3 +96,76 @@ class TestTextStreamBlockInherits:
         _app()
         block = TextStreamBlock("AI", QColor("#3a7bd5"), lambda p: False)
         assert "selection-background-color: rgba(0,0,0,0)" in block.styleSheet()
+
+
+_SUPPRESSED = "selection-background-color: rgba(0,0,0,0)"
+
+
+def _colors() -> CardColors:
+    return CardColors("#888888", "#777777", "#ff0000", "#eeeeee",
+                      "#dddddd", "#0000ff", "#00aa00", "#aa0000")
+
+
+class TestExtraStyleKeepsSuppression:
+    """附加样式入口回归：重建整表不得丢抑制声明（Qt 样式表整表替换语义）。"""
+
+    def test_body_text_extra_style(self):
+        _app()
+        edit = BodyText("正文")
+        edit.set_extra_style("color: red; font-style: italic;")
+        sheet = edit.styleSheet()
+        assert "#CardBodyText" in sheet
+        assert _SUPPRESSED in sheet
+        assert "color: red;" in sheet
+        assert "font-style: italic;" in sheet
+
+    def test_body_html_extra_style(self):
+        _app()
+        edit = BodyHtml("<p>正文</p>")
+        edit.set_extra_style("color: red;")
+        sheet = edit.styleSheet()
+        assert "#CardBodyHtml" in sheet
+        assert _SUPPRESSED in sheet
+        assert "color: red;" in sheet
+
+
+class TestCardRestylePaths:
+    """各卡上色点位回归：历史上四处裸 setStyleSheet 覆写冲掉抑制声明
+    （入参区 / failed 红字块 / bash 失败输出 / 思维链斜体），逐路径钉死。"""
+
+    def test_input_detail_block_suppressed(self):
+        """通用入参区（用户真机截图实证漏网面）。"""
+        _app()
+        card = make_tool_card(
+            _colors(), OpenStateMap(),
+            {"tool_kind": "search", "title": "Grep", "tool_call_id": "t-in",
+             "input_detail": "prompt: x"})
+        blocks = card.findChildren(BodyText)
+        assert blocks
+        for block in blocks:
+            assert _SUPPRESSED in block.styleSheet()
+
+    def test_error_body_block_suppressed(self):
+        _app()
+        card = make_tool_card(
+            _colors(), OpenStateMap(),
+            {"tool_kind": "search", "title": "Grep", "tool_call_id": "t-err"})
+        card._on_failed({"error": "boom"})
+        blocks = card.findChildren(BodyText)
+        assert blocks
+        for block in blocks:
+            assert _SUPPRESSED in block.styleSheet()
+
+    def test_bash_failed_output_suppressed(self):
+        _app()
+        card = make_tool_card(
+            _colors(), OpenStateMap(),
+            {"tool_kind": "execute", "title": "Bash", "tool_call_id": "t-bash"})
+        card._on_failed({"error": "boom"})
+        assert _SUPPRESSED in card._output.styleSheet()
+
+    def test_thinking_card_body_suppressed(self):
+        _app()
+        card = ThinkingCard(_colors(), lambda b: (None, b))
+        assert _SUPPRESSED in card._text.styleSheet()
+        assert "font-style: italic;" in card._text.styleSheet()
