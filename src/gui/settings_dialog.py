@@ -559,7 +559,9 @@ class SettingsDialog(QDialog):
         sound_check_row.addStretch(1)
         sound_check_row.addWidget(self._make_hint_icon(
             "可选范围为 assets/sounds/正在使用/ 下的 wav 文件（从备选池复制扩充）；\n"
-            "下拉框选中即自动试听一次，试听不受开关影响，正式提醒在开关开启时才会播放。",
+            "下拉框选中即自动试听一次，试听不受开关影响，正式提醒在开关开启时才会播放。\n"
+            "同一事件 0.5 秒内的并发重复只响一声；不同事件、不同标签、\n"
+            "不同窗口的收尾各自出声；排队待发的接续轮收尾不提醒。",
             page))
         layout.addLayout(sound_check_row)
         self._notify_sound_combos: dict[str, QComboBox] = {}

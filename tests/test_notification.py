@@ -195,16 +195,50 @@ def test_question_asked_not_on_plain_request(qapp, fake_registry, isolated_setti
 
 
 # ----------------------------------------------------------------------
-# 声音播放（防抖 / 缺文件静默；一律打桩，禁止真实出声——见 tests/README.md）
+# 声音播放（同事件 0.5s 合并 / 试听豁免 / Loading 补播 / 缺文件静默；
+# 一律打桩，禁止真实出声——见 tests/README.md）
 # ----------------------------------------------------------------------
-def test_sound_debounce(qapp, isolated_settings, monkeypatch):
+def test_sound_debounce_same_event(qapp, isolated_settings, monkeypatch):
+    """同一事件 0.5s 窗口内并发重复合并为一（防瞬间叠音）。"""
     calls: list[Path] = []
     monkeypatch.setattr(sound_player_mod, "_play", lambda p: calls.append(p))
-    monkeypatch.setattr(sound_player_mod, "_last_play_at", 0.0)
+    monkeypatch.setattr(sound_player_mod, "_last_play_at", {})
     sound_player_mod.play_completion_sound(True)
-    sound_player_mod.play_completion_sound(True)  # 1 秒内重复触发合并
+    sound_player_mod.play_completion_sound(True)  # 窗口内重复触发合并
     assert len(calls) == 1
     assert calls[0].name == "done.wav"
+
+
+def test_sound_debounce_window_elapsed(qapp, isolated_settings, monkeypatch):
+    """超过 0.5s 窗口同事件再次触发正常播放（窗口边界回归）。"""
+    calls: list[Path] = []
+    monkeypatch.setattr(sound_player_mod, "_play", lambda p: calls.append(p))
+    monkeypatch.setattr(sound_player_mod, "_last_play_at", {})
+    sound_player_mod.play_completion_sound(True)
+    sound_player_mod._last_play_at["done"] -= 1.0  # 模拟窗口已过期
+    sound_player_mod.play_completion_sound(True)
+    assert len(calls) == 2
+
+
+def test_sound_debounce_cross_event(qapp, isolated_settings, monkeypatch):
+    """跨事件互不压制：提问音后紧接完成音，两次都播放。"""
+    calls: list[Path] = []
+    monkeypatch.setattr(sound_player_mod, "_play", lambda p: calls.append(p))
+    monkeypatch.setattr(sound_player_mod, "_last_play_at", {})
+    sound_player_mod.play_event_sound("question")
+    sound_player_mod.play_completion_sound(True)  # 不被刚响过的提问音吞掉
+    assert [p.name for p in calls] == ["question.wav", "done.wav"]
+
+
+def test_sound_preview_bypasses_debounce(qapp, isolated_settings, monkeypatch):
+    """试听是人工显式动作：快速连点全部直达 _play，不经防抖闸门。"""
+    calls: list[Path] = []
+    monkeypatch.setattr(sound_player_mod, "_play", lambda p: calls.append(p))
+    monkeypatch.setattr(sound_player_mod, "_last_play_at", {})
+    for _ in range(3):
+        sound_player_mod.play_preview("done.wav")  # 真实 wav，过 is_file 检查
+    assert len(calls) == 3
+    assert sound_player_mod._last_play_at == {}  # 试听不占用事件防抖时间戳
 
 
 def test_sound_event_file_mapping(qapp, isolated_settings, monkeypatch):
@@ -212,10 +246,10 @@ def test_sound_event_file_mapping(qapp, isolated_settings, monkeypatch):
     update_settings({KEY_NOTIFY_SOUND_QUESTION: "yup-01.wav"})
     calls: list[Path] = []
     monkeypatch.setattr(sound_player_mod, "_play", lambda p: calls.append(p))
-    monkeypatch.setattr(sound_player_mod, "_last_play_at", 0.0)
+    monkeypatch.setattr(sound_player_mod, "_last_play_at", {})
     sound_player_mod.play_event_sound("question")
     assert calls[0].name == "yup-01.wav"
-    monkeypatch.setattr(sound_player_mod, "_last_play_at", 0.0)
+    monkeypatch.setattr(sound_player_mod, "_last_play_at", {})
     sound_player_mod.play_completion_sound(False)
     assert calls[-1].name == "error.wav"
 
@@ -229,7 +263,7 @@ def test_sound_unknown_event_silent(qapp, monkeypatch):
 
 def test_sound_missing_file_silent(qapp, isolated_settings, monkeypatch):
     monkeypatch.setattr(sound_player_mod, "SOUNDS_ACTIVE_DIR", _TEMP_DIR / "no_such_dir")
-    monkeypatch.setattr(sound_player_mod, "_last_play_at", 0.0)
+    monkeypatch.setattr(sound_player_mod, "_last_play_at", {})
     sound_player_mod.play_completion_sound(False)  # 文件缺失静默跳过，不抛异常
 
 
@@ -239,6 +273,8 @@ def test_sound_real_file_no_crash(qapp, isolated_settings, monkeypatch):
     played: list[str] = []
 
     class _FakeEffect:
+        Status = QSoundEffect.Status  # 被打桩模块内经 QSoundEffect.Status 取枚举
+
         def setSource(self, url) -> None:
             played.append(url.toLocalFile())
 
@@ -250,11 +286,62 @@ def test_sound_real_file_no_crash(qapp, isolated_settings, monkeypatch):
 
     monkeypatch.setattr(sound_player_mod, "QSoundEffect", _FakeEffect)
     monkeypatch.setattr(sound_player_mod, "_effect", None)  # 清真实单例，强制走假后端
-    monkeypatch.setattr(sound_player_mod, "_last_play_at", 0.0)
+    monkeypatch.setattr(sound_player_mod, "_last_play_at", {})
     sound_player_mod.play_completion_sound(True)
     QTest.qWait(600)  # 覆盖 _STATUS_CHECK_MS 复查分支
     qapp.processEvents()
     assert played and played[0].endswith("done.wav")
+
+
+class _FakeSignal:
+    """最小信号桩：connect/disconnect/emit 三元组（假后端无 QObject 信号）。"""
+
+    def __init__(self) -> None:
+        self._slots: list = []
+
+    def connect(self, slot) -> None:
+        self._slots.append(slot)
+
+    def disconnect(self, slot) -> None:
+        self._slots.remove(slot)
+
+    def emit(self) -> None:
+        for slot in list(self._slots):
+            slot()
+
+
+def test_sound_loading_replay(qapp, isolated_settings, monkeypatch):
+    """Loading 期的 play 可能被后端丢弃：挂一次性监听，就绪后补播一次。"""
+
+    class _FakeEffect:
+        Status = QSoundEffect.Status  # 被打桩模块内经 QSoundEffect.Status 取枚举
+
+        def __init__(self) -> None:
+            self.statusChanged = _FakeSignal()
+            self._status = QSoundEffect.Status.Loading
+            self.plays = 0
+
+        def setSource(self, url) -> None:
+            pass
+
+        def play(self) -> None:
+            self.plays += 1
+
+        def status(self):
+            return self._status
+
+    monkeypatch.setattr(sound_player_mod, "QSoundEffect", _FakeEffect)
+    monkeypatch.setattr(sound_player_mod, "_effect", None)
+    monkeypatch.setattr(sound_player_mod, "_last_play_at", {})
+    monkeypatch.setattr(sound_player_mod, "_replay_armed", False)
+    sound_player_mod.play_completion_sound(True)
+    effect = sound_player_mod._effect
+    assert effect.plays == 1  # 首次 play（Loading 期，可能被后端丢弃）
+    effect._status = QSoundEffect.Status.Ready
+    effect.statusChanged.emit()
+    assert effect.plays == 2  # 就绪后补播一次
+    effect.statusChanged.emit()  # 监听已一次性解除，不再补播
+    assert effect.plays == 2
 
 
 # ----------------------------------------------------------------------
@@ -342,7 +429,23 @@ def test_notifier_missing_command_silent(qapp, monkeypatch):
     """极简环境无 notify-send：静默跳过，不抛异常。"""
     monkeypatch.setattr(desktop_notifier, "shutil",
                         SimpleNamespace(which=lambda cmd: None))
+    monkeypatch.setattr(desktop_notifier, "_missing_warned", False)
     desktop_notifier.notify_event("success")
+
+
+def test_notifier_missing_command_logs_warning(qapp, monkeypatch, caplog):
+    """notify-send 缺失留 WARNING 日志（每进程只记一次），供偶发无通知定位。"""
+    import logging
+
+    monkeypatch.setattr(desktop_notifier, "shutil",
+                        SimpleNamespace(which=lambda cmd: None))
+    monkeypatch.setattr(desktop_notifier, "_missing_warned", False)
+    with caplog.at_level(logging.WARNING, logger="gui.desktop_notifier"):
+        desktop_notifier.notify_event("success")
+        desktop_notifier.notify_event("error")  # 第二次不再重复记
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warnings) == 1
+    assert "notify-send" in warnings[0].getMessage()
 
 
 def test_notifier_command_shape(qapp, monkeypatch):

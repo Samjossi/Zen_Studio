@@ -9,10 +9,17 @@
 自带），同 sound_player 的 aplay/paplay/play 先例：命令缺失静默跳过，
 不引新依赖；AppImage 调宿主机命令不受打包影响。
 """
+import logging
+import os
 import shutil
 import subprocess
 
 from core.paths import LOGO_DIR
+
+logger = logging.getLogger(__name__)
+
+#: 多窗口即多进程共用 config/logs/zen-studio.log，PID 是区分来源窗口的线索
+_PID = os.getpid()
 
 #: 事件态 → (标题, 默认正文)；三态文案沿用原软件内横幅，保持用户既有认知
 _EVENT_TEXT = {
@@ -25,6 +32,7 @@ _EVENT_TEXT = {
 _EXPIRE_MS = 4000
 
 _procs: list[subprocess.Popen] = []  # 子进程持有：防退出后成僵尸（sound_player 同例）
+_missing_warned = False  # notify-send 缺失 WARNING 每进程只记一次，防刷屏
 
 
 def notify_event(event: str, detail: str = "") -> None:
@@ -42,8 +50,12 @@ def notify_completion(success: bool, detail: str = "") -> None:
 
 
 def _send(title: str, body: str) -> None:
+    global _missing_warned
     exe = shutil.which("notify-send")
     if exe is None:
+        if not _missing_warned:
+            _missing_warned = True
+            logger.warning("notify-send 缺失，桌面通知不可用（pid=%d）", _PID)
         return
     _procs[:] = [p for p in _procs if p.poll() is None]  # 顺手收割已退出者
     cmd = [exe, "-a", "Zen Studio", "-t", str(_EXPIRE_MS)]
@@ -54,5 +66,7 @@ def _send(title: str, body: str) -> None:
     try:
         _procs.append(subprocess.Popen(
             cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
+        logger.info("桌面通知已发送：%s / %s（pid=%d）", title, body, _PID)
     except OSError:
-        pass  # 命令存在但 exec 失败（权限/会话无 D-Bus 等）：提醒不可达即放弃
+        # 命令存在但 exec 失败（权限/会话无 D-Bus 等）：提醒不可达即放弃，但留痕可诊断
+        logger.warning("notify-send 启动失败，通知未送达：%s（pid=%d）", title, _PID)
