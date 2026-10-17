@@ -63,6 +63,7 @@ from gui.popups import (
     make_label_selectable,
     make_translucent_combo_popup,
 )
+from gui.selection_band import BandLabel
 from gui.settings import (
     CHAT_RENDERER_CARDS,
     CHAT_RENDERER_CLASSIC,
@@ -644,7 +645,7 @@ class SettingsDialog(QDialog):
         layout = QVBoxLayout(page)
         layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         path_label = make_label_selectable(
-            QLabel(f"配置目录：{CONFIG_DIR}", page))
+            BandLabel(f"配置目录：{CONFIG_DIR}", page))
         path_label.setWordWrap(True)
         self._hint_labels.append(path_label)
         layout.addWidget(path_label)
