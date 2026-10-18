@@ -48,7 +48,6 @@ import os
 import re
 import shutil
 import subprocess
-import sys
 import threading
 from pathlib import Path
 from typing import Iterator
@@ -364,7 +363,8 @@ class KiloCodeAcpLLM(LanguageModel):
 
     @staticmethod
     def _log_agent_info(init_result: dict) -> None:
-        """记录 agent 版本信息（诊断用 stderr 日志）。
+        """记录 agent 版本信息（走 logging：冻结态桌面启动 stderr 是断管，
+        直打 stderr 会抛 BrokenPipe 炸掉会话建立）。
 
         不拦截 `authMethods`：它是**静态能力声明**（恒为 terminal 型
         `kilo-login`，计划 §2.3 实测响应；reasonix/opencode 实测结论同样适用），
@@ -372,8 +372,7 @@ class KiloCodeAcpLLM(LanguageModel):
         session/prompt 错误，归 `_raise_login_hint_if_auth`。
         """
         agent = init_result.get("agentInfo") or {}
-        print(f"[kilocode acp] agent {agent.get('name', '?')} {agent.get('version', '?')}",
-              file=sys.stderr)
+        logger.info(f"[kilocode acp] agent {agent.get('name', '?')} {agent.get('version', '?')}")
 
     @staticmethod
     def _raise_login_hint_if_auth(error: RuntimeError) -> None:

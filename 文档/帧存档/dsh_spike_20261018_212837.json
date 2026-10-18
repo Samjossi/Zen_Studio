@@ -1,0 +1,115 @@
+{
+  "bin": "~/.local/bin/dsh",
+  "initialize_result": {
+    "protocolVersion": 1,
+    "agentInfo": {
+      "name": "deepseek-harness-acp",
+      "version": "0.0.1"
+    },
+    "agentCapabilities": {
+      "mcpCapabilities": {
+        "http": true
+      },
+      "promptCapabilities": {
+        "image": false,
+        "audio": false,
+        "embeddedContext": false
+      },
+      "sessionCapabilities": {
+        "close": {},
+        "list": {},
+        "resume": {}
+      }
+    },
+    "authMethods": []
+  },
+  "sessionId": "c8c23709-4cd8-4269-84a5-dd566b78c9ea",
+  "config_options": {
+    "configOptions": [
+      {
+        "id": "model",
+        "name": "Model",
+        "category": "model",
+        "type": "select",
+        "currentValue": "[\"deepseek-official\",\"deepseek-v4-flash\"]",
+        "options": [
+          {
+            "group": "deepseek-official",
+            "name": "DeepSeek",
+            "options": [
+              {
+                "value": "[\"deepseek-official\",\"deepseek-v4-flash\"]",
+                "name": "deepseek-v4-flash"
+              },
+              {
+                "value": "[\"deepseek-official\",\"deepseek-flash\"]",
+                "name": "DeepSeek-V4.1-Flash"
+              },
+              {
+                "value": "[\"deepseek-official\",\"deepseek-v4-pro\"]",
+                "name": "DeepSeek-V4-Pro",
+                "description": "Stronger agentic coding, knowledge, and difficult reasoning; suited to complex or quality-critical tasks at higher cost."
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "reasoning_effort",
+        "name": "Reasoning effort",
+        "category": "thought_level",
+        "type": "select",
+        "currentValue": "high",
+        "options": [
+          {
+            "value": "off",
+            "name": "Off",
+            "description": "Use for simple tasks that do not need reasoning."
+          },
+          {
+            "value": "low",
+            "name": "Low",
+            "description": "Prefer for routine or latency-sensitive tasks."
+          },
+          {
+            "value": "high",
+            "name": "High",
+            "description": "The default balance for most tasks."
+          },
+          {
+            "value": "max",
+            "name": "Max",
+            "description": "Reserve for the hardest quality-first tasks."
+          }
+        ]
+      }
+    ]
+  },
+  "set_config_option_trials": {
+    "reasoning_effort": {
+      "ok": true,
+      "from": "high",
+      "to": "off",
+      "response_keys": [
+        "configOptions"
+      ]
+    }
+  },
+  "turn1": {
+    "stop_reason": "end_turn",
+    "seconds": 2.9,
+    "cancel_sent": false
+  },
+  "turn1_frame_types": {
+    "usage_update": 2,
+    "tool_call": 1,
+    "tool_call_update": 1,
+    "agent_message_chunk": 1
+  },
+  "turn1_text_sample": "已执行 `ls -la`，当前目录下共有 7 个文件、没有子目录：\n\n| 文件名 | 大小 | 修改时间 |\n|---|---|---|\n| 文档1.md | 824 B | 8月3日 21:52 |\n| 文档2.md | 698 B | 8月3日 21:52 |\n| 文档3.md | 753 B | 8月3日 21:52 |\n| 文档4.md | 843 B | 8月3日 21:52 |\n| 文档5.md | 811 B | 8月3日 21:52 |\n| poem.md | 149 B | 10月5日 07:45 |\n| snake_game.py | 2114 B | 8月28日 16:0",
+  "turn2_cancel": {
+    "stop_reason": "end_turn",
+    "seconds": 0.9,
+    "cancel_sent": false
+  }
+}

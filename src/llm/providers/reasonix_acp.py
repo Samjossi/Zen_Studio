@@ -34,7 +34,6 @@ import json
 import logging
 import os
 import shutil
-import sys
 import threading
 import tomllib
 from pathlib import Path
@@ -357,7 +356,8 @@ class ReasonixAcpLLM(LanguageModel):
 
     @staticmethod
     def _log_agent_info(init_result: dict) -> None:
-        """记录 agent 版本信息（诊断用 stderr 日志）。
+        """记录 agent 版本信息（走 logging：冻结态桌面启动 stderr 是断管，
+        直打 stderr 会抛 BrokenPipe 炸掉会话建立）。
 
         2026-07-30 实测修正（R1 差异对齐）：曾在此拦截「authMethods 非空即
         未 setup」——实测推翻：reasonix 的 `authMethods` 是**静态能力声明**
@@ -367,8 +367,7 @@ class ReasonixAcpLLM(LanguageModel):
         映射。initialize 响应仅留版本日志，不做拦截。
         """
         agent = init_result.get("agentInfo") or {}
-        print(f"[reasonix acp] agent {agent.get('name', '?')} {agent.get('version', '?')}",
-              file=sys.stderr)
+        logger.info(f"[reasonix acp] agent {agent.get('name', '?')} {agent.get('version', '?')}")
 
     @staticmethod
     def _raise_setup_hint_if_auth(error: RuntimeError) -> None:

@@ -136,7 +136,7 @@ def build_app_icon() -> QIcon:
         if path.is_file():
             icon.addFile(str(path))
     if icon.isNull():
-        print(f"[main] 警告：Logo 图标缺失（{LOGO_DIR}），窗口将用系统默认图标")
+        logging.getLogger("main").warning(f"Logo 图标缺失（{LOGO_DIR}），窗口将用系统默认图标")
     return icon
 
 
@@ -160,7 +160,7 @@ def resolve_workspace_root(folder: str | None) -> str | None:
         root = Path(folder).expanduser().resolve()
         if root.is_dir():
             return str(root)
-        print(f"[main] 工作区目录无效，启动空白窗口：{folder}", file=sys.stderr)
+        logging.getLogger("main").warning(f"工作区目录无效，启动空白窗口：{folder}")
     return None
 
 

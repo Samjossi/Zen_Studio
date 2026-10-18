@@ -3,10 +3,12 @@
 设计约束：颜色用名字串（不依赖 QtGui），主题切换免重算；
 快照即纯数据，未来"终端内容喂 AI"直接消费。
 """
-import sys
+import logging
 from dataclasses import dataclass
 
 import pyte
+
+logger = logging.getLogger(__name__)
 
 
 class _TolerantScreen(pyte.HistoryScreen):
@@ -77,13 +79,13 @@ class TerminalScreen:
     def feed(self, data: bytes) -> None:
         """喂入 PTY 字节流（仅 GUI 线程调用，pyte 非线程安全）。
 
-        解析异常降级为丢弃该块并记录 stderr——终端模拟器必须容错，
+        解析异常降级为丢弃该块并记录日志——终端模拟器必须容错，
         任何生僻序列都不应拖垮 UI。
         """
         try:
             self._stream.feed(data.decode("utf-8", errors="replace"))
         except Exception as e:  # noqa: BLE001 — pyte 解析容错兜底
-            print(f"[terminal] pyte 解析异常（已丢弃该块）: {e}", file=sys.stderr)
+            logger.warning(f"[terminal] pyte 解析异常（已丢弃该块）: {e}")
 
     def resize(self, line_count: int, column_count: int) -> None:
         self._screen.resize(max(1, line_count), max(1, column_count))

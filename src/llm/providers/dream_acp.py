@@ -29,7 +29,6 @@ import atexit
 import logging
 import os
 import shutil
-import sys
 import threading
 from typing import Iterator
 
@@ -265,7 +264,8 @@ class DreamAcpLLM(LanguageModel):
 
     @staticmethod
     def _log_agent_info(init_result: dict) -> None:
-        """记录 agent 版本信息（诊断用 stderr 日志）。
+        """记录 agent 版本信息（走 logging：冻结态桌面启动 stderr 是断管，
+        直打 stderr 会抛 BrokenPipe 炸掉会话建立）。
 
         2026-07-30 实测修正沿用（R1 差异对齐）：`authMethods` 是**静态能力
         声明**，不能作未配置信号；真正的模型未加载/配置缺失信号在
@@ -273,8 +273,7 @@ class DreamAcpLLM(LanguageModel):
         映射。initialize 响应仅留版本日志，不做拦截。
         """
         agent = init_result.get("agentInfo") or {}
-        print(f"[dream acp] agent {agent.get('name', '?')} {agent.get('version', '?')}",
-              file=sys.stderr)
+        logger.info(f"[dream acp] agent {agent.get('name', '?')} {agent.get('version', '?')}")
 
     @staticmethod
     def _raise_config_hint_if_auth(error: RuntimeError) -> None:

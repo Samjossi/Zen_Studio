@@ -31,7 +31,6 @@ import atexit
 import logging
 import os
 import shutil
-import sys
 import threading
 from pathlib import Path
 from typing import Iterator
@@ -283,15 +282,15 @@ class DshAcpLLM(LanguageModel):
 
     @staticmethod
     def _log_agent_info(init_result: dict) -> None:
-        """记录 agent 版本信息（诊断用 stderr 日志）。
+        """记录 agent 版本信息（走 logging：冻结态桌面启动 stderr 是断管，
+        直打 stderr 会抛 BrokenPipe 炸掉会话建立）。
 
         `authMethods` 是**静态能力声明**，不能作未配置信号（dsh 实测恒为空
         数组——authenticate 即刻成功、服务端不要求认证）；真正的凭据缺失
         信号在 session/new / prompt 的错误帧，归 `_raise_config_hint_if_auth`。
         """
         agent = init_result.get("agentInfo") or {}
-        print(f"[dsh acp] agent {agent.get('name', '?')} {agent.get('version', '?')}",
-              file=sys.stderr)
+        logger.info(f"[dsh acp] agent {agent.get('name', '?')} {agent.get('version', '?')}")
 
     @staticmethod
     def _raise_config_hint_if_auth(error: RuntimeError) -> None:

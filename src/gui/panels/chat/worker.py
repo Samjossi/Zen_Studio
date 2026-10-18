@@ -1,9 +1,11 @@
 """流式工作线程：后台跑 LLM generator，信号上屏，避免阻塞 UI。"""
-import traceback
+import logging
 
 from PySide6.QtCore import QThread, Signal
 
 from llm import LanguageModel, Message
+
+logger = logging.getLogger(__name__)
 
 
 class ChatWorker(QThread):
@@ -55,7 +57,9 @@ class ChatWorker(QThread):
             if self._is_stop_requested:
                 self.stopped_by_user.emit()
             else:
-                traceback.print_exc()  # stderr 诊断通道：协议层异常留完整 traceback
+                # 走 logging 而非 print_exc：冻结态桌面启动 stderr 是断管，
+                # 打印会再抛 BrokenPipe 把下面的错误信号 emit 吞掉（界面卡 busy 零反馈）
+                logger.exception("chat 轮次异常")
                 self.finished_with_error.emit(str(e))
             return
         finally:
