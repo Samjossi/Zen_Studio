@@ -34,8 +34,9 @@ def test_local_vendor_group_present():
 
 def test_local_does_not_disturb_existing_backends():
     # local-acp 追加不得挤占既有接口（注册表插入序即菜单序）
-    assert list(REGISTRY)[:5] == [
-        "kimi-acp", "reasonix-acp", "opencode-acp", "kilocode-acp", "dream-acp"]
+    assert list(REGISTRY)[:6] == [
+        "kimi-acp", "dsh-acp", "reasonix-acp", "opencode-acp",
+        "kilocode-acp", "dream-acp"]
 
 
 def test_find_bin_local_home_fallback(monkeypatch, tmp_path):

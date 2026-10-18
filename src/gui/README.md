@@ -36,7 +36,7 @@
 | `gui/panels/viewer/` | 文件查看面板子包（中栏上，五页预览分流）：`panel.py` 装配（QStackedLayout 五页 + Git 差异徽标）/ `code_viewer.py` 只读文本查看器（行号栏）/ `highlighter.py` Pygments 高亮器 / `image_viewer.py` 图片页（位图 + SVG + GIF）/ `pdf_viewer.py` PDF 页（QPdfView 连续滚动）/ `markdown_view.py` Markdown 渲染页（GFM）/ `media_viewer.py` 音视频播放页 |
 | `gui/panels/terminal/` | 终端面板子包（中栏下）：`panel.py` 装配 / `widget.py` 自绘终端控件 / `screen.py` pyte 语义层 / `session.py` PTY 会话 / `palette.py` ANSI 双主题色板 / `selection.py` 选区控制器（纯逻辑零 Qt 依赖）/ `agent_bridge.py` ACP terminal/* 反向能力 GUI 桥（AI tab，2026-08-17） |
 
-> LLM 调用层为后端逻辑，位于 `src/llm/`（与 `src/gui/` 平级）：`base.py` Protocol / `providers/` 下 kimi / reasonix / OpenCode / Kilo Code 四家 ACP 长驻后端（传输层统一为 ACP，kimi CLI `-p` 模式已于 2026-07-31 移除）。多标签改造后 provider 由每个 `ChatPanel` 自持（`ChatPanel._build_providers` 装配单点）。
+> LLM 调用层为后端逻辑，位于 `src/llm/`（与 `src/gui/` 平级）：`base.py` Protocol / `providers/` 下 Kimi / DSH（DeepSeek Harness）/ Reasonix / OpenCode / Kilo Code / Dream / Local 七家 ACP 长驻后端（传输层统一为 ACP，kimi CLI `-p` 模式已于 2026-07-31 移除）。多标签改造后 provider 由每个 `ChatPanel` 自持（`ChatPanel._build_providers` 装配单点）。
 >
 > Git 数据层同理位于 `src/core/git/`：`GitStatusService`（subprocess 调系统 git CLI，零 Qt 依赖纯 Python 包），GUI 侧经 `main_window` 注入各面板消费。
 
@@ -64,7 +64,7 @@
 
 | 栏位 | 初始尺寸 | 当前内容 |
 |:---|:---:|:---|
-| 左栏 | 320 px | **AI 聊天面板 `ChatTabs`**（多标签，上输出下输入，本机 agent CLI 四后台 ACP 可选） |
+| 左栏 | 320 px | **AI 聊天面板 `ChatTabs`**（多标签，上输出下输入，本机 agent CLI 七后台 ACP 可选） |
 | 中栏（上） | 550 px（高） | **文件查看面板 `ViewerPanel`**（五页预览分流：文本/图片/PDF/Markdown/音视频，永久只读 + Git 差异徽标） |
 | 中栏下 | 250 px（高） | **终端面板 `TerminalPanel`**（真 PTY：ptyprocess + pyte + 自绘 QWidget） |
 | 右栏（上） | 340 px（高） | **文件树 `FileExplorer`**（根目录为项目根，双击文件经 `file_opened` 信号打开到查看器） |
@@ -88,7 +88,7 @@
 
 ## 5. 聊天面板（左栏）
 
-`ChatTabs` 标签容器（上限 4）：持有模型选择状态层（当前 backend/version 单一来源、统一写盘、阻断广播同步），下方每标签一个独立 `ChatPanel`。`ChatPanel` 上输出（QTextBrowser）下输入（QTextEdit）垂直分栏，输出/输入两区 Qt 内建 Ctrl+滚轮缩放字体均已禁用（2026-0806-0223，wheelEvent 守卫吞掉 Ctrl 滚轮事件，字号唯设置中心全局字号链管控）。输入区底行左端为模型选择按钮组（`ModelBar` 纯视图实例：后台 → 接口 → 模型 → 推理强度四级下拉，接口级为「一家多接法」扩展位——单接口时按钮自动隐藏，常态呈现三按钮；按钮直显当前值短文本——接口剥后台前缀、模型别名取 `/` 末段，点击弹勾选菜单，全部标签共享同一选择，任一标签切换经 ChatTabs 广播到其余标签 UI 与全部 provider），右端为**发送/停止双态按钮**（空闲=发送且空文本禁用，busy=■ 停止直停本标签，Esc 同效）；Enter 发送 / Shift+Enter 换行；流式调用放 `ChatWorker(QThread)` 后台线程，逐块信号上屏，UI 不冻结。每标签**自持 provider 实例**（独立 `kimi acp` 连接，标签间完全隔离可并行）。对话统一经本机 agent CLI（Kimi / Reasonix / OpenCode / Kilo Code / Dream / Local 六后台 ACP 可选），代码库零 API KEY。从文件树或系统文件管理器**拖入文件 → 落点插入 `@工作区相对路径 ` 引用**（纯文本透传，由后端 agent CLI 解析）；模型选择持久化到 `config/settings.json`。多标签审批经全局 `PermissionQueue` 串行弹窗；任一标签响应中即禁用全部标签选择按钮与设置中心模型页。
+`ChatTabs` 标签容器（上限 4）：持有模型选择状态层（当前 backend/version 单一来源、统一写盘、阻断广播同步），下方每标签一个独立 `ChatPanel`。`ChatPanel` 上输出（QTextBrowser）下输入（QTextEdit）垂直分栏，输出/输入两区 Qt 内建 Ctrl+滚轮缩放字体均已禁用（2026-0806-0223，wheelEvent 守卫吞掉 Ctrl 滚轮事件，字号唯设置中心全局字号链管控）。输入区底行左端为模型选择按钮组（`ModelBar` 纯视图实例：后台 → 接口 → 模型 → 推理强度四级下拉，接口级为「一家多接法」扩展位——单接口时按钮自动隐藏，常态呈现三按钮；按钮直显当前值短文本——接口剥后台前缀、模型别名取 `/` 末段，点击弹勾选菜单，全部标签共享同一选择，任一标签切换经 ChatTabs 广播到其余标签 UI 与全部 provider），右端为**发送/停止双态按钮**（空闲=发送且空文本禁用，busy=■ 停止直停本标签，Esc 同效）；Enter 发送 / Shift+Enter 换行；流式调用放 `ChatWorker(QThread)` 后台线程，逐块信号上屏，UI 不冻结。每标签**自持 provider 实例**（独立 `kimi acp` 连接，标签间完全隔离可并行）。对话统一经本机 agent CLI（Kimi / DSH / Reasonix / OpenCode / Kilo Code / Dream / Local 七后台 ACP 可选），代码库零 API KEY。从文件树或系统文件管理器**拖入文件 → 落点插入 `@工作区相对路径 ` 引用**（纯文本透传，由后端 agent CLI 解析）；模型选择持久化到 `config/settings.json`。多标签审批经全局 `PermissionQueue` 串行弹窗；任一标签响应中即禁用全部标签选择按钮与设置中心模型页。
 
 **标签全关与关闭异步化**（2026-07-22，文档/修改记录/2026-0722-1117）：标签可全部关闭——零标签时 `QStackedWidget` 切到占位页（提示 + 「新建会话」按钮），选择状态在 ChatTabs 状态层不随标签消失（新建标签注入恢复）；序号非全关不复用（防指代漂移），全关即重置回「会话 1」。关闭路径两段式：GUI 段毫秒级（`request_stop` + 断信号 + 起 daemon 清理线程），线程段先 `terminate`（杀 acp 进程并幂等注入死讯/错误帧，主动解封 worker 的 `next_update()`/`request()` 阻塞点）后 `worker.wait(3000)`，结束经 `QTimer.singleShot` 回 GUI 线程 `deleteLater`——关闭标签 GUI 零冻结，且不销毁运行中的 QThread。
 

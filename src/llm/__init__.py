@@ -11,6 +11,7 @@
 from llm.base import Chunk, LanguageModel, Message, UsageStats
 from llm.providers.acp import PermissionHandler, PermissionParams
 from llm.providers.dream_acp import DreamAcpLLM, dream_available, list_dream_models
+from llm.providers.dsh_acp import DshAcpLLM, dsh_available, list_dsh_models
 from llm.providers.kilocode_acp import KiloCodeAcpLLM, kilocode_available, list_kilocode_models
 from llm.providers.kimi_acp import KimiAcpLLM
 from llm.providers.kimi_common import kimi_available, list_kimi_models
@@ -71,6 +72,10 @@ __all__ = [
     "DreamAcpLLM",
     "dream_available",
     "list_dream_models",
+    # DeepSeek Harness（dsh）专有符号（非 Protocol 成员）
+    "DshAcpLLM",
+    "dsh_available",
+    "list_dsh_models",
     # Local CLI 专有符号（非 Protocol 成员）
     "LocalAcpLLM",
     "local_available",

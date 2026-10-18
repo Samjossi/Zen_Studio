@@ -58,5 +58,5 @@ def test_kimi_spec_has_display_names_source():
 
 def test_other_backends_default_no_display_names():
     for name, spec in REGISTRY.items():
-        if name != "kimi-acp":
+        if name not in ("kimi-acp", "dsh-acp"):  # dsh 挂静态显示名表（spike 实测）
             assert spec.list_display_names is None, f"{name} 应回退别名呈现"

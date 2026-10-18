@@ -28,6 +28,7 @@
 | `llm/providers/acp.py` | 泛化 ACP 连接层 `AcpConnection`（ndjson JSON-RPC 帧收发/id 配对/反向请求分发/死讯注入；agent 名参数化）+ 审批协议定型类型（`PermissionParams`/`PermissionHandler`）+ terminal/* 反向能力（2026-0817-1554 计划：`TerminalHandler` 契约 + `set_terminal_handler` 鸭子类型注入 + `build_client_capabilities` 声明收口；create/output/kill/release 同步应答、wait_for_exit 异步应答不占 reader 线程、无 handler 维持 -32601 兜底；GUI 桥实现见 `gui/panels/terminal/agent_bridge.py`）+ session/update 公共映射 `map_session_update`（2026-0731-1602 计划 T2：四 provider 私有 `_map_update` 上收，message/thought/usage 原三分支 + tool_call 结构化/tool_call_update/plan 新三分支；2026-0808-0627 计划 T1：todowrite→todo 首帧特判撤销，rawInput.todos 提取为 `todos` 载荷 + 跨调用 diff changed 标记，kind="todo" 仅余 plan 通道；2026-0813-1919 计划 T1：层级 toolCallId `父/子` 拆出 `parent_tool_call_id` 父指针——reasonix 子代理内部活动帧嵌套显示锚点，无层级 ID 后端零影响）与 `map_usage_update` |
 | `llm/providers/kimi_common.py` | kimi 二进制公共探测与模型枚举：`_find_bin`（PATH → `$KIMI_CODE_HOME/bin` → `~/.kimi-code/bin`）、`kimi_available`、`list_kimi_models`（CLI 传输层已于 2026-07-31 移除，见 文档/修改记录/2026-0731-0036） |
 | `llm/providers/kimi_acp.py` | `KimiAcpLLM`：Kimi ACP 后端（长驻 `kimi acp` 子进程，复用 `AcpConnection`；token 级流式、思维链可见、审批反向请求路由；上下文用量走 wire.jsonl 落盘记录读取，source="transcript"，2026-0731-1454；轮次内 `poll_usage()` 尾部轮询实时刷新，2026-08-02，文档/修改记录/2026-0802-0117；子代理 wire 旁路 `_WireSidecar`：轮次内发现 `agents/agent-N/` 新增目录、增量解析 wire.jsonl 合成层级 tid 帧与 conn 双源汇合——子代理内部活动嵌套显示，设置键 `kimi_wire_sidecar` 默认开，2026-08-13，文档/修改记录/2026-0813-1919 计划 T4，格式假设见 维护手册/后端CLI工具维护说明手册.md） |
+| `llm/providers/dsh_acp.py` | `DshAcpLLM`：DeepSeek Harness（dsh）ACP 后端（长驻 `dsh acp` 子进程，以 local_acp.py 为底本同构，计划 2026-1018-0732；探测链 PATH → `$DSH_HOME/bin` → `~/.dsh/bin` → npx 缓存兜底；强度 configId 为 `reasoning_effort`；模型值为不透明 JSON 对串、静态表（dsh 无 CLI 枚举命令），显示名静态表；terminals 与图片不支持（spike 实测，帧存档 dsh_spike_20261018_074413.json）；凭据归 dsh 自管 `~/.dsh/`，developer preview 状态经注册表 `dev_note` 如实告知；协议真值来源 `参考代码/deepseek-harness/packages/acp/acp/README.md`） |
 | `llm/providers/reasonix_acp.py` | `ReasonixAcpLLM`：Reasonix ACP 后端（长驻 `reasonix acp`，与 KimiAcpLLM 同构；模型目录解析 `~/.reasonix/config.toml`；未 setup 经 session/new 错误映射引导「请先运行 reasonix setup」；轮次失败 `stopReason=error` 转可读报错；上下文用量走 transcript 快照文本估算，source="estimate"，2026-0731-1454） |
 | `llm/providers/opencode_acp.py` | `OpenCodeAcpLLM`：OpenCode ACP 后端（同构；`opencode models` 纯文本枚举，Zen 官方 `opencode/` 前缀模型菜单层剔除） |
 | `llm/providers/kilocode_acp.py` | `KiloCodeAcpLLM`：Kilo Code ACP 后端（同构；`kilo models` 纯文本枚举，网关聚合 `kilo/` 前缀模型菜单层剔除） |
@@ -56,6 +57,7 @@ class LanguageModel(Protocol):
 | `LanguageModel` | 统一接口，返回 `Iterator[Chunk]` 逐块产出，与 UI 解耦 |
 | `Chunk` | 流式块：`kind="text"` 为正文增量；`kind="reasoning"` 为过程信息（思维链或工具调用摘要），仅当次显示、不回传 |
 | `KimiAcpLLM` | kimi 后台唯一接口（`"kimi-acp"`，出厂默认）：长驻 `kimi acp` 子进程经 ndjson JSON-RPC 对接（[ACP 协议](https://agentclientprotocol.com)，Zed/JetBrains 同款集成方式）；**token 级流式**（`agent_message_chunk`）、思维链可见（`agent_thought_chunk` → reasoning 通道）、`session/new` 原生会话、`session/set_config_option` 会话内切模型；工具审批经 `set_permission_handler()` 注入的回调路由（GUI 模态框），无回调时自动允许，回调返回 None/异常按拒绝兜底；进程崩溃下轮自动重启并开新会话 |
+| `DshAcpLLM` | provider（`"dsh-acp"`，后台 DSH，developer preview）：长驻 `dsh acp` 子进程，同构；模型/强度切换走 `session/set_config_option`（configId `model` / `reasoning_effort`，spike 实测），模型值为不透明 JSON 对串、静态表枚举；凭据类错误映射「配置 ~/.dsh/.credentials.yaml 或 DEEPSEEK_API_KEY」引导；轮次失败 `stopReason=error` 转可读报错 |
 | `ReasonixAcpLLM` | provider（`"reasonix-acp"`，后台 Reasonix）：长驻 `reasonix acp` 子进程，协议层与 `KimiAcpLLM` 同构（ACP v1）；模型目录经 `list_reasonix_models()` 解析 `~/.reasonix/config.toml`（`$REASONIX_HOME` 可覆盖）`[[providers]]` 段，别名为 `provider/model` 全名（DeepSeek 系）；未 setup（`session/new` 报 `not configured` 类错误）时映射为「请先运行 reasonix setup」友好提示；轮次失败 `stopReason=error` 转可读报错 |
 | `OpenCodeAcpLLM` | provider（`"opencode-acp"`，后台 OpenCode）：长驻 `opencode acp` 子进程，同构；模型目录经 `opencode models` 纯文本枚举，Zen 官方 `opencode/` 前缀模型在菜单层剔除 |
 | `KiloCodeAcpLLM` | provider（`"kilocode-acp"`，后台 Kilo Code）：长驻 `kilo acp` 子进程，同构；模型目录经 `kilo models` 纯文本枚举，网关聚合 `kilo/` 前缀模型在菜单层剔除 |
@@ -68,12 +70,12 @@ class LanguageModel(Protocol):
 
 | 通道 | 机制 | 覆盖后端 |
 |:---|:---|:---|
-| 轮末推送/收尾读盘 | agent 推 `usage_update`（kilocode/opencode/reasonix，**轮末一条**——kilocode 源码实证 `service.ts` prompt 阻塞至轮末才 sendUsageUpdate；协议无频率协商手段）或 IDE 收尾短轮询 wire.jsonl 基线增量（kimi，1454 计划） | 全部 |
+| 轮末推送/收尾读盘 | agent 推 `usage_update`（kilocode/opencode/reasonix/dsh，**轮末一条**——kilocode 源码实证 `service.ts` prompt 阻塞至轮末才 sendUsageUpdate；协议无频率协商手段）或 IDE 收尾短轮询 wire.jsonl 基线增量（kimi，1454 计划） | 全部 |
 | 轮次内轮询 | GUI 侧 QTimer（2s）调 `provider.poll_usage()`；kimi 实现为 wire.jsonl 尾部读法（T0 实证：轮次内每次 API 调用后 `usage.record` 增量写盘、数值单调爬升），其余后端默认 `None` 空转 | **仅 kimi-acp** |
 
 限制与红线：
 
-- **推送型后端轮次内不刷新**（kilocode/opencode/reasonix）：数据在 agent 进程内，IDE 无中间数据可挖；不插值、不估算、不按文本长度臆造百分比。上游补丁路径（kilocode `acp/event.ts` 订阅 step-finish 转 `usage_update`）可行但属 agent 侧改造，见计划 D4 补记
+- **推送型后端轮次内不刷新**（kilocode/opencode/reasonix/dsh）：数据在 agent 进程内，IDE 无中间数据可挖；不插值、不估算、不按文本长度臆造百分比。上游补丁路径（kilocode `acp/event.ts` 订阅 step-finish 转 `usage_update`）可行但属 agent 侧改造，见计划 D4 补记
 - `poll_usage()` 实现约束：廉价（只读文件尾部，禁全量读 MB 级 wire.jsonl）、幂等、线程安全（GUI 线程调用），失败静默 `None`，不得臆造数值
 - reasonix 维持 transcript 文本估算（source="estimate"，轮末一条）
 
