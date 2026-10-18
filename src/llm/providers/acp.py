@@ -862,6 +862,45 @@ def _split_hierarchical_tid(tool_call_id: str) -> str | None:
     return parent if sep and parent else None
 
 
+#: 工具名 → kind 兜底推导表：仅在后端 kind 缺失或敷衍上报 "other" 时
+#: 生效，永不覆盖显式上报（dsh-acp 投影层 kind 恒为 "other" 且刻意
+#: 不开关，兜底让一切同构后端受益）；未收录名保持 "other" 落通用卡，
+#: 绝不猜测。键为归一化后小写名（查表前统一 `-`→`_`：DSH 连字符命名
+#: fs-search 与 snake_case 双形态单写法兼容）。todo_write 显式登记
+#: "other"：清单渲染走卡片侧工具名分派，不借 kind 通道
+_FALLBACK_TOOL_KINDS: dict[str, str] = {
+    "bash": "execute", "pwsh": "execute", "shell": "execute",
+    "terminal": "execute",
+    "write": "edit", "edit": "edit", "patch": "edit",
+    "read": "read", "read_image": "read",
+    "grep": "search", "glob": "search", "fs_search": "search",
+    "web": "fetch", "web_search": "fetch", "web_fetch": "fetch",
+    "fetch": "fetch",
+    "todo_write": "other",
+    "subagent": "think", "task": "think",
+}
+
+
+def _fallback_tool_kind(title: object) -> str | None:
+    """工具名 → 兜底 kind（查 _FALLBACK_TOOL_KINDS）；未收录/非字符串返回 None。
+
+    归一化口径与渲染层工具名分派同源（剥 `mcp__` 命名空间前缀取末段、
+    小写），另统一 `-`→`_` 使表内只保留下划线单写法。
+    """
+    if not isinstance(title, str):
+        return None
+    name = title.strip()
+    if "__" in name:
+        name = name.split("__")[-1]
+    return _FALLBACK_TOOL_KINDS.get(name.lower().replace("-", "_"))
+
+
+#: kind 兜底推导回填账本（与 _input_detail_seen 同构）：首帧推导命中即
+#: 按 toolCallId 登记；update 帧常缺 kind（F3），据此回填首帧推导结果，
+#: 运行中/完成态帧 kind 稳定不漂移；completed/failed 终态帧惰性清理
+_derived_tool_kinds: dict[str, str] = {}
+
+
 def _map_tool_call(update: dict, session_id: str = "") -> Chunk:
     """tool_call → 结构化 Chunk。
 
@@ -880,6 +919,16 @@ def _map_tool_call(update: dict, session_id: str = "") -> Chunk:
             payload["parent_tool_call_id"] = parent
     payload["title"] = update.get("title") or "?"
     tool_kind = update.get("kind") if isinstance(update.get("kind"), str) else "other"
+    if tool_kind == "other":
+        # kind 缺失/敷衍上报时按工具名兜底推导；命中即入账本供 update
+        # 帧回填，并注入 update 副本让下游提取（摘要/入参/write diff
+        # 合成）同帧生效。显式上报的 kind 一律原样透传不进此分支
+        if (derived := _fallback_tool_kind(update.get("title"))) \
+                and derived != "other":
+            tool_kind = derived
+            update = {**update, "kind": derived}
+            if tid := payload.get("tool_call_id"):
+                _derived_tool_kinds[tid] = derived
     payload["tool_kind"] = tool_kind
     if tool_kind == "think":  # task 子代理（D5 标记）
         payload["is_subagent"] = True
@@ -951,6 +1000,14 @@ def _map_tool_call_update(update: dict, session_id: str = "") -> Chunk | None:
     if isinstance(update.get("title"), str):
         payload["title"] = update["title"]
     kind = update.get("kind")
+    # 首帧兜底推导回填：update 帧常缺 kind 或仍敷衍上报 "other"，账本
+    # 命中即注入 update 副本——截断方向、迟到 command、write diff 合成、
+    # think 成果摘要等下游全部按推导 kind 走；账本只收推导命中帧，
+    # 显式上报的后端（kimi）永不入账，此分支对其恒 no-op
+    if (not isinstance(kind, str) or not kind or kind == "other") \
+            and (derived := _derived_tool_kinds.get(payload.get("tool_call_id") or "")):
+        kind = derived
+        update = {**update, "kind": derived}
     # 0806 计划 T1：update 帧迟到入参回填——kimi 系首帧为空壳、rawInput
     # 在 in_progress 帧才补发；簿记去重（首帧优先，后续帧不重复回填）
     if (tid := payload.get("tool_call_id")) and tid not in _input_detail_seen:
@@ -998,9 +1055,10 @@ def _map_tool_call_update(update: dict, session_id: str = "") -> Chunk | None:
         payload["output_total_lines"] = total_lines
         if images:  # 0806 计划 T2：content 图片通道独立载荷字段
             payload["images"] = images
-    # 终态帧惰性清理入参簿记（工具调用生命周期结束）
+    # 终态帧惰性清理入参与推导簿记（工具调用生命周期结束）
     if status in ("completed", "failed") and payload.get("tool_call_id"):
         _input_detail_seen.discard(payload["tool_call_id"])
+        _derived_tool_kinds.pop(payload["tool_call_id"], None)
     # 0919 计划 T2：update 帧 diff 提取——kimi 系 edit 的 diff content 在
     # in_progress 帧才发（首帧 content 为空壳、completed 帧只剩结果文本），
     # 故不限 status 盲提；_extract_diff 对非 diff 项返回 None，天然安全

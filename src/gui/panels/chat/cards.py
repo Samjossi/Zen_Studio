@@ -1530,6 +1530,9 @@ _TOOL_NAME_CARDS: dict[str, type] = {
     "readmediafile": MediaReadCard,
     "todolist": TodoListCard,
     "todowrite": TodoListCard,
+    # DSH 清单工具名为下划线形态 todo_write；归一化只剥 `mcp__` 前缀不剥
+    # `_`，单列条目兼容（改动面小于归一化剥 `_` 的全局影响）
+    "todo_write": TodoListCard,
 }
 
 
