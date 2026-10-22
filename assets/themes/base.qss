@@ -26,6 +26,14 @@ QDialog {
     selection-color: #ffffff;
 }
 
+/* 主窗口外缘描边：Wayland 下合成器不为客户端装饰窗口绘制阴影，
+ * 白底桌面上窗口边界与背景融合；1px $border 描边代之（与 #PanelCard
+ * 边线同令牌，随主题重渲换色；X11 下与 WM 服务端阴影并存无冲突）。
+ * 仅 QMainWindow——对话框不入列，避免小浮窗边线过重 */
+QMainWindow {
+    border: 1px solid $border;
+}
+
 /* ---- 面板分区与标题行（objectName 接线见各面板代码） ---- */
 
 /* 侧栏（左/右栏）：向窗口底微偏一点（三栏似分未分） */
