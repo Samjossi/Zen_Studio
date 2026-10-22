@@ -86,6 +86,10 @@ class ChatTabs(QWidget):
     #: Git 状态去抖刷新）
     turn_finished = Signal()
 
+    #: 任一标签改盘类工具调用到达终态（转发 ChatPanel.files_maybe_changed；
+    #: 主窗口联动 Git 状态去抖刷新——轮次进行中的实时源）
+    files_maybe_changed = Signal()
+
     #: 任一标签一轮对话真正收尾（转发 ChatPanel.turn_completed，载荷
     #: True=成功 / False=失败；不含用户中断与接续轮中途；主窗口联动
     #: 完成提醒：声音 + 系统桌面通知）
@@ -244,6 +248,7 @@ class ChatTabs(QWidget):
         panel.model_bar.effort_changed.connect(
             lambda backend, effort, p=panel: self._on_effort_changed(p, backend, effort))
         panel.turn_finished.connect(self.turn_finished)
+        panel.files_maybe_changed.connect(self.files_maybe_changed)
         panel.turn_completed.connect(self.turn_completed)
         panel.question_asked.connect(self.question_asked)
         panel.file_open_requested.connect(self.file_open_requested)

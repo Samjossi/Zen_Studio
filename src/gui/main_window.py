@@ -5,7 +5,8 @@
 启动时 restore，closeEvent 时一次性保存；损坏数据静默回退默认布局。
 
 Git 状态可视化（2026-07-20，见 文档/修改记录/2026-0720-0131 计划阶段四）：
-事件驱动刷新——窗口激活 / 查看器外部重载联动 / 视图菜单手动刷新，
+事件驱动刷新——窗口激活 / 查看器外部重载联动 / 视图菜单手动刷新 /
+AI 轮次结束 / AI 改盘类工具终态（files_maybe_changed）/ 文件树结构变更，
 300ms 去抖后刷新 GitStatusService 并同步文件树着色、查看器差异徽标
 与状态栏统计；非 git 环境下所有入口静默跳过。
 
@@ -368,6 +369,10 @@ class MainWindow(QMainWindow):
         # AI 轮次结束 → 去抖刷新（诊断报告 文档/修改记录/2026-0731-1256 方案 A：
         # ACP 子进程直接写盘不经窗口激活/查看器重载，补此事件源闭合）
         self.chat_tabs.turn_finished.connect(self.git_controller.schedule_refresh)
+        # 改盘类工具调用终态 → 同一去抖（轮次进行中的实时源：edit/execute
+        # 落盘即提示，连续改动经 300ms 去抖合并，不等轮末一次性涌出）
+        self.chat_tabs.files_maybe_changed.connect(
+            self.git_controller.schedule_refresh)
 
     def changeEvent(self, event) -> None:
         """窗口重获焦点 → 去抖刷新（兜底终端 checkout 等外部 git 操作）。"""

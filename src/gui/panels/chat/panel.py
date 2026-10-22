@@ -173,6 +173,19 @@ def _compose_usage_tooltip(
     return "\n".join(lines)
 
 
+def _is_fs_mutation_terminal(payload: dict) -> bool:
+    """tool_call_update 终态帧且 kind 为改盘类（edit/execute）→ 应提示刷新 Git。
+
+    首帧（tool_call）不判：写盘尚未发生；in_progress 不判：改动未落定。
+    failed 亦算：multi-edit 中断等场景可能部分落盘，多刷一次无妨。
+    read/search/fetch/think/todo 不改盘；execute 覆盖 sed/重定向/代码
+    生成/git checkout 等命令行改盘（误报成本仅一次去抖合并的刷新）。
+    tool_kind 由协议层归一化（含兜底推导回填），本函数只读不猜。
+    """
+    return payload.get("status") in ("completed", "failed") \
+        and payload.get("tool_kind") in ("edit", "execute")
+
+
 class ChatPanel(QWidget):
     """单个 AI 会话标签页（独立 provider 实例，由 ChatTabs 托管）。"""
 
@@ -184,6 +197,11 @@ class ChatPanel(QWidget):
     #: 联动 Git 状态去抖刷新——ACP 子进程直接写盘不经窗口激活/查看器
     #: 重载，补此事件源闭合）
     turn_finished = Signal()
+
+    #: 改盘类工具调用到达终态（edit/execute 的 completed/failed 帧；
+    #: 轮次进行中的逐文件实时源，与轮末兜底的 turn_finished 互补）。
+    #: 主窗口经 ChatTabs 转发接 Git 状态 300ms 去抖，连续落盘合并刷新
+    files_maybe_changed = Signal()
 
     #: 一轮对话真正收尾（载荷 True=成功 / False=失败；与 turn_finished
     #: 的差异：用户手动中断不发——中断是用户自己的操作无需提醒；待发
@@ -521,6 +539,10 @@ class ChatPanel(QWidget):
             pass
         try:
             self.turn_finished.disconnect()  # 摘出的标签不再触发 Git 刷新
+        except (TypeError, RuntimeError):
+            pass
+        try:
+            self.files_maybe_changed.disconnect()  # 同上：编辑活动提示一并摘出
         except (TypeError, RuntimeError):
             pass
         threading.Thread(
@@ -1135,6 +1157,9 @@ class ChatPanel(QWidget):
                     else:
                         payload = {k: v for k, v in payload.items() if k != "output"}
                 self.output.append_tool_update(payload)
+            if _is_fs_mutation_terminal(payload):
+                # 改盘已落定：提示 Git 刷新（去抖在主窗口侧，此处逐帧直发）
+                self.files_maybe_changed.emit()
         else:
             self.output.upsert_todo_block(payload.get("entries") or [])
 

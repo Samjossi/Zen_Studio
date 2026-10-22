@@ -38,10 +38,11 @@ from gui.window_state import (
 class GitStatusController(QObject):
     """Git 状态编排：服务创建/重建、去抖汇流、四面板扇出刷新。
 
-    事件源五处：窗口激活（schedule_refresh）、查看器外部重载（去抖）、
+    事件源六处：窗口激活（schedule_refresh）、查看器外部重载（去抖）、
     手动菜单（refresh 直调）、AI 轮次结束（schedule_refresh，主窗口
-    接线）、文件树模型结构变更（去抖汇流）；扇出四面：文件树着色 /
-    查看器徽标 / 变更面板 / 状态栏统计。
+    接线）、AI 改盘类工具终态（files_maybe_changed → schedule_refresh，
+    轮次进行中的实时源）、文件树模型结构变更（去抖汇流）；扇出四面：
+    文件树着色 / 查看器徽标 / 变更面板 / 状态栏统计。
     """
 
     #: 刷新去抖间隔（ms）：连续触发合并为一次，防进程风暴
