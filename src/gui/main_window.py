@@ -49,7 +49,7 @@ from pathlib import Path
 import subprocess
 import sys
 
-from PySide6.QtCore import Qt, QTimer, QUrl
+from PySide6.QtCore import QEvent, Qt, QTimer, QUrl
 from PySide6.QtGui import QCloseEvent, QDesktopServices, QPixmap
 from PySide6.QtNetwork import QLocalServer
 from PySide6.QtWidgets import (
@@ -61,11 +61,13 @@ from PySide6.QtWidgets import (
     QMenuBar,
     QMessageBox,
     QSplitter,
+    QStatusBar,
     QVBoxLayout,
     QWidget,
 )
 
 from core.paths import IS_FROZEN, LOGO_DIR, PROJECT_ROOT
+from core.platform_info import is_wayland
 from core.version import APP_VERSION
 from gui.controllers import GitStatusController, WindowStateStore
 from gui.menus import MenuBar
@@ -110,6 +112,7 @@ from gui.theme import (
 )
 from gui.title_bar import TitleBar
 from gui.window_resize import EdgeResizeController
+from gui.window_shadow import ShadowHost
 from gui.window_state import (
     DEFAULT_LAYOUT_FILE,
     KEY_SPLITTER_EDITOR,
@@ -152,6 +155,15 @@ class MainWindow(QMainWindow):
         # 改由 TitleBar 自绘（见 _build_layout 首行）；保留 Window 类型标志，
         # 任务栏/Alt-Tab/最小化行为不变
         self.setWindowFlags(self.windowFlags() | Qt.WindowType.FramelessWindowHint)
+        # Wayland 自绘投影：顶层开透明，可视壳外套 ShadowHost 留环绘阴影；
+        # X11 由 Mutter 服务端绘阴影，不启用（防双重阴影）
+        self._shadow_enabled = is_wayland()
+        if self._shadow_enabled:
+            self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        # 状态栏显式创建：与菜单栏同例迁出 QMainWindow 槽位、挂入可视壳底部
+        # （_build_layout 收尾 addWidget），投影环才能抱住全部可视内容；
+        # statusBar() 已重写返回本实例，全量消费点无感
+        self._status_bar = QStatusBar(self)
         self._workspace_root = workspace_root
         # 空窗标题固定「未打开文件夹」；非默认工作区标题栏标注根路径，
         # 多窗一眼可辨
@@ -191,6 +203,9 @@ class MainWindow(QMainWindow):
         # 静态下限 315 + 中栏 + 右栏 FileExplorer 240 + 边距/手柄的经验值）
         self.setMinimumSize(900, 500)
         self._resize_controller = EdgeResizeController(self)
+        # 投影环兼任缩放热区：判定基准内移至视觉边（最大化时 changeEvent
+        # 随投影收放同步归零/恢复）
+        self._resize_controller.shadow_margin = self._shadow_host.shadow_margin()
         self._init_statusbar()
         self._init_git_status()  # 先于菜单装配：视图菜单「刷新 Git 状态」直挂控制器
         self._init_menus()
@@ -295,30 +310,39 @@ class MainWindow(QMainWindow):
         # 防折叠：右栏文件树最小宽度由 FileExplorer.MIN_WIDTH 约束
         self._splitter_main.setCollapsible(2, False)
 
-        # 中央容器：外层 vbox 零边距零间距，自上而下 [TitleBar][QMenuBar][内容包装器]。
+        # 可视壳 #WindowShell：外层 vbox 零边距零间距，自上而下
+        # [TitleBar][QMenuBar][内容包装器][QStatusBar]。
         # 窗口级外边距（左/右各 12px——叠面板 6px 得 18px；上 6px——菜单栏定高截断
         # 镜像余量后，菜单栏底→卡片顶 = 6 + 面板 6 = 12px；底部 0——底部间距由状态栏
         # 定高体系承接）由内容包装器原样承接，数值未改。窗口级边距与面板 6px
-        # 职责分离，可独立调参
-        central = QWidget(self)
-        outer = QVBoxLayout(central)
+        # 职责分离，可独立调参。
+        # 窗口底色经 objectName 由 qss 承接并开 WA_StyledBackground——Wayland
+        # 下顶层透明（WA_TranslucentBackground），QMainWindow 直接刷底会填死
+        # 投影环；壳外套 ShadowHost（Wayland 留环绘投影，其余平台零边距直通）
+        shell = QWidget(self)
+        shell.setObjectName("WindowShell")
+        shell.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        outer = QVBoxLayout(shell)
         # 改动（文档/修改记录/2026-0730-0007 计划 T7）：原 (12, 6, 12, 0) 下沉至内容包装器
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
-        # ---- 新增：标题栏 + 菜单栏行（QMainWindow 无 API 在菜单槽之上插部件，
-        # 菜单栏改显式创建 reparent 进中央容器，不再占用菜单槽；T8/T9 联动）----
+        # ---- 标题栏 + 菜单栏行（QMainWindow 无 API 在菜单槽之上插部件，
+        # 菜单栏改显式创建 reparent 进可视壳，不再占用菜单槽；T8/T9 联动）----
         self.title_bar = TitleBar(self)
         outer.addWidget(self.title_bar)
         self._menu_bar = QMenuBar(self)
         outer.addWidget(self._menu_bar)
-        # ---- 新增结束 ----
-        content = QWidget(self)                 # 新增：原窗口级 margins 原样承接
+        # ---- 结束 ----
+        content = QWidget(self)                 # 原窗口级 margins 原样承接
         inner = QVBoxLayout(content)
         inner.setContentsMargins(12, 6, 12, 0)  # 原有数值，未改
         inner.setSpacing(0)
         inner.addWidget(self._splitter_main)
         outer.addWidget(content)
-        self.setCentralWidget(central)
+        # 状态栏挂壳底（迁出 QMainWindow 槽位），投影环抱到窗口最下缘
+        outer.addWidget(self._status_bar)
+        self._shadow_host = ShadowHost(shell, self._shadow_enabled, parent=self)
+        self.setCentralWidget(self._shadow_host)
 
     def _init_menus(self) -> None:
         """菜单栏装配 + 模型选择/忙闲信号接线。"""
@@ -337,6 +361,13 @@ class MainWindow(QMainWindow):
             self.chat_tabs.busy_changed.connect(self._on_chat_busy_changed)
             self.chat_tabs.turn_completed.connect(self._on_turn_completed)
             self.chat_tabs.question_asked.connect(self._on_question_asked)
+
+    def statusBar(self) -> QStatusBar:
+        """状态栏已迁出 QMainWindow 槽位（入可视壳底部），统一返回显式实例。
+
+        全量消费点（含 settings_dialog 经 _ctx）经本方法取栏，无感迁移。
+        """
+        return self._status_bar
 
     def _init_statusbar(self) -> None:
         """状态栏：去尺寸把手 + 定高 + Git 统计常驻区 + 就绪消息。"""
@@ -375,10 +406,15 @@ class MainWindow(QMainWindow):
             self.git_controller.schedule_refresh)
 
     def changeEvent(self, event) -> None:
-        """窗口重获焦点 → 去抖刷新（兜底终端 checkout 等外部 git 操作）。"""
-        if (event.type() == event.Type.ActivationChange and self.isActiveWindow()
+        """窗口重获焦点 → 去抖刷新；窗口态切换 → 投影收放与热区边距联动。"""
+        if (event.type() == QEvent.Type.ActivationChange and self.isActiveWindow()
                 and self.git_controller is not None):  # 空窗守卫（无 Git 编排）
             self.git_controller.schedule_refresh()
+        if event.type() == QEvent.Type.WindowStateChange and self._shadow_enabled:
+            # 最大化/全屏：投影收起、内容贴满物理边；还原逆向恢复
+            self._shadow_host.set_shadow_active(
+                not (self.isMaximized() or self.isFullScreen()))
+            self._resize_controller.shadow_margin = self._shadow_host.shadow_margin()
         super().changeEvent(event)
 
     # ------------------------------------------------------------------

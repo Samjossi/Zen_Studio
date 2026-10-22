@@ -15,24 +15,25 @@
  *   · 隐形滚动条 / 融合菜单栏状态栏 / 反色提示等苹果风基底不变。
  */
 
-/* 窗口/对话框底色 + 全局文字/选中色（qss 的 color/selection 沿控件树继承，
+/* 全局文字/选中色（qss 的 color/selection 沿控件树继承，
  * 不触发子控件背景接管——切勿改用 QWidget 全局选择器，否则子控件会被
  * WA_StyledBackground 接管并用 palette 不透明刷底，盖住 #SidePanel 分区） */
 QMainWindow,
 QDialog {
-    background-color: $window_bg;
     color: $text;
     selection-background-color: $accent;
     selection-color: #ffffff;
 }
 
-/* 主窗口外缘描边：Wayland 下合成器不为客户端装饰窗口绘制阴影，
- * 白底桌面上窗口边界与背景融合；1px 描边代之。取色用独立令牌
- * $window_border（初值提取自各主题标题栏底色——比卡片边线 $border
- * 更淡一档，与卡片描边解耦可独立微调；X11 下与 WM 服务端阴影并存
- * 无冲突）。仅 QMainWindow——对话框不入列，避免小浮窗边线过重 */
-QMainWindow {
-    border: 1px solid $window_border;
+/* 底色分家：对话框是不透明顶层，直接刷底；主窗口底色由 #WindowShell
+ * 承接——Wayland 下主窗口顶层开 WA_TranslucentBackground 自绘投影，
+ * QMainWindow 若刷底会把投影环填成不透明色块，阴影失效 */
+QDialog {
+    background-color: $window_bg;
+}
+
+#WindowShell {
+    background-color: $window_bg;
 }
 
 /* ---- 面板分区与标题行（objectName 接线见各面板代码） ---- */

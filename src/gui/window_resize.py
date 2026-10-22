@@ -18,8 +18,10 @@ MainWindow，过滤器即可收全）。
 离开热区 unsetCursor 还原——「光标不被子控件 I-beam 覆盖」验收机制即此。
 
 守卫：最大化/全屏态热区整体禁用（与原生窗口行为一致）；手动兜底路径几何
-钳制 minimumSize（MainWindow 已设 900×500，决策点 D3）；热区为窗口内缩判定，
-不向外扩（外扩需透明像素边距，侵入布局边距体系，本期不做）。
+钳制 minimumSize（MainWindow 已设 900×500，决策点 D3）。热区为窗口内缩
+判定；Wayland 自绘投影启用时（window_shadow.ShadowHost）判定基准按
+shadow_margin 内移至视觉边，阴影环整圈并入热区（对标 macOS 手感），
+X11/offscreen 恒 margin=0 行为不变。
 """
 from typing import cast
 
@@ -33,16 +35,21 @@ RESIZE_MARGIN = 6
 _NO_EDGES = Qt.Edge(0)
 
 
-def _edges_at(window: QWidget, pos: QPoint) -> Qt.Edge:
-    """窗口本地坐标 → 命中边标志位组合（左/右/上/下 + 四角由组合自然得出）。"""
+def _edges_at(window: QWidget, pos: QPoint, margin: int = 0) -> Qt.Edge:
+    """窗口本地坐标 → 命中边标志位组合（左/右/上/下 + 四角由组合自然得出）。
+
+    :param margin: 投影环厚度（Wayland 自绘投影启用时由控制器传入）——
+        判定基准内移至视觉边，环区整圈计入热区；默认 0 即原行为。
+    """
     edges = _NO_EDGES
-    if pos.x() < RESIZE_MARGIN:
+    limit = margin + RESIZE_MARGIN
+    if pos.x() < limit:
         edges |= Qt.Edge.LeftEdge
-    elif pos.x() >= window.width() - RESIZE_MARGIN:
+    elif pos.x() >= window.width() - limit:
         edges |= Qt.Edge.RightEdge
-    if pos.y() < RESIZE_MARGIN:
+    if pos.y() < limit:
         edges |= Qt.Edge.TopEdge
-    elif pos.y() >= window.height() - RESIZE_MARGIN:
+    elif pos.y() >= window.height() - limit:
         edges |= Qt.Edge.BottomEdge
     return edges
 
@@ -79,6 +86,9 @@ class EdgeResizeController(QObject):
             app.installEventFilter(self)
         #: hover 光标当前覆盖的控件（离开热区时 unsetCursor 还原）
         self._cursor_widget: QWidget | None = None
+        #: 投影环厚度（px）：Wayland 自绘投影启用时由 MainWindow 注入并随
+        #: 最大化收放同步；热区判定基准内移量，X11/offscreen 恒 0
+        self.shadow_margin = 0
         #: 手动兜底状态（_manual_edges == _NO_EDGES 即未在手动缩放）
         self._manual_edges = _NO_EDGES
         self._start_geometry = QRect()
@@ -121,7 +131,8 @@ class EdgeResizeController(QObject):
         if window.isMaximized() or window.isFullScreen():
             return False
         global_pos = event.globalPosition().toPoint()
-        edges = _edges_at(window, window.mapFromGlobal(global_pos))
+        edges = _edges_at(window, window.mapFromGlobal(global_pos),
+                          self.shadow_margin)
         if not edges:
             return False
         handle = window.windowHandle()
@@ -159,7 +170,8 @@ class EdgeResizeController(QObject):
         if window.isMaximized() or window.isFullScreen():
             self._clear_cursor()
             return
-        edges = _edges_at(window, window.mapFromGlobal(global_pos))
+        edges = _edges_at(window, window.mapFromGlobal(global_pos),
+                          self.shadow_margin)
         if not edges:
             self._clear_cursor()
             return
