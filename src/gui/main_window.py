@@ -73,7 +73,6 @@ from gui.menus.registry import (
     KEY_VIEW_CHANGES,
     KEY_VIEW_EXPLORER,
     KEY_VIEW_TERMINAL,
-    theme_action_key,
 )
 from gui.panels import FileExplorer, ViewerPanel
 from gui.panels.changes import ChangesPanel
@@ -489,7 +488,7 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage("已恢复默认布局", self.STATUS_MSG_SHORT_MS)
 
     # ------------------------------------------------------------------
-    # 主题切换（视图菜单 ▸ 外观；QActionGroup 单回调读 data 载荷）
+    # 主题切换（设置中心外观页为唯一入口）
     # ------------------------------------------------------------------
     def switch_theme(self, theme: str) -> None:
         """切换主题：持久化 + 提示重启后生效（热切换已移除，见 2026-0820-1642 计划）。
@@ -497,12 +496,10 @@ class MainWindow(QMainWindow):
         热链（apply_theme 八方转发）随本计划停用：存量卡片色构造期冻结进
         内联 HTML/QSS，热刷需逐卡簿记（1424 计划，已回滚）；重启后全部
         新建自然正确。各面板 apply_theme 方法保留（公共接口），仅本函数
-        不再调用。菜单勾选语义 = 已保存的选择（非当前生效主题）。
+        不再调用。保存的选择 = 重启后生效的主题（非当前生效主题）。
         """
         unchanged = theme == load_settings()[KEY_THEME]  # D1：未变更不弹窗
         save_theme(theme)
-        if action := self.menus.get(theme_action_key(theme)):
-            action.setChecked(True)
         self._sync_settings_dialog()
         if not unchanged:
             QMessageBox.information(
