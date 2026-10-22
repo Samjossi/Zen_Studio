@@ -64,9 +64,10 @@ AI 活动信息路由：
 """
 import threading
 import time
+from datetime import datetime
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QThread, QTimer, Signal
+from PySide6.QtCore import QEvent, Qt, QThread, QTimer, Signal
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -113,6 +114,63 @@ from llm.permission_policy import (
     is_question_request,
     select_option_id,
 )
+
+
+_USAGE_SOURCE_NOTE = {
+    "push": "数据来源：agent 实时推送",
+    "transcript": "数据来源：kimi 会话记录（agent 落盘的接口真值）",
+    "estimate": "数据来源：IDE 估算（会话文本 ÷4，非精确计量，仅量级参考）",
+}
+
+
+def _format_duration(seconds: float) -> str:
+    """时长分档：<60s「N 秒」；<1h「N 分 N 秒」；≥1h「N 小时 N 分」。"""
+    total = max(0, int(seconds))
+    if total < 60:
+        return f"{total} 秒"
+    if total < 3600:
+        return f"{total // 60} 分 {total % 60} 秒"
+    return f"{total // 3600} 小时 {total % 3600 // 60} 分"
+
+
+def _compose_usage_tooltip(
+    usage: UsageStats | None,
+    session_start: datetime | None,
+    last_turn: dict | None,
+    turn_started_at: datetime | None,
+    now: datetime,
+) -> str:
+    """徽章 tooltip 组文案：用量段（有数据才有）+ 计时段（会话开始 /
+    本轮进行中 / 上轮任务），全空返回空串。
+
+    抽成纯函数的原因：tooltip 需在悬停事件时按当前时刻重算（setToolTip
+    是静态文本，「已持续/已用」不随时间自刷新），组文案逻辑必须能脱离
+    控件直接调用与单测。
+    """
+    lines: list[str] = []
+    if usage is not None:
+        percent = round(usage.used / usage.size * 100)
+        lines.append(
+            f"上下文已用 {usage.used:,} / 上限 {usage.size:,} tokens（{percent}%）")
+        lines.append(_USAGE_SOURCE_NOTE[usage.source])
+    if session_start is not None:
+        started = (session_start.strftime("%H:%M")
+                   if session_start.date() == now.date()
+                   else session_start.strftime("%m-%d %H:%M"))
+        lines.append(
+            f"会话开始：{started}"
+            f"（已持续 {_format_duration((now - session_start).total_seconds())}）")
+    if turn_started_at is not None:
+        lines.append(
+            "本轮进行中：已用 "
+            f"{_format_duration((now - turn_started_at).total_seconds())}")
+    if last_turn is not None:
+        elapsed = _format_duration(
+            (last_turn["ended"] - last_turn["started"]).total_seconds())
+        lines.append(
+            f"上轮任务：用时 {elapsed}"
+            f"（{last_turn['ended'].strftime('%H:%M')} {last_turn['outcome']}）")
+    return "\n".join(lines)
 
 
 class ChatPanel(QWidget):
@@ -201,6 +259,13 @@ class ChatPanel(QWidget):
         #: 本标签最新一轮的上下文用量（usage_update 每轮一条，覆盖即
         #: 「最后一条 assistant 消息」语义）；None = 未收到/已切换后端
         self._usage: UsageStats | None = None
+        #: 会话/轮次计时簿记（内存态，与 _usage 同寿命）：会话开始 = 本
+        #: 标签首轮 _send_turn 墙钟时刻（未发送 = None，不拿标签创建
+        #: 时间冒充对话开始）；_last_turn = 最近一轮
+        #: {started, ended, outcome}（完成/失败/手动停止）
+        self._session_started_at: datetime | None = None
+        self._turn_started_at: datetime | None = None
+        self._last_turn: dict | None = None
         #: 轮次内用量轮询计时器：_on_send 启动、_on_finished/_on_stopped/
         #: 切后端停止；tick 调 provider.poll_usage()，非 kimi 后端默认返回
         #: None 空转成本可忽略（红线：不臆造数值）
@@ -364,6 +429,10 @@ class ChatPanel(QWidget):
             self._usage_timer.stop()  # 切后端停轮询，不残留空转
             # 旧后端会话用量不得残留到新后端：清零徽章（reset_session 语义点）
             self._usage = None
+            # 计时簿记同清（与 _usage 同寿命）：新会话从下一轮发送重新计
+            self._session_started_at = None
+            self._turn_started_at = None
+            self._last_turn = None
             self._refresh_usage_label()
             self.timeline.clear()  # 新会话清空色块条（随标签会话）
             if old is not None and getattr(old, "close", None) is not None:
@@ -515,6 +584,8 @@ class ChatPanel(QWidget):
         self._usage_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._usage_label.setFixedWidth(
             self._usage_label.fontMetrics().horizontalAdvance("~100%") + 8)
+        # 悬停 tooltip 按当前时刻重算（详见 eventFilter）
+        self._usage_label.installEventFilter(self)
 
         # 状态行：左时间线条（横向延展）→ 右用量徽章（恒宽）；
         # 行高由时间线条决定（约 30px），徽章随布局垂直居中
@@ -728,32 +799,38 @@ class ChatPanel(QWidget):
     def _refresh_usage_label(self) -> None:
         """按 _usage 簿记刷新徽章：无数据空文本（常驻占位不撤）；≥80% 热态变色。
 
-        口径标注：estimate 来源加 `~` 前缀并在 tooltip 注明估算口径
-        （transcript 文本 chars/4 粗估，非 agent 精确计量）；transcript
-        来源（kimi 会话落盘记录真值）与 push 同形态显示，tooltip 注明
-        数据来源分级，诚实呈现精度。
+        口径标注：estimate 来源加 `~` 前缀；tooltip 由
+        `_refresh_usage_tooltip` 经纯函数 `_compose_usage_tooltip` 组装
+        （用量段 + 计时段），数据来源分级诚实呈现精度。
         """
         stats = self._usage
         if stats is None:
             self._usage_label.setText("")
-            self._usage_label.setToolTip("")
             self._usage_label.setProperty("hot", False)
         else:
             percent = round(stats.used / stats.size * 100)
             prefix = "~" if stats.source == "estimate" else ""
             self._usage_label.setText(f"{prefix}{percent}%")
-            source_note = {
-                "push": "数据来源：agent 实时推送",
-                "transcript": "数据来源：kimi 会话记录（agent 落盘的接口真值）",
-                "estimate": "数据来源：IDE 估算（会话文本 ÷4，非精确计量，仅量级参考）",
-            }[stats.source]
-            self._usage_label.setToolTip(
-                f"上下文已用 {stats.used:,} / 上限 {stats.size:,} tokens（{percent}%）\n"
-                f"{source_note}")
             self._usage_label.setProperty("hot", percent >= 80)
+        self._refresh_usage_tooltip()
         # qss 动态属性（[hot="true"] 警示色）切换后强制刷新
         self._usage_label.style().unpolish(self._usage_label)
         self._usage_label.style().polish(self._usage_label)
+
+    def _refresh_usage_tooltip(self) -> None:
+        """tooltip 按当前时刻重组：用量段 + 计时段（会话开始/本轮进行中/
+        上轮任务），各段有数据才出现，全空即空串——首轮发送后轮次计时
+        即可见，不必等用量帧。"""
+        self._usage_label.setToolTip(_compose_usage_tooltip(
+            self._usage, self._session_started_at, self._last_turn,
+            self._turn_started_at, datetime.now()))
+
+    def eventFilter(self, watched, event) -> bool:
+        """徽章悬停（ToolTip 事件）按当前时刻重算 tooltip——setToolTip
+        是静态文本，「已持续/本轮已用」须在悬停瞬间刷新才为真值。"""
+        if watched is self._usage_label and event.type() == QEvent.Type.ToolTip:
+            self._refresh_usage_tooltip()
+        return super().eventFilter(watched, event)
 
     def _apply_usage_label_style(self, theme: str) -> None:
         """徽章配色随主题刷新（控件级 qss：常态 muted_text，热态 chat.usage_hot_fg）。"""
@@ -906,6 +983,10 @@ class ChatPanel(QWidget):
         self._worker.stopped_by_user.connect(self._on_stopped)
         self._worker.start()
         self._usage_timer.start()  # 轮次内用量轮询（kimi 尾部读 wire.jsonl）
+        turn_start = datetime.now()
+        self._turn_started_at = turn_start
+        if self._session_started_at is None:  # 首轮发送 = 会话开始
+            self._session_started_at = turn_start
 
     # ------------------------------------------------------------------
     # 排队发送：单条待发，文本驻留输入框不上屏
@@ -1085,6 +1166,13 @@ class ChatPanel(QWidget):
         return True
 
     def _on_finished(self, error: str) -> None:
+        if self._turn_started_at is not None:  # 轮次计时收尾（正常/失败同记）
+            self._last_turn = {
+                "started": self._turn_started_at,
+                "ended": datetime.now(),
+                "outcome": "失败" if error else "完成",
+            }
+            self._turn_started_at = None
         if error:
             if self._has_seen_reasoning:
                 self.output.end_reasoning()
@@ -1115,11 +1203,21 @@ class ChatPanel(QWidget):
         elif not self._fire_pending_send():
             self._set_busy(False)
             self.turn_completed.emit(True)
+        # 计时簿记已变（上轮入库/接续轮起新轮），tooltip 即时刷新不等
+        # 下一帧用量
+        self._refresh_usage_label()
 
     def _on_stopped(self) -> None:
         """用户中断收尾（第三态）：整体回滚——中断轮不入历史；
         屏幕已输出内容不擦除（可复制兜底），追加停止标注。"""
         self._usage_timer.stop()  # 中断即停轮询，不残留空转
+        if self._turn_started_at is not None:  # 中断轮同记上轮任务
+            self._last_turn = {
+                "started": self._turn_started_at,
+                "ended": datetime.now(),
+                "outcome": "手动停止",
+            }
+            self._turn_started_at = None
         if self._has_seen_reasoning:
             self.output.end_reasoning()
             self._has_seen_reasoning = False
@@ -1135,6 +1233,7 @@ class ChatPanel(QWidget):
         self._pending_send = False
         self._set_busy(False)
         self.turn_finished.emit()
+        self._refresh_usage_label()  # 中断轮已入上轮簿记，即时刷新 tooltip
 
     def _set_busy(self, is_busy: bool) -> None:
         self._busy = is_busy  # 簿记单点置位，先于一切 UI 动作
