@@ -27,11 +27,12 @@ QDialog {
 }
 
 /* 主窗口外缘描边：Wayland 下合成器不为客户端装饰窗口绘制阴影，
- * 白底桌面上窗口边界与背景融合；1px $border 描边代之（与 #PanelCard
- * 边线同令牌，随主题重渲换色；X11 下与 WM 服务端阴影并存无冲突）。
- * 仅 QMainWindow——对话框不入列，避免小浮窗边线过重 */
+ * 白底桌面上窗口边界与背景融合；1px 描边代之。取色用独立令牌
+ * $window_border（初值提取自各主题标题栏底色——比卡片边线 $border
+ * 更淡一档，与卡片描边解耦可独立微调；X11 下与 WM 服务端阴影并存
+ * 无冲突）。仅 QMainWindow——对话框不入列，避免小浮窗边线过重 */
 QMainWindow {
-    border: 1px solid $border;
+    border: 1px solid $window_border;
 }
 
 /* ---- 面板分区与标题行（objectName 接线见各面板代码） ---- */
