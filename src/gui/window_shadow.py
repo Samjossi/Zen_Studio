@@ -26,14 +26,21 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import QVBoxLayout, QWidget
 
 #: 阴影环厚度（px，四边等宽；环区透明，供阴影落色并兼任缩放热区）
-SHADOW_MARGIN = 18
-#: 阴影峰值不透明度（0-255；环境光模拟，六主题共用不随主题换色。
-#: 宽而淡优于窄而浓——窄深环视觉上是一条"深沟"，非柔和投影）
-_SHADOW_ALPHA = 34
+SHADOW_MARGIN = 15
+#: 双层叠加，骨架对标 GNOME libadwaita window.csd（维护手册《窗口投影参数手册》
+#: 1 号，收边线略去），浓度在其基础上整体减半——原生峰值在浅色主题
+#: 白底下偏浓，减半后贴边峰值 ≈12% 黑：宽软层铺满全环定调浮起感，
+#: 贴身层在邻内容窄带补浓度。六主题共用不随主题换色
+_WIDE_ALPHA = 19
+_TIGHT_ALPHA = 13
+#: 贴身层厚度（px；仅占全环内侧一段，之外恒零）
+_TIGHT_THICK = 7
 
-#: 边条渐变采样挡位（一维剖面的分段线性逼近；采样过疏会留下可见的
-#: 折线糙感；角部逐像素乘积共用同一剖面函数，天然平滑）
-_PROFILE_STOPS = tuple(i / 16 for i in range(17))
+#: 边条渐变采样挡位（一维剖面的分段线性逼近；加密至 1/32 并钉入贴身层
+#: 边界膝点，否则两段衰减的交接处会留下可见折线糙感；角部逐像素
+#: 乘积共用同一剖面函数，天然平滑）
+_PROFILE_STOPS = tuple(sorted(
+    {i / 32 for i in range(33)} | {_TIGHT_THICK / SHADOW_MARGIN}))
 
 
 def _profile(t: float) -> float:
@@ -45,10 +52,23 @@ def _profile(t: float) -> float:
     return math.cos(math.pi / 2 * t) ** 2
 
 
-def _shadow_color(scale: float) -> QColor:
-    color = QColor(0, 0, 0)
-    color.setAlpha(round(_SHADOW_ALPHA * scale))
-    return color
+def _layers(dx: float) -> tuple[float, float]:
+    """归一化环位 dx（0=可视边、1=环外缘）处的 (贴身层, 宽软层) alpha。"""
+    wide = _WIDE_ALPHA * _profile(dx)
+    px = dx * SHADOW_MARGIN
+    tight = (_TIGHT_ALPHA * _profile(px / _TIGHT_THICK)
+             if px < _TIGHT_THICK else 0.0)
+    return tight, wide
+
+
+def _over(top: float, bottom: float) -> int:
+    """两层 alpha 叠乘合成（top over bottom）。"""
+    return round(top + bottom * (255 - top) / 255)
+
+
+def _edge_color(t: float) -> QColor:
+    tight, wide = _layers(t)
+    return QColor(0, 0, 0, _over(tight, wide))
 
 
 def _paint_edge(size: tuple[int, int], gradient) -> QPixmap:
@@ -56,14 +76,14 @@ def _paint_edge(size: tuple[int, int], gradient) -> QPixmap:
     pixmap.fill(Qt.GlobalColor.transparent)
     painter = QPainter(pixmap)
     for pos in _PROFILE_STOPS:
-        gradient.setColorAt(pos, _shadow_color(_profile(pos)))
+        gradient.setColorAt(pos, _edge_color(pos))
     painter.fillRect(0, 0, size[0], size[1], gradient)
     painter.end()
     return pixmap
 
 
 def _paint_corner(margin: int, flip_x: bool, flip_y: bool) -> QPixmap:
-    """角部图元：alpha = 剖面(dx) × 剖面(dy)。
+    """角部图元：每层 alpha = 剖面(dx) × 剖面(dy)，两层再叠乘合成。
 
     乘积与边条在接缝处数学连续（dx=0 时退化为边条值），且角部天然
     淡于边条；flip_* 标记内容角点朝向（如 br 角内容点在 pixmap 左上，
@@ -73,10 +93,14 @@ def _paint_corner(margin: int, flip_x: bool, flip_y: bool) -> QPixmap:
     image.fill(Qt.GlobalColor.transparent)
     for y in range(margin):
         dy = margin - 1 - y if flip_y else y
-        scale_y = _profile((dy + 0.5) / margin)
+        t_y = (dy + 0.5) / margin
+        tight_y, wide_y = _layers(t_y)
         for x in range(margin):
             dx = margin - 1 - x if flip_x else x
-            alpha = round(_SHADOW_ALPHA * _profile((dx + 0.5) / margin) * scale_y)
+            t_x = (dx + 0.5) / margin
+            tight_x, wide_x = _layers(t_x)
+            alpha = _over(tight_x * tight_y / _TIGHT_ALPHA,
+                          wide_x * wide_y / _WIDE_ALPHA)
             image.setPixelColor(x, y, QColor(0, 0, 0, alpha))
     return QPixmap.fromImage(image)
 
