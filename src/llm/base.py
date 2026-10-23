@@ -52,6 +52,24 @@ class UsageStats:
 
 
 @dataclass(frozen=True)
+class TurnSpeed:
+    """一轮对话的平均输出速度载荷（2026-1023-1632 计划）。
+
+    口径：output_tokens 为轮内各次 API 调用的输出 token 求和（kimi wire
+    usage.output 是单次调用值，非累计，直取不差分）；gen_seconds 仅计
+    模型生成时间（各次调用配对 usage.record.time − llm.request.time 求
+    和），工具执行与审批等待落在两次请求之间的缝隙里，天然排除在外——
+    分母掺入非生成时间会失真，这是本定型的核心约束。
+
+    目前仅 kimi 后端产出（transcript 源才有逐次 output 真值；push 帧与
+    estimate 均无 output 计量）。
+    """
+
+    output_tokens: int   # 轮内输出 token 合计
+    gen_seconds: float   # 轮内模型生成耗时合计（秒）
+
+
+@dataclass(frozen=True)
 class Chunk:
     """流式块：kind 区分正文、思维链、上下文用量通知与 AI 活动信息。
 
@@ -70,6 +88,9 @@ class Chunk:
     text: str
     usage: UsageStats | None = None
     payload: dict | None = None
+    #: 轮次输出速度（kind="usage" 时可同帧携带；仅 kimi 后端产出，
+    #: 其余后端恒 None，GUI 无数据不显示对应行）
+    speed: "TurnSpeed | None" = None
 
 
 class TodoEntry(TypedDict, total=False):

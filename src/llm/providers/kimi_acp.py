@@ -18,6 +18,12 @@ usage_update（1412 T5 实测），轮次收尾改读 agent 会话落盘记录
 llm.request.maxTokens。usage.record 于 response 后约 1~3s 异步写盘，
 轮次开始记基线条数、收尾短轮询（≤3s）只接受新记录，超时/残缺静默降级。
 
+轮次输出速度（2026-1023-1632 计划）：同帧携带 TurnSpeed——基线后逐次
+调用配对 `llm.request → usage.record`，分子 Σ usage.output（单次调用
+值，直取不差分），分母 Σ (record.time − request.time) 仅含模型生成时
+间，工具/审批间隙天然排除；等待条件凑齐「新增 record 数 ≥ 新增
+request 数」。格式假设登记于 维护手册/后端CLI工具维护说明手册.md §6。
+
 session/update 映射（1602 计划 T3）：私有 _map_update 已删除，统一改调
 llm/providers/acp.py 的公共实现 map_session_update（D4 上收——原四份
 逐行一致副本同一改动改四处必然漂移）。
@@ -42,7 +48,7 @@ from typing import Iterator
 
 from core.paths import PROJECT_ROOT  # agent 工作目录限定于项目根
 from core.version import APP_VERSION
-from llm.base import Chunk, LanguageModel, Message, UsageStats
+from llm.base import Chunk, LanguageModel, Message, TurnSpeed, UsageStats
 # PermissionOption/PermissionParams/ToolCallInfo 仅 re-export（llm/permission_policy 从此处取型），
 # 冗余名别名是 ruff 约定的显式 re-export 写法，勿当未用导入删除
 from llm.providers.acp import (
@@ -96,8 +102,22 @@ def _session_dir_of(session_id: str) -> Path | None:
     return None
 
 
-def _read_wire_usage(session_dir: Path) -> tuple[int, UsageStats | None]:
-    """读 wire.jsonl → (usage.record 条数, 末条用量定型)；文件缺失/损坏返回 (0, None)。
+def _read_wire_records(session_dir: Path) -> list[dict] | None:
+    """读 wire.jsonl 全量记录；文件缺失/损坏返回 None（收尾路径一次读法）。"""
+    wire = session_dir / "agents" / "main" / "wire.jsonl"
+    try:
+        return [json.loads(line)
+                for line in wire.read_text(encoding="utf-8").strip().splitlines()
+                if line.strip()]
+    except (OSError, json.JSONDecodeError):
+        logger.exception("wire.jsonl 全量读取失败")
+        return None
+
+
+def _read_wire_turn_stats(
+    session_dir: Path,
+) -> tuple[int, int, UsageStats | None] | None:
+    """一次全量读取 → (usage.record 条数, llm.request 条数, 末条用量定型)；失败 None。
 
     末条口径（1454 计划 T5，E2 实证字段结构）：
     - used = inputOther + inputCacheRead（对齐 kilocode 推送口径 input+cache.read，
@@ -106,29 +126,78 @@ def _read_wire_usage(session_dir: Path) -> tuple[int, UsageStats | None]:
       实测 262144 与 kilocode 推送的 size 交叉验证一致）；
     - source="transcript"（agent 落盘的 API 真值，非协议推送）。
     """
-    wire = session_dir / "agents" / "main" / "wire.jsonl"
-    try:
-        records = [json.loads(line)
-                   for line in wire.read_text(encoding="utf-8").strip().splitlines()
-                   if line.strip()]
-    except (OSError, json.JSONDecodeError):
-        logger.exception("wire.jsonl 全量读取失败")
-        return 0, None
+    records = _read_wire_records(session_dir)
+    if records is None:
+        return None
     usage_records = [r for r in records
                      if r.get("type") == "usage.record" and r.get("usageScope") == "turn"]
-    if not usage_records:
-        return 0, None
-    usage = usage_records[-1].get("usage") or {}
-    used_other = usage.get("inputOther")
-    used_cache = usage.get("inputCacheRead")
     requests = [r for r in records if r.get("type") == "llm.request"]
-    max_tokens = requests[-1].get("maxTokens") if requests else None
-    if (not isinstance(used_other, int) or used_other < 0
-            or not isinstance(used_cache, int) or used_cache < 0
-            or not isinstance(max_tokens, int) or max_tokens <= 0):
-        return len(usage_records), None
-    return len(usage_records), UsageStats(
-        used=used_other + used_cache, size=max_tokens, cost=None, source="transcript")
+    stats: UsageStats | None = None
+    if usage_records:
+        usage = usage_records[-1].get("usage") or {}
+        used_other = usage.get("inputOther")
+        used_cache = usage.get("inputCacheRead")
+        max_tokens = requests[-1].get("maxTokens") if requests else None
+        if (isinstance(used_other, int) and used_other >= 0
+                and isinstance(used_cache, int) and used_cache >= 0
+                and isinstance(max_tokens, int) and max_tokens > 0):
+            stats = UsageStats(
+                used=used_other + used_cache, size=max_tokens,
+                cost=None, source="transcript")
+    return len(usage_records), len(requests), stats
+
+
+def _read_wire_usage(session_dir: Path) -> tuple[int, UsageStats | None]:
+    """读 wire.jsonl → (usage.record 条数, 末条用量定型)；文件缺失/损坏返回 (0, None)。"""
+    parsed = _read_wire_turn_stats(session_dir)
+    if parsed is None:
+        return 0, None
+    return parsed[0], parsed[2]
+
+
+def _read_wire_turn_speed(
+    session_dir: Path, usage_baseline: int
+) -> TurnSpeed | None:
+    """轮次输出速度（2026-1023-1632 计划）：基线之后的逐次调用配对求和。
+
+    单次 API 调用在 wire 中的事件序为 `llm.request → usage.record →
+    content.part → tool.call/result`（2026-10-23 实测）；每次调用生成耗时
+    = 配对 usage.record.time − llm.request.time，工具执行与审批等待落在
+    两次请求之间的缝隙，天然排除（分母掺入非生成时间会失真）。
+    `usage.output` 是单次调用值（实测非单调），直取求和，禁止差分。
+    配对规则：文件序上每条 usage.record 与其前最近的 llm.request 配对；
+    缺 time/output/配对不上/耗时非正的条目跳过；有效配对为 0 → None。
+    """
+    records = _read_wire_records(session_dir)
+    if records is None:
+        return None
+    seen = 0
+    pending_req_time: int | None = None
+    output_total = 0
+    gen_ms_total = 0
+    for r in records:
+        rtype = r.get("type")
+        if rtype == "llm.request":
+            req_time = r.get("time")
+            pending_req_time = req_time if isinstance(req_time, int) else None
+        elif rtype == "usage.record" and r.get("usageScope") == "turn":
+            seen += 1
+            if seen <= usage_baseline:
+                continue
+            usage = r.get("usage") or {}
+            output = usage.get("output")
+            rec_time = r.get("time")
+            if (pending_req_time is None
+                    or not isinstance(output, int) or output < 0
+                    or not isinstance(rec_time, int)
+                    or rec_time <= pending_req_time):
+                continue
+            output_total += output
+            gen_ms_total += rec_time - pending_req_time
+    if output_total <= 0 or gen_ms_total <= 0:
+        return None
+    return TurnSpeed(
+        output_tokens=output_total, gen_seconds=gen_ms_total / 1000)
 
 
 def _read_wire_usage_tail(session_dir: Path) -> UsageStats | None:
@@ -646,8 +715,13 @@ class KimiAcpLLM(LanguageModel):
         # 改读会话落盘 wire.jsonl。usage.record 于 response 后约 1~3s 异步写盘，
         # 且须防误读上一轮记录——轮次开始时记下 (session_dir, 已有条数) 基线，
         # 收尾只接受条数增长后的新记录。
+        # 基线双记（2026-1023-1632 计划）：usage.record 与 llm.request 各记一份
+        # 条数——多步轮次产生多条 usage.record，收尾等待条件须凑齐本轮全部
+        # 调用（详见 _poll_wire_usage），且输出速度按 request↔record 配对计算。
         session_dir = _session_dir_of(self._session_id) if self._session_id else None
-        baseline_count = _read_wire_usage(session_dir)[0] if session_dir else 0
+        turn_stats0 = _read_wire_turn_stats(session_dir) if session_dir else None
+        usage_baseline = turn_stats0[0] if turn_stats0 else 0
+        request_baseline = turn_stats0[1] if turn_stats0 else 0
         sidecar: _WireSidecar | None = None
         sidecar_queue: queue.Queue[dict] = queue.Queue()
         if self._sidecar_enabled and session_dir is not None:
@@ -672,9 +746,12 @@ class KimiAcpLLM(LanguageModel):
                             # 线程内短等待，不阻塞 GUI）
                             time.sleep(_SIDECAR_POLL_S)
                             yield from self._drain_sidecar(sidecar_queue)
-                        stats = self._poll_wire_usage(session_dir, baseline_count)
-                        if stats is not None:
-                            yield Chunk("usage", "", usage=stats)
+                        stats = self._poll_wire_usage(
+                            session_dir, usage_baseline, request_baseline)
+                        speed = (_read_wire_turn_speed(session_dir, usage_baseline)
+                                 if session_dir is not None else None)
+                        if stats is not None or speed is not None:
+                            yield Chunk("usage", "", usage=stats, speed=speed)
                         return
                     chunk = map_session_update(obj)
                     if chunk:
@@ -702,9 +779,15 @@ class KimiAcpLLM(LanguageModel):
 
     @staticmethod
     def _poll_wire_usage(
-        session_dir: Path | None, baseline_count: int
+        session_dir: Path | None, usage_baseline: int, request_baseline: int
     ) -> UsageStats | None:
-        """轮询 wire.jsonl 直至出现本轮新 usage.record（条数 > 基线）或超时。
+        """轮询 wire.jsonl 直至本轮 usage.record 凑齐（或超时）后取末条用量定型。
+
+        等待条件（2026-1023-1632 计划修订）：多步轮次每次 API 调用产生一条
+        usage.record，末条在 response 后约 1~3s 异步落盘；旧条件「条数 >
+        基线」会被前几条提前满足、等不到末条。改为「新增 usage.record 数 ≥
+        本轮新增 llm.request 数」（request 轮内同步写盘，response 时已达终
+        值）；request 基线失真（新增数 ≤ 0）时回退旧条件「条数 > 基线」。
 
         在 worker 线程内短轮询（最长 _WIRE_USAGE_WAIT_S），不阻塞 GUI；
         超时/数据残缺 → None（徽章隐藏降级，D4 语义）。session_dir 为 None
@@ -714,9 +797,15 @@ class KimiAcpLLM(LanguageModel):
             return None
         deadline = time.monotonic() + _WIRE_USAGE_WAIT_S
         while True:
-            count, stats = _read_wire_usage(session_dir)
-            if count > baseline_count:
-                return stats  # 新记录已落盘（数据残缺则 stats=None，同样收尾）
+            parsed = _read_wire_turn_stats(session_dir)
+            if parsed is not None:
+                usage_count, request_count, stats = parsed
+                new_requests = request_count - request_baseline
+                if new_requests > 0:
+                    if usage_count - usage_baseline >= new_requests:
+                        return stats  # 本轮记录凑齐（残缺则 stats=None，同样收尾）
+                elif usage_count > usage_baseline:
+                    return stats  # request 基线失真：回退旧语义（条数 > 基线）
             if time.monotonic() >= deadline:
                 return None
             time.sleep(_WIRE_USAGE_POLL_S)

@@ -228,6 +228,42 @@ wire 缺失/关联不上均静默回退纯 ACP 行为（子代理仅起止 + 成
    与登记假设，并跑 `.venv/bin/python scripts/test_subagent_nested.py`
    （驱动样本 `.temp/subagent_wire_sample.jsonl` 需同步重制）。
 
+### 6.2 kimi wire.jsonl 用量与输出速度（2026-10-23 登记）
+
+**机制**：Zen Studio 的 kimi-acp 后端读取主代理 wire
+`~/.kimi-code/sessions/<工作区键>/<sessionId>/agents/main/wire.jsonl`
+（实现：`src/llm/providers/kimi_acp.py` `_read_wire_turn_stats` /
+`_read_wire_turn_speed` / `_read_wire_usage_tail`）：上下文用量取末条
+`usage.record`；轮次输出速度按逐次调用配对计算。同为**客户端私有行为**，
+kimi-code 无任何格式契约，CLI 升级可能漂移。
+
+**登记的格式假设**（实测样本：2026-10-23 `wd_zen_studio` 会话 main
+wire.jsonl，一轮 16 次 API 调用）：
+
+- 每条记录带 `time`（epoch 毫秒）；
+- `type == "usage.record"` 且 `usageScope == "turn"`：`usage` 含
+  `inputOther/output/inputCacheRead/inputCacheCreation` 四字段；其中
+  **`output` 是单次调用值**（实测序列 277→201→326… 非单调，直取不差分；
+  inputOther+inputCacheRead 才是单调爬升的累计口径）；每次 API 调用写
+  一条，轮次内实时落盘，仅末条在 response 后约 1~3s 异步写入；
+- `type == "llm.request"`：含 `maxTokens`（上下文窗口上限）、
+  `turnStep`（`"0.N"` 递增）、`time`；轮次内同步写盘；
+- 单次调用事件序：`step.begin → llm.request → usage.record →
+  content.part → tool.call/tool.result → step.end`（均包裹在
+  `context.append_loop_event` 的 `event` 键内，llm.request/usage.record
+  为顶层记录）；生成耗时 = 配对 `usage.record.time − llm.request.time`，
+  工具执行与审批等待落在两次 request 之间的缝隙，天然排除；
+- 配对规则：文件序上每条 `usage.record` 与其前最近的 `llm.request`
+  配对。
+
+**降级**：读取失败/字段缺失/配对不上 → 对应条目跳过，全部失效则速度
+行/用量徽章静默不显示，不抛出、不臆造。
+
+**失效排查路径**：症状「徽章用量不刷新 / tooltip 无输出速度行」→
+`tail -20 agents/main/wire.jsonl` 对照上述字段（重点看 `usage.output`
+是否仍存在、`time` 是否仍为 epoch 毫秒）；格式漂移确认后按新样本修订
+`_read_wire_turn_stats` / `_read_wire_turn_speed` 与本登记。
+
 ---
 
 ## 使用建议

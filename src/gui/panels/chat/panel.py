@@ -104,6 +104,7 @@ from llm import (
     LanguageModel,
     Message,
     PermissionParams,
+    TurnSpeed,
     UsageStats,
     resolve_efforts,
     spec_of,
@@ -138,10 +139,11 @@ def _compose_usage_tooltip(
     session_start: datetime | None,
     last_turn: dict | None,
     turn_started_at: datetime | None,
+    speed: "TurnSpeed | None",
     now: datetime,
 ) -> str:
     """徽章 tooltip 组文案：用量段（有数据才有）+ 计时段（会话开始 /
-    本轮进行中 / 上轮任务），全空返回空串。
+    本轮进行中 / 上轮任务 / 上轮输出速度），全空返回空串。
 
     抽成纯函数的原因：tooltip 需在悬停事件时按当前时刻重算（setToolTip
     是静态文本，「已持续/已用」不随时间自刷新），组文案逻辑必须能脱离
@@ -170,6 +172,11 @@ def _compose_usage_tooltip(
         lines.append(
             f"上轮任务：用时 {elapsed}"
             f"（{last_turn['ended'].strftime('%H:%M')} {last_turn['outcome']}）")
+    if speed is not None and speed.gen_seconds > 0:
+        lines.append(
+            f"上轮输出速度：{speed.output_tokens / speed.gen_seconds:.1f} tok/s"
+            f"（输出 {speed.output_tokens:,} tokens"
+            f" / 生成 {_format_duration(speed.gen_seconds)}）")
     return "\n".join(lines)
 
 
@@ -284,6 +291,9 @@ class ChatPanel(QWidget):
         self._session_started_at: datetime | None = None
         self._turn_started_at: datetime | None = None
         self._last_turn: dict | None = None
+        #: 最近一次正常收尾轮的输出速度（仅 kimi 后端产出，随 usage chunk
+        #: 同帧携带；内存态与 _usage 同寿命，失败/中断轮不更新）
+        self._turn_speed: TurnSpeed | None = None
         #: 轮次内用量轮询计时器：_on_send 启动、_on_finished/_on_stopped/
         #: 切后端停止；tick 调 provider.poll_usage()，非 kimi 后端默认返回
         #: None 空转成本可忽略（红线：不臆造数值）
@@ -451,6 +461,7 @@ class ChatPanel(QWidget):
             self._session_started_at = None
             self._turn_started_at = None
             self._last_turn = None
+            self._turn_speed = None
             self._refresh_usage_label()
             self.timeline.clear()  # 新会话清空色块条（随标签会话）
             if old is not None and getattr(old, "close", None) is not None:
@@ -841,11 +852,11 @@ class ChatPanel(QWidget):
 
     def _refresh_usage_tooltip(self) -> None:
         """tooltip 按当前时刻重组：用量段 + 计时段（会话开始/本轮进行中/
-        上轮任务），各段有数据才出现，全空即空串——首轮发送后轮次计时
-        即可见，不必等用量帧。"""
+        上轮任务/上轮输出速度），各段有数据才出现，全空即空串——首轮
+        发送后轮次计时即可见，不必等用量帧。"""
         self._usage_label.setToolTip(_compose_usage_tooltip(
             self._usage, self._session_started_at, self._last_turn,
-            self._turn_started_at, datetime.now()))
+            self._turn_started_at, self._turn_speed, datetime.now()))
 
     def eventFilter(self, watched, event) -> bool:
         """徽章悬停（ToolTip 事件）按当前时刻重算 tooltip——setToolTip
@@ -1082,6 +1093,9 @@ class ChatPanel(QWidget):
             # 上下文用量通知：只更新徽章簿记，不进输出区文本流、不入 _history
             if chunk.usage is not None:
                 self._usage = chunk.usage
+            if chunk.speed is not None:
+                self._turn_speed = chunk.speed
+            if chunk.usage is not None or chunk.speed is not None:
                 self._refresh_usage_label()
             return
         if chunk.kind in ("tool_call", "tool_call_update", "todo"):

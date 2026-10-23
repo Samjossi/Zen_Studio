@@ -1,12 +1,13 @@
 """上下文用量徽章 tooltip 计时信息：纯函数用例（不实例化 ChatPanel，无 Qt 依赖）。
 
 覆盖 `_format_duration` 分档与 `_compose_usage_tooltip` 各段有无/跨天/
-进行中/上轮三态收尾文案（2026-1022-1519 计划）。
+进行中/上轮三态收尾文案（2026-1022-1519 计划）；speed 参数的输出速度
+行（2026-1023-1632 计划）。
 """
 from datetime import datetime
 
 from gui.panels.chat.panel import _compose_usage_tooltip, _format_duration
-from llm import UsageStats
+from llm import TurnSpeed, UsageStats
 
 NOW = datetime(2026, 10, 22, 15, 30)
 
@@ -32,12 +33,12 @@ def test_format_duration_negative_clamped():
 
 
 def test_compose_tooltip_all_empty():
-    assert _compose_usage_tooltip(None, None, None, None, NOW) == ""
+    assert _compose_usage_tooltip(None, None, None, None, None, NOW) == ""
 
 
 def test_compose_tooltip_usage_only_keeps_legacy_shape():
     usage = UsageStats(used=20806, size=262144, cost=None, source="transcript")
-    text = _compose_usage_tooltip(usage, None, None, None, NOW)
+    text = _compose_usage_tooltip(usage, None, None, None, None, NOW)
     assert text == (
         "上下文已用 20,806 / 上限 262,144 tokens（8%）\n"
         "数据来源：kimi 会话记录（agent 落盘的接口真值）")
@@ -50,25 +51,25 @@ def test_compose_tooltip_usage_source_levels():
     ):
         text = _compose_usage_tooltip(
             UsageStats(used=1, size=100, cost=None, source=source),
-            None, None, None, NOW)
+            None, None, None, None, NOW)
         assert note in text
 
 
 def test_compose_tooltip_session_same_day():
     start = datetime(2026, 10, 22, 13, 23)
-    text = _compose_usage_tooltip(None, start, None, None, NOW)
+    text = _compose_usage_tooltip(None, start, None, None, None, NOW)
     assert text == "会话开始：13:23（已持续 2 小时 7 分）"
 
 
 def test_compose_tooltip_session_cross_day_has_date():
     start = datetime(2026, 10, 21, 23, 0)
-    text = _compose_usage_tooltip(None, start, None, None, NOW)
+    text = _compose_usage_tooltip(None, start, None, None, None, NOW)
     assert text.startswith("会话开始：10-21 23:00")
 
 
 def test_compose_tooltip_turn_in_progress():
     turn_start = datetime(2026, 10, 22, 15, 29, 15)
-    text = _compose_usage_tooltip(None, None, None, turn_start, NOW)
+    text = _compose_usage_tooltip(None, None, None, turn_start, None, NOW)
     assert "本轮进行中：已用 45 秒" in text
 
 
@@ -79,7 +80,7 @@ def test_compose_tooltip_last_turn_outcomes():
         text = _compose_usage_tooltip(
             None, None,
             {"started": started, "ended": ended, "outcome": outcome},
-            None, NOW)
+            None, None, NOW)
         assert f"上轮任务：用时 1 分 23 秒（15:18 {outcome}）" in text
 
 
@@ -92,10 +93,42 @@ def test_compose_tooltip_full_segments():
         "ended": datetime(2026, 10, 22, 15, 18, 0),
         "outcome": "完成",
     }
-    text = _compose_usage_tooltip(usage, start, last, turn_start, NOW)
+    text = _compose_usage_tooltip(usage, start, last, turn_start, None, NOW)
     lines = text.split("\n")
     assert lines[0].startswith("上下文已用 20,806 / 上限 262,144 tokens（8%）")
     assert lines[1] == "数据来源：agent 实时推送"
     assert lines[2].startswith("会话开始：15:12")
     assert lines[3] == "本轮进行中：已用 45 秒"
     assert lines[4] == "上轮任务：用时 1 分 23 秒（15:18 完成）"
+
+
+def test_compose_tooltip_speed_line():
+    speed = TurnSpeed(output_tokens=1358, gen_seconds=73.0)
+    text = _compose_usage_tooltip(None, None, None, None, speed, NOW)
+    assert text == "上轮输出速度：18.6 tok/s（输出 1,358 tokens / 生成 1 分 13 秒）"
+
+
+def test_compose_tooltip_speed_follows_last_turn():
+    last = {
+        "started": datetime(2026, 10, 22, 15, 16, 37),
+        "ended": datetime(2026, 10, 22, 15, 18, 0),
+        "outcome": "完成",
+    }
+    speed = TurnSpeed(output_tokens=500, gen_seconds=25.0)
+    text = _compose_usage_tooltip(None, None, last, None, speed, NOW)
+    lines = text.split("\n")
+    assert lines[0].startswith("上轮任务：")
+    assert lines[1].startswith("上轮输出速度：20.0 tok/s")
+
+
+def test_compose_tooltip_speed_none_no_line():
+    text = _compose_usage_tooltip(
+        UsageStats(used=1, size=100, cost=None, source="push"),
+        None, None, None, None, NOW)
+    assert "输出速度" not in text
+
+
+def test_compose_tooltip_speed_zero_duration_no_line():
+    speed = TurnSpeed(output_tokens=100, gen_seconds=0.0)
+    text = _compose_usage_tooltip(None, None, None, None, speed, NOW)
+    assert text == ""

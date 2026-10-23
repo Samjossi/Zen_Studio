@@ -8,7 +8,7 @@
 
 依赖方向（无环）：本模块 → registry → providers → llm.base。
 """
-from llm.base import Chunk, LanguageModel, Message, UsageStats
+from llm.base import Chunk, LanguageModel, Message, TurnSpeed, UsageStats
 from llm.providers.acp import PermissionHandler, PermissionParams
 from llm.providers.dream_acp import DreamAcpLLM, dream_available, list_dream_models
 from llm.providers.dsh_acp import DshAcpLLM, dsh_available, list_dsh_models
@@ -40,6 +40,7 @@ __all__ = [
     "Chunk",
     "LanguageModel",
     "Message",
+    "TurnSpeed",
     "UsageStats",
     "BACKEND_KIMI_ACP",
     "BACKEND_LABELS",
