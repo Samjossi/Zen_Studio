@@ -27,6 +27,18 @@ def test_overrides_take_precedence():
         "kimi-code/kimi-for-coding": "K2.8 Preview"}
 
 
+def test_k31_pro_display_names():
+    """K3.1 Pro 系列显示名（2026-10-24 CLI 2.0.0 实测字段，计划 2026-1024-0403）。"""
+    data = {"models": {
+        "kimi-code/k3.1-pro": {"displayName": "K3.1 Pro"},
+        "kimi-code/k3.1-pro-highspeed": {"displayName": "K3.1 Pro Highspeed"},
+    }}
+    assert display_names_from_catalog(data) == {
+        "kimi-code/k3.1-pro": "K3.1 Pro",
+        "kimi-code/k3.1-pro-highspeed": "K3.1 Pro Highspeed",
+    }
+
+
 def test_missing_field_skipped():
     data = {"models": {
         "kimi-code/k3": {"displayName": "K3"},

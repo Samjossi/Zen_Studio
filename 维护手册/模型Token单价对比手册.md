@@ -1,8 +1,8 @@
 # 模型 Token 单价对比手册
 
 > **创建日期**：2026-10-04
-> **最后更新**：2026-10-04
-> **版本**：v1.0
+> **最后更新**：2026-10-24
+> **版本**：v1.1
 > **用途**：汇总 Zen Studio 各后端当前可用模型的官方 Token 单价，供选型与成本估算对比。价格有时效性，引用前请以官方定价页为准。
 
 ---
@@ -18,9 +18,9 @@
 
 ## 2. Zen Studio 后端与模型对应
 
-| 后端 | 当前枚举模型（2026-09-17 实测基线） | 计费方式 |
+| 后端 | 当前枚举模型（2026-10-24 实测基线） | 计费方式 |
 |:---|:---|:---|
-| kimi-acp | `k3`、`k3-256k`、`kimi-for-coding`（K2.8 Preview）、`kimi-for-coding-highspeed` | Kimi Code **会员订阅制**（CLI 走额度，不按 token 计费）；§4 的 API 单价仅供横向参考 |
+| kimi-acp | `k3.1-pro`（K3.1 Pro）、`k3.1-pro-highspeed`（K3.1 Pro Highspeed）、`k3`、`k3-256k`、`kimi-for-coding`（K2.8 Preview）、`kimi-for-coding-highspeed` | Kimi Code **会员订阅制**（CLI 走额度，不按 token 计费）；§4 的 API 单价仅供横向参考 |
 | reasonix-acp | `deepseek-v4-pro`、`deepseek-v4-flash`（新模型需自行写入 `~/.reasonix/config.toml`，如 `deepseek-flash`） | DeepSeek 官方 API 按量计费 |
 | opencode-acp | `deepseek-v4-flash`、`deepseek-v4-pro`、`k3`、`k3-256k`、`kimi-for-coding*`（另有两个已停用旧别名 `deepseek-chat`/`deepseek-reasoner`） | 上游官方同价 |
 | kilocode-acp | — | **已封存**（个人维护状态，不再更新） |
@@ -70,6 +70,8 @@ Zen Studio 经 Kimi Code CLI（会员订阅）使用时不按 token 计费；以
 
 | 模型 | 类型定位 | 输入·缓存命中 | 输入·缓存未命中 | 输出 | 上下文 |
 |:---|:---|:---:|:---:|:---:|:---:|
+| Kimi K3.1 Pro（`k3.1-pro`，2026-10 上线） | 新旗舰（3T 级），仅 thinking（档位 low/high/max，默认 max） | 未公布按量价，仅 Kimi Code 会员订阅可用 | — | — | 1M（高档位会员） |
+| Kimi K3.1 Pro Highspeed（`k3.1-pro-highspeed`） | 同上·高速版（约 2~3× 速度、约 2× 额度消耗） | 未公布按量价，仅 Kimi Code 会员订阅可用 | — | — | 1M（高档位会员） |
 | Kimi K3（`k3` / `k3-256k`） | 旗舰推理（2.8T MoE），始终 thinking 模式 | ¥2（$0.30） | ¥20（$3.00） | ¥100（$15.00） | 1M |
 | Kimi K2.7 Code | 编程专用 | ¥1.30（$0.19） | ¥6.50（$0.95） | ¥27（$4.00） | 256K |
 | Kimi K2.7 Code Highspeed | 编程专用·高速版 | ¥2.60 | ¥13.00 | ¥54 | 256K |
@@ -105,7 +107,9 @@ Zen Studio 经 Kimi Code CLI（会员订阅）使用时不按 token 计费；以
 
 ---
 
-## 7. 数据来源（2026-10-04 查询）
+## 7. 数据来源（2026-10-04 查询；K3.1 Pro 行为 2026-10-24 补）
+
+- Kimi K3.1 Pro 系列上线与规格：[Kimi Code 官方模型配置页](https://www.kimi.com/code/docs/en/kimi-code/models.html)（2026-10-24 查询，按量价未公布，仅会员订阅口径）
 
 - DeepSeek V4.1 Flash 定价与 V4 Pro 路由通告：[DeepSeek V4.1 Flash 发布（前端进阶之旅）](https://feinterview.poetries.top/ai-monitor/news/deepseek-9-10-v4-1-flash-v4-pro)、[DeepSeek 调价公告（网易）](https://www.163.com/dy/article/L6D49CK10519QIKK.html)、[Apifox 定价一览](https://apifox.com/apiskills/how-to-use-deepseek-v4-1-flash-api-cn/)
 - DeepSeek 峰谷定价机制：[ChooseAI 价格表](https://www.chooseai.net/ai-news/detail/7413/)、[搜狐时间线（劳动报）](https://timeline.sohu.com/news/UrLxrfyX7f)

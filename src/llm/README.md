@@ -100,7 +100,7 @@ for chunk in llm.chat([{"role": "user", "content": "你好"}]):
 **kimi 二进制探测与模型枚举**（`llm/providers/kimi_common.py`）：
 
 - 二进制检测链：`PATH` → `$KIMI_CODE_HOME/bin/kimi` → `~/.kimi-code/bin/kimi`（桌面启动 PATH 不含安装目录时仍可发现）
-- 可用模型别名由 `list_kimi_models()`（`kimi provider list --json`）**动态解析**，随 CLI 重登录刷新的服务端目录自动增减，IDE 侧零硬编码（2026-07-25 起目录含 `kimi-code/k3-256k`：K3 的 256K 版，同模式消耗约为 `k3`（1M）一半，**仅图片输入不支持视频**，effort `low`/`high`/`max`；IDE 持久化默认版本与 CLI `default_model` 均已切换至它，见 文档/修改记录/2026-0725-0205）
+- 可用模型别名由 `list_kimi_models()`（`kimi provider list --json`）**动态解析**，随 CLI 重登录刷新的服务端目录自动增减，IDE 侧零硬编码（2026-07-25 起目录含 `kimi-code/k3-256k`：K3 的 256K 版，同模式消耗约为 `k3`（1M）一半，**仅图片输入不支持视频**，effort `low`/`high`/`max`；IDE 持久化默认版本与 CLI `default_model` 均已切换至它，见 文档/修改记录/2026-0725-0205。2026-10-24 起目录含 `kimi-code/k3.1-pro` / `kimi-code/k3.1-pro-highspeed`：K3.1 Pro 系列，3T 级、1M 上下文（高档位会员）、仅 thinking（`always_thinking`）、effort `low`/`high`/`max` 默认 `max`、支持视频输入；目录字段齐全，IDE 零改动接入，见 `work plans/2026-1024-0403_K3.1Pro新模型接入落地计划.md`）
 
 ## 5. 安全模型（零密钥）
 

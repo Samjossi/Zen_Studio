@@ -1,7 +1,7 @@
 # 后端CLI工具维护说明手册
 
 > 本文档汇总了团队常用 后端CLI工具的官方说明地址，供工程师在遇到疑惑时快速查阅。
-> 最后更新：2026-10-04（新增 §5 本地模型（Local CLI）：安装/配置/排错与实测基线，2026-1004-2124 计划）
+> 最后更新：2026-10-24（§1 新增 K3.1 Pro 系列上线备注，2026-1024-0403 计划）
 
 ---
 
@@ -29,6 +29,14 @@ kimi upgrade -y
 # 旧版（Python/uv，逐步停止维护）
 uv tool install kimi-cli
 ```
+
+> 模型备注（2026-10-24）：**K3.1 Pro 系列上线**——`k3.1-pro`（3T 级新旗舰，
+> 1M 上下文限高档位会员，仅 thinking，档位 low/high/max 默认 max，图像+视频输入）
+> 与 `k3.1-pro-highspeed`（同能力高速版，约 2~3× 速度、约 2× 额度消耗）。
+> 本机 CLI 2.0.0 实测 `provider list --json` 目录字段齐全（supportEfforts/
+> defaultEffort/displayName 直给，无 overrides 子表），Zen Studio 侧零改动接入。
+> 官方建议切 K3.1 Pro 开新会话（切模型/档位使上下文缓存失效）。
+> 详见 `work plans/2026-1024-0403_K3.1Pro新模型接入落地计划.md`。
 
 > 模型备注（2026-09-17）：`kimi-for-coding` 已全量升级为 **K2.8 Preview**
 > （Model ID 不变；思考档位 low/high/max、默认 max；全会员档位 1M 上下文）。
