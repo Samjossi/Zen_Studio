@@ -148,8 +148,9 @@ class FileExplorer(QWidget):
         layout = QVBoxLayout(self)
         layout.addLayout(header)
         layout.addWidget(self.tree)
-        # 面板外边距：树卡片不贴窗口边缘与 splitter 把手（苹果风卡片间距）
-        layout.setContentsMargins(6, 6, 6, 6)
+        # 面板外边距：树卡片不贴窗口边缘；底边距 2px 与查看器面板对齐，
+        # 保证与变更面板之间的 splitter 区间和中栏（查看器/终端）一致
+        layout.setContentsMargins(6, 6, 6, 2)
 
         self._build_refresh_button()
         self._reset_search_state()

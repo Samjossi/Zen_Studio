@@ -91,5 +91,7 @@ class WelcomePanel(QWidget):
 
         layout = QVBoxLayout(self)
         layout.addWidget(card, 1)
-        layout.setContentsMargins(6, 2, 6, 6)
+        # 底边距 2px 与文件树面板对齐：空窗时占据文件树槽位，
+        # 需保持与变更面板之间的 splitter 区间一致
+        layout.setContentsMargins(6, 2, 6, 2)
         layout.setSpacing(0)
