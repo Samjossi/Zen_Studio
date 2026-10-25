@@ -64,6 +64,7 @@ AI 活动信息路由：
 """
 import threading
 import time
+from collections import deque
 from datetime import datetime
 from pathlib import Path
 
@@ -134,16 +135,46 @@ def _format_duration(seconds: float) -> str:
     return f"{total // 3600} 小时 {total % 3600 // 60} 分"
 
 
+#: 实时输出速度滚动窗口（秒）：tooltip「实时输出速度」行的取均跨度
+_LIVE_SPEED_WINDOW_S = 10.0
+
+#: 窗口首末样本最小跨度（秒）：低于此速率抖动无意义，该行暂不显示
+_LIVE_SPEED_MIN_SPAN_S = 2.0
+
+
+def _windowed_speed(
+    samples: deque[tuple[float, int]],
+    now: float,
+    window: float = _LIVE_SPEED_WINDOW_S,
+) -> float | None:
+    """近 window 秒滚动窗口的输出速度（tok/s，流式字符 ÷4 估算）。
+
+    samples 为 (time.monotonic(), 累计字符数) 采样点队列；剪窗后不足
+    2 点或首末跨度不足 _LIVE_SPEED_MIN_SPAN_S → None（轮初样本太少，
+    速率抖动无意义，调用方不显示该行）。分母为墙钟跨度、含工具/审批
+    间隙——「当前吞吐」口径，与 TurnSpeed 的纯生成时间口径刻意区分。
+    """
+    cutoff = now - window
+    pts = [p for p in samples if p[0] >= cutoff]
+    if len(pts) < 2:
+        return None
+    span = pts[-1][0] - pts[0][0]
+    if span < _LIVE_SPEED_MIN_SPAN_S:
+        return None
+    return (pts[-1][1] - pts[0][1]) / 4.0 / span
+
+
 def _compose_usage_tooltip(
     usage: UsageStats | None,
     session_start: datetime | None,
     last_turn: dict | None,
     turn_started_at: datetime | None,
+    live_speed: float | None,
     speed: "TurnSpeed | None",
     now: datetime,
 ) -> str:
     """徽章 tooltip 组文案：用量段（有数据才有）+ 计时段（会话开始 /
-    本轮进行中 / 上轮任务 / 上轮输出速度），全空返回空串。
+    本轮进行中 / 实时输出速度 / 上轮任务 / 上轮输出速度），全空返回空串。
 
     抽成纯函数的原因：tooltip 需在悬停事件时按当前时刻重算（setToolTip
     是静态文本，「已持续/已用」不随时间自刷新），组文案逻辑必须能脱离
@@ -166,6 +197,9 @@ def _compose_usage_tooltip(
         lines.append(
             "本轮进行中：已用 "
             f"{_format_duration((now - turn_started_at).total_seconds())}")
+    if live_speed is not None:
+        lines.append(
+            f"实时输出速度：~{live_speed:.1f} tok/s（近 10 秒均值，字符估算）")
     if last_turn is not None:
         elapsed = _format_duration(
             (last_turn["ended"] - last_turn["started"]).total_seconds())
@@ -294,6 +328,11 @@ class ChatPanel(QWidget):
         #: 最近一次正常收尾轮的输出速度（仅 kimi 后端产出，随 usage chunk
         #: 同帧携带；内存态与 _usage 同寿命，失败/中断轮不更新）
         self._turn_speed: TurnSpeed | None = None
+        #: 实时输出速度采样（内存态与 _usage 同寿命，轮收尾/切后端清空）：
+        #: (time.monotonic(), 累计流式字符数) 采样点滚动队列 + 累计计数；
+        #: text/reasoning chunk 到达即采样，速率由 _windowed_speed 剪窗计算
+        self._speed_samples: deque[tuple[float, int]] = deque()
+        self._speed_cum_chars: int = 0
         #: 轮次内用量轮询计时器：_on_send 启动、_on_finished/_on_stopped/
         #: 切后端停止；tick 调 provider.poll_usage()，非 kimi 后端默认返回
         #: None 空转成本可忽略（红线：不臆造数值）
@@ -462,6 +501,7 @@ class ChatPanel(QWidget):
             self._turn_started_at = None
             self._last_turn = None
             self._turn_speed = None
+            self._clear_speed_samples()  # 实时速度样本同清（与 _usage 同寿命）
             self._refresh_usage_label()
             self.timeline.clear()  # 新会话清空色块条（随标签会话）
             if old is not None and getattr(old, "close", None) is not None:
@@ -852,11 +892,13 @@ class ChatPanel(QWidget):
 
     def _refresh_usage_tooltip(self) -> None:
         """tooltip 按当前时刻重组：用量段 + 计时段（会话开始/本轮进行中/
-        上轮任务/上轮输出速度），各段有数据才出现，全空即空串——首轮
-        发送后轮次计时即可见，不必等用量帧。"""
+        实时输出速度/上轮任务/上轮输出速度），各段有数据才出现，全空即
+        空串——首轮发送后轮次计时即可见，不必等用量帧。"""
+        live = (_windowed_speed(self._speed_samples, time.monotonic())
+                if self._turn_started_at is not None else None)
         self._usage_label.setToolTip(_compose_usage_tooltip(
             self._usage, self._session_started_at, self._last_turn,
-            self._turn_started_at, self._turn_speed, datetime.now()))
+            self._turn_started_at, live, self._turn_speed, datetime.now()))
 
     def eventFilter(self, watched, event) -> bool:
         """徽章悬停（ToolTip 事件）按当前时刻重算 tooltip——setToolTip
@@ -1104,13 +1146,32 @@ class ChatPanel(QWidget):
         if chunk.kind == "reasoning":
             # 思维链只上屏，不入 buffer/历史（DeepSeek 约束：不得回传）
             self._has_seen_reasoning = True
+            self._feed_speed_sample(len(chunk.text))
             self.output.append_reasoning_chunk(chunk.text)
             return
         if self._has_seen_reasoning:
             self.output.end_reasoning()  # 思维链与正文之间插空行
             self._has_seen_reasoning = False
+        self._feed_speed_sample(len(chunk.text))
         self._stream_buffer += chunk.text
         self.output.append_stream_chunk(chunk.text)
+
+    def _feed_speed_sample(self, n_chars: int) -> None:
+        """实时输出速度采样：流式字符累计 + 采样点入队，顺带剪除窗口外
+        旧样本（队列内存卫生；速率计算时 _windowed_speed 还会再剪一次，
+        两处独立不互赖）。"""
+        self._speed_cum_chars += n_chars
+        now = time.monotonic()
+        self._speed_samples.append((now, self._speed_cum_chars))
+        cutoff = now - _LIVE_SPEED_WINDOW_S
+        while self._speed_samples and self._speed_samples[0][0] < cutoff:
+            self._speed_samples.popleft()
+
+    def _clear_speed_samples(self) -> None:
+        """实时速度样本清空（轮收尾/切后端）：防上轮残留样本污染下一轮
+        头几秒的速率。"""
+        self._speed_samples.clear()
+        self._speed_cum_chars = 0
 
     def _on_activity_chunk(self, chunk: Chunk) -> None:
         """AI 活动信息路由：tool_call / tool_call_update / todo。
@@ -1212,6 +1273,7 @@ class ChatPanel(QWidget):
                 "outcome": "失败" if error else "完成",
             }
             self._turn_started_at = None
+        self._clear_speed_samples()  # 轮收尾实时速度样本清空（含接续轮起新轮）
         if error:
             if self._has_seen_reasoning:
                 self.output.end_reasoning()
@@ -1257,6 +1319,7 @@ class ChatPanel(QWidget):
                 "outcome": "手动停止",
             }
             self._turn_started_at = None
+        self._clear_speed_samples()  # 中断轮实时速度样本同清
         if self._has_seen_reasoning:
             self.output.end_reasoning()
             self._has_seen_reasoning = False
