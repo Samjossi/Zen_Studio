@@ -12,9 +12,11 @@
 
 一句话让 agent 写个贪吃蛇小游戏（工具卡片 / diff 徽标 / 流式响应全程可见）：
 
+<!-- 图片暂时隐藏，恢复时删除注释标记即可
 ![AI 聊天面板：让 agent 创建贪吃蛇游戏](assets/readme/demo_chat.gif)
 
 ![主界面总览](assets/readme/screenshot_overview.png)
+-->
 
 更多定格图：`assets/readme/screenshot_chat.png`（对话与工具卡片）、`assets/readme/screenshot_code.png`（只读查看器看代码）。
 
@@ -35,13 +37,13 @@ Zen Studio 的设计哲学是 **Agent 驱动**：代码修改一律经 AI agent 
 | 特性 | 说明 |
 |:---|:---|
 | AI 聊天面板 | 多标签会话（上限 4，标签间 provider 完全隔离可并行）；对话区双轨渲染——KiloCode 式卡片折叠（默认，工具/思维链/diff/TODO 全族卡，开合状态记忆）与经典流式可切换；token 级流式 + 思维链可见（ACP 后端）；图片附件多模态发送（粘贴/拖入，缩略图 chip 行，能力外后端自动退化 `@路径` 引用）；上下文 token 用量徽章（kimi 轮次内实时刷新）；发送/停止双态按钮；拖入文件插 `@相对路径` 引用；ACP 工具审批模态框（允许一次/始终允许/拒绝）；AskUserQuestion 提问卡片内作答（卡内按钮组串行激活，弹窗兜底） |
-| 统一 CLI 后端 | 对话统一经本机 agent CLI（OAuth 自管凭证），代码库**零 API KEY**；传输层统一为 ACP 长驻协议（Zed/JetBrains 同款集成方式），kimi / reasonix / OpenCode / Kilo Code / Dream 五后台可选 |
-| 会话标签异构后台 | 每标签独立选择后台 / 接口 / 模型（ModelBar 三级下拉直显当前值），标签间互不广播、busy 各禁各的，异构后台可真正并行；按接口记忆的模型选择持久化 |
+| 统一 CLI 后端 | 对话统一经本机 agent CLI（OAuth 自管凭证），代码库**零 API KEY**；传输层统一为 ACP 长驻协议（Zed/JetBrains 同款集成方式），Kimi / DSH（DeepSeek Harness）/ Reasonix / OpenCode / Kilo Code / Dream / Local 七后台可选 |
+| 会话标签异构后台 | 每标签独立选择后台 / 接口 / 模型 / 推理强度（ModelBar 四级下拉直显当前值），标签间互不广播、busy 各禁各的，异构后台可真正并行；按接口记忆的模型选择持久化 |
 | 多类型文件预览 | 只读查看器五页分流：文本（Pygments 高亮 + 行号栏）/ 图片（位图 + 矢量 SVG + GIF 动图 + 棋盘格透明底）/ PDF（连续滚动 + 翻页缩放）/ Markdown（GFM 渲染）/ 音视频（就地播放，双击即播） |
 | 真 PTY 终端 | ptyprocess + pyte + 自绘字符网格；多会话 tab；OSC 动态标题；查找浮层；Ctrl+C/V 与文本选择反转适配 |
 | Git 集成 | 文件树状态着色（M/U/D）、查看器差异徽标（`+a -b`）、右栏下变更面板（VS Code SCM 简化版）、状态栏差异统计；提交历史图弹窗（结构化列表：自绘图形列 + refs 胶囊徽标 + 相对·绝对双时间，ANSI 彩色降级形态兜底）；事件驱动刷新（窗口激活 / 外部重载 / 手动） |
 | 多开工作区 | 一进程绑定一工作区根；「在新窗口打开文件夹」起独立进程，窗口状态按工作区哈希分别持久化（VS Code `workspaceStorage` 语义） |
-| 主题体系 | 多主题注册表（云白/暖米/晴空/薄荷/暗色），自带思源黑体 / 更纱黑体 / Noto Color Emoji 字体族，主题令牌化治理 |
+| 主题体系 | 多主题注册表六款（亮族：云白/暖米/晴空/薄荷；暗族：石墨/深夜），自带思源黑体 / 更纱黑体 / Noto Color Emoji 字体族，主题令牌化治理 |
 | 外部修改自动重载 | `QFileSystemWatcher` 监视当前文件（AI 写盘为主修改路径），150ms 防抖重载并保留滚动位置 |
 
 ## 3. 界面布局
@@ -86,7 +88,7 @@ Zen Studio 的设计哲学是 **Agent 驱动**：代码修改一律经 AI agent 
 |:---|:---|
 | `main.py` | 入口：参数解析（工作区根 / 自动截图）→ 主题 → 主窗口（顶部含 `src/` 引导段，源码包已迁入 `src/`） |
 | `src/gui/` | 全部图形界面代码（主窗口 / 菜单 / 五面板 / 主题 / 设置中心），详见 `src/gui/README.md` |
-| `src/llm/` | LLM 调用薄层（`LanguageModel` Protocol + ACP 注册表五后端：kimi / reasonix / OpenCode / Kilo Code / Dream），详见 `src/llm/README.md` |
+| `src/llm/` | LLM 调用薄层（`LanguageModel` Protocol + ACP 注册表七后端：Kimi / DSH / Reasonix / OpenCode / Kilo Code / Dream / Local），详见 `src/llm/README.md` |
 | `dream-acp/` | Dream 后台 ACP 协议文件夹：带版本号协议文档 + 最小示例 agent + spike 握手工具（自包含零依赖，将来整体迁出 Dream 项目作底本） |
 | `src/core/` | 底层设施：版本单一来源 / 路径解析 / Git 数据层 / 外部应用调起 |
 | `src/markdown_it/` `src/mdurl/` | vendored 运行时依赖（Markdown 渲染内核及其 URL 依赖，ruff 已排除） |
@@ -108,7 +110,7 @@ Zen Studio 的设计哲学是 **Agent 驱动**：代码修改一律经 AI agent 
 uv sync
 ```
 
-前置条件：至少安装五后台之一的 agent CLI 并完成其登录（如 Kimi Code CLI ≥ 0.2.0 执行 `kimi login`，OAuth 凭证由 CLI 自管，IDE 不接触）。
+前置条件：至少安装七后台之一的 agent CLI 并完成其登录（如 Kimi Code CLI ≥ 0.2.0 执行 `kimi login`，OAuth 凭证由 CLI 自管，IDE 不接触）。
 
 ### 6.2 运行
 
