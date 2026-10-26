@@ -31,21 +31,20 @@ class Message(TypedDict):
 
 @dataclass(frozen=True)
 class UsageStats:
-    """上下文用量载荷定型（1454 计划 T3：扩 source 来源字段）。
+    """上下文窗口用量载荷；used/size 均采用 agent 或其记录的上报口径。
 
-    口径照单接受 agent 产出端语义：used = input + cache.read（不含
-    output/reasoning，偏保守但不失真）；size 为模型上下文窗口上限；
-    cost 为会话累计成本（agent 未给则 None，本期解析留存不上屏）。
+    source 区分数据来源而非计费方式：
+    - "push"：ACP `usage_update`，agent 对外报告的当前上下文占用与窗口；
+      可包含 agent 自己的未实测尾部估算，不代表会员额度或纯 API 实测值；
+    - "transcript"：agent 落盘记录中的实测上下文；kimi wire 以
+      inputOther+inputCacheRead+inputCacheCreation+output 四项求和，
+      用于轮内刷新与 ACP 缺失兜底，窗口另取模型目录 maxContextSize；
+    - "estimate"：IDE 对 transcript 消息文本的 chars/4 粗估，仅作量级参考。
 
-    source 数据来源分级（GUI 按级标注口径，D3）：
-    - "push"：ACP `usage_update` 推送（kilocode/opencode，最准，同帧 size）；
-    - "transcript"：agent 会话落盘记录读出的真值（kimi wire.jsonl
-      usage.record，精度等同 push 但非协议推送、轮次后异步可得）；
-    - "estimate"：IDE 侧对 transcript 消息文本的 chars/4 粗估
-      （reasonix；不含 agent 运行时注入开销的精确值，仅量级参考）。
+    cost 为会话累计成本（agent 未给则 None），与上下文占用分开理解。
     """
 
-    used: int            # 已用 token（input + cache.read，agent 口径）
+    used: int            # 已用上下文 token（agent/记录口径）
     size: int            # 上下文窗口上限
     cost: float | None   # 会话累计成本（USD；agent 未给则 None）
     source: Literal["push", "transcript", "estimate"] = "push"

@@ -197,7 +197,7 @@ cmake --build ~/opt/llama.cpp/build --target llama-server llama-cli -j "$(nproc)
 
 ---
 
-## 6. Zen Studio 私有通道登记（无协议契约，格式漂移自查）
+## 6. Zen Studio 数据通道登记（公开协议与私有旁路）
 
 ### 6.1 kimi wire.jsonl 子代理旁路（2026-08-13 登记）
 
@@ -236,41 +236,42 @@ wire 缺失/关联不上均静默回退纯 ACP 行为（子代理仅起止 + 成
    与登记假设，并跑 `.venv/bin/python scripts/test_subagent_nested.py`
    （驱动样本 `.temp/subagent_wire_sample.jsonl` 需同步重制）。
 
-### 6.2 kimi wire.jsonl 用量与输出速度（2026-10-23 登记）
+### 6.2 kimi 上下文用量与输出速度（2026-10-26 修订）
 
-**机制**：Zen Studio 的 kimi-acp 后端读取主代理 wire
+**公开主通道：ACP `usage_update`**。Kimi 在 prompt response 后异步发送
+该通知，`used` 是 agent 对外报告的当前上下文 token 数，`size` 是模型目录
+的实际上下文窗口。Zen 在同一个 ≤3s 轮末窗口内继续消费 ACP 与 wire，
+ACP 有效值优先（`source="push"`），避免两路等待串行叠加。该数值是上下文
+占用，不是会员额度；官方 token_counting 策略可包含未实测尾部估算。
+
+**私有实时与兜底通道**：主代理
 `~/.kimi-code/sessions/<工作区键>/<sessionId>/agents/main/wire.jsonl`
 （实现：`src/llm/providers/kimi_acp.py` `_read_wire_turn_stats` /
-`_read_wire_turn_speed` / `_read_wire_usage_tail`）：上下文用量取末条
-`usage.record`；轮次输出速度按逐次调用配对计算。同为**客户端私有行为**，
-kimi-code 无任何格式契约，CLI 升级可能漂移。
+`_read_wire_turn_speed` / `_read_wire_usage_tail`）。wire 无格式契约，仅用于
+轮内 2s 尾部轮询、ACP 缺失兜底（`source="transcript"`）与输出速度计算。
 
-**登记的格式假设**（实测样本：2026-10-23 `wd_zen_studio` 会话 main
-wire.jsonl，一轮 16 次 API 调用）：
+**当前格式与口径**：
 
-- 每条记录带 `time`（epoch 毫秒）；
-- `type == "usage.record"` 且 `usageScope == "turn"`：`usage` 含
-  `inputOther/output/inputCacheRead/inputCacheCreation` 四字段；其中
-  **`output` 是单次调用值**（实测序列 277→201→326… 非单调，直取不差分；
-  inputOther+inputCacheRead 才是单调爬升的累计口径）；每次 API 调用写
-  一条，轮次内实时落盘，仅末条在 response 后约 1~3s 异步写入；
-- `type == "llm.request"`：含 `maxTokens`（上下文窗口上限）、
-  `turnStep`（`"0.N"` 递增）、`time`；轮次内同步写盘；
-- 单次调用事件序：`step.begin → llm.request → usage.record →
-  content.part → tool.call/tool.result → step.end`（均包裹在
-  `context.append_loop_event` 的 `event` 键内，llm.request/usage.record
-  为顶层记录）；生成耗时 = 配对 `usage.record.time − llm.request.time`，
-  工具执行与审批等待落在两次 request 之间的缝隙，天然排除；
-- 配对规则：文件序上每条 `usage.record` 与其前最近的 `llm.request`
-  配对。
+- `type == "usage.record"` 且 `usageScope == "turn"`：`used` 为
+  `inputOther + inputCacheRead + inputCacheCreation + output` 四项总和，
+  与上游 `tokenUsageTotal()` 对齐；四项必须均为非负整数，缺失/异常条目跳过；
+- `output` 是单次调用输出值，速度计算直接求和，禁止差分；生成耗时为配对
+  `usage.record.time − llm.request.time`，工具与审批间隙不计；
+- `type == "llm.request"` 仅带非空 `turnStep` 者属于 turn 请求，参与基线、
+  轮末计数与速度配对；operation/compaction 等无 `turnStep` 记录不得混入；
+- `llm.request.maxTokens` 来自 `maxCompletionTokens`，是输出预算且可缺省，
+  **禁止作为上下文窗口**。wire 的 `size` 由 `modelAlias` 查
+  `kimi provider list --json` 的 `maxContextSize`（先合并 overrides）；
+- 模型目录在 worker 会话准备阶段加载并缓存，GUI 轮询只读缓存和 wire 尾部
+  64KB，不起子进程、不每 2s 全量读 MB 级文件；目录失败不阻断聊天；
+- 轮末超时保留本轮已落盘的有效用量子集；速度按有效配对子集计算，无有效
+  配对仅省略速度行，不连累徽章。
 
-**降级**：读取失败/字段缺失/配对不上 → 对应条目跳过，全部失效则速度
-行/用量徽章静默不显示，不抛出、不臆造。
-
-**失效排查路径**：症状「徽章用量不刷新 / tooltip 无输出速度行」→
-`tail -20 agents/main/wire.jsonl` 对照上述字段（重点看 `usage.output`
-是否仍存在、`time` 是否仍为 epoch 毫秒）；格式漂移确认后按新样本修订
-`_read_wire_turn_stats` / `_read_wire_turn_speed` 与本登记。
+**降级与排查**：ACP 缺失才使用 wire；双源均无效时保持徽章空态或最后有效值，
+不伪造 0%、不按文本长度估算。症状「徽章不刷新 / tooltip 无输出速度行」先查
+ACP 是否到达，再用脱敏 wire 摘要核对上述字段，禁止复制凭证、消息正文、工具
+参数或完整会话。回归测试为 `tests/test_kimi_usage.py`、
+`tests/test_kimi_catalog.py`、`tests/test_turn_speed.py`。
 
 ---
 

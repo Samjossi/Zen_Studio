@@ -1,8 +1,8 @@
 """kimi wire.jsonl 轮次输出速度：`_read_wire_turn_speed` 纯函数用例。
 
-合成 wire.jsonl（tmp_path，不落真实会话目录），覆盖配对/求和/降级
-（2026-1023-1632 计划）：usage.output 单次调用值直取不差分、生成耗时
-= 配对 usage.record.time − llm.request.time、基线截断、残缺条目跳过。
+合成 wire.jsonl（tmp_path，不落真实会话目录），覆盖配对/求和/降级：
+usage.output 单次调用值直取不差分、生成耗时 = 配对
+usage.record.time − llm.request.time、基线截断、残缺条目及非 turn 请求跳过。
 """
 import json
 
@@ -19,7 +19,10 @@ def _write_wire(tmp_path, records: list[dict]):
 
 
 def _request(t: int) -> dict:
-    return {"type": "llm.request", "maxTokens": 262144, "time": t}
+    return {
+        "type": "llm.request", "maxTokens": 262144, "time": t,
+        "turnStep": "0.0", "modelAlias": "kimi-code/k3",
+    }
 
 
 def _record(t: int, output: int) -> dict:
@@ -125,3 +128,17 @@ def test_missing_file_returns_none(tmp_path):
 def test_baseline_beyond_records_returns_none(tmp_path):
     session_dir = _write_wire(tmp_path, [_request(1000), _record(6000, 100)])
     assert _read_wire_turn_speed(session_dir, 5) is None
+
+
+def test_non_turn_records_do_not_change_pairing(tmp_path):
+    session_dir = _write_wire(tmp_path, [
+        _request(1000),
+        {"type": "llm.request", "time": 2000, "maxTokens": 999999},
+        {"type": "usage.record", "usageScope": "session",
+         "usage": {"output": 9999}, "time": 3000},
+        _record(6000, 100),
+    ])
+    speed = _read_wire_turn_speed(session_dir, 0)
+    assert speed is not None
+    assert speed.output_tokens == 100
+    assert speed.gen_seconds == 5.0

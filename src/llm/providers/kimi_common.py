@@ -1,8 +1,9 @@
 """kimi 二进制公共探测与模型目录枚举。
 
 供 kimi-acp 后台与注册表共用：`_find_bin` 解析二进制路径（PATH →
-$KIMI_CODE_HOME/bin → ~/.kimi-code/bin），`kimi_available` 判断可用性，
-`list_kimi_models` 经 `kimi provider list --json` 动态枚举模型别名。
+$KIMI_CODE_HOME/bin → ~/.kimi-code/bin），`kimi_available` 判断可用性；
+`kimi provider list --json` 同源派生模型别名、强度档位、显示名与
+maxContextSize 上下文窗口。
 
 注：CLI 传输层（`kimi -p` 一次性子进程，原 kimi_cli.py）已于
 2026-07-31 精简移除（文档/修改记录/2026-0731-0036），本模块为其残留共享设施，
@@ -45,8 +46,8 @@ def kimi_available() -> bool:
 def load_kimi_provider_catalog() -> dict:
     """调 `kimi provider list --json` 返回原始载荷；失败返回 {}。
 
-    0455 动态化计划 T1：模型别名与强度档位同源同载荷——注册层缓存本函数
-    一次，list_models/list_efforts 均从缓存目录派生，防双倍子进程。
+    模型别名、强度档位、显示名与上下文窗口均从同一载荷派生；调用方分别
+    缓存，避免 GUI 高频路径重复启动目录子进程。
     """
     bin_path = _find_bin()
     if not bin_path:
@@ -122,6 +123,23 @@ def display_names_from_catalog(data: dict) -> dict[str, str]:
         display_name = entry.get("displayName")
         if isinstance(display_name, str) and display_name:
             result[alias] = display_name
+    return result
+
+
+def context_sizes_from_catalog(data: dict) -> dict[str, int]:
+    """从 provider list 载荷解析模型上下文窗口：别名 → maxContextSize。"""
+    models = data.get("models")
+    if not isinstance(models, dict):
+        return {}
+    result: dict[str, int] = {}
+    for alias, entry in models.items():
+        if not isinstance(alias, str) or not isinstance(entry, dict):
+            continue
+        if isinstance(overrides := entry.get("overrides"), dict):
+            entry = {**entry, **overrides}
+        size = entry.get("maxContextSize")
+        if type(size) is int and size > 0:
+            result[alias] = size
     return result
 
 

@@ -6,8 +6,9 @@
   段的 `context_window` 字段（官方配置字段，「compaction triggers near this
   limit」语义即上下文窗口；provider 级，段内所有模型共享）。alias 为 None
   时回退顶层 `default_model`（对应 provider 用 agent 默认模型的场景）。
-- **kimi**：不经本模块——wire.jsonl `llm.request.maxTokens` 随会话直给
-  （实测 262144，与 kilocode 推送的 size 交叉验证一致），见 kimi_acp.py。
+- **kimi**：不经本模块——轮末 ACP `usage_update.size` 直给；wire 兜底由
+  `kimi_common.context_sizes_from_catalog` 读取模型目录 maxContextSize，
+  不把 llm.request.maxTokens（输出预算）误作上下文窗口。
 - **kilocode / opencode**：不经本模块——L0 `usage_update` 推送的 size
   同帧送达（1412 已落地）。
 
