@@ -821,6 +821,8 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(0, self._fit_menubar_height)  # 菜单栏项高同理（延迟结算）
         self.viewer_panel.refresh_font()
         self.terminal_panel.refresh_font()
+        if self.file_explorer is not None:
+            self.file_explorer.refresh_font()
         if self._settings_dialog is not None:
             # 设置中心页标题/黑名单等宽区字号相对派生自全局字号，随链重刷
             # （须在 apply_theme(app) 重设全局字体之后调用）

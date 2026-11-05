@@ -42,7 +42,8 @@ class GitStatusController(QObject):
     手动菜单（refresh 直调）、AI 轮次结束（schedule_refresh，主窗口
     接线）、AI 改盘类工具终态（files_maybe_changed → schedule_refresh，
     轮次进行中的实时源）、文件树模型结构变更（去抖汇流）；统一扇出：
-    文件树着色及内嵌 Git 树 / 查看器徽标 / 变更面板 / 状态栏统计。
+    文件树着色与提交图服务注入 / 查看器徽标 / 变更面板 / 状态栏统计。
+    内嵌提交图只在页面进入或页内手动刷新时读取历史。
     """
 
     #: 刷新去抖间隔（ms）：连续触发合并为一次，防进程风暴
@@ -127,14 +128,12 @@ class GitStatusController(QObject):
         window.activateWindow()
 
     def _wire_signals(self, collapse_handler: Callable[[], None]) -> None:
-        """变更面板与文件树 Git 页共用查看、差异和删除提示管线。"""
+        """变更面板查看、差异和删除提示管线。"""
         self._changes.file_opened.connect(self._viewer.open_file)
         self._changes.file_opened.connect(lambda _path: self._update_stats_label())
         self._changes.diff_opened.connect(self._open_diff_view)
         self._changes.deleted_activated.connect(self._show_deleted_hint)
         self._changes.collapse_requested.connect(collapse_handler)
-        self._explorer.diff_opened.connect(self._open_diff_view)
-        self._explorer.deleted_activated.connect(self._show_deleted_hint)
         # 切换查看文件时同步状态栏统计（查看器徽标由 open_file 内部自刷）
         self._explorer.file_opened.connect(lambda _path: self._update_stats_label())
 
@@ -145,13 +144,12 @@ class GitStatusController(QObject):
     # 刷新（去抖汇流点）
     # ------------------------------------------------------------------
     def refresh(self) -> None:
-        """刷新服务，同一份变更清单扇出到内嵌 Git 树与变更面板。"""
+        """刷新服务与工作状态；提交历史由内嵌页面按可见性自行加载。"""
         self._service.refresh()
         self._explorer.apply_git_status(self._service)
         self._viewer.refresh_git_badge()
         changes = self._service.collect_changes() if self._service.is_enabled else None
         theme = load_settings()[KEY_THEME]
-        self._explorer.apply_git_changes(changes, self._service.repo_root, theme)
         self._changes.apply_changes(changes, self._service.repo_root, theme)
         self._update_stats_label()
 

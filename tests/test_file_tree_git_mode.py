@@ -10,6 +10,7 @@ from PySide6.QtCore import QEvent, Signal
 from PySide6.QtWidgets import QApplication, QLabel, QMainWindow, QStatusBar, QWidget
 
 import gui.controllers as controllers_mod
+import gui.git_graph_content as content_mod
 from core.git import status as git_status
 from core.git.service import ChangeEntry
 from gui.controllers import GitStatusController
@@ -36,6 +37,7 @@ def _fresh_dir(name: str) -> Path:
 def _service(enabled: bool = True):
     return SimpleNamespace(
         is_enabled=enabled,
+        repo_root=str(PROJECT_ROOT),
         head_label="main" if enabled else None,
         is_head_detached=False,
         status_of=lambda _path: None,
@@ -45,6 +47,7 @@ def _service(enabled: bool = True):
 
 def _show_explorer(qapp, root: Path = PROJECT_ROOT) -> FileExplorer:
     explorer = FileExplorer(str(root))
+    explorer._git_panel.reload = lambda: None
     explorer.resize(360, 400)
     explorer.show()
     explorer.apply_git_status(_service(), "cloud")
@@ -52,7 +55,7 @@ def _show_explorer(qapp, root: Path = PROJECT_ROOT) -> FileExplorer:
     return explorer
 
 
-def test_mode_button_switches_flat_list_and_preserves_model(qapp):
+def test_mode_button_switches_commit_graph_and_preserves_model(qapp):
     root = _fresh_dir("toggle")
     selected = root / "selected.txt"
     selected.write_text("selected\n", encoding="utf-8")
@@ -63,12 +66,6 @@ def test_mode_button_switches_flat_list_and_preserves_model(qapp):
     proxy_index = explorer.proxy.mapFromSource(source_index)
     explorer.tree.setCurrentIndex(proxy_index)
     explorer.tree.expand(explorer.tree.rootIndex())
-    changes = [
-        ChangeEntry(path="modified.py", status=git_status.MODIFIED, added=2, deleted=1),
-        ChangeEntry(path="untracked.py", status=git_status.UNTRACKED, added=3, deleted=0),
-        ChangeEntry(path="deleted.py", status=git_status.DELETED, added=0, deleted=4),
-    ]
-    explorer.apply_git_changes(changes, str(root), "cloud")
 
     assert explorer._stack.currentWidget() is explorer.tree
     assert explorer._mode_button.text() == "⇄"
@@ -82,11 +79,10 @@ def test_mode_button_switches_flat_list_and_preserves_model(qapp):
 
     explorer._mode_button.click()
     qapp.processEvents()
-    assert explorer._stack.currentWidget() is explorer._git_list
+    assert explorer._stack.currentWidget() is explorer._git_panel
     assert explorer._mode_button.text() == "⇄"
     assert explorer._mode_button.toolTip() == "返回文件树"
-    assert explorer._git_list.topLevelItemCount() == 3
-    assert explorer._git_list.header().isHidden()
+    assert explorer._git_panel._content._view.header().isHidden()
 
     explorer._mode_button.click()
     qapp.processEvents()
@@ -127,29 +123,6 @@ def test_git_mode_closes_search_and_non_git_forces_file_tree(qapp):
     assert not explorer._mode_button_spacer.isVisible()
     assert explorer._refresh_btn.isVisible()
     assert explorer._search_btn.isVisible()
-    explorer.deleteLater()
-
-
-def test_git_list_signals_are_forwarded_by_explorer(qapp):
-    explorer = _show_explorer(qapp)
-    root = "/repo"
-    explorer.apply_git_changes([
-        ChangeEntry(path="modified.py", status=git_status.MODIFIED, added=1, deleted=0),
-        ChangeEntry(path="deleted.py", status=git_status.DELETED, added=0, deleted=1),
-        ChangeEntry(path="conflict.py", status=git_status.CONFLICT, added=0, deleted=0),
-    ], root, "cloud")
-    fired = {"diff": [], "deleted": [], "file": []}
-    explorer.diff_opened.connect(fired["diff"].append)
-    explorer.deleted_activated.connect(fired["deleted"].append)
-    explorer.file_opened.connect(fired["file"].append)
-
-    for row in range(3):
-        explorer._git_list._on_double_clicked(explorer._git_list.topLevelItem(row), 0)
-    assert fired == {
-        "diff": ["/repo/modified.py"],
-        "deleted": ["deleted.py"],
-        "file": ["/repo/conflict.py"],
-    }
     explorer.deleteLater()
 
 
@@ -214,6 +187,9 @@ def test_controller_reuses_one_changes_snapshot_and_theme_does_not_query(qapp, m
     monkeypatch.setattr(controllers_mod, "GitStatusService", _ServiceStub)
     monkeypatch.setattr(controllers_mod, "DiffViewDialog", _DiffDialogStub)
     monkeypatch.setattr(controllers_mod, "load_settings", lambda: {KEY_THEME: "cloud"})
+    log_calls = []
+    monkeypatch.setattr(
+        content_mod.git_log, "fetch_commit_rows", lambda _root: log_calls.append(_root))
     explorer = FileExplorer(str(root))
     viewer = _ViewerStub()
     changes_panel = ChangesPanel()
@@ -225,16 +201,23 @@ def test_controller_reuses_one_changes_snapshot_and_theme_does_not_query(qapp, m
     service = controller.service
 
     assert service.collect_calls == 1
-    assert explorer._git_list._changes is service.changes
     assert changes_panel._changes is service.changes
+    assert log_calls == []
     explorer.apply_theme("dark")
     changes_panel.apply_theme("dark")
     assert service.collect_calls == 1
+    assert log_calls == []
+    controller.refresh()
+    assert service.collect_calls == 2
+    assert log_calls == []
 
     _DiffDialogStub.shown.clear()
-    explorer.diff_opened.emit(f"{root}/a.py")
+    changes_panel._on_double_clicked(changes_panel._list.topLevelItem(0), 0)
     assert _DiffDialogStub.shown == [f"{root}/a.py"]
-    explorer.deleted_activated.emit("deleted.py")
+    changes_panel.apply_changes([
+        ChangeEntry(path="deleted.py", status=git_status.DELETED, added=0, deleted=1),
+    ], str(root), "cloud")
+    changes_panel._on_double_clicked(changes_panel._list.topLevelItem(0), 0)
     assert status_bar.currentMessage() == "文件已删除，待提交：deleted.py"
 
     controller._debounce.stop()

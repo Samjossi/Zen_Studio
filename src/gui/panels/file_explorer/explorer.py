@@ -2,15 +2,13 @@
 
 基于 QTreeView + QFileSystemModel（Qt 原生，自带懒加载与系统图标）。
 头部居中显示项目名与当前 Git 分支，最右侧提供文件树 / Git 树切换按钮；
-内容区用 QStackedWidget 在原文件树与扁平变更列表之间原地切换。
+内容区用 QStackedWidget 在原文件树与提交拓扑图之间原地切换。
 detached HEAD 显示短哈希，非仓库仅项目名且无切换按钮。
 无任何 window 式上帝对象依赖，可独立实例化。
 
 对外信号：
     file_opened(str) — 双击文件时发射，参数为文件绝对路径，
                        供后续编辑器模块接入。
-    diff_opened(str) — Git 树双击已修改/未跟踪文件时发射。
-    deleted_activated(str) — Git 树双击已删除文件时发射相对路径。
 
 子包拆分：模型层见 model.py（Git 状态着色代理），右键动作见 actions.py。
 """
@@ -34,9 +32,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from core.git.service import ChangeEntry, GitStatusService
-from gui.panels.changes.list import ChangesList
+from core.git.service import GitStatusService
 from gui.panels.file_explorer.actions import ExplorerActions
+from gui.panels.git_graph_panel import GitGraphPanel
 from gui.panels.file_explorer.model import GitStatusProxyModel
 from gui.popups import TranslucentMenuLineEdit
 from gui.settings import KEY_THEME
@@ -107,11 +105,9 @@ class _DragOutTreeView(QTreeView):
 
 
 class FileExplorer(QWidget):
-    """目录文件浏览器，以及同槽位的扁平 Git 变更列表。"""
+    """目录文件浏览器，以及同槽位的只读 Git 提交拓扑图。"""
 
     file_opened = Signal(str)
-    diff_opened = Signal(str)
-    deleted_activated = Signal(str)
 
     #: 文件系统模型实例被重建后发射（refresh 换实例）：消费方须对
     #: self.model 重新接线（旧实例上的连接随 deleteLater 一并失效）
@@ -141,7 +137,7 @@ class FileExplorer(QWidget):
 
         self._build_model()
         self._build_tree()
-        self._build_git_list()
+        self._build_git_graph()
         self.model.directoryLoaded.connect(self._on_directory_loaded)
         self._actions = ExplorerActions(
             host=self,
@@ -177,7 +173,7 @@ class FileExplorer(QWidget):
 
         self._stack = QStackedWidget(self)
         self._stack.addWidget(self.tree)
-        self._stack.addWidget(self._git_list)
+        self._stack.addWidget(self._git_panel)
         layout = QVBoxLayout(self)
         layout.addLayout(header)
         layout.addWidget(self._stack)
@@ -197,12 +193,9 @@ class FileExplorer(QWidget):
         # refresh 重建模型后索引全失效，搜索状态须随之复位（搜索词保留）
         self.model_rebuilt.connect(self._on_model_rebuilt_reset_search)
 
-    def _build_git_list(self) -> None:
-        """创建无头部 Git 变更页，三路双击信号与文件树公共接口对齐。"""
-        self._git_list = ChangesList(self)
-        self._git_list.file_opened.connect(self.file_opened)
-        self._git_list.diff_opened.connect(self.diff_opened)
-        self._git_list.deleted_activated.connect(self.deleted_activated)
+    def _build_git_graph(self) -> None:
+        """创建共享内容组成的紧凑提交拓扑图页。"""
+        self._git_panel = GitGraphPanel(self)
 
     def _build_mode_button(self) -> None:
         """头部切换钮：固定双向符号，tooltip 指明点击后的目标页。"""
@@ -333,6 +326,8 @@ class FileExplorer(QWidget):
         if theme is None:
             theme = load_settings()[KEY_THEME]
         self._git_service = service
+        self._git_panel.set_service(service)
+        self._git_panel.apply_theme(theme)
         self.proxy.set_git_service(service if service.is_enabled else None, theme)
         self.proxy.refresh_colors()
         self._mode_button.setVisible(service.is_enabled)
@@ -340,15 +335,6 @@ class FileExplorer(QWidget):
         if not service.is_enabled:
             self._set_git_mode(False)
         self._update_branch_label()
-
-    def apply_git_changes(
-        self,
-        changes: list[ChangeEntry] | None,
-        repo_root: str | None,
-        theme: str,
-    ) -> None:
-        """接收控制器聚合的同一份变更清单，不自行查询 Git。"""
-        self._git_list.apply_changes(changes, repo_root, theme)
 
     def _update_branch_label(self) -> None:
         """按服务缓存更新头部；面板宽度约一半用于分支文本。"""
@@ -376,7 +362,7 @@ class FileExplorer(QWidget):
         self._git_mode = git_mode and service is not None and service.is_enabled
         if self._git_mode and self._search_bar.isVisible():
             self._toggle_search_bar()
-        self._stack.setCurrentWidget(self._git_list if self._git_mode else self.tree)
+        self._stack.setCurrentWidget(self._git_panel if self._git_mode else self.tree)
         self._mode_button.setToolTip("返回文件树" if self._git_mode else "切换到 Git 树")
         self._refresh_btn.setVisible(not self._git_mode)
         self._search_btn.setVisible(not self._git_mode)
@@ -385,13 +371,16 @@ class FileExplorer(QWidget):
             self._place_search_button()
 
     def apply_theme(self, theme: str) -> None:
-        """主题切换时同步文件树与缓存 Git 变更列表的状态色。"""
+        """按缓存重绘文件树状态色和提交图，不读取提交历史。"""
         self.proxy.set_git_service(
             self._git_service if self._git_service is not None and self._git_service.is_enabled else None,
             theme,
         )
         self.proxy.refresh_colors()
-        self._git_list.apply_theme(theme)
+        self._git_panel.apply_theme(theme)
+
+    def refresh_font(self) -> None:
+        self._git_panel.refresh_font()
 
     def refresh(self) -> None:
         """手动刷新文件树（视图菜单「刷新文件树」入口 + 右下角悬浮钮）。

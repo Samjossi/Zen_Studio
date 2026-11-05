@@ -9,7 +9,7 @@ from gui.theme import FALLBACK_THEME, git_status_color
 
 
 class ChangesList(QTreeWidget):
-    """无头部变更列表，供文件树 Git 页与变更面板共同使用。"""
+    """无头部工作区变更列表，由右栏下变更面板使用。"""
 
     file_opened = Signal(str)
     diff_opened = Signal(str)

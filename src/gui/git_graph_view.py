@@ -1,22 +1,21 @@
-"""Git 提交历史图列表视图：QTreeView + 委托自绘（图形列/refs 徽标）。
+"""Git 提交历史图列表视图：QTreeView + 委托自绘图形列与提交列。
 
-实施计划：文档/修改记录/2026-0802-1542_Git提交历史图美化计划.md（T3/T4）。
-
-- 图形列（GraphColumnDelegate）：逐格绘制 git --graph 解析出的图线格，
-  颜色取格携带的 TERMINAL_PACK 键（None 格 = git 未着色的单 lane 线性段，
-  映射 terminal default_fg）；纯图线连接行半高（D5），仅直线图元不做
-  贝塞尔平滑（方案丙远期预留）
-- 提交列（CommitColumnDelegate）：hash（hash_fg 弱化）+ refs 徽标（圆角
-  胶囊，四型分色取自 GIT_GRAPH_PACK，背景/边框按色值派生透明度）+
-  subject（HEAD 行加粗），空间不足省略号截断
-- 主题/字号：apply_theme(theme) 曾挂 MainWindow.switch_theme 链——热切换
-  已随 2026-0820-1642 计划移除，方法保留为公共接口；
-  refresh_font() 挂 _apply_font_size 链（同对话框既有先例）
+- 图形列消费 git --graph 的泳道格与 ANSI 色键；斜线用贝塞尔曲线，
+  纯图线连接行半高，未着色格使用主题默认前景色。
+- 完整提交列显示 hash、refs 徽标与主题；紧凑模式隐藏 hash、作者和
+  时间列，以 refs 与主题为优先，完整元数据由每行 tooltip 保留。
+- 主题与字号重绘使用现有模型缓存；刷新模型时按 hash 恢复选中和滚动值。
 """
 from __future__ import annotations
 
-from PySide6.QtCore import QAbstractTableModel, QModelIndex, QSize, Qt
-from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPen
+from PySide6.QtCore import (
+    QAbstractTableModel,
+    QItemSelectionModel,
+    QModelIndex,
+    QSize,
+    Qt,
+)
+from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import (
     QApplication,
     QHeaderView,
@@ -107,6 +106,13 @@ class CommitGraphModel(QAbstractTableModel):
         row = self.row_of(index)
         if role == Qt.ItemDataRole.UserRole:
             return row  # None 即截断提示行（委托据此分流）
+        if role == Qt.ItemDataRole.ToolTipRole and row is not None and not row.is_connector:
+            times = " · ".join(part for part in (row.rel_date, row.abs_date) if part)
+            refs = ", ".join(badge.label for badge in row.refs) or "无"
+            return (
+                f"提交：{row.commit}\n主题：{row.subject}\n作者：{row.author}\n"
+                f"时间：{times}\n引用：{refs}"
+            )
         if role == Qt.ItemDataRole.DisplayRole:
             if row is None:
                 return self._hint if index.column() == COL_COMMIT else None
@@ -182,10 +188,15 @@ class GraphColumnDelegate(QStyledItemDelegate):
             left, right = rect.left() + i * cw, rect.left() + (i + 1) * cw
             if ch == "|":
                 painter.drawLine(int(cx), top, int(cx), top + height)
-            elif ch == "/":
-                painter.drawLine(left, top + height, right, top)
-            elif ch == "\\":
-                painter.drawLine(left, top, right, top + height)
+            elif ch in ("/", "\\"):
+                path = QPainterPath()
+                if ch == "/":
+                    path.moveTo(left, top + height)
+                    path.cubicTo(left, cy, right, cy, right, top)
+                else:
+                    path.moveTo(left, top)
+                    path.cubicTo(left, cy, right, cy, right, top + height)
+                painter.drawPath(path)
             elif ch in ("-", "_"):
                 painter.drawLine(left, int(cy), right, int(cy))
             # 其余字符（八爪鱼合并的 . 等）不绘制
@@ -200,7 +211,7 @@ class GraphColumnDelegate(QStyledItemDelegate):
 
 
 class CommitColumnDelegate(QStyledItemDelegate):
-    """提交列委托：hash（弱化）+ refs 胶囊徽标 + subject（HEAD 加粗）。"""
+    """提交列委托：完整模式显示 hash；紧凑模式优先 refs 与主题。"""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -209,6 +220,10 @@ class CommitColumnDelegate(QStyledItemDelegate):
         self._text_color = QColor("#1d1d1f")
         self._muted_color = QColor("#86868b")
         self._accent = QColor("#0765d4")
+        self._compact = False
+
+    def set_compact(self, compact: bool) -> None:
+        self._compact = compact
 
     def apply_theme(self, palette: dict) -> None:
         graph_pack = palette["git_graph"]
@@ -241,20 +256,34 @@ class CommitColumnDelegate(QStyledItemDelegate):
         fm = QFontMetrics(option.font)
         x = rect.left()
         cy = rect.top() + rect.height() / 2
-        # hash（弱化色等宽感，保持 UI 字体以省一次字体切换）
         painter.setFont(option.font)
-        painter.setPen(self._hash_color)
-        painter.drawText(x, rect.top(), fm.horizontalAdvance(row.commit),
-                         rect.height(), Qt.AlignmentFlag.AlignVCenter, row.commit)
-        x += fm.horizontalAdvance(row.commit) + _BADGE_GAP
-        # refs 胶囊徽标
+        if not self._compact:
+            painter.setPen(self._hash_color)
+            painter.drawText(x, rect.top(), fm.horizontalAdvance(row.commit),
+                             rect.height(), Qt.AlignmentFlag.AlignVCenter, row.commit)
+            x += fm.horizontalAdvance(row.commit) + _BADGE_GAP
+
+        badge_right = rect.right()
+        if self._compact:
+            subject_reserve = min(
+                fm.horizontalAdvance(row.subject), max(32, rect.width() // 3))
+            badge_right = max(x, rect.right() - subject_reserve - _BADGE_GAP)
         badge_h = fm.height() + 2
         for badge in row.refs:
             color = self._badge_colors.get(badge.kind, self._muted_color)
             text_w = fm.horizontalAdvance(badge.label)
             w = text_w + _BADGE_HPAD * 2
-            if x + w > rect.right():
-                break  # 空间不足：徽标整体让位 subject（不再绘制后续徽标）
+            available = badge_right - x
+            if self._compact and w > available:
+                w = available
+            elif x + w > badge_right:
+                break
+            if w <= _BADGE_HPAD * 2:
+                break
+            label = badge.label
+            if text_w + _BADGE_HPAD * 2 > w:
+                label = fm.elidedText(
+                    label, Qt.TextElideMode.ElideRight, w - _BADGE_HPAD * 2)
             bg = QColor(color)
             bg.setAlphaF(0.12)
             border = QColor(color)
@@ -265,10 +294,11 @@ class CommitColumnDelegate(QStyledItemDelegate):
                 x, int(cy - badge_h / 2), w, badge_h, badge_h / 2, badge_h / 2)
             painter.setPen(color)
             painter.drawText(
-                x + _BADGE_HPAD, int(cy - badge_h / 2), text_w, badge_h,
-                Qt.AlignmentFlag.AlignVCenter, badge.label)
+                x + _BADGE_HPAD, int(cy - badge_h / 2), w - _BADGE_HPAD * 2, badge_h,
+                Qt.AlignmentFlag.AlignVCenter, label)
             x += w + _BADGE_GAP
-        # subject（HEAD 行加粗；省略号截断）
+            if label != badge.label:
+                break
         font = QFont(option.font)
         if row.is_head:
             font.setBold(True)
@@ -297,13 +327,14 @@ def _fill_selection(painter: QPainter, option: QStyleOptionViewItem,
 
 
 class GitGraphView(QTreeView):
-    """提交历史图列表：四列（图 | 提交 | 作者 | 时间）+ 双委托自绘。"""
+    """提交历史图列表：完整四列或紧凑两列，图线与提交文本由委托自绘。"""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._model = CommitGraphModel(self)
         self._graph_delegate = GraphColumnDelegate(self)
         self._commit_delegate = CommitColumnDelegate(self)
+        self._compact = False
         self.setModel(self._model)
         self.setItemDelegateForColumn(COL_GRAPH, self._graph_delegate)
         self.setItemDelegateForColumn(COL_COMMIT, self._commit_delegate)
@@ -318,6 +349,7 @@ class GitGraphView(QTreeView):
         self.setVerticalScrollMode(QTreeView.ScrollMode.ScrollPerPixel)
         header = self.header()
         header.setStretchLastSection(False)  # 默认 True 会拉伸时间列挤压提交列
+        header.setMinimumSectionSize(1)
         header.setSectionResizeMode(COL_GRAPH, QHeaderView.ResizeMode.Fixed)
         header.setSectionResizeMode(COL_COMMIT, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(COL_AUTHOR, QHeaderView.ResizeMode.ResizeToContents)
@@ -325,11 +357,36 @@ class GitGraphView(QTreeView):
         self.refresh_font()
         self.apply_theme(load_settings()[KEY_THEME])
 
+    def set_compact(self, compact: bool) -> None:
+        self._compact = compact
+        self._commit_delegate.set_compact(compact)
+        self.setHeaderHidden(compact)
+        self.setColumnHidden(COL_AUTHOR, compact)
+        self.setColumnHidden(COL_DATE, compact)
+        self.viewport().update()
+
     # ------------------------------------------------------------------
     # 数据
     # ------------------------------------------------------------------
     def set_graph(self, graph: CommitGraph) -> None:
+        current_row = self._model.row_of(self.currentIndex())
+        selected_commit = current_row.commit if current_row is not None else ""
+        scroll_value = self.verticalScrollBar().value()
         self._model.set_graph(graph)
+        self._resize_columns()
+        if selected_commit:
+            for row_index, row in enumerate(graph.rows):
+                if row.commit == selected_commit:
+                    index = self._model.index(row_index, COL_COMMIT)
+                    self.selectionModel().setCurrentIndex(
+                        index,
+                        QItemSelectionModel.SelectionFlag.ClearAndSelect
+                        | QItemSelectionModel.SelectionFlag.Rows,
+                    )
+                    break
+        self.verticalScrollBar().setValue(scroll_value)
+
+    def _resize_columns(self) -> None:
         # 模型重置后 ResizeToContents 列不自动重算，显式触发（作者/时间列）
         self.header().resizeSections(QHeaderView.ResizeMode.ResizeToContents)
         self.setColumnWidth(
@@ -348,7 +405,5 @@ class GitGraphView(QTreeView):
     def refresh_font(self) -> None:
         self._graph_delegate.refresh_font()
         if self._model.max_graph_cells:
-            self.setColumnWidth(
-                COL_GRAPH,
-                self._model.max_graph_cells * self._graph_delegate.cell_width + 10)
+            self._resize_columns()
         self.viewport().update()
