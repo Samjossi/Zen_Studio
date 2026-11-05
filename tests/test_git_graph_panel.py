@@ -150,7 +150,7 @@ def test_fallback_and_theme_rerender_do_not_repeat_git(qapp, merged_repo, monkey
     content.reload()
     assert content._stack.currentWidget() is content._fallback
     assert "fallback" in content._fallback.toPlainText()
-    content.apply_theme("graphite")
+    content.apply_theme("mint")
     assert calls == {"rows": 1, "text": 1}
     content.deleteLater()
 

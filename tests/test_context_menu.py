@@ -163,7 +163,7 @@ class TestViewerMenus:
 
     def test_code_viewer(self):
         _app()
-        viewer = CodeViewer(get_theme_palette("graphite")["chrome"])
+        viewer = CodeViewer(get_theme_palette("cloud")["chrome"])
         viewer.setPlainText("line1\nline2")
         menu = viewer._build_context_menu()
         assert _texts(menu) == ["复制", "全选"]
@@ -175,7 +175,7 @@ class TestViewerMenus:
 
     def test_markdown_view(self):
         _app()
-        view = MarkdownView(get_theme_palette("graphite"))
+        view = MarkdownView(get_theme_palette("cloud"))
         view.setPlainText("正文")
         menu = view._build_context_menu()
         assert _texts(menu) == ["复制", "全选"]
@@ -227,7 +227,7 @@ class TestShortcutOrthogonal:
 
     def test_viewer_ctrl_a_ctrl_c(self):
         _app()
-        viewer = CodeViewer(get_theme_palette("graphite")["chrome"])
+        viewer = CodeViewer(get_theme_palette("cloud")["chrome"])
         viewer.setPlainText("alpha\nbeta")
         viewer.show()
         viewer.setFocus()

@@ -5,6 +5,7 @@ offscreen 实例化 SettingsDialog：
 - 图标色随 apply_theme 按 muted_text 令牌重刷；
 - 副标题与权限页描述按 D6 口径精简。
 """
+import json
 from pathlib import Path
 
 import pytest
@@ -59,6 +60,21 @@ def _make_dialog() -> SettingsDialog:
     ctx.reset_settings = lambda: None
     ctx.chat_tabs = None
     return SettingsDialog(ctx)
+
+
+@pytest.mark.parametrize("removed", ("graphite", "midnight"))
+def test_appearance_theme_combo_has_four_lights_and_legacy_fallback(
+        qapp, isolated_settings, removed):
+    isolated_settings.write_text(json.dumps({KEY_THEME: removed}), encoding="utf-8")
+    dialog = _make_dialog()
+    dialog.reload()
+
+    combo = dialog._theme_combo
+    assert [combo.itemData(i) for i in range(combo.count())] == [
+        "cloud", "wheat", "sky", "mint"]
+    assert [combo.itemText(i) for i in range(combo.count())] == [
+        "云白", "暖米", "晴空", "薄荷"]
+    assert combo.currentData() == "cloud"
 
 
 def test_collapsed_hints_live_in_icon_tooltips(qapp, isolated_settings):

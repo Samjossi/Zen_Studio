@@ -63,7 +63,7 @@ class FindBar(QFrame):
         for button in (prev_button, next_button, close_button):
             button.setFixedSize(BUTTON_WIDTH_PX, BUTTON_HEIGHT_PX)
             # 整体半透明（QGraphicsOpacityEffect 整钮含符号一起变淡，
-            # 不碰主题色键、六主题通吃；Enter/Leave 经 eventFilter 恢复与回落）
+            # 不碰主题色键、全主题通吃；Enter/Leave 经 eventFilter 恢复与回落）
             effect = QGraphicsOpacityEffect(button)
             effect.setOpacity(BUTTON_OPACITY)
             button.setGraphicsEffect(effect)

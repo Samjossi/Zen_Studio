@@ -22,7 +22,7 @@
 | `gui/window_state.py` | 窗口状态持久化：读写 `config/window_state/<hash8>.json`（按工作区哈希分文件，`default.json` 供新工作区首开继承） |
 | `gui/root_ownership.py` | 一窗一根占用登记与唤活协议：`QLocalServer` 按工作区根 listen（`config/sockets/<hash8>.sock`），命中已占用根发唤活消息并以退出码 3 退出；陈旧套接字探测自愈（2026-08-31） |
 | `gui/recent_projects.py` | 最近打开的工作区根存取（`config/recent_projects.json`），文件菜单「最近打开的项目」子菜单消费 |
-| `gui/theme.py` | 主题体系：`THEME_META` 多主题注册表（云白/暖米/晴空/薄荷/暗色，按 light/dark 两族）+ qss 应用 + 自带双字体注册（思源黑体 / 更纱黑体）+ `GIT_STATUS_COLORS` Git 状态色表 |
+| `gui/theme.py` | 主题体系：`THEME_PALETTES` 四亮色注册表（云白/暖米/晴空/薄荷）+ 单模板 QSS 渲染与应用 + 六类单套共享资源包 + 自带字体注册（思源黑体 / 更纱黑体 / Noto Color Emoji） |
 | `gui/title_bar.py` | 自定义标题栏（无边框窗口）：Logo + 标题文字 + 最小化/最大化/关闭三按钮 |
 | `gui/window_resize.py` | 无边框窗口八向边缘缩放热区（窗口级事件过滤器） |
 | `gui/popups.py` | 弹出浮层透明化：消除矩形窗口套圆角内容的双框观感（QMenu/QComboBox 走规约函数；tooltip 由 `install_translucent_tooltips(app)` 事件过滤器覆盖，MainWindow 启动挂载） |
@@ -38,7 +38,7 @@
 | `gui/panels/changes/` | Git 变更列表子包：`list.py` 可复用扁平列表（状态着色 + 增减行数 + 双击分派）/ `panel.py` 右栏下面板头部与布局 |
 | `gui/panels/chat/` | 聊天面板子包（左栏）：`tabs.py` 标签容器（选择状态层 + 上限 4 标签）/ `panel.py` 装配（含底行：模型选择按钮 + 发送/停止双态按钮）/ `output.py` 输出区（旧轨）/ `transcript.py` 卡片轨对话区视图（0645 计划新轨；0813-1919 计划 T3 父指针路由——带 `parent_tool_call_id` 的子代理内部帧委派父 SubagentCard 内嵌区）/ `cards.py` KiloCode 式卡片折叠组件族（SubagentCard 内嵌「子代理活动」区复用 make_tool_card 嵌套显示子代理内部工具卡，0813-1919 计划 T2）/ `input.py` 输入框（文件拖入 → `@路径` 引用）/ `model_bar.py` 模型选择四按钮（后台/接口/模型/推理强度，接口级单接口时自动隐藏；纯视图）/ `worker.py` 流式线程 / `permission_dialog.py` ACP 工具审批对话框 / `permission_queue.py` 多标签审批串行弹窗队列 |
 | `gui/panels/viewer/` | 文件查看面板子包（中栏上，五页预览分流）：`panel.py` 装配（QStackedLayout 五页 + Git 差异徽标）/ `code_viewer.py` 只读文本查看器（行号栏）/ `highlighter.py` Pygments 高亮器 / `image_viewer.py` 图片页（位图 + SVG + GIF）/ `pdf_viewer.py` PDF 页（QPdfView 连续滚动）/ `markdown_view.py` Markdown 渲染页（GFM）/ `media_viewer.py` 音视频播放页 |
-| `gui/panels/terminal/` | 终端面板子包（中栏下）：`panel.py` 装配 / `widget.py` 自绘终端控件 / `screen.py` pyte 语义层 / `session.py` PTY 会话 / `palette.py` ANSI 双主题色板 / `selection.py` 选区控制器（纯逻辑零 Qt 依赖）/ `agent_bridge.py` ACP terminal/* 反向能力 GUI 桥（AI tab，2026-08-17） |
+| `gui/panels/terminal/` | 终端面板子包（中栏下）：`panel.py` 装配 / `widget.py` 自绘终端控件 / `screen.py` pyte 语义层 / `session.py` PTY 会话 / `palette.py` ANSI 共享资源包色板 / `selection.py` 选区控制器（纯逻辑零 Qt 依赖）/ `agent_bridge.py` ACP terminal/* 反向能力 GUI 桥（AI tab，2026-08-17） |
 
 > LLM 调用层为后端逻辑，位于 `src/llm/`（与 `src/gui/` 平级）：`base.py` Protocol / `providers/` 下 Kimi / DSH（DeepSeek Harness）/ Reasonix / OpenCode / Kilo Code / Dream / Local 七家 ACP 长驻后端（传输层统一为 ACP，kimi CLI `-p` 模式已于 2026-07-31 移除）。多标签改造后 provider 由每个 `ChatPanel` 自持（`ChatPanel._build_providers` 装配单点）。
 >
@@ -120,7 +120,7 @@
 | 组件 | 说明 |
 |:---|:---|
 | `CodeViewer` | 只读、等宽字体、行号栏（lineNumberArea 经典模式）+ 当前行高亮（行号为人与 AI 的对话坐标系）、软换行（超出宽度的长行按单词边界折行、无空格长串硬断，行号保持逻辑行号）；Qt 内建 Ctrl+滚轮缩放字体已禁用（2026-0806-0223，与聊天区/Markdown 页同款 wheelEvent 守卫，字号唯全局字号链管控） |
-| `PygmentsHighlighter` | 整文档一次 lexing → 区间缓存，`highlightBlock` 按块二分取格式；`get_lexer_for_filename` 探测语言、未知回退纯文本；多行 token（块注释/多行字符串）天然正确；明暗双配色表随主题切换重建 |
+| `PygmentsHighlighter` | 整文档一次 lexing → 区间缓存，`highlightBlock` 按块二分取格式；`get_lexer_for_filename` 探测语言、未知回退纯文本；多行 token（块注释/多行字符串）天然正确；配色由四主题共享的单套资源包注入 |
 | 外部修改自动重载 | `QFileSystemWatcher` 监视当前文件（**AI 写盘为主修改路径**），150ms 防抖重载、保留滚动位置、标题行提示"已重新加载"；文件被删显示占位 + 标题行瞬时提示（3 秒自动消失，0813 计划：持续语义由占位状态承担；`open_file` 打开新文件时清除残留提示） |
 | Git 差异徽标 | `set_git_service` 注入 `GitStatusService` 后，`open_file` 查询 numstat，标题行路径后追加 `+a -b` 徽标（无改动/非仓库不显示）；外部重载时发射 `externally_reloaded` 供主窗口联动刷新 Git 状态 |
 | 守卫 | >1 MB 截断并提示；二进制文件占位提示（不尝试解码上屏） |
@@ -139,7 +139,7 @@
 | Qt | `TerminalWidget` | 自绘字符网格（同色合并绘制）+ 光标反显、按键 → VT100 静态映射、滚动条映回滚区、30ms 刷新节流；空会话占位绘制、查找命中高亮；Ctrl+F/右键只发信号（决策在 panel） |
 | 语义 | `TerminalScreen` | pyte `HistoryScreen` 容错子类封装（私有 SGR 序列兜底 + 解析异常降级）；快照即纯数据（颜色用名字，主题切换免重算）；`title`（OSC 0/2）供 tab 动态标题；`plain_text()` 预留"终端内容喂 AI"出口 |
 | I/O | `PtySession(QObject)` | `ptyprocess.spawn($SHELL)`（cwd 可注入：默认项目根，工作区切换后新会话用新根、已存在会话与重开保持原目录，`TERM=xterm-256color`）；reader 线程 → `data_received` 信号（GUI 线程零锁消费）；**进程代次守卫**（重开后旧代退出/数据信号作废）；`aboutToQuit` 置位防销毁期信号竞态；`terminate` 幂等 + atexit |
-| 配色 | `AnsiPalette` | ANSI 16 色 × 明暗双主题；256 色 hex 串直接解析 |
+| 配色 | `AnsiPalette` | ANSI 16 色取四主题共享的单套资源包；256 色 hex 串直接解析 |
 
 ## 8. 文件树面板（右栏上）
 

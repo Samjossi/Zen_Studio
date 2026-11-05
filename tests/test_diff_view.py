@@ -145,14 +145,14 @@ def test_base_content_binary_returns_none(monkeypatch):
 # 主题包新键（1914 计划 T2）
 # ----------------------------------------------------------------------
 def test_chat_pack_diff_visual_keys_all_themes():
-    """六主题 chat 包均含整行底色/hunk 蓝带四新键，且亮暗双套值不同。"""
+    """四主题 chat 包均含整行底色/hunk 蓝带四键，并共享同一套色值。"""
     keys = ("diff_add_bg", "diff_del_bg", "diff_hunk_fg", "diff_hunk_bg")
     combos = set()
     for name in list_available_themes():
         chat = get_theme_palette(name)["chat"]
         assert all(key in chat for key in keys), name
         combos.add(tuple(chat[key] for key in keys))
-    assert len(combos) == 2, "亮暗双套各一份（四亮主题共享亮套、两深主题共享暗套）"
+    assert len(combos) == 1, "四个亮色主题共享同一份资源包"
 
 
 # ----------------------------------------------------------------------
@@ -199,22 +199,19 @@ def test_dialog_renders_colored_rows(qapp, monkeypatch):
 
 
 def test_dialog_apply_theme_rerenders(qapp, monkeypatch):
-    """apply_theme 换暗主题后按新调色板重渲染（前景/底色均跟随）。
-
-    暗套底色为 #AARRGGBB 低透明叠底，Qt toHtml 序列化为 rgba(...) 形态，
-    故断言其展开式子串。
-    """
+    """apply_theme 更新主题状态，并按当前共享资源包重渲染差异行。"""
     _patch_content(monkeypatch, base="a\nb", worktree="a\nB")
     dialog = DiffViewDialog(_fake_service())
     dialog.show_diff(f"{REPO}/a.py")
-    dialog.apply_theme("graphite")
-    dark_chat = get_theme_palette("graphite")["chat"]
+    dialog.apply_theme("mint")
+    chat = get_theme_palette("mint")["chat"]
     html = dialog._browser.toHtml()
-    assert dark_chat["diff_add_fg"] in html, "暗主题新增行前景跟随"
-    assert dark_chat["diff_del_fg"] in html, "暗主题删除行前景跟随"
-    assert dark_chat["diff_hunk_fg"] in html, "暗主题 hunk 蓝字跟随"
-    assert "rgba(46,160,67" in html, "暗主题新增行底色（叠底 alpha 展开式）"
-    assert "rgba(248,81,73" in html, "暗主题删除行底色（叠底 alpha 展开式）"
+    assert dialog._theme == "mint"
+    assert chat["diff_add_fg"] in html, "新增行前景跟随当前资源包"
+    assert chat["diff_del_fg"] in html, "删除行前景跟随当前资源包"
+    assert chat["diff_hunk_fg"] in html, "hunk 蓝字跟随当前资源包"
+    assert chat["diff_add_bg"] in html, "新增行整行底色跟随当前资源包"
+    assert chat["diff_del_bg"] in html, "删除行整行底色跟随当前资源包"
 
 
 def test_dialog_not_enabled_placeholder(qapp, monkeypatch):
