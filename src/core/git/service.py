@@ -6,6 +6,7 @@
     if not service.is_enabled: ...       # 无 git / 非仓库 → 功能整体隐藏
     service.status_of(绝对路径)           # 查单文件状态（着色用）
     service.numstat_of(绝对路径)          # 查单文件 (新增, 删除)
+    service.head_label                   # 当前分支名；detached HEAD 为短哈希
 
 状态/统计映射的键均为相对仓库根的路径（git 原生输出形式），
 本类负责把 UI 传入的绝对路径换算后再查表。
@@ -16,7 +17,7 @@ import logging
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
-from core.git import numstat, runner, status
+from core.git import log, numstat, runner, status
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +61,8 @@ class GitStatusService:
         self._repo_root: str | None = None
         self._status: dict[str, str] = {}
         self._numstat: dict[str, tuple[int, int]] = {}
+        self._head_label: str | None = None
+        self._is_head_detached = False
         #: 目录聚合状态缓存 {目录相对路径（无尾斜杠）: 归并后状态}，
         #: 随 refresh() 重建（见 _build_dir_status）
         self._dir_status: dict[str, str] = {}
@@ -81,22 +84,37 @@ class GitStatusService:
     def repo_root(self) -> str | None:
         return self._repo_root
 
+    @property
+    def head_label(self) -> str | None:
+        """当前分支名；detached HEAD 为短哈希，非仓库或尚未探测为 None。"""
+        return self._head_label
+
+    @property
+    def is_head_detached(self) -> bool:
+        """当前是否处于 detached HEAD；供 UI 区分短哈希的悬停说明。"""
+        return self._is_head_detached
+
     # ------------------------------------------------------------------
     # 刷新（事件驱动：窗口激活/外部重载/手动菜单 → 调用此方法）
     # ------------------------------------------------------------------
     def refresh(self) -> None:
-        """重新拉取状态与统计；是否可用由调用方自查 is_enabled。"""
+        """重新拉取状态、统计与当前分支；是否可用由调用方自查 is_enabled。"""
         if not runner.git_available():
             self._repo_root = None
+            self._head_label = None
+            self._is_head_detached = False
             self._dir_status = {}
             self._collapsed_keys = ()
             return
         if self._repo_root is None:
             self._repo_root = runner.find_repo_root(self._root_dir)
             if self._repo_root is None:
+                self._head_label = None
+                self._is_head_detached = False
                 self._dir_status = {}
                 self._collapsed_keys = ()
                 return
+        self._fetch_head_label()
         status_result = status.fetch_status_map(self._repo_root)
         numstat_result = numstat.fetch_numstat_map(self._repo_root)
         if status_result is None:
@@ -114,6 +132,23 @@ class GitStatusService:
                 (*ignored_dirs, *(k for k in self._status if k.endswith("/")))
             )
         )
+
+    def _fetch_head_label(self) -> None:
+        """更新分支名或 detached 短哈希；探测失败保留旧值。"""
+        if self._repo_root is None:
+            return
+        branch = log.current_branch(self._repo_root)
+        if branch is None:
+            return
+        if branch:
+            self._head_label = branch
+            self._is_head_detached = False
+            return
+        short_hash = runner.run_git(self._repo_root, "rev-parse", "--short", "HEAD")
+        if short_hash is None or not short_hash.strip():
+            return
+        self._head_label = short_hash.strip()
+        self._is_head_detached = True
 
     # ------------------------------------------------------------------
     # 目录聚合（计划 2026-0725-0933：状态色沿目录向上冒泡）

@@ -260,20 +260,19 @@ REGISTRY: dict[str, BackendSpec] = {
             available=dsh_available,
             # dsh 无 CLI 枚举命令（计划 2026-1018-0732 §2）：静态表直返
             # 无需缓存包装；值为 session/new 配置项的不透明 JSON 对串
-            # （spike 2026-10-18 实测），与服务端目录漂移时以
+            # （ACP 2026-11-05 实测），与服务端目录漂移时以
             # set_config_option 拒绝为信号（provider 内降级不崩 UI）
             list_models=list_dsh_models,
             factory=DshAcpLLM,
             # spike 实测 initialize promptCapabilities.image=false
             # （acp profile 默认未挂附件存储）；dsh 侧挂载后实测翻案
             supports_images=False,
-            # 接口级静态档位（spike 实测 reasoning_effort 值域 off/low/
-            # high/max、默认 high；configId 拼写归 provider 的 set_effort
-            # 自持）；无模型级动态数据源（configOptions 需先起会话，
-            # 计划 §3.1 任务 4/5 的初版静态表决策），静态声明
+            # 接口级静态档位（ACP 2026-11-05 实测 reasoning_effort 值域
+            # off/low/high/max、默认 high；configId 拼写归 provider 的
+            # set_effort 自持）；无模型级动态数据源（configOptions 需先起会话）
             efforts=("off", "low", "high", "max"),
             default_effort="high",
-            # 显示名静态表（spike 实测选项 name 原值；纯 UI 呈现，
+            # 显示名静态表（ACP 实测选项 name 原值；纯 UI 呈现，
             # 协议/持久化恒用对串）
             list_display_names=list_dsh_display_names,
             # 如实告知：dsh 处于 developer preview，官方明示会有兼容性
@@ -281,7 +280,7 @@ REGISTRY: dict[str, BackendSpec] = {
             dev_note=(
                 "DeepSeek Harness 后台处于 developer preview 阶段，官方明示"
                 "可能有兼容性破坏变更。如遇异常，请核对本机 dsh 版本（接入"
-                "验证版本 0.2.0-rc.2）与凭据配置（~/.dsh/.credentials.yaml）。"),
+                "验证版本 0.2.2-rc.1）与凭据配置（~/.dsh/.credentials.yaml）。"),
         ),
         BackendSpec(
             name="reasonix-acp",

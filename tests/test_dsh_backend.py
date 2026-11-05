@@ -5,23 +5,33 @@
   「DSH」、未封存、图片能力 False（spike 实测 initialize
   promptCapabilities.image=false）、静态强度档位与显示名表；
 - provider 层：探测链 DSH_HOME 级与 npx 缓存级生效；dsh 二进制缺失时
-  available=False；模型/显示名静态表与 spike 实测值一致；
+  available=False；模型/显示名静态表仅含两个现行 ID；
 - 序列化记忆兼容：spec_of 按接口名解析（settings `model_backend`
-  持久化值语义），resolve_efforts 回退接口级静态档位。
+  持久化值语义），旧别名恢复时菜单回退现行首项，provider 不改写原值，
+  resolve_efforts 回退接口级静态档位。
 
 全部经 monkeypatch 驱动，不拉真实子进程、不依赖本机安装状态。
 """
-from llm.providers import dsh_acp
-from llm.providers.dsh_acp import list_dsh_display_names, list_dsh_models
-from llm.registry import REGISTRY, resolve_efforts, spec_of, vendor_groups
+import pytest
+from PySide6.QtWidgets import QApplication
 
-#: spike 实测模型选项值（文档/帧存档/dsh_spike_20261018_074413.json）：
-#: 不透明 JSON 对串（路由 + 型号），原样透传语义
-_SPIKE_MODELS = [
-    '["deepseek-official","deepseek-v4-flash"]',
+import gui.panels.chat.model_bar as model_bar_mod
+from gui.panels.chat.model_bar import ModelBar
+from llm.providers import dsh_acp
+from llm.providers.dsh_acp import DshAcpLLM, list_dsh_display_names, list_dsh_models
+from llm.registry import BackendSpec, REGISTRY, resolve_efforts, spec_of, vendor_groups
+
+#: ACP 2026-11-05 实测后保留的现行模型；值为不透明 JSON 对串，原样透传
+_ACP_MODELS = [
     '["deepseek-official","deepseek-flash"]',
     '["deepseek-official","deepseek-v4-pro"]',
 ]
+_LEGACY_MODEL = '["deepseek-official","deepseek-v4-flash"]'
+
+
+@pytest.fixture(scope="module")
+def qapp():
+    return QApplication.instance() or QApplication([])
 
 
 def test_dsh_spec_registered():
@@ -49,21 +59,23 @@ def test_dsh_vendor_group_present():
     assert any(spec.name == "dsh-acp" for spec in groups["dsh"])
 
 
-def test_dsh_models_match_spike():
-    assert list_dsh_models() == _SPIKE_MODELS
+def test_dsh_models_match_current_acp_catalog():
+    assert list_dsh_models() == _ACP_MODELS
+    assert _LEGACY_MODEL not in list_dsh_models()
 
 
 def test_dsh_display_names_cover_models():
     names = list_dsh_display_names()
-    assert set(names) == set(_SPIKE_MODELS)
-    assert all(isinstance(v, str) and v for v in names.values())
+    assert set(names) == set(_ACP_MODELS)
+    assert names[_ACP_MODELS[0]] == "DeepSeek-V4.1-Flash"
+    assert names[_ACP_MODELS[1]] == "DeepSeek-V4-Pro"
 
 
 def test_dsh_resolve_efforts_fallback():
     # list_efforts 为 None → 接口级静态兜底（resolve_efforts 第 2 级语义）
     spec = spec_of("dsh-acp")
     assert spec is not None
-    assert resolve_efforts(spec, _SPIKE_MODELS[0]) == (
+    assert resolve_efforts(spec, _ACP_MODELS[0]) == (
         ("off", "low", "high", "max"), "high")
 
 
@@ -98,3 +110,56 @@ def test_unavailable_when_bin_missing(monkeypatch, tmp_path):
     monkeypatch.setattr(dsh_acp.Path, "home", lambda: tmp_path)  # 空 home：无 ~/.dsh、无 npx 缓存
     assert dsh_acp._find_bin() is None
     assert dsh_acp.dsh_available() is False
+
+
+def test_legacy_saved_model_falls_back_in_menu(qapp, monkeypatch):
+    spec = BackendSpec(
+        name="dsh-acp", label="DeepSeek Harness", vendor="dsh", vendor_label="DSH",
+        available=lambda: True, list_models=list_dsh_models,
+        list_display_names=list_dsh_display_names, factory=lambda **_kw: None,
+        efforts=("off", "low", "high", "max"), default_effort="high",
+    )
+    monkeypatch.setattr(model_bar_mod, "vendor_groups", lambda: {"dsh": [spec]})
+    monkeypatch.setattr(model_bar_mod, "spec_of", lambda name: spec)
+    monkeypatch.setattr(model_bar_mod, "vendor_of", lambda _name: "dsh")
+    monkeypatch.setattr(
+        model_bar_mod, "resolve_efforts",
+        lambda spec, _model: (spec.efforts, spec.default_effort))
+    bar = ModelBar()
+    bar.set_selection("dsh-acp", _LEGACY_MODEL)
+
+    assert bar.current_backend() == "dsh-acp"
+    assert bar.current_version() == _ACP_MODELS[0]
+    actions = bar._model_group.actions()
+    assert [action.data() for action in actions] == _ACP_MODELS
+    assert [action.text() for action in actions] == [
+        "DeepSeek-V4.1-Flash", "DeepSeek-V4-Pro"]
+    bar.close()
+
+
+class _RejectingConnection:
+    is_alive = True
+
+    def __init__(self):
+        self.requested = None
+
+    def request(self, method, params, timeout):
+        self.requested = (method, params, timeout)
+        raise RuntimeError("unknown model")
+
+    def terminate(self):
+        self.is_alive = False
+
+
+def test_legacy_model_rejection_keeps_value_and_resets_session():
+    provider = DshAcpLLM()
+    conn = _RejectingConnection()
+    provider._conn = conn
+    provider._session_id = "existing-session"
+
+    provider.set_model(_LEGACY_MODEL)
+
+    assert provider._model == _LEGACY_MODEL
+    assert provider._session_id is None
+    assert conn.requested[1]["value"] == _LEGACY_MODEL
+    provider.close()

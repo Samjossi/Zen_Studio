@@ -1,6 +1,7 @@
 """文件树主控件：移植自 PyGPT explorer 的裁剪版。
 
 基于 QTreeView + QFileSystemModel（Qt 原生，自带懒加载与系统图标）。
+头部居中显示项目名与当前 Git 分支；detached HEAD 显示短哈希，非仓库仅项目名。
 无任何 window 式上帝对象依赖，可独立实例化。
 
 对外信号：
@@ -15,7 +16,7 @@ import os
 from pathlib import Path
 
 from PySide6.QtCore import QDir, QEvent, QItemSelectionModel, QMimeData, QUrl, Signal, Qt
-from PySide6.QtGui import QDrag, QKeySequence, QShortcut
+from PySide6.QtGui import QDrag, QFontMetrics, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QFileSystemModel,
@@ -59,6 +60,14 @@ _SEARCH_BTN_OPACITY = 0.5
 #: 单次搜索命中上限：防爆兜底，大目录（.venv/node_modules 范围）遍历
 #: 到上限即截断，避免 UI 线程被 os.walk 长时间占用
 _SEARCH_MAX_RESULTS = 200
+
+
+def _format_branch_label(label: str, metrics: QFontMetrics, max_width: int) -> str:
+    """分支标签加分隔符，并按可用像素宽度做中间省略。"""
+    if max_width <= 0:
+        return ""
+    return metrics.elidedText(
+        f"⎇ {label}", Qt.TextElideMode.ElideMiddle, max_width)
 
 
 class _DragOutTreeView(QTreeView):
@@ -134,15 +143,19 @@ class FileExplorer(QWidget):
         )
         self.tree.customContextMenuRequested.connect(self._actions.open_context_menu)
 
-        # 只显示根目录名，完整路径悬停可见（修复栏宽截断问题）
+        # 项目名完整显示，完整路径悬停可见；分支名在右侧灰字弱化
         self.path_label = QLabel(Path(self.root_dir).name)
         self.path_label.setObjectName("PanelTitle")  # 样式由主题 qss 统一
         self.path_label.setToolTip(self.root_dir)
         self.path_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.branch_label = QLabel()
+        self.branch_label.setObjectName("PanelHint")
+        self.branch_label.hide()
 
         header = QHBoxLayout()
         header.addStretch()
         header.addWidget(self.path_label)
+        header.addWidget(self.branch_label)
         header.addStretch()
 
         layout = QVBoxLayout(self)
@@ -273,12 +286,30 @@ class FileExplorer(QWidget):
     # 公开接口
     # ------------------------------------------------------------------
     def apply_git_status(self, service: GitStatusService, theme: str | None = None) -> None:
-        """注入 Git 状态服务并重绘着色（theme 缺省取当前主题）。"""
+        """注入 Git 状态服务，重绘着色并更新头部分支（theme 缺省取当前主题）。"""
         if theme is None:
             theme = load_settings()[KEY_THEME]
         self._git_service = service
         self.proxy.set_git_service(service if service.is_enabled else None, theme)
         self.proxy.refresh_colors()
+        self._update_branch_label()
+
+    def _update_branch_label(self) -> None:
+        """按服务缓存更新头部；面板宽度约一半用于分支文本。"""
+        service = self._git_service
+        label = service.head_label if service is not None else None
+        if label is None:
+            self.branch_label.clear()
+            self.branch_label.setToolTip("")
+            self.branch_label.hide()
+            return
+        max_width = max(0, self.width() // 2 - 16)
+        self.branch_label.setText(_format_branch_label(
+            label, self.branch_label.fontMetrics(), max_width))
+        tooltip = f"游离头指针（detached HEAD）：{label}" \
+            if service.is_head_detached else label
+        self.branch_label.setToolTip(tooltip)
+        self.branch_label.show()
 
     def apply_theme(self, theme: str) -> None:
         """主题切换时同步 Git 状态色所属主题（未注入服务时无副作用）。"""
@@ -374,10 +405,11 @@ class FileExplorer(QWidget):
         btn.raise_()
 
     def resizeEvent(self, event) -> None:
-        """基类布局后重定位悬浮钮。"""
+        """基类布局后重定位悬浮钮，并按新宽度重算分支截断。"""
         super().resizeEvent(event)
         self._place_refresh_button()
         self._place_search_button()
+        self._update_branch_label()
 
     def eventFilter(self, watched, event) -> bool:
         """悬浮钮 hover 透明度（进入恢复 1.0，离开回落常态值）与

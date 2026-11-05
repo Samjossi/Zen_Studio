@@ -15,10 +15,10 @@
    代码库零密钥。
 2. 强度 configId 为 `reasoning_effort`（snake_case，spike 实测；
    kimi 为 thinking、dream/local 为 effort，各家拼写互不相同）。
-3. 模型选项值是**不透明 JSON 对串**（`["deepseek-official","deepseek-v4-flash"]`
+3. 模型选项值是**不透明 JSON 对串**（`["deepseek-official","deepseek-flash"]`
    = 路由 + 型号），原样透传不解析不拼接（D6 红线 2 同款语义）；
    dsh 无 `dsh models` 枚举命令，模型清单只有 session/new 配置项与
-   Web 设置页两个来源，初版用 spike 实测静态表（drift 风险见计划 §4）。
+   Web 设置页两个来源，Zen 以 ACP 实测静态表仅列两个现行 ID。
 4. 能力面（initialize 实测）：terminal 不支持、promptCapabilities.image
    = false（acp profile 默认未挂附件存储）→ supports_images=False、
    _TERMINAL_CAPABILITY=False。
@@ -55,21 +55,18 @@ DSH_BIN = "dsh"
 #: 明示 unsupported surfaces），保持 terminal: false
 _TERMINAL_CAPABILITY = False
 
-#: 模型静态表（2026-10-18 spike 实测值，见 dsh_spike_20261018_074413.json）：
-#: session/new 配置项 model 的 options 全量（deepseek-official 路由组），
-#: 值为不透明 JSON 对串（协议原值，原样透传）。dsh 无 CLI 枚举命令，
-#: 静态表与服务端目录漂移时以 session/set_config_option 拒绝为信号
-#: （失败降级保持当前模型，不崩 UI）
+#: 模型静态表（2026-11-05 ACP 实测，见 .temp/dsh_model_catalog_20261105.json）：
+#: session/new 的 model 目录仍含旧别名 deepseek-v4-flash；新会话候选仅保留
+#: 两个现行 ID。值为不透明 JSON 对串（协议原值，原样透传），与动态目录
+#: 漂移时以 session/set_config_option 拒绝为信号（失败降级，不崩 UI）
 _DSH_MODELS: list[str] = [
-    '["deepseek-official","deepseek-v4-flash"]',
     '["deepseek-official","deepseek-flash"]',
     '["deepseek-official","deepseek-v4-pro"]',
 ]
 
-#: 模型显示名（spike 实测选项 name 原值；纯 UI 呈现，协议/持久化恒用对串）
+#: 模型显示名（ACP 实测选项 name 原值；纯 UI 呈现，协议/持久化恒用对串）
 _DSH_DISPLAY_NAMES: dict[str, str] = {
-    '["deepseek-official","deepseek-v4-flash"]': "deepseek-v4-flash",
-    '["deepseek-official","deepseek-flash"]': "DeepSeek-V41-Flash",
+    '["deepseek-official","deepseek-flash"]': "DeepSeek-V4.1-Flash",
     '["deepseek-official","deepseek-v4-pro"]': "DeepSeek-V4-Pro",
 }
 

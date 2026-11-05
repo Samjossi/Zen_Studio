@@ -300,7 +300,7 @@ dsh acp
 ```
 
 > 2026-11-05 核对：npm `latest` 为 **0.2.2-rc.1**；该系列要求 Node.js ≥24.9。
-> 本机已安装 0.2.1-rc.2。升级与 Zen Studio 模型条目同步见
+> 本机已升级至 DSH 0.2.2-rc.1 + Node.js 24.9.0。模型条目同步见
 > `work plans/2026-1105-2152_DSH模型目录条目同步落地计划.md`。
 
 **DeepSeek 官方路由的现行内置目录**（0.2.2-rc.1 与 `master` 一致）：
@@ -319,9 +319,9 @@ dsh acp
 - 使用默认端点时，DSH 会跟随 DeepSeek API 发布的模型列表，约每十分钟后台刷新，
   失败时退回内置目录；自定义模型目录后不再自动跟随。DeepSeek 账号登录路由的
   模型清单则由账号服务下发。因此“内置兜底目录”和账号实际可选清单可能不同。
-- Zen Studio 当前在 `src/llm/providers/dsh_acp.py` 使用静态表，不会自动跟随上述
-  目录变化；既有表含旧别名 `deepseek-v4-flash`，且 `deepseek-flash` 显示名误写为
-  `DeepSeek-V41-Flash`，后续按上述计划同步。
+- Zen Studio 在 `src/llm/providers/dsh_acp.py` 使用静态表，不会自动跟随上述
+  目录变化；新会话候选仅含 `deepseek-flash` 与 `deepseek-v4-pro`，显示名与官方
+  目录一致。0.2.2-rc.1 的 ACP 动态目录实测仍返回旧别名，Zen 不将其列为新候选。
 
 ---
 
