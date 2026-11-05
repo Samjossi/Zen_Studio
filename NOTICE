@@ -4,13 +4,12 @@ Zen Studio 站在巨人的肩膀上。本文件列出项目在设计、代码与
 受益于的第三方作品，并注明各自的协议归属。
 
 ==================================================
-一、设计蓝本（仅设计层面阅读借鉴，未复制实质代码）
+一、设计蓝本
 ==================================================
 
 - Eclipse Theia（EPL-2.0）
-  `LanguageModel` 协议抽象与面板装配范式的设计参考。
-  依据 文档/审计报告/ 之实质代码审计结论：Zen Studio 未复制 Theia
-  任何实质代码，EPL-2.0 义务不附着。
+  `LanguageModel` 协议抽象与面板装配范式的设计参考；SCM History Graph
+  的实质移植另见第四节。
 
 - Visual Studio Code（MIT）
   `workspaceStorage` 窗口状态语义、SCM 变更面板形态的机制参考。
@@ -48,6 +47,17 @@ Zen Studio 站在巨人的肩膀上。本文件列出项目在设计、代码与
 - Noto 彩色 Emoji（Noto Color Emoji）— Google，OFL-1.1
 
 各字体目录内附原始许可证文本。
+
+==================================================
+四、实质代码移植
+==================================================
+
+- Eclipse Theia SCM History Graph（EPL-2.0）
+  Copyright (C) 2026 EclipseSource GmbH and others.
+  `src/core/git/graph.py` 移植 parents → lanes 算法，
+  `src/gui/git_graph_renderer.py` 移植 SVG 视觉几何，对应算法测试翻译自
+  `scm-history-graph-lanes.spec.ts`。这些文件保留 EPL-2.0 许可声明；
+  完整许可证见 `LICENSES/EPL-2.0.txt`，源文件随项目源码一同提供。
 
 ==================================================
 

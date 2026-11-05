@@ -12,7 +12,7 @@ from core.git import log as git_log
 from core.git.ansi import sgr_to_html
 from core.git.log import CommitGraph
 from core.git.service import GitStatusService
-from gui.git_graph_view import GitGraphView, is_supported_graph
+from gui.git_graph_view import GitGraphView
 from gui.popups import SimplifiedMenuTextBrowser
 from gui.settings import KEY_THEME
 from gui.theme import get_mono_family, get_theme_palette, load_settings
@@ -55,13 +55,13 @@ class GitGraphContent(QWidget):
         self._view.set_graph_only(graph_only)
 
     def reload(self) -> None:
-        """重拉提交图；解析失败或未知图线回退富文本，两级失败走占位文案。"""
+        """重拉提交图；结构化取数失败回退富文本，两级失败走占位文案。"""
         self._last_graph = None
         if self._service is None or not self._service.is_enabled:
             self._show_placeholder("当前工作区不在 git 仓库内。")
             return
         graph = git_log.fetch_commit_rows(self._service.repo_root)
-        if graph is not None and is_supported_graph(graph):
+        if graph is not None:
             self._last_graph = graph
             self._last_fallback_text = None
             self._view.set_graph(graph)

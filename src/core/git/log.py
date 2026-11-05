@@ -1,42 +1,33 @@
-"""提交历史图数据源：ASCII 文本透传（只读降级形态）+ 结构化提交行（主形态）。
+"""提交历史图数据源：ASCII 文本透传降级 + parents/lane 结构化主形态。
 
-实施计划：文档/修改记录/2026-0802-1507_Git提交历史图弹窗显示计划.md（T1）、
-文档/修改记录/2026-0802-1542_Git提交历史图美化计划.md（T2）。
-
-- fetch_commit_graph：原样透传 stdout 不做结构化解析，纯展示降级形态
-  （1507 计划 D1；1542 计划 D3 回退形态，colored=True 时带 SGR 着色）
-- fetch_commit_rows：结构化主形态——单条命令同时取回图形前缀与元数据，
-  行首 %x1f 是图形前缀与元数据的分界锚点（1542 计划 §6.1）；图形布局
-  复用 git 自身 --graph 引擎（含 lane 配色），不移植 lane 算法（D2）；
-  --graph 非官方机器接口，字段数不符即整体返回 None 触发 UI 回退（D3）
-- --all 覆盖全部分支/标签引用；--decorate=full 输出 refs 全路径供精确
-  分类（refs/heads/ refs/tags/ refs/remotes/）
-- MAX_COUNT 条数上限 + 截断提示：大仓库防护（runner 2s 超时是兜底不是
-  体验保障；1507 计划 D4）；总数经 rev-list --count 获取
-- 失败（无 git/非仓库/空仓库/超时/格式漂移）一律返回 None 静默降级
+- fetch_commit_graph：原样透传 stdout，纯展示降级形态。
+- fetch_commit_rows：以完整 commit id、有序 parent ids 和提交元数据构造
+  拓扑模型；--topo-order 保证纯泳道算法的输入前提。
+- --all 覆盖全部分支/标签引用；--decorate=full 输出 refs 全路径供精确分类。
+- MAX_COUNT 限制加载量；未加载父提交只形成图边界，不生成额外提交行。
+- 失败（无 git/非仓库/空仓库/超时/格式漂移）一律返回 None 静默降级。
 """
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from core.git import runner
-from core.git.ansi import parse_segments, resolve_key
+from core.git.graph import GraphRow, compute_graph_rows
 
 logger = logging.getLogger(__name__)
 
-#: 提交条数上限：超出时尾部追加截断提示（1507 计划 D4；1542 沿用）
 MAX_COUNT = 500
 
-#: refs 徽标类型枚举（GIT_GRAPH_PACK 配色键同名）
 REF_BRANCH = "branch"
 REF_TAG = "tag"
 REF_REMOTE = "remote"
 REF_HEAD = "head"
 
-#: 结构化取数 format 串：行首 %x1f 为图形前缀/元数据分界锚点，%x1e 记录尾；
-#: %ar 相对时间 + %aI ISO 绝对时间（解析后截为 "YYYY-MM-DD HH:MM"）双时间
-_ROWS_FORMAT = "%x1f%h%x1f%s%x1f%an%x1f%ar%x1f%aI%x1f%D%x1e"
+#: %H/%P 提供图身份与有序父提交；%h 仅用于展示；%x1e 为记录尾。
+_ROWS_FORMAT = "%H%x1f%P%x1f%h%x1f%s%x1f%an%x1f%ar%x1f%aI%x1f%D%x1e"
+_EMPTY_GRAPH_ROW = GraphRow(
+    lane=0, color=0, edges=(), has_continuation=False, has_top_line=False)
 
 
 @dataclass(frozen=True)
@@ -49,21 +40,17 @@ class RefBadge:
 
 @dataclass(frozen=True)
 class CommitRow:
-    """一行提交记录（或纯图线连接行）。
+    """一条提交及其拓扑行；commit_id 是身份，commit 是短 hash 展示字段。"""
 
-    graph: 图线格序列 (字符, TERMINAL_PACK 键或 None)；None 键 = 未着色格
-        （git 对单 lane 线性段不输出颜色），由 UI 映射主题默认色。
-    is_connector: 纯图线连接行（如合并后的 `|\\` 行），无提交元数据。
-    """
-
-    graph: tuple[tuple[str, str | None], ...] = ()
-    is_connector: bool = False
+    graph_row: GraphRow = _EMPTY_GRAPH_ROW
+    commit_id: str = ""
+    parent_ids: tuple[str, ...] = ()
     is_head: bool = False
     commit: str = ""
     subject: str = ""
     author: str = ""
     rel_date: str = ""
-    abs_date: str = ""  # 绝对时间 "YYYY-MM-DD HH:MM"（%aI 截断）
+    abs_date: str = ""
     refs: tuple[RefBadge, ...] = field(default=())
 
 
@@ -99,39 +86,30 @@ def fetch_commit_graph(repo_root: str, colored: bool = False) -> str | None:
 
 
 def fetch_commit_rows(repo_root: str) -> CommitGraph | None:
-    """结构化提交图（图形格 + 元数据 + refs 徽标）；失败/格式漂移返回 None。
-
-    单条命令同时取回图形与元数据；逐行解析：
-    - 含锚点 \\x1f 的行：前缀（图线字符 + SGR 色码）| hash | subject |
-      author | rel_date | abs_date | refs——字段数不符即格式漂移，整体
-      返回 None（D3）
-    - 无锚点的行：纯图线连接行（is_connector）
-    """
+    """结构化提交图（parents/lane + 元数据 + refs）；失败/格式漂移返回 None。"""
     out = runner.run_git(
-        repo_root, "log", "--graph", "--color=always", "--all",
-        "--decorate=full", "-n", str(MAX_COUNT),
-        f"--pretty=format:{_ROWS_FORMAT}")
+        repo_root, "log", "--topo-order", "--all", "--decorate=full",
+        "-n", str(MAX_COUNT), f"--pretty=format:{_ROWS_FORMAT}")
     if out is None:
         return None
     text = out.rstrip("\n")
     if not text:
-        return None  # 空仓库：退出码 0、输出为空（同 fetch_commit_graph 归一）
+        return None
 
     rows: list[CommitRow] = []
     # 不用 splitlines()：其将 \x1e（RS）等控制符也视为行界，会多出空行
     for line in text.split("\n"):
         line = line.rstrip("\x1e").rstrip(" ")
-        if "\x1f" not in line:
-            rows.append(CommitRow(graph=_parse_graph_prefix(line),
-                                  is_connector=True))
-            continue
         parts = line.split("\x1f")
-        if len(parts) != 7:  # 前缀 + 6 字段；不符即 --graph 格式漂移（D3）
+        if len(parts) != 8:
             return None
-        prefix, commit, subject, author, rel_date, abs_date, decorate = parts
+        commit_id, parents, commit, subject, author, rel_date, abs_date, decorate = parts
+        if not commit_id:
+            return None
         refs, is_head = _parse_refs(decorate)
         rows.append(CommitRow(
-            graph=_parse_graph_prefix(prefix),
+            commit_id=commit_id,
+            parent_ids=tuple(parents.split()),
             is_head=is_head,
             commit=commit,
             subject=subject,
@@ -143,6 +121,12 @@ def fetch_commit_rows(repo_root: str) -> CommitGraph | None:
     if not rows:
         return None
 
+    graph_rows = compute_graph_rows(
+        (row.commit_id, row.parent_ids) for row in rows)
+    rows = [
+        replace(row, graph_row=graph_row)
+        for row, graph_row in zip(rows, graph_rows, strict=True)
+    ]
     hint = None
     total = count_commits(repo_root)
     if total is not None and total > MAX_COUNT:
@@ -159,15 +143,6 @@ def _format_abs_date(iso: str) -> str:
     if len(iso) >= 16 and iso[4] == "-" and iso[10] == "T":
         return iso[:16].replace("T", " ")
     return iso
-
-
-def _parse_graph_prefix(prefix: str) -> tuple[tuple[str, str | None], ...]:
-    """图线前缀 → 格序列 (字符, TERMINAL_PACK 键)；SGR 色码经 ansi 模块解析。"""
-    cells: list[tuple[str, str | None]] = []
-    for text, color, bold in parse_segments(prefix):
-        key = resolve_key(color, bold)
-        cells.extend((ch, key) for ch in text)
-    return tuple(cells)
 
 
 def _parse_refs(decorate: str) -> tuple[tuple[RefBadge, ...], bool]:

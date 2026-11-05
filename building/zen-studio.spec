@@ -8,7 +8,8 @@
 
 要点：
 - 路径经 SPECPATH 推导项目根，从任意目录调用行为一致（不依赖 CWD）
-- datas 按子目录收编（字体三族 + Logo 全套 + 主题模板 + 提示音 + 版本文件）；
+- datas 按子目录收编（字体三族 + Logo 全套 + 主题模板 + 提示音 + 版本文件
+  + 根 LICENSE/NOTICE/LICENSES 许可与来源声明）；
   思源宋体（87M 未注册备用族）、logo候选池（设计草稿）与
   sounds/备选池（提示音候选存档）明确不打包——
   见 文档/修改记录/2026-0725-1053 计划 §4 打包内容清单
@@ -73,6 +74,10 @@ a = Analysis(
         # 版本文件（冻结态 core/version.py 读取；本 spec 顶部自算写出，
         # 已是含构建号的完整版本，落 bundle 根即 frozen 态 PROJECT_ROOT）
         (_VERSION_TXT, "."),
+        # 项目与实质移植组件的许可、来源声明随 onedir/AppImage 分发
+        (os.path.join(PROJECT_ROOT, "LICENSE"), "."),
+        (os.path.join(PROJECT_ROOT, "NOTICE"), "."),
+        (os.path.join(PROJECT_ROOT, "LICENSES"), "LICENSES"),
     ],
     hiddenimports=[],
     hookspath=[],

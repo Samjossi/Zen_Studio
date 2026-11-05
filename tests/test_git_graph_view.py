@@ -1,4 +1,4 @@
-"""提交图 graph-only 布局、复杂图线像素、tooltip 与刷新状态测试。"""
+"""提交图结构化布局、三类边像素、tooltip 与刷新状态测试。"""
 from __future__ import annotations
 
 import pytest
@@ -6,6 +6,7 @@ from PySide6.QtCore import QEvent, QPoint, QRect, Qt
 from PySide6.QtGui import QColor, QHelpEvent, QImage, QPainter
 from PySide6.QtWidgets import QApplication, QStyleOptionViewItem, QToolTip
 
+from core.git.graph import GraphEdge, GraphRow
 from core.git.log import CommitGraph, CommitRow, RefBadge
 from gui.git_graph_view import (
     COL_AUTHOR,
@@ -13,7 +14,6 @@ from gui.git_graph_view import (
     COL_DATE,
     COL_GRAPH,
     GitGraphView,
-    _row_height,
 )
 from gui.theme import get_theme_palette
 
@@ -23,8 +23,12 @@ def qapp():
     return QApplication.instance() or QApplication([])
 
 
-def _commit(number: int, *, head: bool = False, cells: int = 1) -> CommitRow:
-    graph = (("*", "red"),) + tuple((" ", None) for _ in range(cells - 1))
+def _commit(
+    number: int,
+    *,
+    head: bool = False,
+    graph_row: GraphRow | None = None,
+) -> CommitRow:
     refs = (
         RefBadge("head", "HEAD"),
         RefBadge("branch", "main"),
@@ -32,9 +36,11 @@ def _commit(number: int, *, head: bool = False, cells: int = 1) -> CommitRow:
         RefBadge("tag", "v1.0"),
     ) if head else ()
     return CommitRow(
-        graph=graph,
+        graph_row=graph_row or GraphRow(
+            lane=0, color=0, edges=(), has_continuation=False, has_top_line=False),
+        commit_id=f"full-{number:03d}",
         is_head=head,
-        commit=f"c{number:03d}",
+        commit="same-short-hash",
         subject=f"提交主题 {number}",
         author="测试作者",
         rel_date="3 小时前",
@@ -43,9 +49,22 @@ def _commit(number: int, *, head: bool = False, cells: int = 1) -> CommitRow:
     )
 
 
-def _graph(count: int = 3, *, cells: int = 1) -> CommitGraph:
+def _graph(count: int = 3, *, lanes: int = 1) -> CommitGraph:
     return CommitGraph(
-        rows=tuple(_commit(i, head=i == 0, cells=cells) for i in range(count)),
+        rows=tuple(
+            _commit(
+                index,
+                head=index == 0,
+                graph_row=GraphRow(
+                    lane=lanes - 1,
+                    color=(lanes - 1) % 8,
+                    edges=(),
+                    has_continuation=index < count - 1,
+                    has_top_line=index > 0,
+                ),
+            )
+            for index in range(count)
+        ),
         truncated_hint=None,
     )
 
@@ -68,12 +87,21 @@ def _paint_row(view: GitGraphView, row: int = 0, *, hover: bool = False) -> QIma
     return image
 
 
-def _has_ink(image: QImage, x: int, y: int, radius: int = 2) -> bool:
+def _has_ink(image: QImage, x: float, y: float, radius: int = 2) -> bool:
     return any(
         image.pixelColor(px, py) != QColor(Qt.GlobalColor.white)
-        for py in range(max(0, y - radius), min(image.height(), y + radius + 1))
-        for px in range(max(0, x - radius), min(image.width(), x + radius + 1))
+        for py in range(max(0, round(y) - radius), min(image.height(), round(y) + radius + 1))
+        for px in range(max(0, round(x) - radius), min(image.width(), round(x) + radius + 1))
     )
+
+
+def _show_graph(qapp, graph: CommitGraph, *, graph_only: bool = True) -> GitGraphView:
+    view = GitGraphView()
+    view.set_graph_only(graph_only)
+    view.set_graph(graph)
+    view.show()
+    qapp.processEvents()
+    return view
 
 
 def test_graph_only_hides_all_text_columns_and_tooltip_preserves_metadata(qapp):
@@ -92,32 +120,28 @@ def test_graph_only_hides_all_text_columns_and_tooltip_preserves_metadata(qapp):
 
     tooltip = view._model.data(view._model.index(0, COL_GRAPH), Qt.ItemDataRole.ToolTipRole)
     for text in (
-        "c000", "提交主题 0", "测试作者", "3 小时前", "2026-11-06 04:48",
+        "same-short-hash", "提交主题 0", "测试作者", "3 小时前", "2026-11-06 04:48",
         "HEAD：HEAD", "本地分支：main", "远程分支：origin/main", "标签：v1.0",
     ):
         assert text in tooltip
     view.deleteLater()
 
 
-def test_real_tooltip_event_uses_graph_row_and_ignores_connector(qapp):
-    graph = CommitGraph(rows=(
-        _commit(0, head=True),
-        CommitRow(graph=(("|", None),), is_connector=True),
-    ), truncated_hint="仅显示最近 500 条")
-    view = GitGraphView()
-    view.set_graph_only(True)
-    view.set_graph(graph)
+def test_real_tooltip_event_uses_commit_and_ignores_truncation_hint(qapp):
+    graph = CommitGraph(
+        rows=(_commit(0, head=True),),
+        truncated_hint="仅显示最近 500 条",
+    )
+    view = _show_graph(qapp, graph)
     view.resize(240, 120)
-    view.show()
     qapp.processEvents()
 
     first_tooltip = ""
-    for row, expected in ((0, True), (1, False), (2, False)):
+    for row, expected in ((0, True), (1, False)):
         QToolTip.hideText()
         qapp.processEvents()
         rect = view.visualRect(view._model.index(row, COL_GRAPH))
-        local = rect.center()
-        event = QHelpEvent(QEvent.Type.ToolTip, local, QPoint(100, 100))
+        event = QHelpEvent(QEvent.Type.ToolTip, rect.center(), QPoint(100, 100))
         QApplication.sendEvent(view.viewport(), event)
         qapp.processEvents()
         index = view._model.index(row, COL_GRAPH)
@@ -133,18 +157,14 @@ def test_real_tooltip_event_uses_graph_row_and_ignores_connector(qapp):
     view.deleteLater()
 
 
-def test_graph_only_geometry_has_minimums_and_scales_with_font(qapp):
+def test_geometry_matches_reference_and_scales_with_font(qapp):
     original_size = qapp.font().pointSizeF()
-    view = GitGraphView()
-    view.set_graph_only(True)
-    view.set_graph(_graph())
-    view.show()
-    qapp.processEvents()
+    view = _show_graph(qapp, _graph())
     delegate = view._graph_delegate
-    assert delegate.lane_gap >= 18
-    assert delegate.node_diameter >= 8
-    assert delegate.graph_row_height >= 28
-    assert view.rowHeight(view._model.index(0, COL_GRAPH)) == delegate.graph_row_height
+    assert delegate.lane_gap == 22
+    assert delegate.node_diameter == 10
+    assert delegate.graph_row_height == 22
+    assert view.rowHeight(view._model.index(0, COL_GRAPH)) == 22
     original = (delegate.lane_gap, delegate.node_diameter, delegate.graph_row_height)
     try:
         font = qapp.font()
@@ -168,7 +188,7 @@ def test_graph_width_tracks_lanes_and_wide_graph_has_horizontal_scroll(qapp):
     view = GitGraphView()
     view.set_graph_only(True)
     view.resize(120, 100)
-    view.set_graph(_graph(cells=20))
+    view.set_graph(_graph(lanes=20))
     view.show()
     qapp.processEvents()
     content_width = view._graph_delegate.content_width(20)
@@ -180,11 +200,8 @@ def test_graph_width_tracks_lanes_and_wide_graph_has_horizontal_scroll(qapp):
 
 
 def test_graph_only_column_uses_viewport_without_stretching_lanes(qapp):
-    view = GitGraphView()
-    view.set_graph_only(True)
-    view.set_graph(_graph())
+    view = _show_graph(qapp, _graph())
     view.resize(440, 120)
-    view.show()
     qapp.processEvents()
     lane_gap = view._graph_delegate.lane_gap
     assert view.columnWidth(COL_GRAPH) == view.viewport().width()
@@ -198,79 +215,82 @@ def test_graph_only_column_uses_viewport_without_stretching_lanes(qapp):
     view.deleteLater()
 
 
-@pytest.mark.parametrize("char", ["*", "|", "-", "_", ".", "/", "\\"])
-def test_all_graph_primitives_emit_pixels(qapp, char):
-    graph = CommitGraph(rows=(CommitRow(graph=(
-        (" ", None), (char, "red"),
-    ), is_connector=char != "*"),), truncated_hint=None)
-    view = GitGraphView()
-    view.set_graph_only(True)
-    view.set_graph(graph)
-    view.show()
-    qapp.processEvents()
+@pytest.mark.parametrize("kind", ["pass-through", "branch-out", "merge-in"])
+def test_all_edge_types_emit_pixels_at_reference_endpoints(qapp, kind):
+    if kind == "pass-through":
+        row = GraphRow(
+            lane=1, color=1,
+            edges=(GraphEdge(0, 0, 0, kind),),
+            has_continuation=False, has_top_line=False,
+        )
+        start = (11, 1)
+        end = (11, 21)
+    elif kind == "branch-out":
+        row = GraphRow(
+            lane=0, color=0,
+            edges=(GraphEdge(0, 1, 1, kind),),
+            has_continuation=False, has_top_line=False,
+        )
+        start = (11, 11)
+        end = (33, 21)
+    else:
+        row = GraphRow(
+            lane=0, color=0,
+            edges=(GraphEdge(1, 0, 1, kind),),
+            has_continuation=False, has_top_line=False,
+        )
+        start = (33, 1)
+        end = (11, 11)
+    view = _show_graph(qapp, CommitGraph(rows=(_commit(0, graph_row=row),), truncated_hint=None))
     image = _paint_row(view)
-    assert any(
-        image.pixelColor(x, y) != QColor(Qt.GlobalColor.white)
-        for y in range(image.height())
-        for x in range(image.width())
-    )
+    assert _has_ink(image, *start)
+    assert _has_ink(image, *end)
     view.close()
     view.deleteLater()
 
 
-@pytest.mark.parametrize(("char", "start_y", "end_y"), [
-    ("/", "bottom", "top"),
-    ("\\", "top", "bottom"),
-])
-def test_curve_endpoints_land_on_adjacent_lane_centers(qapp, char, start_y, end_y):
-    view = GitGraphView()
-    view.set_graph_only(True)
-    view.set_graph(CommitGraph(rows=(CommitRow(graph=(
-        (" ", None), (char, "red"),
-    )),), truncated_hint=None))
-    view.show()
-    qapp.processEvents()
-    image = _paint_row(view)
-    lane = view._graph_delegate.lane_gap
-    left_center = 8 + lane // 2
-    right_center = left_center + lane
-    ys = {"top": 1, "bottom": image.height() - 2}
-    assert _has_ink(image, left_center, ys[start_y])
-    assert _has_ink(image, right_center, ys[end_y])
+def test_node_top_and_bottom_segments_follow_graph_flags(qapp):
+    connected = GraphRow(
+        lane=0, color=0, edges=(), has_continuation=True, has_top_line=True)
+    isolated = GraphRow(
+        lane=0, color=0, edges=(), has_continuation=False, has_top_line=False)
+    view = _show_graph(qapp, CommitGraph(rows=(
+        _commit(0, graph_row=connected),
+        _commit(1, graph_row=isolated),
+    ), truncated_hint=None))
+    connected_image = _paint_row(view, 0)
+    isolated_image = _paint_row(view, 1)
+    assert _has_ink(connected_image, 11, 1)
+    assert _has_ink(connected_image, 11, connected_image.height() - 2)
+    assert not _has_ink(isolated_image, 11, 1)
+    assert not _has_ink(isolated_image, 11, isolated_image.height() - 2)
     view.close()
     view.deleteLater()
 
 
-def test_connector_is_full_height_only_in_graph_only(qapp):
-    graph = CommitGraph(rows=(CommitRow(
-        graph=(("|", None),), is_connector=True),), truncated_hint=None)
-    view = GitGraphView()
-    view.set_graph(graph)
-    view.show()
-    qapp.processEvents()
-    index = view._model.index(0, COL_GRAPH)
-    assert view.rowHeight(index) == _row_height(view.font()) // 2
-    view.set_graph_only(True)
-    qapp.processEvents()
-    assert view.rowHeight(index) == view._graph_delegate.graph_row_height
-    view.close()
-    view.deleteLater()
-
-
-def test_head_and_hover_states_emit_accent_pixels(qapp):
-    view = GitGraphView()
+def test_nodes_cover_line_endpoints_and_head_uses_background_inner_dot(qapp):
+    palette = get_theme_palette("cloud")
+    continuing = GraphRow(
+        lane=0, color=0, edges=(), has_continuation=True, has_top_line=True)
+    graph = CommitGraph(rows=(
+        _commit(0, head=True, graph_row=continuing),
+        _commit(1, graph_row=continuing),
+    ), truncated_hint=None)
+    view = _show_graph(qapp, graph)
     view.apply_theme("cloud")
-    view.set_graph_only(True)
-    view.set_graph(_graph())
-    view.show()
-    qapp.processEvents()
+    head = _paint_row(view, 0)
+    normal = _paint_row(view, 1)
+    lane_color = QColor(palette["terminal"]["blue"])
+    assert head.pixelColor(11, head.height() // 2) == QColor(palette["card_bg"])
+    assert normal.pixelColor(11, normal.height() // 2) == lane_color
+    assert _has_ink(head, 11, 1)
+    view.close()
+    view.deleteLater()
+
+
+def test_hover_state_changes_full_row_background(qapp):
+    view = _show_graph(qapp, _graph())
     normal = _paint_row(view)
-    head = _paint_row(view)
-    accent = QColor(get_theme_palette("cloud")["accent"])
-    assert any(
-        head.pixelColor(x, y) == accent
-        for y in range(head.height()) for x in range(head.width())
-    )
     hovered = _paint_row(view, hover=True)
     assert sum(
         normal.pixel(x, y) != hovered.pixel(x, y)
@@ -280,15 +300,27 @@ def test_head_and_hover_states_emit_accent_pixels(qapp):
     view.deleteLater()
 
 
-def test_refresh_restores_selection_and_both_scroll_positions(qapp):
+def test_full_and_graph_only_modes_share_row_geometry(qapp):
+    graph = _graph(2, lanes=3)
+    view = _show_graph(qapp, graph, graph_only=False)
+    full_height = view.rowHeight(view._model.index(0, COL_GRAPH))
+    full_width = view._graph_delegate.content_width(3)
+    view.set_graph_only(True)
+    qapp.processEvents()
+    assert view.rowHeight(view._model.index(0, COL_GRAPH)) == full_height
+    assert view._graph_delegate.content_width(3) == full_width
+    view.close()
+    view.deleteLater()
+
+
+def test_refresh_restores_full_identity_and_both_scroll_positions(qapp):
     view = GitGraphView()
     view.set_graph_only(True)
     view.resize(160, 100)
-    view.set_graph(_graph(40, cells=20))
+    view.set_graph(_graph(40, lanes=20))
     view.show()
     qapp.processEvents()
-    selected = view._model.index(20, COL_GRAPH)
-    view.setCurrentIndex(selected)
+    view.setCurrentIndex(view._model.index(20, COL_GRAPH))
     view.verticalScrollBar().setValue(view.verticalScrollBar().maximum() // 2)
     view.horizontalScrollBar().setValue(view.horizontalScrollBar().maximum() // 2)
     qapp.processEvents()
@@ -296,17 +328,17 @@ def test_refresh_restores_selection_and_both_scroll_positions(qapp):
     horizontal_value = view.horizontalScrollBar().value()
     assert vertical_value > 0 and horizontal_value > 0
 
-    view.set_graph(_graph(40, cells=20))
+    view.set_graph(_graph(40, lanes=20))
     qapp.processEvents()
     current_row = view._model.row_of(view.currentIndex())
-    assert current_row is not None and current_row.commit == "c020"
+    assert current_row is not None and current_row.commit_id == "full-020"
     assert view.verticalScrollBar().value() == vertical_value
     assert view.horizontalScrollBar().value() == horizontal_value
 
-    view.set_graph(_graph(1, cells=20))
+    view.set_graph(_graph(1, lanes=20))
     qapp.processEvents()
     current_row = view._model.row_of(view.currentIndex())
-    assert current_row is None or current_row.commit != "c020"
+    assert current_row is None or current_row.commit_id != "full-020"
     assert view.horizontalScrollBar().value() <= view.horizontalScrollBar().maximum()
     view.close()
     view.deleteLater()

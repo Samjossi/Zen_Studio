@@ -193,6 +193,9 @@ for want in "AppRun" "zen-studio.desktop" "zen-studio.png" \
             "usr/bin/_internal/assets/fonts/Noto彩色Emoji/NotoColorEmoji.ttf" \
             "usr/bin/_internal/assets/logo/logo_256.png" \
             "usr/bin/_internal/version.txt" \
+            "usr/bin/_internal/LICENSE" \
+            "usr/bin/_internal/NOTICE" \
+            "usr/bin/_internal/LICENSES/EPL-2.0.txt" \
             "usr/bin/_internal/PySide6/Qt/plugins/platforms/libqxcb.so" \
             "usr/bin/_internal/PySide6/Qt/plugins/platforms/libqwayland.so" \
             "usr/bin/_internal/PySide6/Qt/plugins/platforminputcontexts/libfcitx5platforminputcontextplugin.so"; do

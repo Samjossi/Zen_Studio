@@ -1,4 +1,4 @@
-"""内嵌提交图加载边界、真实拓扑 fixture 与共享内容降级测试。"""
+"""内嵌提交图加载边界、真实 parents 拓扑 fixture 与共享内容降级测试。"""
 from __future__ import annotations
 
 from pathlib import Path
@@ -11,6 +11,7 @@ from PySide6.QtWidgets import QApplication
 
 import gui.git_graph_content as content_mod
 from core.git import log as git_log
+from core.git.graph import GraphEdge
 from core.git.log import CommitGraph, CommitRow
 from gui.git_graph_content import GitGraphContent
 from gui.git_graph_dialog import GitGraphDialog
@@ -79,6 +80,19 @@ def parallel_repo() -> Path:
     return repo
 
 
+@pytest.fixture(scope="module")
+def truncated_repo() -> Path:
+    repo = WORKDIR / "truncated"
+    shutil.rmtree(repo, ignore_errors=True)
+    repo.mkdir(parents=True)
+    _git(repo, "init", "-b", "main")
+    _git(repo, "config", "user.name", "Zen Tester")
+    _git(repo, "config", "user.email", "zen@example.invalid")
+    for index in range(git_log.MAX_COUNT + 1):
+        _git(repo, "commit", "--allow-empty", "-m", f"commit {index}")
+    return repo
+
+
 def _service(repo: Path, enabled: bool = True):
     return SimpleNamespace(
         is_enabled=enabled,
@@ -90,30 +104,84 @@ def _service(repo: Path, enabled: bool = True):
     )
 
 
-def test_real_merge_fixture_has_connectors_curves_and_all_ref_kinds(merged_repo):
+def test_structured_fetch_uses_full_ids_parents_and_topo_order(monkeypatch, merged_repo):
+    calls = []
+
+    def fake_git(_repo, *args):
+        calls.append(args)
+        if args[:2] == ("rev-list", "--all"):
+            return "1\n"
+        full_id = "a" * 40
+        parent_id = "b" * 40
+        return "\x1f".join((
+            full_id, parent_id, "abc123", "subject", "author", "now",
+            "2026-11-06T05:54:00+08:00", "HEAD -> refs/heads/main",
+        )) + "\x1e"
+
+    monkeypatch.setattr(git_log.runner, "run_git", fake_git)
     graph = git_log.fetch_commit_rows(str(merged_repo))
     assert graph is not None
-    commits = [row for row in graph.rows if not row.is_connector]
-    assert {row.subject for row in commits} >= {
+    command = calls[0]
+    assert "--topo-order" in command
+    assert "--graph" not in command
+    assert "--color=always" not in command
+    assert "%H%x1f%P%x1f%h" in command[-1]
+    assert graph.rows[0].commit_id == "a" * 40
+    assert graph.rows[0].parent_ids == ("b" * 40,)
+    assert graph.rows[0].commit == "abc123"
+
+
+def test_real_merge_fixture_matches_git_topology_and_all_ref_kinds(merged_repo):
+    graph = git_log.fetch_commit_rows(str(merged_repo))
+    assert graph is not None
+    expected_ids = subprocess.check_output(
+        ["git", "rev-list", "--topo-order", "--all"],
+        cwd=merged_repo, text=True,
+    ).splitlines()
+    assert [row.commit_id for row in graph.rows] == expected_ids
+    assert len(graph.rows) == len(expected_ids)
+    assert {row.subject for row in graph.rows} >= {
         "base", "feature subject", "main subject", "merge feature"}
-    assert any(row.is_connector for row in graph.rows)
-    chars = {ch for row in graph.rows for ch, _color in row.graph}
-    assert {"/", "\\"} <= chars
-    head = commits[0]
+    merge = next(row for row in graph.rows if row.subject == "merge feature")
+    assert len(merge.parent_ids) == 2
+    assert any(edge.kind == "branch-out" for edge in merge.graph_row.edges)
+    assert {edge.kind for row in graph.rows for edge in row.graph_row.edges} >= {
+        "pass-through", "merge-in", "branch-out"}
+    head = graph.rows[0]
     assert head.is_head
     assert {badge.kind for badge in head.refs} >= {"head", "branch", "remote", "tag"}
 
 
-def test_parallel_fixture_covers_octopus_corners_and_long_lanes(parallel_repo):
+def test_parallel_fixture_has_exact_octopus_edges_and_long_lanes(parallel_repo):
     graph = git_log.fetch_commit_rows(str(parallel_repo))
     assert graph is not None
-    commits = [row for row in graph.rows if not row.is_connector]
-    assert {row.subject for row in commits} >= {
+    assert {row.subject for row in graph.rows} >= {
         "alpha two", "beta two", "gamma two", "octopus merge"}
-    chars = {ch for row in graph.rows for ch, _color in row.graph}
-    assert {".", "-", "_", "/", "\\", "|", "*"} <= chars
-    assert max(len(row.graph) for row in graph.rows) >= 7
-    assert any(row.is_connector for row in graph.rows)
+    octopus = next(row for row in graph.rows if row.subject == "octopus merge")
+    assert [edge for edge in octopus.graph_row.edges if edge.kind == "branch-out"] == [
+        GraphEdge(from_lane=0, to_lane=2, color=2, kind="branch-out"),
+        GraphEdge(from_lane=0, to_lane=3, color=3, kind="branch-out"),
+        GraphEdge(from_lane=0, to_lane=4, color=4, kind="branch-out"),
+    ]
+    assert GraphEdge(
+        from_lane=1, to_lane=0, color=1, kind="merge-in",
+    ) in octopus.graph_row.edges
+    assert GraphEdge(
+        from_lane=1, to_lane=1, color=1, kind="pass-through",
+    ) in octopus.graph_row.edges
+    assert max(row.graph_row.lane for row in graph.rows) >= 4
+
+
+def test_truncation_keeps_500_real_rows_and_open_graph_boundary(truncated_repo):
+    graph = git_log.fetch_commit_rows(str(truncated_repo))
+    assert graph is not None
+    assert len(graph.rows) == git_log.MAX_COUNT
+    assert graph.truncated_hint is not None
+    assert f"{git_log.MAX_COUNT + 1}" in graph.truncated_hint
+    loaded_ids = {row.commit_id for row in graph.rows}
+    assert all(len(commit_id) == 40 for commit_id in loaded_ids)
+    assert graph.rows[-1].parent_ids[0] not in loaded_ids
+    assert graph.rows[-1].graph_row.has_continuation
 
 
 def test_panel_graph_only_geometry_and_repaint_do_not_repeat_git(
@@ -223,23 +291,6 @@ def test_fallback_and_theme_rerender_do_not_repeat_git(qapp, merged_repo, monkey
     assert "fallback" in content._fallback.toPlainText()
     content.apply_theme("mint")
     assert calls == {"rows": 1, "text": 1}
-    content.deleteLater()
-
-
-def test_unknown_graph_character_uses_fallback_instead_of_broken_lines(
-        qapp, merged_repo, monkeypatch):
-    graph = CommitGraph(rows=(CommitRow(
-        graph=(("?", "red"),), commit="abc123", subject="unknown"),),
-        truncated_hint=None)
-    monkeypatch.setattr(content_mod.git_log, "fetch_commit_rows", lambda _repo: graph)
-    monkeypatch.setattr(
-        content_mod.git_log, "fetch_commit_graph",
-        lambda _repo, colored=False: "? abc123 unknown" if colored else None,
-    )
-    content = GitGraphContent(_service(merged_repo), graph_only=True)
-    content.reload()
-    assert content._stack.currentWidget() is content._fallback
-    assert "unknown" in content._fallback.toPlainText()
     content.deleteLater()
 
 

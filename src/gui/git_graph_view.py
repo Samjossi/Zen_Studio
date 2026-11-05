@@ -1,10 +1,10 @@
 """Git 提交历史图视图：完整四列表格或 graph-only 单列拓扑图。
 
-- 图形列消费 git --graph 的泳道格与 ANSI 色键，斜线使用贝塞尔曲线；
-  graph-only 采用独立泳道度量，完整模式保留半高连接行。
+- 图形列消费完整 commit id/parents 计算出的 GraphRow，三种边和节点线
+  使用统一的 Qt 原生几何；内嵌与完整模式共享同一拓扑模型。
 - 完整模式显示 hash、refs 徽标与主题；graph-only 的完整元数据只在
   整行 tooltip 中按需显示。
-- 主题与字号重绘使用现有模型缓存；刷新按 hash 恢复选中与横纵滚动值。
+- 主题与字号重绘使用现有模型缓存；刷新按完整 id 恢复选中与横纵滚动值。
 """
 from __future__ import annotations
 
@@ -16,9 +16,8 @@ from PySide6.QtCore import (
     QSize,
     Qt,
 )
-from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPainterPath, QPen
+from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPen
 from PySide6.QtWidgets import (
-    QApplication,
     QHeaderView,
     QStyle,
     QStyledItemDelegate,
@@ -29,19 +28,15 @@ from PySide6.QtWidgets import (
 )
 
 from core.git.log import CommitGraph, CommitRow
+from gui.git_graph_renderer import GitGraphRenderer
 from gui.settings import KEY_THEME
-from gui.theme import get_mono_family, get_theme_palette, load_settings
+from gui.theme import get_theme_palette, load_settings
 
 COL_GRAPH = 0
 COL_COMMIT = 1
 COL_AUTHOR = 2
 COL_DATE = 3
 
-SUPPORTED_GRAPH_CHARS = frozenset(" *|\\/-_.")
-
-_ROW_VPAD = 5
-_GRAPH_ONLY_VPAD = 6
-_GRAPH_HPAD = 8
 _BADGE_HPAD = 7
 _BADGE_GAP = 5
 _REF_KIND_LABELS = {
@@ -53,62 +48,44 @@ _REF_KIND_LABELS = {
 
 
 def _row_height(widget_font: QFont) -> int:
-    return QFontMetrics(widget_font).height() + _ROW_VPAD * 2
-
-
-def _height_for(index: QModelIndex, font: QFont) -> int:
-    """完整模式的连接行半高；graph-only 由图形委托统一提供行高。"""
-    model = index.model()
-    row = model.row_of(index) if isinstance(model, CommitGraphModel) else None
-    base = _row_height(font)
-    return base // 2 if (row is not None and row.is_connector) else base
-
-
-def is_supported_graph(graph: CommitGraph) -> bool:
-    """未知图线字符交给富文本降级，避免结构化视图静默断线。"""
-    return all(
-        ch in SUPPORTED_GRAPH_CHARS
-        for row in graph.rows
-        for ch, _color in row.graph
-    )
+    return max(22, QFontMetrics(widget_font).height() + 4)
 
 
 class _RowHeightDelegate(QStyledItemDelegate):
-    """作者/时间列：默认渲染 + 行高覆写（连接行半高；宽度保留内容宽）。
-
-    行高不走模型 SizeHintRole：QSize(-1, h) 的 -1 宽度会污染表头
-    ResizeToContents 的内容宽计算（实证列宽被钳到 40px）。
-    """
+    """文本列使用默认渲染，并与图形列共享统一提交行高。"""
 
     def sizeHint(self, option: QStyleOptionViewItem, index: QModelIndex) -> QSize:
         size = super().sizeHint(option, index)
-        return QSize(size.width(), _height_for(index, option.font))
+        return QSize(size.width(), _row_height(option.font))
 
 
 class CommitGraphModel(QAbstractTableModel):
-    """提交图模型：行 = 提交行/连接行 + 末尾可选截断提示行。"""
+    """提交图模型：每条提交一行，末尾可追加一条截断提示。"""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._rows: list[CommitRow] = []
         self._hint: str | None = None
-        self.max_graph_cells = 0  # 图形列宽 = 最大格数 × 格宽（视图取用）
+        self.max_graph_cells = 0
 
     def set_graph(self, graph: CommitGraph) -> None:
         self.beginResetModel()
         self._rows = list(graph.rows)
         self._hint = graph.truncated_hint
-        self.max_graph_cells = max(
-            (len(r.graph) for r in self._rows), default=0)
+        max_lane = -1
+        for row in self._rows:
+            graph_row = row.graph_row
+            max_lane = max(max_lane, graph_row.lane)
+            for edge in graph_row.edges:
+                max_lane = max(max_lane, edge.from_lane, edge.to_lane)
+        self.max_graph_cells = max_lane + 1
         self.endResetModel()
 
     def row_of(self, index: QModelIndex) -> CommitRow | None:
-        """index → CommitRow；截断提示行返回 None。"""
         if 0 <= index.row() < len(self._rows):
             return self._rows[index.row()]
         return None
 
-    # ------------------------------------------------------------------
     def rowCount(self, parent: QModelIndex = QModelIndex()) -> int:
         return len(self._rows) + (1 if self._hint else 0)
 
@@ -125,8 +102,8 @@ class CommitGraphModel(QAbstractTableModel):
             return None
         row = self.row_of(index)
         if role == Qt.ItemDataRole.UserRole:
-            return row  # None 即截断提示行（委托据此分流）
-        if role == Qt.ItemDataRole.ToolTipRole and row is not None and not row.is_connector:
+            return row
+        if role == Qt.ItemDataRole.ToolTipRole and row is not None:
             times = " · ".join(part for part in (row.rel_date, row.abs_date) if part)
             refs = "；".join(
                 f"{_REF_KIND_LABELS.get(badge.kind, badge.kind)}：{badge.label}"
@@ -142,11 +119,10 @@ class CommitGraphModel(QAbstractTableModel):
             if index.column() == COL_AUTHOR:
                 return row.author
             if index.column() == COL_DATE:
-                # 相对时间 + 绝对时间并列（VS Code 式双时间）
                 if row.abs_date:
                     return f"{row.rel_date} · {row.abs_date}"
                 return row.rel_date
-            return None  # 图形列/提交列由委托自绘
+            return None
         return None
 
     def flags(self, index: QModelIndex) -> Qt.ItemFlag:
@@ -154,25 +130,20 @@ class CommitGraphModel(QAbstractTableModel):
 
 
 class GraphColumnDelegate(QStyledItemDelegate):
-    """图形列委托：统一泳道度量，颜色取 TERMINAL_PACK 映射。"""
+    """图形列委托：整行状态由 Qt 绘制，拓扑委托给共享渲染器。"""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self._colors: dict[str, QColor] = {}
+        self._renderer = GitGraphRenderer()
         self._default = QColor("#1a1a1a")
         self._accent = QColor("#0765d4")
-        self._cell_w = 8
-        self._row_h = _row_height(QFont(get_mono_family()))
-        self._node_radius = 2.5
-        self._line_width = 2
         self._graph_only = False
         self._hover_row = -1
 
-    def apply_theme(self, terminal_pack: dict, accent: str) -> None:
-        self._colors = {
-            k: QColor(v) for k, v in terminal_pack.items()
-            if k not in ("find_bg", "find_cur") and not k.startswith("default_")
-        }
+    def apply_theme(
+        self, terminal_pack: dict, accent: str, background: str,
+    ) -> None:
+        self._renderer.apply_theme(terminal_pack, background)
         self._default = QColor(terminal_pack["default_fg"])
         self._accent = QColor(accent)
 
@@ -180,48 +151,31 @@ class GraphColumnDelegate(QStyledItemDelegate):
         self._graph_only = graph_only
         if not graph_only:
             self._hover_row = -1
-        self.refresh_font()
 
     def set_hover_row(self, row: int) -> None:
         self._hover_row = row
 
     def refresh_font(self) -> None:
-        font = QFont(get_mono_family())
-        if app := QApplication.instance():
-            font.setPointSizeF(app.font().pointSizeF())
-        metrics = QFontMetrics(font)
-        if self._graph_only:
-            self._cell_w = max(18, metrics.horizontalAdvance("0") + 9)
-            self._row_h = max(28, metrics.height() + _GRAPH_ONLY_VPAD * 2)
-            self._node_radius = min(7.0, max(4.0, metrics.height() * 0.27))
-            self._line_width = min(3, max(2, round(self._cell_w / 9)))
-        else:
-            self._cell_w = max(4, metrics.horizontalAdvance("0"))
-            self._row_h = _row_height(font)
-            self._node_radius = 2.5
-            self._line_width = 2
+        self._renderer.refresh_font()
 
     @property
     def cell_width(self) -> int:
-        return self._cell_w
+        return self._renderer.lane_width
 
     @property
     def lane_gap(self) -> int:
-        return self._cell_w
+        return self._renderer.lane_width
 
     @property
     def node_diameter(self) -> int:
-        return round(self._node_radius * 2)
+        return round(self._renderer.node_radius * 2)
 
     @property
     def graph_row_height(self) -> int:
-        return self._row_h
+        return self._renderer.row_height
 
-    def content_width(self, cells: int) -> int:
-        cells = max(1, cells)
-        if self._graph_only:
-            return cells * self._cell_w + _GRAPH_HPAD * 2
-        return cells * self._cell_w + 10
+    def content_width(self, lanes: int) -> int:
+        return self._renderer.content_width(lanes)
 
     def paint(self, painter: QPainter, option: QStyleOptionViewItem,
               index: QModelIndex) -> None:
@@ -237,75 +191,26 @@ class GraphColumnDelegate(QStyledItemDelegate):
                 painter.setPen(self._default)
                 painter.setFont(option.font)
                 painter.drawText(
-                    option.rect.adjusted(_GRAPH_HPAD, 0, -_GRAPH_HPAD, 0),
+                    option.rect,
                     Qt.AlignmentFlag.AlignVCenter,
                     model.data(index, Qt.ItemDataRole.DisplayRole) or "",
                 )
                 painter.restore()
             return
-        painter.save()
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        padding = _GRAPH_HPAD if self._graph_only else 4
-        rect = option.rect.adjusted(padding, 0, 0, 0)
-        cw, top, height = self._cell_w, rect.top(), rect.height()
-        cy = top + height / 2
-        for i, (ch, key) in enumerate(row.graph):
-            color = self._colors.get(key, self._default) if key else self._default
-            cx = rect.left() + i * cw + cw / 2
-            if ch == " ":
-                continue
-            if ch == "*":
-                radius = (
-                    self._node_radius if self._graph_only
-                    else min(cw, height) * 0.32
-                )
-                if self._graph_only and (row.is_head or hovered):
-                    painter.setPen(QPen(self._accent, self._line_width))
-                    painter.setBrush(Qt.BrushStyle.NoBrush)
-                    outer = radius + 2
-                    painter.drawEllipse(
-                        int(cx - outer), int(cy - outer),
-                        int(outer * 2), int(outer * 2),
-                    )
-                painter.setPen(Qt.PenStyle.NoPen)
-                painter.setBrush(color)
-                painter.drawEllipse(
-                    int(cx - radius), int(cy - radius),
-                    int(radius * 2), int(radius * 2),
-                )
-                continue
-            painter.setPen(QPen(color, self._line_width))
-            if ch == "|":
-                painter.drawLine(int(cx), top, int(cx), top + height)
-                continue
-            if self._graph_only:
-                left, right = cx - cw, cx
-            else:
-                left = rect.left() + i * cw
-                right = left + cw
-            if ch in ("/", "\\"):
-                path = QPainterPath()
-                if ch == "/":
-                    path.moveTo(left, top + height)
-                    path.cubicTo(left, cy, right, cy, right, top)
-                else:
-                    path.moveTo(left, top)
-                    path.cubicTo(left, cy, right, cy, right, top + height)
-                painter.drawPath(path)
-            elif ch in ("-", "_", "."):
-                painter.drawLine(
-                    int(round(left)), int(cy), int(round(right)), int(cy))
-        painter.restore()
+        self._renderer.paint(painter, option.rect, row.graph_row, row.is_head)
 
     def sizeHint(self, option: QStyleOptionViewItem, index: QModelIndex) -> QSize:
         model = index.model()
         row = model.row_of(index) if isinstance(model, CommitGraphModel) else None
-        cells = len(row.graph) if row is not None else 1
-        height = (
-            self._row_h if self._graph_only
-            else _height_for(index, option.font)
-        )
-        return QSize(self.content_width(cells), height)
+        lanes = 1
+        if row is not None:
+            graph_row = row.graph_row
+            lanes = max(
+                [graph_row.lane + 1]
+                + [max(edge.from_lane, edge.to_lane) + 1
+                   for edge in graph_row.edges]
+            )
+        return QSize(self.content_width(lanes), self.graph_row_height)
 
 
 class CommitColumnDelegate(QStyledItemDelegate):
@@ -339,7 +244,7 @@ class CommitColumnDelegate(QStyledItemDelegate):
         painter.save()
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         rect = option.rect.adjusted(6, 0, -4, 0)
-        if row is None:  # 截断提示行
+        if row is None:
             painter.setPen(self._muted_color)
             painter.setFont(option.font)
             painter.drawText(rect, Qt.AlignmentFlag.AlignVCenter,
@@ -391,12 +296,11 @@ class CommitColumnDelegate(QStyledItemDelegate):
 
     def sizeHint(self, option: QStyleOptionViewItem, index: QModelIndex) -> QSize:
         size = super().sizeHint(option, index)
-        return QSize(size.width(), _height_for(index, option.font))
+        return QSize(size.width(), _row_height(option.font))
 
 
 def _fill_selection(painter: QPainter, option: QStyleOptionViewItem,
                     accent: QColor, hovered: bool = False) -> None:
-    """选中/悬停行使用主题 accent 弱色背景，覆盖整个图形列。"""
     selected = bool(option.state & QStyle.StateFlag.State_Selected)
     if not selected and not hovered:
         return
@@ -452,12 +356,9 @@ class GitGraphView(QTreeView):
         self.scheduleDelayedItemsLayout()
         self.viewport().update()
 
-    # ------------------------------------------------------------------
-    # 数据
-    # ------------------------------------------------------------------
     def set_graph(self, graph: CommitGraph) -> None:
         current_row = self._model.row_of(self.currentIndex())
-        selected_commit = current_row.commit if current_row is not None else ""
+        selected_commit = current_row.commit_id if current_row is not None else ""
         vertical_value = self.verticalScrollBar().value()
         horizontal_value = self.horizontalScrollBar().value()
         self._graph_delegate.set_hover_row(-1)
@@ -466,7 +367,7 @@ class GitGraphView(QTreeView):
         if selected_commit:
             restored = False
             for row_index, row in enumerate(graph.rows):
-                if row.commit == selected_commit:
+                if row.commit_id == selected_commit:
                     column = COL_GRAPH if self._graph_only else COL_COMMIT
                     index = self._model.index(row_index, column)
                     self.selectionModel().setCurrentIndex(
@@ -519,12 +420,10 @@ class GitGraphView(QTreeView):
                 self.viewport().update()
         return super().viewportEvent(event)
 
-    # ------------------------------------------------------------------
-    # 主题/字号链
-    # ------------------------------------------------------------------
     def apply_theme(self, theme: str) -> None:
         palette = get_theme_palette(theme)
-        self._graph_delegate.apply_theme(palette["terminal"], palette["accent"])
+        self._graph_delegate.apply_theme(
+            palette["terminal"], palette["accent"], palette["card_bg"])
         self._commit_delegate.apply_theme(palette)
         self.viewport().update()
 
