@@ -16,7 +16,7 @@
 |:---|:---|
 | `gui/__init__.py` | 包初始化，对外导出 `MainWindow` |
 | `gui/main_window.py` | 主窗口：三栏布局（右栏再上下拆分）+ 状态栏 + 窗口几何/分隔栏状态持久化 + Git 状态事件驱动刷新 + 菜单槽函数（打开文件夹/字号/恢复布局等） |
-| `gui/controllers.py` | MainWindow 职责外移的控制器：`GitStatusController`（Git 服务编排/去抖/四面板扇出刷新）等组合成员，依赖构造注入 |
+| `gui/controllers.py` | MainWindow 职责外移的控制器：`GitStatusController`（Git 服务编排/去抖/统一扇出刷新）等组合成员，依赖构造注入 |
 | `gui/settings.py` | 通用配置持久化：读写 `config/settings.json`，"读全量 → 合并 → 写回"统一入口（主题/窗口几何/分隔栏/模型选择/工作区根共用；模型版本为按接口记忆的 `model_versions` 表） |
 | `gui/settings_dialog.py` | 设置中心对话框：左导航 + 右分页（页面注册表驱动），唯一偏好配置面；控件 change 即时持久化即时应用；说明文字两档——短句灰字直留界面，成段说明收进问号图标 tooltip（16×16 描边正圆按钮，hover 淡强调色染） |
 | `gui/window_state.py` | 窗口状态持久化：读写 `config/window_state/<hash8>.json`（按工作区哈希分文件，`default.json` 供新工作区首开继承） |
@@ -30,8 +30,8 @@
 | `gui/panels/__init__.py` | 面板包初始化，对外导出 `FileExplorer`、`ViewerPanel` |
 | `gui/panels/find_bar.py` | 查找浮层组件：viewer 与 terminal 两面板共用的右上角悬浮查找条（搜索语义归宿主面板） |
 | `gui/panels/welcome.py` | 空白窗口占位部件：`WelcomePanel`（文件树槽位：「未打开文件夹」+「打开文件夹…」按钮 + 最近打开项目快捷列表，条目只显项目名、悬停看全路径，点击就地填充）与 `PlaceholderPanel`（聊天槽位置灰占位，2026-08-31 一窗一根计划 D4；最近列表 2026-09-01 迭代） |
-| `gui/panels/file_explorer/` | 文件树子包（右栏上）：`explorer.py` 主控件 / `model.py` 模型层（噪音过滤 + Git 状态着色）/ `actions.py` 右键菜单动作 |
-| `gui/panels/changes/` | Git 变更面板子包（右栏下）：`panel.py` 已变更文件列表（状态着色 + 增减行数，VS Code SCM 简化版） |
+| `gui/panels/file_explorer/` | 文件树子包（右栏上）：`explorer.py` 文件树 / Git 树双页主控件 / `model.py` 模型层（噪音过滤 + Git 状态着色）/ `actions.py` 右键菜单动作 |
+| `gui/panels/changes/` | Git 变更列表子包：`list.py` 可复用扁平列表（状态着色 + 增减行数 + 双击分派）/ `panel.py` 右栏下面板头部与布局 |
 | `gui/panels/chat/` | 聊天面板子包（左栏）：`tabs.py` 标签容器（选择状态层 + 上限 4 标签）/ `panel.py` 装配（含底行：模型选择按钮 + 发送/停止双态按钮）/ `output.py` 输出区（旧轨）/ `transcript.py` 卡片轨对话区视图（0645 计划新轨；0813-1919 计划 T3 父指针路由——带 `parent_tool_call_id` 的子代理内部帧委派父 SubagentCard 内嵌区）/ `cards.py` KiloCode 式卡片折叠组件族（SubagentCard 内嵌「子代理活动」区复用 make_tool_card 嵌套显示子代理内部工具卡，0813-1919 计划 T2）/ `input.py` 输入框（文件拖入 → `@路径` 引用）/ `model_bar.py` 模型选择四按钮（后台/接口/模型/推理强度，接口级单接口时自动隐藏；纯视图）/ `worker.py` 流式线程 / `permission_dialog.py` ACP 工具审批对话框 / `permission_queue.py` 多标签审批串行弹窗队列 |
 | `gui/panels/viewer/` | 文件查看面板子包（中栏上，五页预览分流）：`panel.py` 装配（QStackedLayout 五页 + Git 差异徽标）/ `code_viewer.py` 只读文本查看器（行号栏）/ `highlighter.py` Pygments 高亮器 / `image_viewer.py` 图片页（位图 + SVG + GIF）/ `pdf_viewer.py` PDF 页（QPdfView 连续滚动）/ `markdown_view.py` Markdown 渲染页（GFM）/ `media_viewer.py` 音视频播放页 |
 | `gui/panels/terminal/` | 终端面板子包（中栏下）：`panel.py` 装配 / `widget.py` 自绘终端控件 / `screen.py` pyte 语义层 / `session.py` PTY 会话 / `palette.py` ANSI 双主题色板 / `selection.py` 选区控制器（纯逻辑零 Qt 依赖）/ `agent_bridge.py` ACP terminal/* 反向能力 GUI 桥（AI tab，2026-08-17） |
@@ -139,13 +139,14 @@
 
 ## 8. 文件树面板（右栏上）
 
-`FileExplorer` 移植自 PyGPT explorer 的裁剪版，基于 `QTreeView + QFileSystemModel`（经 `NoiseFilterProxyModel` 排除式过滤噪音目录），无 `window` 式上帝对象依赖，可独立实例化。
+`FileExplorer` 移植自 PyGPT explorer 的裁剪版，基于 `QTreeView + QFileSystemModel`（经 `NoiseFilterProxyModel` 排除式过滤噪音目录），无 `window` 式上帝对象依赖，可独立实例化。内容区为 `QStackedWidget` 双页：原文件树与复用 `ChangesList` 的扁平 Git 树；头部最右侧 `⇄` 按钮原地切换，不重建文件系统模型。
 
 | 功能 | 说明 |
 |:---|:---|
 | 浏览 | 目录展开/折叠（懒加载）、多选（Ctrl/Shift） |
-| 信号 | `file_opened(str)` — 双击文件时发射绝对路径，已接 `ViewerPanel.open_file`（中栏上查看器） |
-| 右键菜单 | 打开、在文件管理器中显示、新建文件、新建目录、重命名、删除（带确认） |
+| 模式切换 | Git 仓库头部显示 `⇄`：文件树 ↔ 扁平 Git 变更列表；Git 页隐藏文件树搜索栏与搜索/刷新悬浮钮，非 Git 环境隐藏按钮并回退文件树 |
+| 信号 | `file_opened(str)` 双击文件 → 查看器；Git 页另转发 `diff_opened(str)` → 变更对比视图、`deleted_activated(str)` → 状态栏提示 |
+| 右键菜单 | 打开、在文件管理器中显示、新建文件、新建目录、重命名、删除（带确认）；仅文件树页使用 |
 | 噪音过滤 | 默认隐藏 `__pycache__`/`.git`/`.venv`/`node_modules`；持久化偏好（`noise_filter`），视图菜单与设置中心外观页双入口 |
 | Git 状态着色 | 代理模型注入 `GitStatusService`，`ForegroundRole` 按文件状态查 `theme.GIT_STATUS_COLORS` 着色（天蓝 M / 绿 U / 红 D）；默认仅文件着色，目录聚合着色为预留开关 |
 | 拖出 | 选中文件可拖出（`QDrag` + 本地 URL），落入聊天输入框即插入 `@相对路径` 引用 |
@@ -153,9 +154,9 @@
 
 ## 9. Git 集成（core/git + 变更面板）
 
-Git 数据层 `core/git/` 为零 Qt 依赖的纯 Python 包（subprocess 调系统 git CLI；选型见 `2026-0720-0135_Git文件装饰与简易差异指示方案选型.md`）。`MainWindow` 持有唯一 `GitStatusService` 实例并注入各面板，**事件驱动刷新**：窗口激活 / 查看器外部重载 / 视图菜单手动刷新 / AI 轮次结束 / AI 改盘类工具终态（`files_maybe_changed`，轮次进行中逐文件实时源，覆盖子代理嵌套帧）/ 文件树模型结构变更六个事件源，经 300ms 去抖汇流后一次刷新 → 文件树着色、查看器徽标、变更面板、状态栏统计四处同步；非 git 环境下所有入口静默跳过。
+Git 数据层 `core/git/` 为零 Qt 依赖的纯 Python 包（subprocess 调系统 git CLI；选型见 `2026-0720-0135_Git文件装饰与简易差异指示方案选型.md`）。`MainWindow` 持有唯一 `GitStatusService` 实例并注入各面板，**事件驱动刷新**：窗口激活 / 查看器外部重载 / 视图菜单手动刷新 / AI 轮次结束 / AI 改盘类工具终态（`files_maybe_changed`，轮次进行中逐文件实时源，覆盖子代理嵌套帧）/ 文件树模型结构变更六个事件源，经 300ms 去抖汇流后一次刷新；同一份变更清单扇出到文件树内嵌 Git 树与右栏下变更面板，同时更新文件树着色、查看器徽标和状态栏统计，主题重绘不新增 Git 查询。
 
-`ChangesPanel`（右栏下）：已变更文件列表，VS Code SCM 面板简化版（实施计划见 `2026-0720-0215_Git变更面板实施计划.md`）：
+`ChangesList`（`gui/panels/changes/list.py`）是无头部的三列扁平列表，统一实现状态色、删除线、增减统计、空态与双击分派；文件树 Git 页和 `ChangesPanel` 各持有一个实例。`ChangesPanel`（右栏下）在此基础上保留头部与收起按钮：
 
 | 要点 | 说明 |
 |:---|:---|

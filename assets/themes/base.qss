@@ -339,6 +339,13 @@ QToolButton:disabled {
     font-size: 26px;
 }
 
+/* 文件树头部模式切换钮：背景与 hover 沿用全局 QToolButton，24px 正圆 */
+#FileTreeModeButton {
+    padding: 0;
+    border-radius: 12px;
+    font-size: 17px;
+}
+
 /* 文件树悬浮刷新钮：复刻「回到底部」钮的圆形实体化范式（背景/hover
  * 吃全局 QToolButton 规则），尺寸由代码 setFixedSize(32,32) 锁定，
  * border-radius 取一半成圆，padding 清零；⟳ U+27F3 字形偏方，22px

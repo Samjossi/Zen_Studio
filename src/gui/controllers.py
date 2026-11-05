@@ -3,7 +3,7 @@
 主窗口只留菜单 ctx 协调本职（面板显隐槽、主题/字号应用、焦点分发）；
 以下两类独立职责迁出为组合成员，依赖在构造函数显式化：
 
-- `GitStatusController`：Git 服务编排（创建/去抖/四面板扇出刷新）
+- `GitStatusController`：Git 服务编排（创建/去抖/统一扇出刷新）
 - `WindowStateStore`：窗口几何与 splitter 状态持久化（读恢复/写保存）
 """
 from collections.abc import Callable
@@ -36,13 +36,13 @@ from gui.window_state import (
 
 
 class GitStatusController(QObject):
-    """Git 状态编排：服务创建/重建、去抖汇流、四面板扇出刷新。
+    """Git 状态编排：服务创建/重建、去抖汇流、统一扇出刷新。
 
     事件源六处：窗口激活（schedule_refresh）、查看器外部重载（去抖）、
     手动菜单（refresh 直调）、AI 轮次结束（schedule_refresh，主窗口
     接线）、AI 改盘类工具终态（files_maybe_changed → schedule_refresh，
-    轮次进行中的实时源）、文件树模型结构变更（去抖汇流）；扇出四面：
-    文件树着色 / 查看器徽标 / 变更面板 / 状态栏统计。
+    轮次进行中的实时源）、文件树模型结构变更（去抖汇流）；统一扇出：
+    文件树着色及内嵌 Git 树 / 查看器徽标 / 变更面板 / 状态栏统计。
     """
 
     #: 刷新去抖间隔（ms）：连续触发合并为一次，防进程风暴
@@ -127,32 +127,32 @@ class GitStatusController(QObject):
         window.activateWindow()
 
     def _wire_signals(self, collapse_handler: Callable[[], None]) -> None:
-        """三处事件源接线（变更面板联动 + 文件打开统计同步）。"""
-        # 变更面板：双击忽略条目/冲突态并入查看器管线；删除行双击 → 状态栏
-        # 提示；已修改/未跟踪（M/U）行双击 → 变更对比视图
+        """变更面板与文件树 Git 页共用查看、差异和删除提示管线。"""
         self._changes.file_opened.connect(self._viewer.open_file)
         self._changes.file_opened.connect(lambda _path: self._update_stats_label())
         self._changes.diff_opened.connect(self._open_diff_view)
-        self._changes.deleted_activated.connect(
-            lambda path: self._status_bar.showMessage(
-                f"文件已删除，待提交：{path}", self.HINT_TIMEOUT_MS))
+        self._changes.deleted_activated.connect(self._show_deleted_hint)
         self._changes.collapse_requested.connect(collapse_handler)
+        self._explorer.diff_opened.connect(self._open_diff_view)
+        self._explorer.deleted_activated.connect(self._show_deleted_hint)
         # 切换查看文件时同步状态栏统计（查看器徽标由 open_file 内部自刷）
         self._explorer.file_opened.connect(lambda _path: self._update_stats_label())
+
+    def _show_deleted_hint(self, path: str) -> None:
+        self._status_bar.showMessage(f"文件已删除，待提交：{path}", self.HINT_TIMEOUT_MS)
 
     # ------------------------------------------------------------------
     # 刷新（去抖汇流点）
     # ------------------------------------------------------------------
     def refresh(self) -> None:
-        """刷新服务 → 文件树着色 → 查看器徽标 → 变更面板 → 状态栏。"""
+        """刷新服务，同一份变更清单扇出到内嵌 Git 树与变更面板。"""
         self._service.refresh()
         self._explorer.apply_git_status(self._service)
         self._viewer.refresh_git_badge()
-        self._changes.apply_changes(
-            self._service.collect_changes() if self._service.is_enabled else None,
-            self._service.repo_root,
-            load_settings()[KEY_THEME],
-        )
+        changes = self._service.collect_changes() if self._service.is_enabled else None
+        theme = load_settings()[KEY_THEME]
+        self._explorer.apply_git_changes(changes, self._service.repo_root, theme)
+        self._changes.apply_changes(changes, self._service.repo_root, theme)
         self._update_stats_label()
 
     def schedule_refresh(self) -> None:

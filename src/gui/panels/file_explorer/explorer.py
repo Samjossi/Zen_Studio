@@ -1,12 +1,16 @@
 """文件树主控件：移植自 PyGPT explorer 的裁剪版。
 
 基于 QTreeView + QFileSystemModel（Qt 原生，自带懒加载与系统图标）。
-头部居中显示项目名与当前 Git 分支；detached HEAD 显示短哈希，非仓库仅项目名。
+头部居中显示项目名与当前 Git 分支，最右侧提供文件树 / Git 树切换按钮；
+内容区用 QStackedWidget 在原文件树与扁平变更列表之间原地切换。
+detached HEAD 显示短哈希，非仓库仅项目名且无切换按钮。
 无任何 window 式上帝对象依赖，可独立实例化。
 
 对外信号：
     file_opened(str) — 双击文件时发射，参数为文件绝对路径，
                        供后续编辑器模块接入。
+    diff_opened(str) — Git 树双击已修改/未跟踪文件时发射。
+    deleted_activated(str) — Git 树双击已删除文件时发射相对路径。
 
 子包拆分：模型层见 model.py（Git 状态着色代理），右键动作见 actions.py。
 """
@@ -23,13 +27,15 @@ from PySide6.QtWidgets import (
     QGraphicsOpacityEffect,
     QHBoxLayout,
     QLabel,
+    QStackedWidget,
     QToolButton,
     QTreeView,
     QVBoxLayout,
     QWidget,
 )
 
-from core.git.service import GitStatusService
+from core.git.service import ChangeEntry, GitStatusService
+from gui.panels.changes.list import ChangesList
 from gui.panels.file_explorer.actions import ExplorerActions
 from gui.panels.file_explorer.model import GitStatusProxyModel
 from gui.popups import TranslucentMenuLineEdit
@@ -56,6 +62,10 @@ _SEARCH_BTN_SIZE = 32
 
 #: 悬浮搜索钮常态透明度
 _SEARCH_BTN_OPACITY = 0.5
+
+#: 头部文件树 / Git 树切换钮尺寸与常态透明度
+_MODE_BTN_SIZE = 24
+_MODE_BTN_OPACITY = 0.5
 
 #: 单次搜索命中上限：防爆兜底，大目录（.venv/node_modules 范围）遍历
 #: 到上限即截断，避免 UI 线程被 os.walk 长时间占用
@@ -97,9 +107,11 @@ class _DragOutTreeView(QTreeView):
 
 
 class FileExplorer(QWidget):
-    """目录文件浏览器（右栏面板）。"""
+    """目录文件浏览器，以及同槽位的扁平 Git 变更列表。"""
 
     file_opened = Signal(str)
+    diff_opened = Signal(str)
+    deleted_activated = Signal(str)
 
     #: 文件系统模型实例被重建后发射（refresh 换实例）：消费方须对
     #: self.model 重新接线（旧实例上的连接随 deleteLater 一并失效）
@@ -118,20 +130,19 @@ class FileExplorer(QWidget):
         """
         super().__init__(parent)
         self.root_dir = str(Path(root_dir).resolve())
-        #: 已注入的 Git 状态服务（apply_git_status 设置，主题切换时复用）
         self._git_service = None
+        self._git_mode = False
         #: 手动刷新待回填状态（expanded 路径集, selected 路径集）；None = 无刷新任务
         self._refresh_restore: tuple[set[str], set[str]] | None = None
         self.setMinimumWidth(self.MIN_WIDTH)
-        self.setObjectName("SidePanel")  # 侧栏灰底分区（主题 qss 统一着色）
+        self.setObjectName("SidePanel")
         # 自定义 QWidget 子类的 qss 背景需 WA_StyledBackground 才会绘制
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
 
         self._build_model()
         self._build_tree()
-        # 手动刷新的展开/选中回填接力（无刷新任务时槽内立即返回）
+        self._build_git_list()
         self.model.directoryLoaded.connect(self._on_directory_loaded)
-        # 右键动作集：组合注入（依赖显式化，见 actions.py 构造函数签名）
         self._actions = ExplorerActions(
             host=self,
             tree=self.tree,
@@ -143,24 +154,33 @@ class FileExplorer(QWidget):
         )
         self.tree.customContextMenuRequested.connect(self._actions.open_context_menu)
 
-        # 项目名完整显示，完整路径悬停可见；分支名在右侧灰字弱化
         self.path_label = QLabel(Path(self.root_dir).name)
-        self.path_label.setObjectName("PanelTitle")  # 样式由主题 qss 统一
+        self.path_label.setObjectName("PanelTitle")
         self.path_label.setToolTip(self.root_dir)
         self.path_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.branch_label = QLabel()
         self.branch_label.setObjectName("PanelHint")
         self.branch_label.hide()
+        self._build_mode_button()
 
+        # 左右等宽占位让按钮不推动项目名与分支名的视觉中心。
+        self._mode_button_spacer = QWidget(self)
+        self._mode_button_spacer.setFixedWidth(_MODE_BTN_SIZE)
+        self._mode_button_spacer.hide()
         header = QHBoxLayout()
+        header.addWidget(self._mode_button_spacer)
         header.addStretch()
         header.addWidget(self.path_label)
         header.addWidget(self.branch_label)
         header.addStretch()
+        header.addWidget(self._mode_button)
 
+        self._stack = QStackedWidget(self)
+        self._stack.addWidget(self.tree)
+        self._stack.addWidget(self._git_list)
         layout = QVBoxLayout(self)
         layout.addLayout(header)
-        layout.addWidget(self.tree)
+        layout.addWidget(self._stack)
         # 面板外边距：树卡片不贴窗口边缘；底边距 2px 与查看器面板对齐，
         # 保证与变更面板之间的 splitter 区间和中栏（查看器/终端）一致
         layout.setContentsMargins(6, 6, 6, 2)
@@ -176,6 +196,29 @@ class FileExplorer(QWidget):
         self.tree.selectionModel().currentChanged.connect(self._on_tree_current_changed)
         # refresh 重建模型后索引全失效，搜索状态须随之复位（搜索词保留）
         self.model_rebuilt.connect(self._on_model_rebuilt_reset_search)
+
+    def _build_git_list(self) -> None:
+        """创建无头部 Git 变更页，三路双击信号与文件树公共接口对齐。"""
+        self._git_list = ChangesList(self)
+        self._git_list.file_opened.connect(self.file_opened)
+        self._git_list.diff_opened.connect(self.diff_opened)
+        self._git_list.deleted_activated.connect(self.deleted_activated)
+
+    def _build_mode_button(self) -> None:
+        """头部切换钮：固定双向符号，tooltip 指明点击后的目标页。"""
+        self._mode_button = QToolButton(self)
+        self._mode_button.setObjectName("FileTreeModeButton")
+        self._mode_button.setText("⇄")
+        self._mode_button.setToolTip("切换到 Git 树")
+        self._mode_button.setFixedSize(_MODE_BTN_SIZE, _MODE_BTN_SIZE)
+        self._mode_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+        self._mode_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._mode_button.clicked.connect(self._toggle_git_mode)
+        self._mode_button_opacity = QGraphicsOpacityEffect(self._mode_button)
+        self._mode_button_opacity.setOpacity(_MODE_BTN_OPACITY)
+        self._mode_button.setGraphicsEffect(self._mode_button_opacity)
+        self._mode_button.installEventFilter(self)
+        self._mode_button.hide()
 
     def _build_refresh_button(self) -> None:
         """悬浮刷新钮：watcher 漏事件时树滞留旧结构而菜单入口太隐蔽，
@@ -286,13 +329,26 @@ class FileExplorer(QWidget):
     # 公开接口
     # ------------------------------------------------------------------
     def apply_git_status(self, service: GitStatusService, theme: str | None = None) -> None:
-        """注入 Git 状态服务，重绘着色并更新头部分支（theme 缺省取当前主题）。"""
+        """注入 Git 服务，更新着色、分支标签与切换按钮可用状态。"""
         if theme is None:
             theme = load_settings()[KEY_THEME]
         self._git_service = service
         self.proxy.set_git_service(service if service.is_enabled else None, theme)
         self.proxy.refresh_colors()
+        self._mode_button.setVisible(service.is_enabled)
+        self._mode_button_spacer.setVisible(service.is_enabled)
+        if not service.is_enabled:
+            self._set_git_mode(False)
         self._update_branch_label()
+
+    def apply_git_changes(
+        self,
+        changes: list[ChangeEntry] | None,
+        repo_root: str | None,
+        theme: str,
+    ) -> None:
+        """接收控制器聚合的同一份变更清单，不自行查询 Git。"""
+        self._git_list.apply_changes(changes, repo_root, theme)
 
     def _update_branch_label(self) -> None:
         """按服务缓存更新头部；面板宽度约一半用于分支文本。"""
@@ -311,13 +367,31 @@ class FileExplorer(QWidget):
         self.branch_label.setToolTip(tooltip)
         self.branch_label.show()
 
+    def _toggle_git_mode(self) -> None:
+        self._set_git_mode(not self._git_mode)
+
+    def _set_git_mode(self, git_mode: bool) -> None:
+        """统一切换页面、搜索状态、悬浮钮和按钮提示。"""
+        service = self._git_service
+        self._git_mode = git_mode and service is not None and service.is_enabled
+        if self._git_mode and self._search_bar.isVisible():
+            self._toggle_search_bar()
+        self._stack.setCurrentWidget(self._git_list if self._git_mode else self.tree)
+        self._mode_button.setToolTip("返回文件树" if self._git_mode else "切换到 Git 树")
+        self._refresh_btn.setVisible(not self._git_mode)
+        self._search_btn.setVisible(not self._git_mode)
+        if not self._git_mode:
+            self._place_refresh_button()
+            self._place_search_button()
+
     def apply_theme(self, theme: str) -> None:
-        """主题切换时同步 Git 状态色所属主题（未注入服务时无副作用）。"""
+        """主题切换时同步文件树与缓存 Git 变更列表的状态色。"""
         self.proxy.set_git_service(
             self._git_service if self._git_service is not None and self._git_service.is_enabled else None,
             theme,
         )
         self.proxy.refresh_colors()
+        self._git_list.apply_theme(theme)
 
     def refresh(self) -> None:
         """手动刷新文件树（视图菜单「刷新文件树」入口 + 右下角悬浮钮）。
@@ -416,7 +490,12 @@ class FileExplorer(QWidget):
         搜索栏按键（Esc 收起、Enter/Shift+Enter 循环命中）。
         （构造早期事件路径可能先于控件创建触发本过滤器，
         getattr 守卫防 AttributeError）"""
-        if watched is getattr(self, "_refresh_btn", None):
+        if watched is getattr(self, "_mode_button", None):
+            if event.type() == QEvent.Type.Enter:
+                self._mode_button_opacity.setOpacity(1.0)
+            elif event.type() == QEvent.Type.Leave:
+                self._mode_button_opacity.setOpacity(_MODE_BTN_OPACITY)
+        elif watched is getattr(self, "_refresh_btn", None):
             if event.type() == QEvent.Type.Enter:
                 self._refresh_btn_opacity.setOpacity(1.0)
             elif event.type() == QEvent.Type.Leave:
@@ -443,7 +522,9 @@ class FileExplorer(QWidget):
     # 内部：搜索（范围 / 匹配 / 定位接力）
     # ------------------------------------------------------------------
     def _toggle_search_bar(self) -> None:
-        """展开/收起搜索栏；展开时对焦点位置做范围快照，收起时清空搜索状态。"""
+        """展开/收起搜索栏；Git 页只允许收起，不开放文件树搜索。"""
+        if self._git_mode and not self._search_bar.isVisible():
+            return
         if self._search_bar.isVisible():
             self._search_bar.hide()
             self._reset_search_state()
