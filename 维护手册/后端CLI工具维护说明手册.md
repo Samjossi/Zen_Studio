@@ -1,7 +1,7 @@
 # 后端CLI工具维护说明手册
 
 > 本文档汇总了团队常用 后端CLI工具的官方说明地址，供工程师在遇到疑惑时快速查阅。
-> 最后更新：2026-10-24（§1 新增 K3.1 Pro 系列上线备注，2026-1024-0403 计划）
+> 最后更新：2026-11-05（§7 新增 DeepSeek Harness 官方地址与现行模型目录）
 
 ---
 
@@ -272,6 +272,56 @@ ACP 有效值优先（`source="push"`），避免两路等待串行叠加。该�
 ACP 是否到达，再用脱敏 wire 摘要核对上述字段，禁止复制凭证、消息正文、工具
 参数或完整会话。回归测试为 `tests/test_kimi_usage.py`、
 `tests/test_kimi_catalog.py`、`tests/test_turn_speed.py`。
+
+---
+
+## 7. DeepSeek Harness（DSH）
+
+DeepSeek 官方开源的 Agent Harness，CLI 命令为 `dsh`，采用插件化架构；Zen Studio
+通过 `dsh acp` 接入。项目仍处于开发者预览阶段，升级时需核对破坏性变更。
+
+| 资源 | 地址 |
+| --- | --- |
+| GitHub 仓库 | https://github.com/deepseek-ai/deepseek-harness |
+| 官方文档站 | https://deepseek-harness.github.io/deepseek-harness/ |
+| CLI 说明 | https://github.com/deepseek-ai/deepseek-harness/blob/master/apps/cli/README.zh.md |
+| 模型配置指南 | https://github.com/deepseek-ai/deepseek-harness/blob/master/docs/user/guide/providers.zh.md |
+| 内置模型目录源码 | https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/llm/llm-deepseek/src/models.ts |
+| DeepSeek API 模型与价格 | https://api-docs.deepseek.com/zh-cn/quick_start/pricing |
+| DeepSeek API 更新日志 | https://api-docs.deepseek.com/zh-cn/updates/ |
+
+**运行命令：**
+```bash
+# Web UI
+npx @deepseek-ai/dsh web
+
+# ACP（Zen Studio 使用）
+dsh acp
+```
+
+> 2026-11-05 核对：npm `latest` 为 **0.2.2-rc.1**；该系列要求 Node.js ≥24.9。
+> 本机已安装 0.2.1-rc.2。升级与 Zen Studio 模型条目同步见
+> `work plans/2026-1105-2152_DSH模型目录条目同步落地计划.md`。
+
+**DeepSeek 官方路由的现行内置目录**（0.2.2-rc.1 与 `master` 一致）：
+
+| 模型 ID | DSH 显示名 | 上下文窗口 | DSH 目录输入类型 | 推理强度 |
+| --- | --- | ---: | --- | --- |
+| `deepseek-flash` | DeepSeek-V4.1-Flash | 1,048,576 tokens | 文本、图片 | off / low / high / max，默认 high |
+| `deepseek-v4-pro` | DeepSeek-V4-Pro | 1,048,576 tokens | 文本 | off / low / high / max，默认 high |
+
+- **V4.1-Flash-1017 是后端版本升级，不是新增模型 ID**：2026-10-17 起仍用
+  `deepseek-flash` 调用，调用方式与价格不变；不要新增
+  `deepseek-v4.1-flash-1017` 之类的推测条目。
+- `deepseek-v4-flash` 与 `deepseek-v4-flash-vision-exp` 是仍被 API 接受的旧名，
+  请求由 V4.1-Flash-1017 提供服务并按 Flash 计费；它们不是独立现行模型，最新
+  DSH 内置目录已不再列出。新配置使用 `deepseek-flash`。
+- 使用默认端点时，DSH 会跟随 DeepSeek API 发布的模型列表，约每十分钟后台刷新，
+  失败时退回内置目录；自定义模型目录后不再自动跟随。DeepSeek 账号登录路由的
+  模型清单则由账号服务下发。因此“内置兜底目录”和账号实际可选清单可能不同。
+- Zen Studio 当前在 `src/llm/providers/dsh_acp.py` 使用静态表，不会自动跟随上述
+  目录变化；既有表含旧别名 `deepseek-v4-flash`，且 `deepseek-flash` 显示名误写为
+  `DeepSeek-V41-Flash`，后续按上述计划同步。
 
 ---
 
