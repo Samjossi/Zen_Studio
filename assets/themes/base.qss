@@ -343,7 +343,7 @@ QToolButton:disabled {
 #FileTreeModeButton {
     padding: 0;
     border-radius: 12px;
-    font-size: 17px;
+    font-size: 14px;
 }
 
 /* 文件树悬浮刷新钮：复刻「回到底部」钮的圆形实体化范式（背景/hover
