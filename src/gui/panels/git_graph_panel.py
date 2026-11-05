@@ -1,4 +1,4 @@
-"""右栏上的 graph-only 提交拓扑图面板。"""
+"""右栏上的提交拓扑与主题摘要双列面板。"""
 from PySide6.QtGui import QShowEvent
 from PySide6.QtWidgets import QHBoxLayout, QToolButton, QVBoxLayout, QWidget
 from PySide6.QtCore import Qt
@@ -12,7 +12,7 @@ class GitGraphPanel(QWidget):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self._content = GitGraphContent(None, graph_only=True, parent=self)
+        self._content = GitGraphContent(None, summary_mode=True, parent=self)
         self._refresh_button = QToolButton(self)
         self._refresh_button.setObjectName("GitGraphRefreshButton")
         self._refresh_button.setText("⟳")

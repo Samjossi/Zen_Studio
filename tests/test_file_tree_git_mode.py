@@ -82,7 +82,10 @@ def test_mode_button_switches_commit_graph_and_preserves_model(qapp):
     assert explorer._stack.currentWidget() is explorer._git_panel
     assert explorer._mode_button.text() == "⇄"
     assert explorer._mode_button.toolTip() == "返回文件树"
-    assert explorer._git_panel._content._view.header().isHidden()
+    view = explorer._git_panel._content._view
+    assert view.summary_mode and view.header().isHidden()
+    assert not view.isColumnHidden(0) and not view.isColumnHidden(1)
+    assert view.isColumnHidden(2) and view.isColumnHidden(3)
 
     explorer._mode_button.click()
     qapp.processEvents()

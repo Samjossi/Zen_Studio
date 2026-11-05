@@ -24,7 +24,7 @@ class GitGraphContent(QWidget):
     def __init__(
         self,
         service: GitStatusService | None,
-        graph_only: bool = False,
+        summary_mode: bool = False,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -34,7 +34,7 @@ class GitGraphContent(QWidget):
         self._fallback = SimplifiedMenuTextBrowser(self)
         self._fallback.setOpenExternalLinks(False)
         self._view = GitGraphView(self)
-        self._view.set_graph_only(graph_only)
+        self._view.set_summary_mode(summary_mode)
         self._stack = QStackedWidget(self)
         self._stack.addWidget(self._placeholder)
         self._stack.addWidget(self._fallback)
@@ -51,8 +51,8 @@ class GitGraphContent(QWidget):
     def set_service(self, service: GitStatusService) -> None:
         self._service = service
 
-    def set_graph_only(self, graph_only: bool) -> None:
-        self._view.set_graph_only(graph_only)
+    def set_summary_mode(self, summary_mode: bool) -> None:
+        self._view.set_summary_mode(summary_mode)
 
     def reload(self) -> None:
         """重拉提交图；结构化取数失败回退富文本，两级失败走占位文案。"""

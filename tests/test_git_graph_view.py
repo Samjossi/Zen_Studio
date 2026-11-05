@@ -1,9 +1,11 @@
 """提交图结构化布局、三类边像素、tooltip 与刷新状态测试。"""
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
-from PySide6.QtCore import QEvent, QPoint, QRect, Qt
-from PySide6.QtGui import QColor, QHelpEvent, QImage, QPainter
+from PySide6.QtCore import QEvent, QPoint, QPointF, QRect, Qt
+from PySide6.QtGui import QColor, QHelpEvent, QImage, QMouseEvent, QPainter
 from PySide6.QtWidgets import QApplication, QStyleOptionViewItem, QToolTip
 
 from core.git.graph import GraphEdge, GraphRow
@@ -69,22 +71,57 @@ def _graph(count: int = 3, *, lanes: int = 1) -> CommitGraph:
     )
 
 
-def _paint_row(view: GitGraphView, row: int = 0, *, hover: bool = False) -> QImage:
-    index = view._model.index(row, COL_GRAPH)
-    height = view.rowHeight(index)
-    width = max(160, view._graph_delegate.content_width(
-        view._model.max_graph_cells))
+def _paint_cell(
+    view: GitGraphView,
+    column: int,
+    row: int = 0,
+    *,
+    hover: bool = False,
+    width: int | None = None,
+) -> QImage:
+    index = view._model.index(row, column)
+    delegate = (
+        view._graph_delegate if column == COL_GRAPH else view._commit_delegate)
+    if width is None:
+        width = max(160, view._graph_delegate.content_width(
+            view._model.max_graph_cells))
+    height = max(view.rowHeight(index), view._graph_delegate.graph_row_height)
     image = QImage(width, height, QImage.Format.Format_ARGB32)
     image.fill(Qt.GlobalColor.white)
     option = QStyleOptionViewItem()
     option.rect = QRect(0, 0, width, height)
     option.font = view.font()
-    view._graph_delegate.set_hover_row(row if hover else -1)
+    delegate.set_hover_row(row if hover else -1)
     painter = QPainter(image)
-    view._graph_delegate.paint(painter, option, index)
+    delegate.paint(painter, option, index)
     painter.end()
-    view._graph_delegate.set_hover_row(-1)
+    delegate.set_hover_row(-1)
     return image
+
+
+def _paint_row(view: GitGraphView, row: int = 0, *, hover: bool = False) -> QImage:
+    return _paint_cell(view, COL_GRAPH, row, hover=hover)
+
+
+def _paint_commit(
+    view: GitGraphView, row: int = 0, *, hover: bool = False, width: int = 240,
+) -> QImage:
+    return _paint_cell(view, COL_COMMIT, row, hover=hover, width=width)
+
+
+def _difference_count(first: QImage, second: QImage) -> int:
+    return sum(
+        first.pixel(x, y) != second.pixel(x, y)
+        for y in range(first.height()) for x in range(first.width())
+    )
+
+
+def _has_any_ink(image: QImage) -> bool:
+    white = QColor(Qt.GlobalColor.white)
+    return any(
+        image.pixelColor(x, y) != white
+        for y in range(image.height()) for x in range(image.width())
+    )
 
 
 def _has_ink(image: QImage, x: float, y: float, radius: int = 2) -> bool:
@@ -95,39 +132,43 @@ def _has_ink(image: QImage, x: float, y: float, radius: int = 2) -> bool:
     )
 
 
-def _show_graph(qapp, graph: CommitGraph, *, graph_only: bool = True) -> GitGraphView:
+def _show_graph(qapp, graph: CommitGraph, *, summary_mode: bool = True) -> GitGraphView:
     view = GitGraphView()
-    view.set_graph_only(graph_only)
+    view.set_summary_mode(summary_mode)
     view.set_graph(graph)
     view.show()
     qapp.processEvents()
     return view
 
 
-def test_graph_only_hides_all_text_columns_and_tooltip_preserves_metadata(qapp):
+def test_summary_mode_shows_graph_and_subject_and_tooltip_preserves_metadata(qapp):
     view = GitGraphView()
     view.set_graph(_graph())
     assert not view.header().isHidden()
     for column in (COL_COMMIT, COL_AUTHOR, COL_DATE):
         assert not view.isColumnHidden(column)
 
-    view.set_graph_only(True)
-    assert view.graph_only
+    view.set_summary_mode(True)
+    assert view.summary_mode
     assert view.header().isHidden()
     assert not view.isColumnHidden(COL_GRAPH)
-    for column in (COL_COMMIT, COL_AUTHOR, COL_DATE):
+    assert not view.isColumnHidden(COL_COMMIT)
+    for column in (COL_AUTHOR, COL_DATE):
         assert view.isColumnHidden(column)
 
-    tooltip = view._model.data(view._model.index(0, COL_GRAPH), Qt.ItemDataRole.ToolTipRole)
-    for text in (
-        "same-short-hash", "提交主题 0", "测试作者", "3 小时前", "2026-11-06 04:48",
-        "HEAD：HEAD", "本地分支：main", "远程分支：origin/main", "标签：v1.0",
-    ):
-        assert text in tooltip
+    for column in (COL_GRAPH, COL_COMMIT):
+        tooltip = view._model.data(
+            view._model.index(0, column), Qt.ItemDataRole.ToolTipRole)
+        for text in (
+            "same-short-hash", "提交主题 0", "测试作者", "3 小时前",
+            "2026-11-06 04:48", "HEAD：HEAD", "本地分支：main",
+            "远程分支：origin/main", "标签：v1.0",
+        ):
+            assert text in tooltip
     view.deleteLater()
 
 
-def test_real_tooltip_event_uses_commit_and_ignores_truncation_hint(qapp):
+def test_real_tooltip_event_uses_both_columns_and_ignores_truncation_hint(qapp):
     graph = CommitGraph(
         rows=(_commit(0, head=True),),
         truncated_hint="仅显示最近 500 条",
@@ -136,22 +177,29 @@ def test_real_tooltip_event_uses_commit_and_ignores_truncation_hint(qapp):
     view.resize(240, 120)
     qapp.processEvents()
 
-    first_tooltip = ""
-    for row, expected in ((0, True), (1, False)):
+    tooltips = []
+    for column in (COL_GRAPH, COL_COMMIT):
         QToolTip.hideText()
         qapp.processEvents()
-        rect = view.visualRect(view._model.index(row, COL_GRAPH))
+        index = view._model.index(0, column)
+        rect = view.visualRect(index)
         event = QHelpEvent(QEvent.Type.ToolTip, rect.center(), QPoint(100, 100))
         QApplication.sendEvent(view.viewport(), event)
         qapp.processEvents()
-        index = view._model.index(row, COL_GRAPH)
-        if expected:
-            first_tooltip = QToolTip.text()
-            assert "提交主题 0" in first_tooltip
-        else:
-            assert event.isAccepted()
-            assert view._model.data(index, Qt.ItemDataRole.ToolTipRole) is None
-    assert "提交主题 0" in first_tooltip
+        tooltips.append(QToolTip.text())
+    assert "提交主题 0" in tooltips[0]
+    assert tooltips[0] == tooltips[1]
+
+    for column in (COL_GRAPH, COL_COMMIT):
+        QToolTip.hideText()
+        qapp.processEvents()
+        index = view._model.index(1, column)
+        event = QHelpEvent(
+            QEvent.Type.ToolTip, view.visualRect(index).center(), QPoint(100, 100))
+        QApplication.sendEvent(view.viewport(), event)
+        qapp.processEvents()
+        assert event.isAccepted()
+        assert view._model.data(index, Qt.ItemDataRole.ToolTipRole) is None
     QToolTip.hideText()
     view.close()
     view.deleteLater()
@@ -186,31 +234,94 @@ def test_geometry_matches_reference_and_scales_with_font(qapp):
 
 def test_graph_width_tracks_lanes_and_wide_graph_has_horizontal_scroll(qapp):
     view = GitGraphView()
-    view.set_graph_only(True)
+    view.set_summary_mode(True)
     view.resize(120, 100)
     view.set_graph(_graph(lanes=20))
     view.show()
     qapp.processEvents()
     content_width = view._graph_delegate.content_width(20)
-    assert view.columnWidth(COL_GRAPH) == max(content_width, view.viewport().width())
+    assert view.columnWidth(COL_GRAPH) == content_width
     assert view.columnWidth(COL_GRAPH) > view.viewport().width()
+    assert view._graph_delegate.lane_gap == 22
     assert view.horizontalScrollBar().maximum() > 0
     view.close()
     view.deleteLater()
 
 
-def test_graph_only_column_uses_viewport_without_stretching_lanes(qapp):
+def test_summary_graph_stays_fixed_and_commit_uses_remaining_viewport(qapp):
     view = _show_graph(qapp, _graph())
-    view.resize(440, 120)
-    qapp.processEvents()
     lane_gap = view._graph_delegate.lane_gap
-    assert view.columnWidth(COL_GRAPH) == view.viewport().width()
-    assert view._graph_delegate.lane_gap == lane_gap
-    view.resize(240, 120)
-    qapp.processEvents()
-    assert view.columnWidth(COL_GRAPH) == max(
-        view._graph_delegate.content_width(1), view.viewport().width())
-    assert view._graph_delegate.lane_gap == lane_gap
+    content_width = view._graph_delegate.content_width(1)
+    for width in (440, 240):
+        view.resize(width, 120)
+        qapp.processEvents()
+        assert view.columnWidth(COL_GRAPH) == content_width
+        assert view.columnWidth(COL_COMMIT) == view.viewport().width() - content_width
+        assert view.columnWidth(COL_COMMIT) > 0
+        assert view._graph_delegate.lane_gap == lane_gap
+    view.close()
+    view.deleteLater()
+
+
+def test_summary_pixels_contain_only_subject_while_full_mode_keeps_hash_and_refs(qapp):
+    original = replace(
+        _commit(0), subject="共同主题", commit="abc123",
+        refs=(RefBadge("branch", "main"),),
+    )
+    changed = replace(
+        original, commit="xyz789", refs=(RefBadge("tag", "v2.0"),))
+    view = _show_graph(qapp, CommitGraph(rows=(original,), truncated_hint=None))
+    summary_original = _paint_commit(view)
+    assert _has_any_ink(summary_original)
+    view.set_graph(CommitGraph(rows=(changed,), truncated_hint=None))
+    summary_changed = _paint_commit(view)
+    assert _difference_count(summary_original, summary_changed) == 0
+
+    view.set_summary_mode(False)
+    view.set_graph(CommitGraph(rows=(original,), truncated_hint=None))
+    full_original = _paint_commit(view)
+    view.set_graph(CommitGraph(rows=(changed,), truncated_hint=None))
+    full_changed = _paint_commit(view)
+    assert _difference_count(full_original, full_changed) > 0
+    view.close()
+    view.deleteLater()
+
+
+def test_summary_head_subject_is_bold_without_changing_row_height(qapp):
+    normal = replace(_commit(0), subject="相同主题", is_head=False)
+    head = replace(normal, is_head=True)
+    view = _show_graph(qapp, CommitGraph(rows=(head, normal), truncated_hint=None))
+    head_image = _paint_commit(view, 0)
+    normal_image = _paint_commit(view, 1)
+    assert _has_any_ink(head_image)
+    assert _difference_count(head_image, normal_image) > 0
+    assert view.rowHeight(view._model.index(0, COL_COMMIT)) == 22
+    assert view.rowHeight(view._model.index(1, COL_COMMIT)) == 22
+    view.close()
+    view.deleteLater()
+
+
+def test_summary_long_subject_elides_within_column_and_keeps_single_line(qapp):
+    row = replace(_commit(0), subject="超长提交主题" * 30)
+    view = _show_graph(qapp, CommitGraph(rows=(row,), truncated_hint=None))
+    width = 72
+    image = _paint_commit(view, width=width)
+    assert _has_any_ink(image)
+    assert image.height() == 22
+    white = QColor(Qt.GlobalColor.white)
+    assert all(
+        image.pixelColor(x, y) == white
+        for x in range(width - 4, width) for y in range(image.height())
+    )
+    view.close()
+    view.deleteLater()
+
+
+def test_truncation_hint_is_drawn_once_only_in_commit_column(qapp):
+    graph = CommitGraph(rows=(_commit(0),), truncated_hint="仅显示最近 500 条")
+    view = _show_graph(qapp, graph)
+    assert not _has_any_ink(_paint_row(view, 1))
+    assert _has_any_ink(_paint_commit(view, 1))
     view.close()
     view.deleteLater()
 
@@ -288,24 +399,37 @@ def test_nodes_cover_line_endpoints_and_head_uses_background_inner_dot(qapp):
     view.deleteLater()
 
 
-def test_hover_state_changes_full_row_background(qapp):
+def test_hover_state_synchronizes_both_columns_and_refresh_clears_it(qapp):
     view = _show_graph(qapp, _graph())
-    normal = _paint_row(view)
-    hovered = _paint_row(view, hover=True)
-    assert sum(
-        normal.pixel(x, y) != hovered.pixel(x, y)
-        for y in range(normal.height()) for x in range(normal.width())
-    ) > 0
+    normal_graph = _paint_row(view)
+    normal_commit = _paint_commit(view)
+    rect = view.visualRect(view._model.index(0, COL_COMMIT))
+    event = QMouseEvent(
+        QEvent.Type.MouseMove, QPointF(rect.center()), Qt.MouseButton.NoButton,
+        Qt.MouseButton.NoButton, Qt.KeyboardModifier.NoModifier)
+    QApplication.sendEvent(view.viewport(), event)
+    qapp.processEvents()
+    assert view._graph_delegate._hover_row == 0
+    assert view._commit_delegate._hover_row == 0
+    hovered_graph = _paint_row(view, hover=True)
+    hovered_commit = _paint_commit(view, hover=True)
+    assert _difference_count(normal_graph, hovered_graph) > 0
+    assert _difference_count(normal_commit, hovered_commit) > 0
+
+    QApplication.sendEvent(view.viewport(), event)
+    view.set_graph(_graph())
+    assert view._graph_delegate._hover_row == -1
+    assert view._commit_delegate._hover_row == -1
     view.close()
     view.deleteLater()
 
 
-def test_full_and_graph_only_modes_share_row_geometry(qapp):
+def test_full_and_summary_modes_share_row_geometry(qapp):
     graph = _graph(2, lanes=3)
-    view = _show_graph(qapp, graph, graph_only=False)
+    view = _show_graph(qapp, graph, summary_mode=False)
     full_height = view.rowHeight(view._model.index(0, COL_GRAPH))
     full_width = view._graph_delegate.content_width(3)
-    view.set_graph_only(True)
+    view.set_summary_mode(True)
     qapp.processEvents()
     assert view.rowHeight(view._model.index(0, COL_GRAPH)) == full_height
     assert view._graph_delegate.content_width(3) == full_width
@@ -315,7 +439,7 @@ def test_full_and_graph_only_modes_share_row_geometry(qapp):
 
 def test_refresh_restores_full_identity_and_both_scroll_positions(qapp):
     view = GitGraphView()
-    view.set_graph_only(True)
+    view.set_summary_mode(True)
     view.resize(160, 100)
     view.set_graph(_graph(40, lanes=20))
     view.show()

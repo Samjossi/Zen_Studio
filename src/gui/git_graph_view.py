@@ -1,9 +1,9 @@
-"""Git 提交历史图视图：完整四列表格或 graph-only 单列拓扑图。
+"""Git 提交历史图视图：摘要双列或完整四列表格。
 
 - 图形列消费完整 commit id/parents 计算出的 GraphRow，三种边和节点线
   使用统一的 Qt 原生几何；内嵌与完整模式共享同一拓扑模型。
-- 完整模式显示 hash、refs 徽标与主题；graph-only 的完整元数据只在
-  整行 tooltip 中按需显示。
+- 摘要模式显示固定宽拓扑与提交主题，完整模式显示 hash、refs 徽标与主题；
+  摘要模式的完整元数据在整行 tooltip 中按需显示。
 - 主题与字号重绘使用现有模型缓存；刷新按完整 id 恢复选中与横纵滚动值。
 """
 from __future__ import annotations
@@ -130,27 +130,23 @@ class CommitGraphModel(QAbstractTableModel):
 
 
 class GraphColumnDelegate(QStyledItemDelegate):
-    """图形列委托：整行状态由 Qt 绘制，拓扑委托给共享渲染器。"""
+    """图形列委托：绘制共享整行状态，拓扑委托给共享渲染器。"""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._renderer = GitGraphRenderer()
-        self._default = QColor("#1a1a1a")
         self._accent = QColor("#0765d4")
-        self._graph_only = False
+        self._summary_mode = False
         self._hover_row = -1
 
     def apply_theme(
         self, terminal_pack: dict, accent: str, background: str,
     ) -> None:
         self._renderer.apply_theme(terminal_pack, background)
-        self._default = QColor(terminal_pack["default_fg"])
         self._accent = QColor(accent)
 
-    def set_graph_only(self, graph_only: bool) -> None:
-        self._graph_only = graph_only
-        if not graph_only:
-            self._hover_row = -1
+    def set_summary_mode(self, summary_mode: bool) -> None:
+        self._summary_mode = summary_mode
 
     def set_hover_row(self, row: int) -> None:
         self._hover_row = row
@@ -182,20 +178,10 @@ class GraphColumnDelegate(QStyledItemDelegate):
         model = index.model()
         if not isinstance(model, CommitGraphModel):
             return
-        hovered = self._graph_only and index.row() == self._hover_row
+        hovered = self._summary_mode and index.row() == self._hover_row
         _fill_selection(painter, option, self._accent, hovered=hovered)
         row = model.row_of(index)
         if row is None:
-            if self._graph_only:
-                painter.save()
-                painter.setPen(self._default)
-                painter.setFont(option.font)
-                painter.drawText(
-                    option.rect,
-                    Qt.AlignmentFlag.AlignVCenter,
-                    model.data(index, Qt.ItemDataRole.DisplayRole) or "",
-                )
-                painter.restore()
             return
         self._renderer.paint(painter, option.rect, row.graph_row, row.is_head)
 
@@ -214,7 +200,7 @@ class GraphColumnDelegate(QStyledItemDelegate):
 
 
 class CommitColumnDelegate(QStyledItemDelegate):
-    """完整弹窗提交列：hash、refs 徽标与主题。"""
+    """提交列：内嵌模式仅画主题，完整模式画 hash、refs 徽标与主题。"""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -223,6 +209,8 @@ class CommitColumnDelegate(QStyledItemDelegate):
         self._text_color = QColor("#1d1d1f")
         self._muted_color = QColor("#86868b")
         self._accent = QColor("#0765d4")
+        self._summary_mode = False
+        self._hover_row = -1
 
     def apply_theme(self, palette: dict) -> None:
         graph_pack = palette["git_graph"]
@@ -234,9 +222,16 @@ class CommitColumnDelegate(QStyledItemDelegate):
         self._muted_color = QColor(palette["muted_text"])
         self._accent = QColor(palette["accent"])
 
+    def set_summary_mode(self, summary_mode: bool) -> None:
+        self._summary_mode = summary_mode
+
+    def set_hover_row(self, row: int) -> None:
+        self._hover_row = row
+
     def paint(self, painter: QPainter, option: QStyleOptionViewItem,
               index: QModelIndex) -> None:
-        _fill_selection(painter, option, self._accent)
+        hovered = self._summary_mode and index.row() == self._hover_row
+        _fill_selection(painter, option, self._accent, hovered=hovered)
         model = index.model()
         if not isinstance(model, CommitGraphModel):
             return
@@ -249,6 +244,19 @@ class CommitColumnDelegate(QStyledItemDelegate):
             painter.setFont(option.font)
             painter.drawText(rect, Qt.AlignmentFlag.AlignVCenter,
                              model.data(index, Qt.ItemDataRole.DisplayRole) or "")
+            painter.restore()
+            return
+        if self._summary_mode:
+            font = QFont(option.font)
+            if row.is_head:
+                font.setBold(True)
+            painter.setFont(font)
+            painter.setPen(self._text_color)
+            elided = QFontMetrics(font).elidedText(
+                row.subject, Qt.TextElideMode.ElideRight, rect.width())
+            painter.drawText(
+                rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+                elided)
             painter.restore()
             return
 
@@ -310,14 +318,14 @@ def _fill_selection(painter: QPainter, option: QStyleOptionViewItem,
 
 
 class GitGraphView(QTreeView):
-    """提交历史图：完整四列表格，或带整行悬停的 graph-only 拓扑图。"""
+    """提交历史图：完整四列表格，或带整行悬停的拓扑与主题摘要双列。"""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._model = CommitGraphModel(self)
         self._graph_delegate = GraphColumnDelegate(self)
         self._commit_delegate = CommitColumnDelegate(self)
-        self._graph_only = False
+        self._summary_mode = False
         self.setModel(self._model)
         self.setItemDelegateForColumn(COL_GRAPH, self._graph_delegate)
         self.setItemDelegateForColumn(COL_COMMIT, self._commit_delegate)
@@ -342,33 +350,40 @@ class GitGraphView(QTreeView):
         self.apply_theme(load_settings()[KEY_THEME])
 
     @property
-    def graph_only(self) -> bool:
-        return self._graph_only
+    def summary_mode(self) -> bool:
+        return self._summary_mode
 
-    def set_graph_only(self, graph_only: bool) -> None:
-        self._graph_only = graph_only
-        self._graph_delegate.set_graph_only(graph_only)
-        self.setMouseTracking(graph_only)
-        self.setHeaderHidden(graph_only)
-        for column in (COL_COMMIT, COL_AUTHOR, COL_DATE):
-            self.setColumnHidden(column, graph_only)
+    def set_summary_mode(self, summary_mode: bool) -> None:
+        self._summary_mode = summary_mode
+        self._graph_delegate.set_summary_mode(summary_mode)
+        self._commit_delegate.set_summary_mode(summary_mode)
+        self._set_hover_row(-1)
+        self.setMouseTracking(summary_mode)
+        self.setHeaderHidden(summary_mode)
+        self.setColumnHidden(COL_COMMIT, False)
+        for column in (COL_AUTHOR, COL_DATE):
+            self.setColumnHidden(column, summary_mode)
         self._resize_columns()
         self.scheduleDelayedItemsLayout()
         self.viewport().update()
+
+    def _set_hover_row(self, row: int) -> None:
+        self._graph_delegate.set_hover_row(row)
+        self._commit_delegate.set_hover_row(row)
 
     def set_graph(self, graph: CommitGraph) -> None:
         current_row = self._model.row_of(self.currentIndex())
         selected_commit = current_row.commit_id if current_row is not None else ""
         vertical_value = self.verticalScrollBar().value()
         horizontal_value = self.horizontalScrollBar().value()
-        self._graph_delegate.set_hover_row(-1)
+        self._set_hover_row(-1)
         self._model.set_graph(graph)
         self._resize_columns()
         if selected_commit:
             restored = False
             for row_index, row in enumerate(graph.rows):
                 if row.commit_id == selected_commit:
-                    column = COL_GRAPH if self._graph_only else COL_COMMIT
+                    column = COL_GRAPH if self._summary_mode else COL_COMMIT
                     index = self._model.index(row_index, column)
                     self.selectionModel().setCurrentIndex(
                         index,
@@ -385,38 +400,29 @@ class GitGraphView(QTreeView):
         self.horizontalScrollBar().setValue(horizontal_value)
 
     def _resize_columns(self) -> None:
-        if not self._graph_only:
+        if not self._summary_mode:
             self.header().resizeSections(QHeaderView.ResizeMode.ResizeToContents)
-        content_width = self._graph_delegate.content_width(
-            self._model.max_graph_cells)
-        width = (
-            max(content_width, self.viewport().width())
-            if self._graph_only else content_width
-        )
+        width = self._graph_delegate.content_width(self._model.max_graph_cells)
         if self.columnWidth(COL_GRAPH) != width:
             self.setColumnWidth(COL_GRAPH, width)
 
-    def resizeEvent(self, event) -> None:
-        super().resizeEvent(event)
-        if self._graph_only:
-            self._resize_columns()
-
     def viewportEvent(self, event) -> bool:
-        if self._graph_only and event.type() == QEvent.Type.ToolTip:
+        if self._summary_mode and event.type() == QEvent.Type.ToolTip:
             index = self.indexAt(event.pos())
             tooltip = self._model.data(index, Qt.ItemDataRole.ToolTipRole)
             if not tooltip:
                 QToolTip.hideText()
                 event.accept()
                 return True
-        if self._graph_only and event.type() in (
+        if self._summary_mode and event.type() in (
                 QEvent.Type.MouseMove, QEvent.Type.Leave):
-            row = (
-                self.indexAt(event.position().toPoint()).row()
-                if event.type() == QEvent.Type.MouseMove else -1
+            index = (
+                self.indexAt(event.position().toPoint())
+                if event.type() == QEvent.Type.MouseMove else QModelIndex()
             )
+            row = index.row() if self._model.row_of(index) is not None else -1
             if row != self._graph_delegate._hover_row:
-                self._graph_delegate.set_hover_row(row)
+                self._set_hover_row(row)
                 self.viewport().update()
         return super().viewportEvent(event)
 

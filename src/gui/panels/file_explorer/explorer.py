@@ -194,7 +194,7 @@ class FileExplorer(QWidget):
         self.model_rebuilt.connect(self._on_model_rebuilt_reset_search)
 
     def _build_git_graph(self) -> None:
-        """创建共享内容组成的 graph-only 提交拓扑图页。"""
+        """创建共享内容组成的提交拓扑与主题摘要页。"""
         self._git_panel = GitGraphPanel(self)
 
     def _build_mode_button(self) -> None:

@@ -184,7 +184,7 @@ def test_truncation_keeps_500_real_rows_and_open_graph_boundary(truncated_repo):
     assert graph.rows[-1].graph_row.has_continuation
 
 
-def test_panel_graph_only_geometry_and_repaint_do_not_repeat_git(
+def test_panel_summary_mode_geometry_and_repaint_do_not_repeat_git(
         qapp, parallel_repo, monkeypatch):
     calls = 0
     real_fetch = content_mod.git_log.fetch_commit_rows
@@ -202,20 +202,21 @@ def test_panel_graph_only_geometry_and_repaint_do_not_repeat_git(
     qapp.processEvents()
     assert calls == 1
     view = panel._content._view
-    assert view.graph_only and view.header().isHidden()
-    assert all(view.isColumnHidden(column) for column in (1, 2, 3))
+    assert view.summary_mode and view.header().isHidden()
+    assert not view.isColumnHidden(0) and not view.isColumnHidden(1)
+    assert all(view.isColumnHidden(column) for column in (2, 3))
     expected_width = view._graph_delegate.content_width(view._model.max_graph_cells)
-    assert view.columnWidth(0) == max(expected_width, view.viewport().width())
+    assert view.columnWidth(0) == expected_width
+    assert view.columnWidth(1) == view.viewport().width() - expected_width
 
     panel.resize(160, 300)
     panel.apply_theme("mint")
     panel.refresh_font()
     qapp.processEvents()
     assert calls == 1
-    assert view.columnWidth(0) == max(
-        view._graph_delegate.content_width(view._model.max_graph_cells),
-        view.viewport().width(),
-    )
+    assert view.columnWidth(0) == view._graph_delegate.content_width(
+        view._model.max_graph_cells)
+    assert view.columnWidth(1) > 0
     panel.close()
     panel.deleteLater()
 
@@ -311,7 +312,7 @@ def test_dialog_reuses_content_and_keeps_full_columns(qapp, merged_repo, monkeyp
     assert calls == 1
     assert dialog._content._stack.currentWidget() is dialog._content._view
     assert not dialog._content._view.header().isHidden()
-    assert not dialog._content._view.graph_only
+    assert not dialog._content._view.summary_mode
     assert all(not dialog._content._view.isColumnHidden(column) for column in (1, 2, 3))
     assert "分支：main" in dialog._info_label.text()
     dialog.reload()
