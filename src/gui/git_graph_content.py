@@ -12,7 +12,7 @@ from core.git import log as git_log
 from core.git.ansi import sgr_to_html
 from core.git.log import CommitGraph
 from core.git.service import GitStatusService
-from gui.git_graph_view import GitGraphView
+from gui.git_graph_view import GitGraphView, is_supported_graph
 from gui.popups import SimplifiedMenuTextBrowser
 from gui.settings import KEY_THEME
 from gui.theme import get_mono_family, get_theme_palette, load_settings
@@ -24,7 +24,7 @@ class GitGraphContent(QWidget):
     def __init__(
         self,
         service: GitStatusService | None,
-        compact: bool = False,
+        graph_only: bool = False,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -34,7 +34,7 @@ class GitGraphContent(QWidget):
         self._fallback = SimplifiedMenuTextBrowser(self)
         self._fallback.setOpenExternalLinks(False)
         self._view = GitGraphView(self)
-        self._view.set_compact(compact)
+        self._view.set_graph_only(graph_only)
         self._stack = QStackedWidget(self)
         self._stack.addWidget(self._placeholder)
         self._stack.addWidget(self._fallback)
@@ -51,17 +51,17 @@ class GitGraphContent(QWidget):
     def set_service(self, service: GitStatusService) -> None:
         self._service = service
 
-    def set_compact(self, compact: bool) -> None:
-        self._view.set_compact(compact)
+    def set_graph_only(self, graph_only: bool) -> None:
+        self._view.set_graph_only(graph_only)
 
     def reload(self) -> None:
-        """重拉提交图；结构化解析失败回退富文本，两级失败走占位文案。"""
+        """重拉提交图；解析失败或未知图线回退富文本，两级失败走占位文案。"""
         self._last_graph = None
         if self._service is None or not self._service.is_enabled:
             self._show_placeholder("当前工作区不在 git 仓库内。")
             return
         graph = git_log.fetch_commit_rows(self._service.repo_root)
-        if graph is not None:
+        if graph is not None and is_supported_graph(graph):
             self._last_graph = graph
             self._last_fallback_text = None
             self._view.set_graph(graph)

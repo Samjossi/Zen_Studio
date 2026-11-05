@@ -56,6 +56,29 @@ def merged_repo() -> Path:
     return repo
 
 
+@pytest.fixture(scope="module")
+def parallel_repo() -> Path:
+    repo = WORKDIR / "parallel"
+    shutil.rmtree(repo, ignore_errors=True)
+    repo.mkdir(parents=True)
+    _git(repo, "init", "-b", "main")
+    _git(repo, "config", "user.name", "Zen Tester")
+    _git(repo, "config", "user.email", "zen@example.invalid")
+    _commit(repo, "app.py", "base\n", "base")
+    for branch in ("alpha", "beta", "gamma"):
+        _git(repo, "checkout", "-b", branch, "main")
+        _commit(repo, f"{branch}.py", "one\n", f"{branch} one")
+        _commit(repo, f"{branch}.py", "two\n", f"{branch} two")
+    _git(repo, "checkout", "main")
+    _commit(repo, "app.py", "base\nmain\n", "main advances")
+    _git(repo, "merge", "--no-ff", "alpha", "beta", "gamma", "-m", "octopus merge")
+    _git(repo, "checkout", "-b", "feature", "HEAD~1")
+    _commit(repo, "feature.py", "feature\n", "long feature")
+    _git(repo, "checkout", "main")
+    _git(repo, "merge", "--no-ff", "feature", "-m", "final merge")
+    return repo
+
+
 def _service(repo: Path, enabled: bool = True):
     return SimpleNamespace(
         is_enabled=enabled,
@@ -79,6 +102,54 @@ def test_real_merge_fixture_has_connectors_curves_and_all_ref_kinds(merged_repo)
     head = commits[0]
     assert head.is_head
     assert {badge.kind for badge in head.refs} >= {"head", "branch", "remote", "tag"}
+
+
+def test_parallel_fixture_covers_octopus_corners_and_long_lanes(parallel_repo):
+    graph = git_log.fetch_commit_rows(str(parallel_repo))
+    assert graph is not None
+    commits = [row for row in graph.rows if not row.is_connector]
+    assert {row.subject for row in commits} >= {
+        "alpha two", "beta two", "gamma two", "octopus merge"}
+    chars = {ch for row in graph.rows for ch, _color in row.graph}
+    assert {".", "-", "_", "/", "\\", "|", "*"} <= chars
+    assert max(len(row.graph) for row in graph.rows) >= 7
+    assert any(row.is_connector for row in graph.rows)
+
+
+def test_panel_graph_only_geometry_and_repaint_do_not_repeat_git(
+        qapp, parallel_repo, monkeypatch):
+    calls = 0
+    real_fetch = content_mod.git_log.fetch_commit_rows
+
+    def counted_fetch(repo_root):
+        nonlocal calls
+        calls += 1
+        return real_fetch(repo_root)
+
+    monkeypatch.setattr(content_mod.git_log, "fetch_commit_rows", counted_fetch)
+    panel = GitGraphPanel()
+    panel.set_service(_service(parallel_repo))
+    panel.resize(240, 360)
+    panel.show()
+    qapp.processEvents()
+    assert calls == 1
+    view = panel._content._view
+    assert view.graph_only and view.header().isHidden()
+    assert all(view.isColumnHidden(column) for column in (1, 2, 3))
+    expected_width = view._graph_delegate.content_width(view._model.max_graph_cells)
+    assert view.columnWidth(0) == max(expected_width, view.viewport().width())
+
+    panel.resize(160, 300)
+    panel.apply_theme("mint")
+    panel.refresh_font()
+    qapp.processEvents()
+    assert calls == 1
+    assert view.columnWidth(0) == max(
+        view._graph_delegate.content_width(view._model.max_graph_cells),
+        view.viewport().width(),
+    )
+    panel.close()
+    panel.deleteLater()
 
 
 def test_panel_loads_once_per_entry_and_manual_refresh(qapp, merged_repo, monkeypatch):
@@ -155,6 +226,23 @@ def test_fallback_and_theme_rerender_do_not_repeat_git(qapp, merged_repo, monkey
     content.deleteLater()
 
 
+def test_unknown_graph_character_uses_fallback_instead_of_broken_lines(
+        qapp, merged_repo, monkeypatch):
+    graph = CommitGraph(rows=(CommitRow(
+        graph=(("?", "red"),), commit="abc123", subject="unknown"),),
+        truncated_hint=None)
+    monkeypatch.setattr(content_mod.git_log, "fetch_commit_rows", lambda _repo: graph)
+    monkeypatch.setattr(
+        content_mod.git_log, "fetch_commit_graph",
+        lambda _repo, colored=False: "? abc123 unknown" if colored else None,
+    )
+    content = GitGraphContent(_service(merged_repo), graph_only=True)
+    content.reload()
+    assert content._stack.currentWidget() is content._fallback
+    assert "unknown" in content._fallback.toPlainText()
+    content.deleteLater()
+
+
 def test_dialog_reuses_content_and_keeps_full_columns(qapp, merged_repo, monkeypatch):
     graph = CommitGraph(rows=(CommitRow(commit="abc123", subject="subject"),), truncated_hint=None)
     calls = 0
@@ -172,8 +260,8 @@ def test_dialog_reuses_content_and_keeps_full_columns(qapp, merged_repo, monkeyp
     assert calls == 1
     assert dialog._content._stack.currentWidget() is dialog._content._view
     assert not dialog._content._view.header().isHidden()
-    assert not dialog._content._view.isColumnHidden(2)
-    assert not dialog._content._view.isColumnHidden(3)
+    assert not dialog._content._view.graph_only
+    assert all(not dialog._content._view.isColumnHidden(column) for column in (1, 2, 3))
     assert "分支：main" in dialog._info_label.text()
     dialog.reload()
     assert calls == 2
