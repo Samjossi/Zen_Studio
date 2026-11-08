@@ -14,8 +14,6 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from PySide6.QtMultimedia import QSoundEffect
-from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QWidget
 
 import gui.panels.chat.model_bar as model_bar_mod
@@ -195,8 +193,8 @@ def test_question_asked_not_on_plain_request(qapp, fake_registry, isolated_setti
 
 
 # ----------------------------------------------------------------------
-# 声音播放（同事件 0.5s 合并 / 试听豁免 / Loading 补播 / 缺文件静默；
-# 一律打桩，禁止真实出声——见 tests/README.md）
+# 声音播放（同事件 0.5s 合并 / 试听豁免 / 子进程隔离与回收 / 缺文件静默；
+# Popen 一律打桩，禁止真实出声——见 tests/README.md）
 # ----------------------------------------------------------------------
 def test_sound_debounce_same_event(qapp, isolated_settings, monkeypatch):
     """同一事件 0.5s 窗口内并发重复合并为一（防瞬间叠音）。"""
@@ -267,81 +265,104 @@ def test_sound_missing_file_silent(qapp, isolated_settings, monkeypatch):
     sound_player_mod.play_completion_sound(False)  # 文件缺失静默跳过，不抛异常
 
 
-def test_sound_real_file_no_crash(qapp, isolated_settings, monkeypatch):
-    """真实 wav 路径全链路不抛异常；QSoundEffect 换假后端——offscreen 不关
-    音频，真后端会真实外放（事故见 tests/README.md），故只验证链路不验证出声。"""
-    played: list[str] = []
+class _FakeProcess:
+    def __init__(self, returncode=0, pid=4321) -> None:
+        self.returncode = returncode
+        self.pid = pid
 
-    class _FakeEffect:
-        Status = QSoundEffect.Status  # 被打桩模块内经 QSoundEffect.Status 取枚举
+    def poll(self):
+        return self.returncode
 
-        def setSource(self, url) -> None:
-            played.append(url.toLocalFile())
 
-        def play(self) -> None:
-            pass
+def test_sound_real_file_spawns_system_player(qapp, isolated_settings, monkeypatch):
+    """真实 wav 走完整事件链，但 Popen 打桩以保证门禁绝不出声。"""
+    spawned: list[tuple[list[str], dict]] = []
 
-        def status(self):
-            return QSoundEffect.Status.Ready  # 非 Error：不触发系统播放器兜底
+    def _fake_popen(cmd, **kwargs):
+        spawned.append((cmd, kwargs))
+        return _FakeProcess()
 
-    monkeypatch.setattr(sound_player_mod, "QSoundEffect", _FakeEffect)
-    monkeypatch.setattr(sound_player_mod, "_effect", None)  # 清真实单例，强制走假后端
+    monkeypatch.setattr(
+        sound_player_mod.shutil, "which",
+        lambda cmd: f"/usr/bin/{cmd}" if cmd == "aplay" else None)
+    monkeypatch.setattr(sound_player_mod.subprocess, "Popen", _fake_popen)
+    monkeypatch.setattr(sound_player_mod, "_schedule_reap", lambda: None)
+    monkeypatch.setattr(sound_player_mod, "_procs", [])
     monkeypatch.setattr(sound_player_mod, "_last_play_at", {})
     sound_player_mod.play_completion_sound(True)
-    QTest.qWait(600)  # 覆盖 _STATUS_CHECK_MS 复查分支
-    qapp.processEvents()
-    assert played and played[0].endswith("done.wav")
+    expected = sound_player_mod.SOUNDS_ACTIVE_DIR / "done.wav"
+    assert spawned[0][0] == ["/usr/bin/aplay", str(expected)]
+    assert spawned[0][1]["stdout"] == sound_player_mod.subprocess.DEVNULL
+    assert spawned[0][1]["stderr"] == sound_player_mod.subprocess.DEVNULL
 
 
-class _FakeSignal:
-    """最小信号桩：connect/disconnect/emit 三元组（假后端无 QObject 信号）。"""
-
-    def __init__(self) -> None:
-        self._slots: list = []
-
-    def connect(self, slot) -> None:
-        self._slots.append(slot)
-
-    def disconnect(self, slot) -> None:
-        self._slots.remove(slot)
-
-    def emit(self) -> None:
-        for slot in list(self._slots):
-            slot()
+def test_sound_no_system_player_returns_false(monkeypatch):
+    spawned = []
+    monkeypatch.setattr(sound_player_mod.shutil, "which", lambda _cmd: None)
+    monkeypatch.setattr(
+        sound_player_mod.subprocess, "Popen", lambda *a, **kw: spawned.append(a))
+    monkeypatch.setattr(sound_player_mod, "_procs", [])
+    assert sound_player_mod.play_system(Path("done.wav")) is False
+    assert spawned == []
 
 
-def test_sound_loading_replay(qapp, isolated_settings, monkeypatch):
-    """Loading 期的 play 可能被后端丢弃：挂一次性监听，就绪后补播一次。"""
+def test_sound_player_oserror_falls_through(monkeypatch):
+    attempts: list[str] = []
 
-    class _FakeEffect:
-        Status = QSoundEffect.Status  # 被打桩模块内经 QSoundEffect.Status 取枚举
+    def _fake_popen(cmd, **_kwargs):
+        attempts.append(cmd[0])
+        if cmd[0] == "/usr/bin/aplay":
+            raise OSError("模拟启动失败")
+        return _FakeProcess(None)
 
-        def __init__(self) -> None:
-            self.statusChanged = _FakeSignal()
-            self._status = QSoundEffect.Status.Loading
-            self.plays = 0
+    monkeypatch.setattr(
+        sound_player_mod.shutil, "which", lambda cmd: f"/usr/bin/{cmd}")
+    monkeypatch.setattr(sound_player_mod.subprocess, "Popen", _fake_popen)
+    monkeypatch.setattr(sound_player_mod, "_schedule_reap", lambda: None)
+    monkeypatch.setattr(sound_player_mod, "_procs", [])
+    assert sound_player_mod.play_system(Path("done.wav")) is True
+    assert attempts == ["/usr/bin/aplay", "/usr/bin/paplay"]
 
-        def setSource(self, url) -> None:
-            pass
 
-        def play(self) -> None:
-            self.plays += 1
+def test_sound_all_players_oserror_returns_false(monkeypatch):
+    monkeypatch.setattr(
+        sound_player_mod.shutil, "which", lambda cmd: f"/usr/bin/{cmd}")
+    monkeypatch.setattr(
+        sound_player_mod.subprocess, "Popen",
+        lambda *_a, **_kw: (_ for _ in ()).throw(OSError("模拟启动失败")))
+    monkeypatch.setattr(sound_player_mod, "_procs", [])
+    assert sound_player_mod.play_system(Path("done.wav")) is False
 
-        def status(self):
-            return self._status
 
-    monkeypatch.setattr(sound_player_mod, "QSoundEffect", _FakeEffect)
-    monkeypatch.setattr(sound_player_mod, "_effect", None)
-    monkeypatch.setattr(sound_player_mod, "_last_play_at", {})
-    monkeypatch.setattr(sound_player_mod, "_replay_armed", False)
-    sound_player_mod.play_completion_sound(True)
-    effect = sound_player_mod._effect
-    assert effect.plays == 1  # 首次 play（Loading 期，可能被后端丢弃）
-    effect._status = QSoundEffect.Status.Ready
-    effect.statusChanged.emit()
-    assert effect.plays == 2  # 就绪后补播一次
-    effect.statusChanged.emit()  # 监听已一次性解除，不再补播
-    assert effect.plays == 2
+@pytest.mark.parametrize("returncode", [1, -11])
+def test_sound_player_failure_isolated(monkeypatch, caplog, returncode):
+    failed = _FakeProcess(returncode, pid=4322)
+    running = _FakeProcess(None, pid=4323)
+    monkeypatch.setattr(sound_player_mod, "_procs", [failed, running])
+    monkeypatch.setattr(sound_player_mod, "_schedule_reap", lambda: None)
+    with caplog.at_level("WARNING", logger="gui.sound_player"):
+        sound_player_mod._reap_procs()
+    assert sound_player_mod._procs == [running]
+    assert str(returncode) in caplog.text
+
+
+def test_sound_reaper_reschedules_only_for_active_process(monkeypatch):
+    proc = _FakeProcess(None)
+    scheduled = []
+    monkeypatch.setattr(sound_player_mod, "_procs", [proc])
+    monkeypatch.setattr(sound_player_mod, "_schedule_reap", lambda: scheduled.append(True))
+    sound_player_mod._reap_procs()
+    assert scheduled == [True]
+    proc.returncode = 0
+    sound_player_mod._reap_procs()
+    assert sound_player_mod._procs == []
+    assert scheduled == [True]
+
+
+def test_sound_has_no_in_process_qt_audio_singleton():
+    assert not hasattr(sound_player_mod, "QSoundEffect")
+    assert not hasattr(sound_player_mod, "_effect")
+    assert not hasattr(sound_player_mod, "_replay_armed")
 
 
 # ----------------------------------------------------------------------

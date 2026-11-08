@@ -1,8 +1,8 @@
-"""提示音播放：按事件读设置选文件，QSoundEffect 主路径 + 系统播放器兜底。
+"""提示音播放：按事件读设置选文件，交给独立系统播放器子进程。
 
-QSoundEffect 异步非阻塞且无需新增依赖（PySide6 QtMultimedia 已在依赖内）；
-无声卡/缺音频后端时它不抛异常而是异步置 Error 态，故延迟一拍复查状态，
-失败再降级 aplay/paplay/play 子进程（播放器探测链参考 kilocode sound.ts）。
+原生音频设备切换可能令音频后端在子线程中段错误，Python 无法捕获；
+播放必须隔离在短命子进程内，避免提示音故障带走 IDE 主进程。
+依次探测 aplay/paplay/play（播放器探测链参考 kilocode sound.ts）。
 
 事件 → 设置键映射决定播放哪个文件（assets/sounds/正在使用/ 下的 wav），
 用户在设置中心「通知」页下拉框挑选；文件名缺失或文件不存在静默跳过。
@@ -17,8 +17,7 @@ import subprocess
 import time
 from pathlib import Path
 
-from PySide6.QtCore import QTimer, QUrl
-from PySide6.QtMultimedia import QSoundEffect
+from PySide6.QtCore import QTimer
 
 from core.paths import SOUNDS_ACTIVE_DIR
 from gui.settings import (
@@ -44,13 +43,12 @@ _EVENT_KEY = {
 #: 跨事件互不压制、超窗各自出声；试听是人工显式动作，不经此闸门
 _DEBOUNCE_S = 0.5
 
-#: QSoundEffect 异步加载完成后复查状态的延迟（毫秒）
-_STATUS_CHECK_MS = 500
+#: 子进程退出后的非阻塞回收间隔；没有存活播放器时定时器停止
+_REAP_CHECK_MS = 1000
 
 _last_play_at: dict[str, float] = {}  # 按事件维度记录上次播放时刻
-_effect: QSoundEffect | None = None  # 模块级单例：局部变量被 GC 会中断播放
-_procs: list[subprocess.Popen] = []  # 兜底子进程持有：防退出后成僵尸
-_replay_armed = False  # Loading 补播监听一次性武装标志
+_procs: list[subprocess.Popen] = []
+_reap_timer: QTimer | None = None
 
 
 def play_event_sound(event: str) -> None:
@@ -95,69 +93,56 @@ def _play_debounced(path: Path, event: str) -> None:
 
 
 def _play(path: Path) -> None:
-    global _effect
-    try:
-        if _effect is None:
-            _effect = QSoundEffect()
-        _effect.setSource(QUrl.fromLocalFile(str(path)))
-        _effect.play()
-        logger.info("提示音播放：%s（pid=%d）", path.name, _PID)
-        if _effect.status() == QSoundEffect.Status.Loading:
-            _arm_replay_when_ready()
-        QTimer.singleShot(_STATUS_CHECK_MS, lambda: _fallback_if_failed(path))
-    except (RuntimeError, OSError):
-        # Qt 音频后端缺失时构造/播放抛 RuntimeError，降级系统播放器
-        play_system(path)
+    play_system(path)
 
 
-def _arm_replay_when_ready() -> None:
-    """Loading 期的 play 可能被后端丢弃：挂一次性监听，就绪后补播一次。"""
-    global _replay_armed
-    if _replay_armed or _effect is None:
-        return
-    _replay_armed = True
-
-    def _on_status() -> None:
-        global _replay_armed
-        effect = _effect
-        if effect is None:
-            _replay_armed = False
-            return
-        status = effect.status()
-        if status == QSoundEffect.Status.Loading:
-            return
-        try:
-            effect.statusChanged.disconnect(_on_status)
-        except RuntimeError:
-            pass  # 已断开（单例被换/信号已断）：补播语义一次性，忽略
-        _replay_armed = False
-        if status == QSoundEffect.Status.Ready:
-            logger.info("提示音 Loading 补播（pid=%d）", _PID)
-            effect.play()
-
-    _effect.statusChanged.connect(_on_status)
+def _reap_procs() -> None:
+    active: list[subprocess.Popen] = []
+    for proc in _procs:
+        returncode = proc.poll()
+        if returncode is None:
+            active.append(proc)
+        elif returncode != 0:
+            logger.warning(
+                "系统播放器子进程异常结束：子进程 pid=%d，returncode=%d（IDE pid=%d）",
+                proc.pid, returncode, _PID)
+    _procs[:] = active
+    if _procs:
+        _schedule_reap()
 
 
-def _fallback_if_failed(path: Path) -> None:
-    if _effect is not None and _effect.status() == QSoundEffect.Status.Error:
-        logger.warning(
-            "QSoundEffect Error 态，降级系统播放器：%s（pid=%d）", path.name, _PID)
-        play_system(path)
+def _schedule_reap() -> None:
+    global _reap_timer
+    if _reap_timer is None:
+        _reap_timer = QTimer()
+        _reap_timer.setSingleShot(True)
+        _reap_timer.timeout.connect(_reap_procs)
+    if not _reap_timer.isActive():
+        _reap_timer.start(_REAP_CHECK_MS)
 
 
 def play_system(path: Path) -> bool:
-    """系统播放器兜底：aplay/paplay/play 择一（均无则静默放弃，返回 False）。
+    """用独立系统播放器子进程出声；无法启动时记录警告并返回 False。
 
     导出给媒体查看器复用：Qt Multimedia 后端不可用时保底出声。
     """
-    _procs[:] = [p for p in _procs if p.poll() is None]  # 顺手收割已退出者
+    _reap_procs()
     for cmd in ("aplay", "paplay", "play"):
         exe = shutil.which(cmd)
-        if exe:
-            _procs.append(subprocess.Popen(
+        if not exe:
+            continue
+        try:
+            proc = subprocess.Popen(
                 [exe, str(path)],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
-            logger.info("系统播放器兜底：%s %s（pid=%d）", exe, path.name, _PID)
-            return True
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except OSError as exc:
+            logger.warning(
+                "系统播放器启动失败：%s %s：%s（pid=%d）",
+                exe, path.name, exc, _PID)
+            continue
+        _procs.append(proc)
+        _schedule_reap()
+        logger.info("系统播放器播放：%s %s（pid=%d）", exe, path.name, _PID)
+        return True
     logger.warning("无可用系统播放器，放弃播放：%s（pid=%d）", path.name, _PID)
     return False
