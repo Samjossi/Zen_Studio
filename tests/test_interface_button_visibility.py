@@ -12,9 +12,9 @@ resolve_efforts），不起真实 CLI 子进程；offscreen 平台由 conftest �
 import pytest
 from PySide6.QtWidgets import QApplication
 
-import gui.panels.chat.model_bar as model_bar_mod
-from gui.panels.chat.model_bar import ModelBar
-from llm.registry import BackendSpec
+import ide.gui.panels.chat.model_bar as model_bar_mod
+from ide.gui.panels.chat.model_bar import ModelBar
+from ide.llm.registry import BackendSpec
 
 
 @pytest.fixture(scope="module")

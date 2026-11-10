@@ -21,9 +21,9 @@ from datetime import datetime
 
 sys.path.insert(0, "src")
 
-from core.paths import PROJECT_ROOT
-from llm.providers.acp import AcpConnection
-from llm.providers.reasonix_acp import _find_bin
+from ide.core.paths import PROJECT_ROOT
+from ide.llm.providers.acp import AcpConnection
+from ide.llm.providers.reasonix_acp import _find_bin
 
 ARCHIVE_DIR = PROJECT_ROOT / "文档" / "帧存档"
 

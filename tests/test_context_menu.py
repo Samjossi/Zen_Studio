@@ -15,17 +15,17 @@ from PySide6.QtCore import QEvent, QObject, QPoint, Qt, QTimer
 from PySide6.QtGui import QContextMenuEvent, QKeyEvent
 from PySide6.QtWidgets import QApplication, QLabel, QMenu
 
-from gui.panels.chat.cards import BodyHtml, BodyText, _ElidedLabel
-from gui.panels.viewer.code_viewer import CodeViewer
-from gui.panels.viewer.markdown_view import MarkdownView
-from gui.popups import (
+from ide.gui.panels.chat.cards import BodyHtml, BodyText, _ElidedLabel
+from ide.gui.panels.viewer.code_viewer import CodeViewer
+from ide.gui.panels.viewer.markdown_view import MarkdownView
+from ide.gui.popups import (
     SimplifiedMenuTextBrowser,
     SimplifiedMenuTextEdit,
     TranslucentMenuLineEdit,
     TranslucentMenuPlainTextEdit,
     make_label_selectable,
 )
-from gui.theme import get_theme_palette
+from ide.gui.theme import get_theme_palette
 
 
 def _app():

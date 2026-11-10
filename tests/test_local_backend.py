@@ -11,8 +11,8 @@
 """
 import subprocess
 
-from llm.providers import local_acp
-from llm.registry import REGISTRY, spec_of, vendor_groups
+from ide.llm.providers import local_acp
+from ide.llm.registry import REGISTRY, spec_of, vendor_groups
 
 
 def test_local_spec_registered():

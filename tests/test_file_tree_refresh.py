@@ -22,7 +22,7 @@ import pytest
 from PySide6.QtCore import QEventLoop, QTimer
 from PySide6.QtWidgets import QApplication
 
-from gui.panels.file_explorer.explorer import FileExplorer
+from ide.gui.panels.file_explorer.explorer import FileExplorer
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 WORKDIR = PROJECT_ROOT / ".temp" / "tests_file_tree_refresh"

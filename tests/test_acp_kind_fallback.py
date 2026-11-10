@@ -23,9 +23,9 @@ from pathlib import Path
 import pytest
 from PySide6.QtWidgets import QApplication
 
-from llm.providers import acp
-from llm.providers.acp import map_session_update
-from gui.panels.chat.cards import (
+from ide.llm.providers import acp
+from ide.llm.providers.acp import map_session_update
+from ide.gui.panels.chat.cards import (
     BashCard,
     CardColors,
     McpCard,

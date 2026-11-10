@@ -13,8 +13,8 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QImage, QPalette
 from PySide6.QtWidgets import QApplication
 
-from gui.panels.chat.cards import _ElidedLabel
-from gui.selection_band import (
+from ide.gui.panels.chat.cards import _ElidedLabel
+from ide.gui.selection_band import (
     SELECTION_ALPHA,
     SELECTION_PAD_Y,
     BandLabel,

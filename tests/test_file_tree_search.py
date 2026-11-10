@@ -20,7 +20,7 @@ from PySide6.QtGui import QKeyEvent
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 
-from gui.panels.file_explorer.explorer import _SEARCH_MAX_RESULTS, FileExplorer
+from ide.gui.panels.file_explorer.explorer import _SEARCH_MAX_RESULTS, FileExplorer
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 WORKDIR = PROJECT_ROOT / ".temp" / "tests_file_tree_search"

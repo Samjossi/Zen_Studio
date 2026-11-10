@@ -9,14 +9,14 @@ import pytest
 from PySide6.QtCore import QEvent, Signal
 from PySide6.QtWidgets import QApplication, QLabel, QMainWindow, QStatusBar, QWidget
 
-import gui.controllers as controllers_mod
-import gui.git_graph_content as content_mod
-from core.git import status as git_status
-from core.git.service import ChangeEntry
-from gui.controllers import GitStatusController
-from gui.panels.changes.panel import ChangesPanel
-from gui.panels.file_explorer.explorer import FileExplorer
-from gui.settings import KEY_THEME
+import ide.gui.controllers as controllers_mod
+import ide.gui.git_graph_content as content_mod
+from ide.core.git import status as git_status
+from ide.core.git.service import ChangeEntry
+from ide.gui.controllers import GitStatusController
+from ide.gui.panels.changes.panel import ChangesPanel
+from ide.gui.panels.file_explorer.explorer import FileExplorer
+from ide.gui.settings import KEY_THEME
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 WORKDIR = PROJECT_ROOT / ".temp" / "test_file_tree_git_mode"

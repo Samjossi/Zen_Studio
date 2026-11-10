@@ -17,10 +17,10 @@ import pytest
 from PySide6.QtCore import Qt, QUrl
 from PySide6.QtWidgets import QApplication
 
-from core.diff_view import MAX_DIFF_LINES, unified_rows
-from core.git import content as git_content
-from gui.diff_view_dialog import DiffViewDialog, first_change_line
-from gui.theme import get_theme_palette, list_available_themes
+from ide.core.diff_view import MAX_DIFF_LINES, unified_rows
+from ide.core.git import content as git_content
+from ide.gui.diff_view_dialog import DiffViewDialog, first_change_line
+from ide.gui.theme import get_theme_palette, list_available_themes
 
 REPO = "/repo"  # 虚构仓库根（不落盘）
 

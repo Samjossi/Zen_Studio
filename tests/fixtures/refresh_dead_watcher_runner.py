@@ -15,7 +15,7 @@ from PySide6.QtCore import QEventLoop, QTimer, Qt
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 
-from gui.panels.file_explorer.explorer import FileExplorer
+from ide.gui.panels.file_explorer.explorer import FileExplorer
 
 
 def pump(ms: int) -> None:

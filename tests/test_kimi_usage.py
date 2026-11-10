@@ -4,8 +4,8 @@ import queue
 
 import pytest
 
-from llm.providers import kimi_acp
-from llm.providers.kimi_acp import (
+from ide.llm.providers import kimi_acp
+from ide.llm.providers.kimi_acp import (
     KimiAcpLLM,
     _read_wire_turn_stats,
     _read_wire_usage_tail,

@@ -10,7 +10,7 @@ selection_band 自绘（行墨盒上下 ±SELECTION_PAD_Y 对称），本文件�
 from PySide6.QtGui import QColor, QTextCursor
 from PySide6.QtWidgets import QApplication
 
-from gui.panels.chat.cards import (
+from ide.gui.panels.chat.cards import (
     BodyHtml,
     BodyText,
     CardColors,
@@ -18,8 +18,8 @@ from gui.panels.chat.cards import (
     ThinkingCard,
     make_tool_card,
 )
-from gui.panels.chat.transcript import TextStreamBlock
-from gui.selection_band import SELECTION_PAD_Y, selection_rects
+from ide.gui.panels.chat.transcript import TextStreamBlock
+from ide.gui.selection_band import SELECTION_PAD_Y, selection_rects
 
 
 def _app():

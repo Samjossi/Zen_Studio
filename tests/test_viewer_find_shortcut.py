@@ -17,7 +17,7 @@ from PySide6.QtCore import QEventLoop, Qt, QTimer
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 
-from gui.panels.viewer.panel import ViewerPanel
+from ide.gui.panels.viewer.panel import ViewerPanel
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 WORKDIR = PROJECT_ROOT / ".temp" / "tests_viewer_find_shortcut"

@@ -12,8 +12,8 @@ panel 用例经 __new__ 裸实例 + 属性桩驱动，不构造 Qt 控件树，o
 """
 from types import SimpleNamespace
 
-from gui.panels.chat.panel import ChatPanel
-from llm.registry import REGISTRY, spec_of
+from ide.gui.panels.chat.panel import ChatPanel
+from ide.llm.registry import REGISTRY, spec_of
 
 
 def _bare_panel(backend: str) -> tuple[ChatPanel, list[tuple[str, str]]]:

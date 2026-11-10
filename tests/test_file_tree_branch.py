@@ -10,9 +10,9 @@ import pytest
 from PySide6.QtGui import QColor, QFontMetrics
 from PySide6.QtWidgets import QApplication
 
-import core.git.service as service_mod
-from core.git.service import GitStatusService
-from gui.panels.file_explorer.explorer import FileExplorer, _format_branch_label
+import ide.core.git.service as service_mod
+from ide.core.git.service import GitStatusService
+from ide.gui.panels.file_explorer.explorer import FileExplorer, _format_branch_label
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 WORKDIR = PROJECT_ROOT / ".temp" / "test_file_tree_branch"

@@ -9,8 +9,8 @@
 
 纯解析与结构断言，不触发 CLI 子进程（kimi 派生 callable 不在此调用）。
 """
-from llm.providers.kimi_common import display_names_from_catalog
-from llm.registry import REGISTRY, spec_of
+from ide.llm.providers.kimi_common import display_names_from_catalog
+from ide.llm.registry import REGISTRY, spec_of
 
 
 def test_top_level_display_name():

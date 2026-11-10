@@ -28,8 +28,8 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-from core.version import APP_VERSION  # noqa: E402
-from llm.providers.acp import AcpConnection  # noqa: E402
+from ide.core.version import APP_VERSION  # noqa: E402
+from ide.llm.providers.acp import AcpConnection  # noqa: E402
 
 #: 测试工作区（agent 子进程 cwd，限定项目内）
 TEST_CWD = str(PROJECT_ROOT / "测试文件夹")

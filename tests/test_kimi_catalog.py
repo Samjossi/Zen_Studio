@@ -8,7 +8,7 @@ kimi-for-coding 的 overrides 并入路径为既有回归保护。
 
 纯解析断言，不触发 CLI 子进程。
 """
-from llm.providers.kimi_common import (
+from ide.llm.providers.kimi_common import (
     context_sizes_from_catalog,
     efforts_from_catalog,
     models_from_catalog,

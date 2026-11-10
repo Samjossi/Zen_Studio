@@ -34,12 +34,12 @@ from PySide6.QtWidgets import QApplication
 # 本行 insert 一个不存在的路径无害（_MEIPASS 下无 src/，import 不走这里）
 sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
 
-from core.child_env import sanitize_environ
-from core.paths import IS_FROZEN, LOGO_DIR, PROJECT_ROOT, USER_CONFIG_DIR
-from core.version import APP_VERSION
-from gui import MainWindow
-from gui.root_ownership import EXIT_ROOT_OCCUPIED, acquire_root_ownership
-from gui.theme import apply_theme
+from ide.core.child_env import sanitize_environ
+from ide.core.paths import IS_FROZEN, LOGO_DIR, PROJECT_ROOT, USER_CONFIG_DIR
+from ide.core.version import APP_VERSION
+from ide.gui import MainWindow
+from ide.gui.root_ownership import EXIT_ROOT_OCCUPIED, acquire_root_ownership
+from ide.gui.theme import apply_theme
 
 #: 截图输出目录：开发态项目内 .tmp/；打包态落用户数据根（AppImage 只读
 #: 挂载下写解包目录必抛 OSError，见 文档/修改记录/2026-0725-1234 计划 T3）

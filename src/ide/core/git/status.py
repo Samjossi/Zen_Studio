@@ -1,0 +1,95 @@
+"""`git status --porcelain=v1 -z --ignored --untracked-files=all` 解析：输出 → {相对路径: 状态}。
+
+采用 -z 格式（NUL 分隔、路径原样不转义），从根本上规避中文/空格/
+引号路径的转义解析问题（项目内即有"参考代码/"等中文目录）。
+
+`--untracked-files=all`（2026-07-20）：未跟踪文件逐条列出而非折叠为
+`?? dir/` 目录条目，变更面板才能为每个新文件显示行数统计；
+ignored 目录仍折叠为 `!! dir/`（无需逐条展开）。
+
+状态归并规则（XY 双列：X=暂存区，Y=工作区）：
+    冲突 UU/AA/DD/AU/UA/DU/UD → CONFLICT
+    任一侧含 D                → DELETED
+    任一侧含 M/R/C/A          → MODIFIED（A=已暂存新文件，归入"修改"族）
+    ??                        → UNTRACKED
+    !!                        → IGNORED（目录折叠为 `dir/` 形式保留）
+解析失败的条目静默跳过（降级为"干净"），不抛异常。
+"""
+from __future__ import annotations
+
+from ide.core.git.runner import run_git
+
+#: 状态枚举（字符串常量，供 UI 层查配色表）
+CONFLICT = "conflict"
+MODIFIED = "modified"
+DELETED = "deleted"
+UNTRACKED = "untracked"
+IGNORED = "ignored"
+
+_CONFLICT_CODES = {"UU", "AA", "DD", "AU", "UA", "DU", "UD"}
+
+
+def parse_porcelain_z(text: str) -> dict[str, str]:
+    """解析 --porcelain=v1 -z 输出为 {路径: 状态}。
+
+    -z 格式每条记录为 `XY <路径>\\0`；rename/copy（含 R/C）条目
+    紧随其后多一个 NUL 字段为原路径（顺序：新路径\\0原路径\\0）。
+    """
+    result: dict[str, str] = {}
+    fields = text.split("\0")
+    i = 0
+    while i < len(fields):
+        field = fields[i]
+        i += 1
+        if len(field) < 4:  # 末尾空段或畸形条目
+            continue
+        code, path = field[:2], field[3:]
+        if "R" in code or "C" in code:
+            i += 1  # 跳过 rename/copy 的原路径字段
+        status = _merge_status(code)
+        if status is not None and path:
+            result[path] = status
+    return result
+
+
+def _merge_status(code: str) -> str | None:
+    """XY 双列状态码归并为单一状态；无法识别返回 None（视为干净）。"""
+    if code in ("??", "!!"):
+        return UNTRACKED if code == "??" else IGNORED
+    if code in _CONFLICT_CODES:
+        return CONFLICT
+    if "D" in code:
+        return DELETED
+    if any(c in code for c in "MRCA"):
+        return MODIFIED
+    return None
+
+
+def fetch_status_map(repo_root: str) -> dict[str, str] | None:
+    """执行 git status 并解析；失败返回 None（非仓库/超时/无 git）。"""
+    out = run_git(
+        repo_root, "status", "--porcelain=v1", "-z", "--ignored", "--untracked-files=all"
+    )
+    if out is None:
+        return None
+    return parse_porcelain_z(out)
+
+
+def fetch_ignored_dirs(repo_root: str) -> tuple[str, ...] | None:
+    """整体被忽略的目录集合（`dir/` 结尾，含尾斜杠）；失败返回 None。
+
+    `git status --ignored --untracked-files=all` 会把 ignored 目录逐条
+    展开（本仓库实证 38898 条，折叠键仅剩嵌套仓库 2 个），无法给出
+    目录级 ignored 归属；`ls-files --directory` 按 gitignore 命中单元
+    折叠：整目录被忽略 → 仅输出 `dir/` 自身（不进入）；目录内仅个别
+    文件被忽略（如 `*.pyc` 命中的散文件）→ 逐条列文件——后者带文件
+    路径输出，此处按尾斜杠过滤掉，只留目录键（对齐 VS Code：单文件
+    被忽略不使父目录暗显，整目录被忽略才整体暗显）。
+    """
+    out = run_git(
+        repo_root, "ls-files", "--others", "--ignored",
+        "--exclude-standard", "--directory", "-z",
+    )
+    if out is None:
+        return None
+    return tuple(p for p in out.split("\0") if p.endswith("/"))

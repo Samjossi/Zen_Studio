@@ -16,14 +16,14 @@ from types import SimpleNamespace
 import pytest
 from PySide6.QtWidgets import QApplication, QWidget
 
-import gui.panels.chat.model_bar as model_bar_mod
-import gui.settings as settings_mod
-import gui.sound_player as sound_player_mod
-from gui import main_window as main_window_mod
-from gui import desktop_notifier
-from gui.panels.chat.panel import ChatPanel
-from gui.settings_dialog import SettingsDialog
-from gui.settings import (
+import ide.gui.panels.chat.model_bar as model_bar_mod
+import ide.gui.settings as settings_mod
+import ide.gui.sound_player as sound_player_mod
+from ide.gui import main_window as main_window_mod
+from ide.gui import desktop_notifier
+from ide.gui.panels.chat.panel import ChatPanel
+from ide.gui.settings_dialog import SettingsDialog
+from ide.gui.settings import (
     DEFAULT_SETTINGS,
     KEY_NOTIFY_BANNER_ENABLED,
     KEY_NOTIFY_SOUND_DONE,
@@ -33,8 +33,8 @@ from gui.settings import (
     load_settings,
     update_settings,
 )
-from llm.registry import BackendSpec
-import gui.panels.chat.panel as panel_mod
+from ide.llm.registry import BackendSpec
+import ide.gui.panels.chat.panel as panel_mod
 
 #: 持久化隔离目录（项目纪律：临时文件一律落 ./.temp/，禁用系统临时目录）
 _TEMP_DIR = Path(__file__).resolve().parents[1] / ".temp" / "test_notification"
@@ -340,7 +340,7 @@ def test_sound_player_failure_isolated(monkeypatch, caplog, returncode):
     running = _FakeProcess(None, pid=4323)
     monkeypatch.setattr(sound_player_mod, "_procs", [failed, running])
     monkeypatch.setattr(sound_player_mod, "_schedule_reap", lambda: None)
-    with caplog.at_level("WARNING", logger="gui.sound_player"):
+    with caplog.at_level("WARNING", logger="ide.gui.sound_player"):
         sound_player_mod._reap_procs()
     assert sound_player_mod._procs == [running]
     assert str(returncode) in caplog.text
@@ -461,7 +461,7 @@ def test_notifier_missing_command_logs_warning(qapp, monkeypatch, caplog):
     monkeypatch.setattr(desktop_notifier, "shutil",
                         SimpleNamespace(which=lambda cmd: None))
     monkeypatch.setattr(desktop_notifier, "_missing_warned", False)
-    with caplog.at_level(logging.WARNING, logger="gui.desktop_notifier"):
+    with caplog.at_level(logging.WARNING, logger="ide.gui.desktop_notifier"):
         desktop_notifier.notify_event("success")
         desktop_notifier.notify_event("error")  # 第二次不再重复记
     warnings = [r for r in caplog.records if r.levelno == logging.WARNING]

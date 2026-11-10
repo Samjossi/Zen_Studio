@@ -12,7 +12,7 @@ from PySide6.QtCore import QEventLoop, Qt, QTimer
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 
-from gui.panels.terminal.panel import TerminalPanel
+from ide.gui.panels.terminal.panel import TerminalPanel
 
 
 @pytest.fixture(scope="module")

@@ -10,7 +10,7 @@ import pytest
 from PySide6.QtCore import QObject, Qt, Signal
 from PySide6.QtWidgets import QApplication, QSizePolicy
 
-from gui.panels.terminal.panel import TerminalPanel
+from ide.gui.panels.terminal.panel import TerminalPanel
 
 MAX_TABS = TerminalPanel.MAX_TABS
 
@@ -49,7 +49,7 @@ def qapp():
 
 @pytest.fixture()
 def panel(qapp, monkeypatch):
-    monkeypatch.setattr("gui.panels.terminal.panel.PtySession", _FakePtySession)
+    monkeypatch.setattr("ide.gui.panels.terminal.panel.PtySession", _FakePtySession)
     p = TerminalPanel(auto_spawn=False)
     yield p
     p.deleteLater()

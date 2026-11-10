@@ -11,11 +11,11 @@ from pathlib import Path
 import pytest
 from PySide6.QtWidgets import QApplication, QHBoxLayout, QLabel, QWidget
 
-import gui.settings as settings_mod
-from gui.settings import KEY_THEME, load_settings
-from gui.settings_dialog import SettingsDialog, _PAGE_REGISTRY
-from gui.theme import get_theme_palette
-from llm.permission_policy import MODE_AUTO_GUARDED, MODE_CONFIRM_ALL, PERMISSION_MODE_LABELS
+import ide.gui.settings as settings_mod
+from ide.gui.settings import KEY_THEME, load_settings
+from ide.gui.settings_dialog import SettingsDialog, _PAGE_REGISTRY
+from ide.gui.theme import get_theme_palette
+from ide.llm.permission_policy import MODE_AUTO_GUARDED, MODE_CONFIRM_ALL, PERMISSION_MODE_LABELS
 
 #: 持久化隔离目录（项目纪律：临时文件一律落 ./.temp/，禁用系统临时目录）
 _TEMP_DIR = Path(__file__).resolve().parents[1] / ".temp" / "test_settings_hint_icons"
@@ -122,7 +122,7 @@ def test_hint_icons_circular_button_with_hover(qapp, isolated_settings):
 
 def test_tooltip_installer_idempotent(qapp):
     """tooltip 透明化安装器幂等：重复调用不叠第二个过滤器。"""
-    import gui.popups as popups_mod
+    import ide.gui.popups as popups_mod
 
     popups_mod.install_translucent_tooltips(qapp)
     first = popups_mod._tooltip_filter

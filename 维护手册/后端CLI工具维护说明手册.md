@@ -78,7 +78,7 @@ npm i -g opencode-ai
 ## 3. Kilo Code
 
 > **⚠️ 已封存（2026-09-17）**：Zen Studio 内该后端转为个人维护状态，不再随项目更新与验证。
-> 界面中该后端保留菜单入口但发送被拦停；如需使用，请自行修改 `src/llm/registry.py`
+> 界面中该后端保留菜单入口但发送被拦停；如需使用，请自行修改 `src/ide/llm/registry.py`
 > 的 `kilocode-acp` 注册项（撤除 `archived` 标记）并重新编译。
 > 以下资料仅存档备查。
 
@@ -203,7 +203,7 @@ cmake --build ~/opt/llama.cpp/build --target llama-server llama-cli -j "$(nproc)
 
 **机制**：Zen Studio 的 kimi-acp 后端在轮次内旁路读取会话落盘目录
 `~/.kimi-code/sessions/<工作区键>/<sessionId>/agents/agent-N/wire.jsonl`
-（子代理 wire），增量解析合成嵌套工具卡（实现：`src/llm/providers/kimi_acp.py`
+（子代理 wire），增量解析合成嵌套工具卡（实现：`src/ide/llm/providers/kimi_acp.py`
 `_WireSidecar`；开关：config/settings.json `kimi_wire_sidecar`，默认开）。
 该通道是**客户端私有行为**，kimi-code 无任何格式契约，CLI 升级可能漂移。
 
@@ -246,7 +246,7 @@ ACP 有效值优先（`source="push"`），避免两路等待串行叠加。该�
 
 **私有实时与兜底通道**：主代理
 `~/.kimi-code/sessions/<工作区键>/<sessionId>/agents/main/wire.jsonl`
-（实现：`src/llm/providers/kimi_acp.py` `_read_wire_turn_stats` /
+（实现：`src/ide/llm/providers/kimi_acp.py` `_read_wire_turn_stats` /
 `_read_wire_turn_speed` / `_read_wire_usage_tail`）。wire 无格式契约，仅用于
 轮内 2s 尾部轮询、ACP 缺失兜底（`source="transcript"`）与输出速度计算。
 
@@ -319,7 +319,7 @@ dsh acp
 - 使用默认端点时，DSH 会跟随 DeepSeek API 发布的模型列表，约每十分钟后台刷新，
   失败时退回内置目录；自定义模型目录后不再自动跟随。DeepSeek 账号登录路由的
   模型清单则由账号服务下发。因此“内置兜底目录”和账号实际可选清单可能不同。
-- Zen Studio 在 `src/llm/providers/dsh_acp.py` 使用静态表，不会自动跟随上述
+- Zen Studio 在 `src/ide/llm/providers/dsh_acp.py` 使用静态表，不会自动跟随上述
   目录变化；新会话候选仅含 `deepseek-flash` 与 `deepseek-v4-pro`，显示名与官方
   目录一致。0.2.2-rc.1 的 ACP 动态目录实测仍返回旧别名，Zen 不将其列为新候选。
 

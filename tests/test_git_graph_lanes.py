@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import pytest
 
-from core.git.graph import GraphEdge, compute_graph_rows
+from ide.core.git.graph import GraphEdge, compute_graph_rows
 
 
 def lanes(commits):

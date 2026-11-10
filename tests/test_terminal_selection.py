@@ -12,11 +12,11 @@ from PySide6.QtCore import QPointF, Qt
 from PySide6.QtGui import QMouseEvent
 from PySide6.QtWidgets import QApplication
 
-from gui.panels.terminal.palette import AnsiPalette
-from gui.panels.terminal.screen import TerminalScreen
-from gui.panels.terminal.selection import SelectionController
-from gui.panels.terminal.widget import TerminalWidget
-from gui.theme import THEME_PALETTES
+from ide.gui.panels.terminal.palette import AnsiPalette
+from ide.gui.panels.terminal.screen import TerminalScreen
+from ide.gui.panels.terminal.selection import SelectionController
+from ide.gui.panels.terminal.widget import TerminalWidget
+from ide.gui.theme import THEME_PALETTES
 
 
 def _feed_lines(screen: TerminalScreen, count: int, prefix: str = "line") -> None:

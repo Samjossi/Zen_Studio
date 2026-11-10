@@ -29,7 +29,7 @@ from PySide6.QtWidgets import QApplication, QVBoxLayout, QWidget
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-from gui.panels.chat.cards import (  # noqa: E402
+from ide.gui.panels.chat.cards import (  # noqa: E402
     CardColors,
     OpenStateMap,
     SubagentCard,
@@ -39,12 +39,12 @@ from gui.panels.chat.cards import (  # noqa: E402
     find_question_card,
     make_tool_card,
 )
-from gui.panels.chat.permission_dialog import QuestionDialog  # noqa: E402
-from gui.panels.chat.panel import ChatPanel  # noqa: E402
-from gui.panels.chat.transcript import ChatTranscriptView  # noqa: E402
-from gui.theme import CHAT_PACK, DEFAULT_THEME, get_theme_palette  # noqa: E402
-from llm.providers.acp import map_session_update  # noqa: E402
-from llm.providers.kimi_acp import (  # noqa: E402
+from ide.gui.panels.chat.permission_dialog import QuestionDialog  # noqa: E402
+from ide.gui.panels.chat.panel import ChatPanel  # noqa: E402
+from ide.gui.panels.chat.transcript import ChatTranscriptView  # noqa: E402
+from ide.gui.theme import CHAT_PACK, DEFAULT_THEME, get_theme_palette  # noqa: E402
+from ide.llm.providers.acp import map_session_update  # noqa: E402
+from ide.llm.providers.kimi_acp import (  # noqa: E402
     _synthesize_wire_call,
     _synthesize_wire_result,
 )
@@ -173,7 +173,7 @@ def _scenarios() -> list[tuple[str, list[dict], str, object]]:
         ("03_agent_子代理", [
             _tool_call("tc-agent", "Agent", "other",
                        {"description": "探索代码库结构",
-                        "prompt": "请分析 gui/panels/chat 目录下的卡片渲染链路，"
+                        "prompt": "请分析 src/ide/gui/panels/chat 目录下的卡片渲染链路，"
                                   "找出图片出参被丢弃的根因并给出修复建议。"}),
             _tool_update("tc-agent", "completed", title="Agent",
                          raw_output={"output":
@@ -493,17 +493,17 @@ def _scenarios() -> list[tuple[str, list[dict], str, object]]:
             # kilocode 系（ACP 标准形态推定）：首帧即带 locations +
             # content diff 项 + rawInput——徽标/hunk/副标题首帧一次到位
             _tool_call("tc-editkilo", "Edit", "edit",
-                       {"filePath": "src/gui/panels/chat/cards.py",
+                       {"filePath": "src/ide/gui/panels/chat/cards.py",
                         "oldString": "旧实现行", "newString": "新实现行"},
                        content=[{"type": "diff",
-                                 "path": "src/gui/panels/chat/cards.py",
+                                 "path": "src/ide/gui/panels/chat/cards.py",
                                  "oldText": "上下文甲\n旧实现行\n上下文乙",
                                  "newText": "上下文甲\n新实现行\n上下文乙"}],
-                       locations=[{"path": "src/gui/panels/chat/cards.py"}]),
+                       locations=[{"path": "src/ide/gui/panels/chat/cards.py"}]),
             _tool_update("tc-editkilo", "completed", kind="edit",
                          raw_output={"output": "Edit applied."}),
         ], "首帧即渲染徽标 +1 −1 与 hunk 三色；副标题取 locations[0].path"
-           " 两段式「cards.py · src/gui/panels/chat/」；✔", None),
+           " 两段式「cards.py · src/ide/gui/panels/chat/」；✔", None),
         ("26_read_行数徽标与截断尾注", [
             # 通用形态：completed 输出 1005 行超软上限 1000（0645 D2），
             # read 保头截断（§2.4）
@@ -520,10 +520,10 @@ def _scenarios() -> list[tuple[str, list[dict], str, object]]:
             # _tool_call_summary search/fetch 分支副标题实证
             _tool_call("tc-search", "Grep", "search",
                        {"pattern": "_tool_call_summary",
-                        "path": "src/llm/providers"}),
+                        "path": "src/ide/llm/providers"}),
             _tool_update("tc-search", "completed", kind="search",
                          raw_output={"output":
-                                     "src/llm/providers/acp.py:737:"
+                                     "src/ide/llm/providers/acp.py:737:"
                                      "def _tool_call_summary(update: dict)"}),
             _tool_call("tc-fetch", "FetchURL", "fetch",
                        {"url": "https://example.com/acp-spec"}),
@@ -539,7 +539,7 @@ def _scenarios() -> list[tuple[str, list[dict], str, object]]:
             # result_summary 走 <task_result> 正则提取，标记外前言不入卡
             _tool_call("tc-think1", "Agent", "think",
                        {"description": "分析卡片渲染链路",
-                        "prompt": "请分析 gui/panels/chat 下的卡片分派逻辑"
+                        "prompt": "请分析 src/ide/gui/panels/chat 下的卡片分派逻辑"
                                   "并给出结论。"}),
             _tool_update("tc-think1", "completed", kind="think",
                          raw_output={"output":
@@ -740,7 +740,7 @@ def _kimi_sidecar_frames() -> list[dict]:
     """kimi 旁路场景帧序列：主流 Agent 起止帧 + wire 事件真实合成帧。"""
     frames = [_tool_call(_KIMI_PARENT, "Agent", "other",
                          {"description": "探索代码库结构",
-                          "prompt": "请分析 gui/panels/chat 目录下的卡片渲染链路。"})]
+                          "prompt": "请分析 src/ide/gui/panels/chat 目录下的卡片渲染链路。"})]
     kinds: dict[str, str] = {}
     for event in _KIMI_WIRE_EVENTS:
         if event["type"] == "tool.call":

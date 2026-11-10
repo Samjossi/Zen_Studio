@@ -1,0 +1,857 @@
+"""设置中心对话框：左导航 + 右分页（页面注册表驱动，唯一偏好配置面）。
+
+实施依据：文档/修改记录/2026-0722-1240（对话框落地）、2026-0722-1344
+（页面注册表重构 + 设置中心唯一配置面）与 2026-0722-1510（UI 改进）三份计划。
+- 排入逻辑：安全风险 × 使用频率排序，破坏性操作（恢复默认）沉底
+- 生效纪律：控件 change 即时持久化 + 即时应用，无确定/取消（沿用菜单勾选
+  先例）；仅「关闭」（Esc 同效，中文按钮弃 QDialogButtonBox——其本地化依赖
+  QTranslator 未装载故英文）；非模态单例，边改边看主窗口效果
+- 骨架：左导航（卡片化 QListWidget，base.qss QListView 段统一换肤）+
+  右页标题区（标题/副标题/分隔线，currentRowChanged 骨架统一刷新）+
+  堆叠页 + 底部「关闭」按钮；各页不再自带页顶说明（1510 计划 D4/D8）
+- 主题化：app 级 qss 覆盖标准控件；内联 style 不受其管辖的部分（hint 灰字、
+  问号提示图标、分隔线）由 apply_theme(theme) 收敛点按 muted_text/border/
+  accent 令牌重刷（图标为 16×16 描边正圆，hover 淡强调色染，规范 §6.2 按钮体系）
+  （热切换已随 2026-0820-1642 计划移除，本方法保留为公共接口，构造期
+  自检初始化；1510 计划 D6 否决的 QPalette 角色色方案已由该计划翻盘——
+  ide/gui/theme.apply_theme 现纳管 app 级 QPalette 兜底，见其 §4.1）
+- 说明文字两档：单行短句用 _make_hint 直接留在界面（即时状态提示必留，
+  藏着用户无法理解控件为何禁用）；成段机制说明收进 _make_hint_icon
+  问号图标 tooltip，默认不占版面
+- 字号化：页标题/黑名单等宽区字号**相对派生**自 app 全局字号（禁止绝对值
+  写死——不随用户字号缩放，全局调大后标题反而比正文小），由
+  apply_font_size() 收敛点重刷（挂 MainWindow._apply_font_size 链，同
+  apply_theme 先例）
+- 纯 GUI 装配层：应用逻辑全部委托 MainWindow 现有应用槽（零业务逻辑，
+  同菜单文件先例）；状态同步由 MainWindow._sync_settings_dialog 回调 reload
+- 防回环：reload 全程 _reloading 标志抑制槽响应（同 ModelBar._is_updating 先例）
+
+新增设置项标准流程（2026-0722-1344 计划 §3.2，AI/人均须遵循）：
+1. ide/gui/settings.py 加 KEY_* 常量 + AppSettings 键 + 默认值
+2. 选归宿页（或新页）：写 _build_xxx_page（控件 change 接 MainWindow
+   应用槽或 update_settings）
+3. 写 _reload_xxx(settings)（控件态回读，由 reload 的 _reloading 抑制）
+4. _PAGE_REGISTRY 加一行（导航名 + 副标题 + 两方法名）——骨架与 reload
+   分发零改动
+（页数 >8 再引入导航分组：注册表扩 category 字段即可，不提前实现）
+"""
+from PySide6.QtWidgets import (
+    QApplication,
+    QCheckBox,
+    QComboBox,
+    QDialog,
+    QFormLayout,
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QListWidget,
+    QListWidgetItem,
+    QMessageBox,
+    QPushButton,
+    QRadioButton,
+    QSpinBox,
+    QStackedWidget,
+    QToolButton,
+    QVBoxLayout,
+    QWidget,
+)
+from PySide6.QtCore import QSize, Qt, QTimer
+from PySide6.QtGui import QColor, QFont
+
+from ide.gui.popups import (
+    SimplifiedMenuTextEdit,
+    make_label_selectable,
+    make_translucent_combo_popup,
+)
+from ide.gui.selection_band import BandLabel
+from ide.gui.settings import (
+    CHAT_RENDERER_CARDS,
+    CHAT_RENDERER_CLASSIC,
+    CONFIG_DIR,
+    KEY_CHAT_RENDERER,
+    KEY_FONT_SIZE,
+    KEY_MODEL_BACKEND,
+    KEY_NOTIFY_BANNER_ENABLED,
+    KEY_NOTIFY_SOUND_DONE,
+    KEY_NOTIFY_SOUND_ENABLED,
+    KEY_NOTIFY_SOUND_ERROR,
+    KEY_NOTIFY_SOUND_QUESTION,
+    KEY_PERMISSION_MODE,
+    KEY_TERMINAL_AI_TAB_CLOSE_DELAY_S,
+    KEY_TERMINAL_SWAP_COPY_PASTE,
+    KEY_THEME,
+    TERMINAL_AI_TAB_CLOSE_DELAY_MAX_S,
+    TERMINAL_AI_TAB_CLOSE_DELAY_MIN_S,
+    update_settings,
+)
+from ide.core.paths import SOUNDS_ACTIVE_DIR
+from ide.gui import sound_player
+from ide.gui.theme import (
+    WARNING_COLOR,
+    get_label,
+    get_mono_family,
+    get_theme_palette,
+    list_available_themes,
+    load_settings,
+)
+from ide.llm import REGISTRY, spec_of, vendor_groups, vendor_of
+from ide.llm.permission_policy import (
+    DANGEROUS_COMMAND_PATTERNS,
+    DEFAULT_PERMISSION_MODE,
+    MODE_AUTO_ALL,
+    PERMISSION_MODE_LABELS,
+    PERMISSION_MODES,
+)
+
+#: 警示文字样式（auto_all 档说明；WARNING_COLOR 跨主题固定，单一来源不动）
+_STYLE_DANGER = f"color: {WARNING_COLOR};"
+#: 单选项名加粗（只设字重不设色，颜色随 app 级 qss 主题）
+_STYLE_RADIO = "font-weight: bold;"
+#: 单选描述缩进（radio 指示器宽 16 + 间距 4，与指示器视觉对齐；1510 计划 D5）
+_DESC_INDENT = 20
+#: 导航宽度带（min/max 非 Fixed；1510 计划 D1）与项高/内边距。
+#: 项高经 sizeHint 设定（跨 QStyle 可靠）：qss min-height 对 item delegate
+#: 的采纳依赖平台样式——offscreen（Fusion）生效，但 Linux 原生样式不采纳，
+#: 项高压过字高致相邻项文字重叠（1510 复核修复）；qss 仅覆 padding
+#: （不决定行高，无平台差异），颜色选择器留 app 级 qss 统一换肤
+_NAV_MIN_WIDTH = 160
+_NAV_MAX_WIDTH = 200
+_NAV_ITEM_HEIGHT = 32
+_NAV_ITEM_QSS = "QListWidget::item { padding: 4px 12px; }"
+#: 页标题相对 app 全局字号的放大步长（pt，加粗；副标题取 muted_text 令牌）。
+#: 相对派生而非绝对值：绝对字号不随用户全局字号缩放（全局 16pt 时 14pt
+#: 标题反而比正文小），apply_font_size 收敛点按「app 字号 + 本步长」重刷
+_TITLE_FONT_DELTA_PT = 4
+#: 黑名单只读区固定高度（防展开撑变形；1510 计划 D13）
+_BLACKLIST_HEIGHT = 160
+
+#: 通知页事件行：(事件名, 行标签, 设置键)——下拉框构建/回读/持久化共用同一来源
+_NOTIFY_SOUND_EVENTS = (
+    ("done", "任务成功", KEY_NOTIFY_SOUND_DONE),
+    ("error", "任务失败", KEY_NOTIFY_SOUND_ERROR),
+    ("question", "交互提问", KEY_NOTIFY_SOUND_QUESTION),
+)
+
+#: 通知页横幅试看行：(事件态, 行标签)——事件态须与 desktop_notifier.notify_event
+#: 的取值对齐（success/error/question），与提示音事件名（done/...）不同源
+_NOTIFY_BANNER_EVENTS = (
+    ("success", "任务成功"),
+    ("error", "任务失败"),
+    ("question", "交互提问"),
+)
+
+#: 页面注册表：(导航名, 副标题, 构建方法名, 重载方法名)；元组顺序即导航顺序。
+#: 副标题由骨架页标题区统一展示（各页不再自带页顶说明）。
+#: 新增设置页 = 写 _build_xxx_page / _reload_xxx 两函数 + 此处加一行，
+#: 骨架与 reload 分发零改动（AFCP 3.4 常量化；同 menus/assembler.MODULES 先例）
+_PAGE_REGISTRY: tuple[tuple[str, str, str, str | None], ...] = (
+    ("AI 工具权限", "控制 AI 工具调用的审批粒度。",
+     "_build_permission_page", "_reload_permission"),
+    ("AI 模型", "选择 AI 后台、接口与模型。",
+     "_build_model_page", "_reload_model"),
+    ("外观", "主题与字号即时生效。",
+     "_build_appearance_page", "_reload_appearance"),
+    ("终端", "终端按键与 AI 标签行为。",
+     "_build_terminal_page", "_reload_terminal"),
+    ("通知", "任务完成与交互提问的声音与横幅提醒。",
+     "_build_notify_page", "_reload_notify"),
+    ("高级", "配置文件查看与重置操作。",
+     "_build_advanced_page", None),
+)
+
+
+class SettingsDialog(QDialog):
+    """设置中心：非模态单例（MainWindow 持有），页面注册表驱动导航。
+
+    :param ctx: MainWindow（鸭子类型：apply_model_selection / switch_theme /
+        set_font_size / set_terminal_swap_copy_paste /
+        set_terminal_ai_tab_close_delay /
+        open_settings_file / reset_settings / chat_tabs / statusBar；
+        FONT_SIZE_MIN/MAX/STATUS_MSG_TIMEOUT_MS 类常量）。
+        chat_tabs 在空白窗口为 None——模型页降级禁用（2026-0905-2044
+        计划），消费点显式守卫
+    """
+
+    def __init__(self, ctx) -> None:
+        super().__init__(ctx)
+        self._ctx = ctx
+        self._reloading = False  # reload 期间抑制控件槽（防回环/防写盘）
+        #: 任一接口可用即整体可用（注册表遍历，惰性探测；全不可用三下拉禁用）
+        self._any_backend_available = any(spec.available() for spec in REGISTRY.values())
+        #: 模型别名列表缓存（接口实现名 → aliases）：spec.list_models 可能是
+        #: 子进程调用（如 kimi → `kimi provider list --json`），reload 期间
+        #: 字号/主题等无关收敛点不得反复拉起；缓存按接口级隔离（D6 红线 1，
+        #: 2026-0730-0150 计划阶段二 T7）；每次 showEvent 清缓存强制刷新一次
+        #: （review 修复：GUI 线程卡顿）
+        self._models_cache: dict[str, list[str]] = {}
+        #: hint 控件与分隔线集合：内联 style 不受 app 级 qss 管辖，
+        #: apply_theme 统一按令牌重刷（1510 计划 D6/D10）
+        self._hint_labels: list[QLabel] = []
+        self._hint_icons: list[QLabel] = []
+        self._sep_frames: list[QFrame] = []
+        self.setWindowTitle("设置中心")
+        self.setMinimumSize(600, 420)
+        self.resize(680, 500)
+
+        self._nav = QListWidget(self)
+        self._nav.setMinimumWidth(_NAV_MIN_WIDTH)
+        self._nav.setMaximumWidth(_NAV_MAX_WIDTH)
+        self._nav.setStyleSheet(_NAV_ITEM_QSS)
+        self._stack = QStackedWidget(self)
+        for name, _, build_name, _ in _PAGE_REGISTRY:
+            item = QListWidgetItem(name)
+            # 宽 0 占位（列表模式项宽由视口定）：QSize(-1, h) 为无效尺寸，
+            # setSizeHint 会按清除语义丢掉高度（1510 复核修复实测）
+            item.setSizeHint(QSize(0, _NAV_ITEM_HEIGHT))
+            self._nav.addItem(item)
+            self._stack.addWidget(getattr(self, build_name)())
+        self._nav.currentRowChanged.connect(self._on_nav_changed)
+        self._build_chrome()
+        self._nav.setCurrentRow(0)
+        self.apply_theme(load_settings()[KEY_THEME])
+        self.apply_font_size()
+
+    def _build_chrome(self) -> None:
+        """骨架装配：页标题区 + 导航分隔线 + 中文关闭按钮（1510 计划 P0）。
+
+        页标题字号不在此设定——由 apply_font_size() 按 app 字号相对派生
+        （构造末尾统一调用，随 MainWindow._apply_font_size 链重刷）。
+        """
+        self._title_label = QLabel(self)
+        self._subtitle_label = self._make_hint("", self)
+        self._nav_sep = self._make_separator(QFrame.Shape.VLine)
+        close_button = QPushButton("关闭", self)
+        close_button.clicked.connect(self.reject)
+        button_row = QHBoxLayout()
+        button_row.addStretch(1)
+        button_row.addWidget(close_button)
+        right = QVBoxLayout()
+        right.setContentsMargins(16, 12, 16, 12)
+        right.setSpacing(8)
+        right.addWidget(self._title_label)
+        right.addWidget(self._subtitle_label)
+        right.addWidget(self._make_separator(QFrame.Shape.HLine))
+        right.addWidget(self._stack, 1)
+        right.addLayout(button_row)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(8, 8, 0, 8)
+        layout.setSpacing(0)
+        layout.addWidget(self._nav)
+        layout.addWidget(self._nav_sep)
+        layout.addLayout(right, 1)
+
+    def _on_nav_changed(self, row: int) -> None:
+        """导航切页：堆叠页 + 页标题区同步刷新（副标题取注册表第二字段）。"""
+        self._stack.setCurrentIndex(row)
+        if 0 <= row < len(_PAGE_REGISTRY):
+            name, subtitle, _, _ = _PAGE_REGISTRY[row]
+            self._title_label.setText(name)
+            self._subtitle_label.setText(subtitle)
+
+    def apply_theme(self, theme: str) -> None:
+        """主题收敛点（热切换已随 2026-0820-1642 计划移除，方法保留为公共接口）。
+
+        app 级 qss 覆盖标准控件；此处仅重刷其管辖不到的内联 style——
+        hint 取 muted_text 令牌，分隔线取 border 令牌（QFrame 线色走
+        qss color 属性）；警示红 WARNING_COLOR 跨主题固定不动。
+        """
+        tokens = get_theme_palette(theme)
+        hint_qss = f"color: {tokens['muted_text']};"
+        for label in self._hint_labels:
+            label.setStyleSheet(hint_qss)
+        # 图标固定 16×16（_make_hint_icon），radius 8px = 直径减半成正圆；
+        # hover 淡强调色染对齐规范 §6.2 按钮范式，rgba 由 accent 令牌经
+        # QColor 派生（四主题各取本方强调色，禁止硬编码）
+        accent = QColor(tokens["accent"])
+        hover_bg = f"rgba({accent.red()}, {accent.green()}, {accent.blue()}, 0.07)"
+        icon_qss = (
+            f"QLabel {{ color: {tokens['muted_text']};"
+            f" border: 1px solid {tokens['border']};"
+            " border-radius: 8px; background: transparent; }"
+            f" QLabel:hover {{ background-color: {hover_bg};"
+            f" border-color: {tokens['accent']}; }}")
+        for icon in self._hint_icons:
+            icon.setStyleSheet(icon_qss)
+        sep_qss = f"color: {tokens['border']};"
+        for frame in self._sep_frames:
+            frame.setStyleSheet(sep_qss)
+
+    def apply_font_size(self) -> None:
+        """字号收敛点（MainWindow._apply_font_size 链，同 apply_theme 先例）。
+
+        两处相对派生自 app 全局字号（禁止绝对值写死，否则不随用户字号
+        缩放，全局调大后标题反而比正文小）：
+        - 页标题 = app 字号 + _TITLE_FONT_DELTA_PT（加粗）；
+        - 权限页黑名单等宽区 = app 字号（构造时 QFont(family) 只设族，
+          字号是创建时刻的快照，不随后续全局字号调整跟随）。
+        """
+        app = QApplication.instance()
+        if app is None:
+            return
+        base = app.font().pointSizeF()
+        title_font = self._title_label.font()
+        title_font.setPointSizeF(base + _TITLE_FONT_DELTA_PT)
+        title_font.setBold(True)
+        self._title_label.setFont(title_font)
+        mono_font = QFont(get_mono_family())
+        mono_font.setPointSizeF(base)
+        self._blacklist_text.setFont(mono_font)
+
+    # ------------------------------------------------------------------
+    # AI 工具权限页（四态单选 + 黑名单只读折叠区）
+    # ------------------------------------------------------------------
+    def _build_permission_page(self) -> QWidget:
+        page = QWidget(self)
+        layout = QVBoxLayout(page)
+        layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        self._mode_radios: dict[str, QRadioButton] = {}
+        for mode in PERMISSION_MODES:
+            name, desc = PERMISSION_MODE_LABELS[mode]
+            radio = QRadioButton(name, page)
+            radio.setStyleSheet(_STYLE_RADIO)
+            radio.toggled.connect(lambda checked, m=mode: self._on_permission_mode(m, checked))
+            self._mode_radios[mode] = radio
+            layout.addWidget(radio)
+            desc_label = QLabel(desc, page)
+            desc_label.setIndent(_DESC_INDENT)
+            desc_label.setWordWrap(True)
+            desc_label.setStyleSheet(_STYLE_DANGER if mode == MODE_AUTO_ALL else "")
+            if mode != MODE_AUTO_ALL:
+                self._hint_labels.append(desc_label)
+            layout.addWidget(desc_label)
+        self._blacklist_label = (
+            f"查看危险命令黑名单（{len(DANGEROUS_COMMAND_PATTERNS)} 条，智能放行档兜底）")
+        self._blacklist_button = QToolButton(page)
+        self._blacklist_button.setCheckable(True)
+        self._blacklist_button.toggled.connect(self._on_blacklist_toggle)
+        # 初态折叠箭头（_blacklist_text 尚未建，不走 toggled 槽）
+        self._blacklist_button.setText(f"▶ {self._blacklist_label}")
+        layout.addWidget(self._blacklist_button, 0, Qt.AlignmentFlag.AlignLeft)
+        self._blacklist_text = SimplifiedMenuTextEdit(page)
+        self._blacklist_text.setReadOnly(True)
+        self._blacklist_text.setFont(QFont(get_mono_family()))
+        self._blacklist_text.setFixedHeight(_BLACKLIST_HEIGHT)
+        self._blacklist_text.setPlainText("\n".join(
+            f"{i}. {reason}"
+            for i, (_, reason) in enumerate(DANGEROUS_COMMAND_PATTERNS, 1)))
+        self._blacklist_text.setVisible(False)
+        layout.addWidget(self._blacklist_text)
+        return page
+
+    def _on_permission_mode(self, mode: str, checked: bool) -> None:
+        """四态单选：持久化即生效（决策点读取时生效，无需下发）。
+
+        auto_all 高危档需二次确认（review 修复：误点零摩擦关闭全部危险
+        命令护栏）；取消则 reload 回弹控件态到持久化档位。
+        """
+        if not checked or self._reloading:
+            return
+        if mode == MODE_AUTO_ALL and not self._confirm_auto_all():
+            self.reload()
+            return
+        update_settings({KEY_PERMISSION_MODE: mode})
+        self._ctx.statusBar().showMessage(
+            f"AI 工具权限：{PERMISSION_MODE_LABELS[mode][0]}",
+            self._ctx.STATUS_MSG_TIMEOUT_MS)
+
+    def _confirm_auto_all(self) -> bool:
+        """auto_all 二次确认框（默认按钮为取消）。"""
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setWindowTitle("全部放行确认")
+        box.setText("确定切换到「全部放行」吗？")
+        box.setInformativeText(
+            "危险命令（rm -rf /、git push -f 等）将不再弹窗，AI 会直接执行。\n"
+            "请确认你信任当前 AI 后端。")
+        box.setStandardButtons(
+            QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel)
+        box.setDefaultButton(QMessageBox.StandardButton.Cancel)
+        return box.exec() == QMessageBox.StandardButton.Ok
+
+    def _on_blacklist_toggle(self, checked: bool) -> None:
+        """折叠钮：箭头随展开态翻转（▶/▼），只读区定高不撑窗（D2/D13）。"""
+        self._blacklist_button.setText(f"{'▼' if checked else '▶'} {self._blacklist_label}")
+        self._blacklist_text.setVisible(checked)
+
+    # ------------------------------------------------------------------
+    # AI 模型页（三级下拉：后台/接口/模型；与 ModelBar 经 MainWindow 收敛点同步，
+    # 2026-0730-0150 计划阶段二 T7）
+    # ------------------------------------------------------------------
+    def _build_model_page(self) -> QWidget:
+        """三级语义（D1）：后台 = CLI 产品（vendor_label）；接口 = 该后台下的
+        接入实现（BackendSpec.name/label，持久化值）；模型 = 模型别名
+        （接口级 spec.list_models()）。不可用项行级禁用并标「（未检测到）」
+        （禁用项不可被用户选中，也不作静默回退落点——杜绝无效项收敛写盘）。"""
+        page = QWidget(self)
+        layout = QFormLayout(page)
+        layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        self._vendor_combo = QComboBox(page)
+        for vendor, specs in vendor_groups().items():
+            available = any(spec.available() for spec in specs)
+            text = specs[0].vendor_label if available else f"{specs[0].vendor_label}（未检测到）"
+            self._vendor_combo.addItem(text, vendor)
+            if not available:
+                self._vendor_combo.model().item(
+                    self._vendor_combo.count() - 1).setEnabled(False)
+        self._interface_combo = QComboBox(page)  # 初为空，reload 时按后台重建
+        self._model_combo = QComboBox(page)      # 初为空，reload 时按接口重建
+        for combo in (self._vendor_combo, self._interface_combo, self._model_combo):
+            make_translucent_combo_popup(combo)
+        layout.addRow("后台", self._vendor_combo)
+        layout.addRow("接口", self._interface_combo)
+        layout.addRow("模型", self._model_combo)
+        # 本页两条灰字是即时状态提示（随会话忙闲/窗口形态生效），非静态
+        # 说明，不纳入问号图标收纳——留着才能解释下拉为何禁用
+        busy_row = QHBoxLayout()
+        busy_row.addWidget(self._make_hint("当前会话响应中暂不可切换。", page))
+        busy_row.addStretch(1)
+        busy_row.addWidget(self._make_hint_icon(
+            "模型选择作用于当前活动会话标签，与聊天面板底行模型按钮双向同步。", page))
+        layout.addRow(busy_row)
+        # 空白窗口降级（2026-0905-2044 计划）：无会话标签，模型选择无
+        # 作用对象——三下拉禁用 + 原因提示。窗口实例生命周期内 chat_tabs
+        # 恒 None 或恒非 None（空窗填充走换根关旧窗、起新进程），降级态
+        # 建页一次定型，无需动态切换
+        if self._ctx.chat_tabs is None:
+            for combo in (self._vendor_combo, self._interface_combo, self._model_combo):
+                combo.setEnabled(False)
+            layout.addRow(self._make_hint(
+                "空白窗口不可用；打开文件夹后生效。", page))
+        self._vendor_combo.activated.connect(self._on_vendor_activated)
+        self._interface_combo.activated.connect(self._on_interface_activated)
+        self._model_combo.activated.connect(self._on_model_activated)
+        return page
+
+    def _on_vendor_activated(self, index: int) -> None:
+        """后台切换：接口下拉先清后建（回退首个可用接口）→ 以模型 None
+        收敛 MainWindow（落到该接口模型列表首项；reload 回显三级勾选）。"""
+        self._rebuild_interfaces(self._vendor_combo.itemData(index))
+        self._ctx.apply_model_selection(self._interface_combo.currentData(), None)
+        self._ctx.statusBar().showMessage(
+            f"AI 模型：后台 → {self._vendor_combo.itemText(index)}",
+            self._ctx.STATUS_MSG_TIMEOUT_MS)
+
+    def _on_interface_activated(self, index: int) -> None:
+        """接口切换：以模型 None 收敛（落到模型列表首项，D6 红线 4：
+        旧接口别名立即失效、不随切换残留/写盘，红线 5）。"""
+        self._ctx.apply_model_selection(self._interface_combo.itemData(index), None)
+        self._ctx.statusBar().showMessage(
+            f"AI 模型：接口 → {self._interface_combo.itemText(index)}",
+            self._ctx.STATUS_MSG_TIMEOUT_MS)
+
+    def _on_model_activated(self, index: int) -> None:
+        """模型切换：以（当前接口, 别名）收敛（别名按不透明字符串透传，红线 2）。"""
+        self._ctx.apply_model_selection(
+            self._interface_combo.currentData(), self._model_combo.itemData(index))
+        self._ctx.statusBar().showMessage(
+            f"AI 模型：模型 → {self._model_combo.itemText(index)}",
+            self._ctx.STATUS_MSG_TIMEOUT_MS)
+
+    def set_model_enabled(self, enabled: bool) -> None:
+        """busy 联动：AI 响应中禁用三下拉（与 ModelBar 三按钮对齐）。
+        空白窗口（chat_tabs None）恒禁用（双保险：建页已禁，此处拦截
+        未来绕过 showEvent 的直接调用，2026-0905-2044 计划 D1）。"""
+        on = enabled and self._any_backend_available and self._ctx.chat_tabs is not None
+        self._vendor_combo.setEnabled(on)
+        self._interface_combo.setEnabled(on)
+        self._model_combo.setEnabled(on)
+
+    # ------------------------------------------------------------------
+    # 外观页（主题下拉 + 字号 SpinBox + 文件树小节）
+    # ------------------------------------------------------------------
+    def _build_appearance_page(self) -> QWidget:
+        page = QWidget(self)
+        layout = QFormLayout(page)
+        layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        self._theme_combo = QComboBox(page)
+        for name in list_available_themes():
+            self._theme_combo.addItem(get_label(name), name)
+        make_translucent_combo_popup(self._theme_combo)
+        self._font_spin = QSpinBox(page)
+        self._font_spin.setRange(self._ctx.FONT_SIZE_MIN, self._ctx.FONT_SIZE_MAX)
+        self._font_spin.setSuffix(" pt")
+        # 对话区渲染轨（0645 融合计划 D2-A 双轨并存）：卡片（新，默认）/
+        # 经典（旧轨冻结保留，即回退通道）；新建会话标签生效不热切换
+        self._renderer_combo = QComboBox(page)
+        self._renderer_combo.addItem("卡片（折叠卡，推荐）", CHAT_RENDERER_CARDS)
+        self._renderer_combo.addItem("经典（行文本流）", CHAT_RENDERER_CLASSIC)
+        make_translucent_combo_popup(self._renderer_combo)
+        renderer_field = QHBoxLayout()
+        renderer_field.addWidget(self._renderer_combo, 1)
+        renderer_field.addWidget(self._make_hint_icon(
+            "对话区渲染切换对新建会话标签生效。", page))
+        layout.addRow("主题", self._theme_combo)
+        layout.addRow("字号", self._font_spin)
+        layout.addRow("对话区渲染", renderer_field)
+        self._theme_combo.activated.connect(self._on_theme_activated)
+        self._font_spin.valueChanged.connect(self._on_font_changed)
+        self._renderer_combo.activated.connect(self._on_renderer_activated)
+        return page
+
+    def _on_renderer_activated(self, index: int) -> None:
+        if not self._reloading:
+            renderer = self._renderer_combo.itemData(index)
+            update_settings({KEY_CHAT_RENDERER: renderer})
+            self._ctx.statusBar().showMessage(
+                f"对话区渲染：{self._renderer_combo.itemText(index)}（新建标签生效）",
+                self._ctx.STATUS_MSG_TIMEOUT_MS)
+
+    def _on_theme_activated(self, index: int) -> None:
+        # 反馈由 MainWindow.switch_theme 统一发（重启生效提示弹窗，1642 计划），不重复
+        self._ctx.switch_theme(self._theme_combo.itemData(index))
+
+    def _on_font_changed(self, value: int) -> None:
+        if not self._reloading:
+            self._ctx.set_font_size(value)
+            self._ctx.statusBar().showMessage(
+                f"外观：字号 → {value} pt", self._ctx.STATUS_MSG_TIMEOUT_MS)
+
+    # ------------------------------------------------------------------
+    # 终端页
+    # ------------------------------------------------------------------
+    def _build_terminal_page(self) -> QWidget:
+        page = QWidget(self)
+        layout = QVBoxLayout(page)
+        layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        self._swap_check = QCheckBox("Ctrl+C/V 复制粘贴", page)
+        self._swap_check.toggled.connect(self._on_swap_toggled)
+        swap_row = QHBoxLayout()
+        swap_row.addWidget(self._swap_check)
+        swap_row.addStretch(1)
+        swap_row.addWidget(self._make_hint_icon(
+            "勾选后：Ctrl+C/V 复制粘贴，Ctrl+Shift+C/V 发中断（SIGINT）/粘贴标记。", page))
+        layout.addLayout(swap_row)
+        row = QHBoxLayout()
+        row.addWidget(QLabel("AI 终端标签结束后停留时长：", page))
+        self._close_delay_spin = QSpinBox(page)
+        self._close_delay_spin.setRange(
+            TERMINAL_AI_TAB_CLOSE_DELAY_MIN_S, TERMINAL_AI_TAB_CLOSE_DELAY_MAX_S)
+        self._close_delay_spin.setSuffix(" 秒")
+        self._close_delay_spin.valueChanged.connect(self._on_close_delay_changed)
+        row.addWidget(self._close_delay_spin)
+        row.addStretch(1)
+        row.addWidget(self._make_hint_icon(
+            "AI 命令结束后，终端标签停留此时长再自动关闭；设为 0 立即关闭。", page))
+        layout.addLayout(row)
+        return page
+
+    def _on_swap_toggled(self, checked: bool) -> None:
+        if not self._reloading:
+            self._ctx.set_terminal_swap_copy_paste(checked)
+            self._ctx.statusBar().showMessage(
+                f"终端：Ctrl+C/V 复制粘贴 → {'开' if checked else '关'}",
+                self._ctx.STATUS_MSG_TIMEOUT_MS)
+
+    def _on_close_delay_changed(self, value: int) -> None:
+        if not self._reloading:
+            self._ctx.set_terminal_ai_tab_close_delay(value)
+            self._ctx.statusBar().showMessage(
+                f"终端：AI 标签结束后停留时长 → {value} 秒",
+                self._ctx.STATUS_MSG_TIMEOUT_MS)
+
+    # ------------------------------------------------------------------
+    # 通知页（事件提示音 + 顶部横幅；无 MainWindow 应用槽需求，
+    # 开关与选音直写 update_settings，消费侧在触发点读持久化值）
+    # ------------------------------------------------------------------
+    def _build_notify_page(self) -> QWidget:
+        page = QWidget(self)
+        layout = QVBoxLayout(page)
+        layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        self._notify_sound_check = QCheckBox("事件发生时播放提示音", page)
+        self._notify_sound_check.toggled.connect(self._on_notify_sound_toggled)
+        sound_check_row = QHBoxLayout()
+        sound_check_row.addWidget(self._notify_sound_check)
+        sound_check_row.addStretch(1)
+        sound_check_row.addWidget(self._make_hint_icon(
+            "可选范围为 assets/sounds/正在使用/ 下的 wav 文件（从备选池复制扩充）；\n"
+            "下拉框选中即自动试听一次，试听不受开关影响，正式提醒在开关开启时才会播放。\n"
+            "同一事件 0.5 秒内的并发重复只响一声；不同事件、不同标签、\n"
+            "不同窗口的收尾各自出声；排队待发的接续轮收尾不提醒。",
+            page))
+        layout.addLayout(sound_check_row)
+        self._notify_sound_combos: dict[str, QComboBox] = {}
+        # 事件名标签列交 QFormLayout 按字号自适应宽度（写死像素在全局
+        # 字号调大后放不下四个汉字会被裁掉）
+        form = QFormLayout()
+        for event, label, key in _NOTIFY_SOUND_EVENTS:
+            combo = QComboBox(page)
+            make_translucent_combo_popup(combo)
+            combo.currentTextChanged.connect(
+                lambda _text, k=key, c=combo: self._on_notify_sound_selected(k, c))
+            preview_button = QPushButton("试听", page)
+            preview_button.clicked.connect(
+                lambda _checked=False, c=combo: sound_player.play_preview(c.currentData() or ""))
+            field = QHBoxLayout()
+            field.addWidget(combo, 1)
+            field.addWidget(preview_button)
+            form.addRow(label, field)
+            self._notify_sound_combos[event] = combo
+        layout.addLayout(form)
+        self._notify_banner_check = QCheckBox("事件发生时弹出顶部通知横幅", page)
+        self._notify_banner_check.toggled.connect(self._on_notify_banner_toggled)
+        banner_check_row = QHBoxLayout()
+        banner_check_row.addWidget(self._notify_banner_check)
+        banner_check_row.addStretch(1)
+        banner_check_row.addWidget(self._make_hint_icon(
+            "通知经系统桌面通知（notify-send）弹出，窗口最小化或被遮挡时也能送达，\n"
+            "样式与消退由桌面环境管理；用户手动中断不触发提醒；\n"
+            "试看不受开关影响，正式提醒在开关开启时才会弹出。", page))
+        layout.addLayout(banner_check_row)
+        banner_form = QFormLayout()
+        self._notify_banner_previews: dict[str, QPushButton] = {}
+        for kind, label in _NOTIFY_BANNER_EVENTS:
+            preview_button = QPushButton("试看", page)
+            preview_button.clicked.connect(
+                lambda _checked=False, k=kind: self._ctx.preview_notify_banner(k))
+            field = QHBoxLayout()
+            field.addStretch(1)  # 按钮右对齐，与上方试听行右缘取齐
+            field.addWidget(preview_button)
+            banner_form.addRow(label, field)
+            self._notify_banner_previews[kind] = preview_button
+        layout.addLayout(banner_form)
+        return page
+
+    def _on_notify_sound_selected(self, key: str, combo: QComboBox) -> None:
+        """提示音下拉框选择 → 即时持久化文件名并自动试听一次
+        （itemData 为真实文件名，展示文本可能带「（缺失）」后缀，
+        故取 data 不取 text；reload 回读不触发播放）。"""
+        filename = combo.currentData()
+        if not self._reloading and filename:
+            update_settings({key: filename})
+            sound_player.play_preview(filename)
+            self._ctx.statusBar().showMessage(
+                f"通知：提示音 → {filename}",
+                self._ctx.STATUS_MSG_TIMEOUT_MS)
+
+    def _on_notify_sound_toggled(self, checked: bool) -> None:
+        if not self._reloading:
+            update_settings({KEY_NOTIFY_SOUND_ENABLED: checked})
+            self._ctx.statusBar().showMessage(
+                f"通知：提示音 → {'开' if checked else '关'}",
+                self._ctx.STATUS_MSG_TIMEOUT_MS)
+
+    def _on_notify_banner_toggled(self, checked: bool) -> None:
+        if not self._reloading:
+            update_settings({KEY_NOTIFY_BANNER_ENABLED: checked})
+            self._ctx.statusBar().showMessage(
+                f"通知：通知横幅 → {'开' if checked else '关'}",
+                self._ctx.STATUS_MSG_TIMEOUT_MS)
+
+    # ------------------------------------------------------------------
+    # 高级页（打开配置文件 / 恢复默认设置——破坏性沉底，按钮水平排列）
+    # ------------------------------------------------------------------
+    def _build_advanced_page(self) -> QWidget:
+        page = QWidget(self)
+        layout = QVBoxLayout(page)
+        layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        path_label = make_label_selectable(
+            BandLabel(f"配置目录：{CONFIG_DIR}", page))
+        path_label.setWordWrap(True)
+        self._hint_labels.append(path_label)
+        layout.addWidget(path_label)
+        open_button = QPushButton("打开配置文件", page)
+        open_button.clicked.connect(self._ctx.open_settings_file)
+        reset_button = QPushButton("恢复默认设置…", page)
+        reset_button.clicked.connect(self._ctx.reset_settings)
+        button_row = QHBoxLayout()
+        button_row.addWidget(open_button)
+        button_row.addWidget(self._make_hint_icon(
+            "配置文件为只读查看；修改请经 AI 落盘。", page))
+        button_row.addWidget(reset_button)
+        button_row.addStretch(1)
+        layout.addLayout(button_row)
+        layout.addStretch(1)
+        return page
+
+    # ------------------------------------------------------------------
+    # 状态重载（MainWindow._sync_settings_dialog 唯一回调入口）
+    # ------------------------------------------------------------------
+    def reload(self) -> None:
+        """从持久化全量重读，按 _PAGE_REGISTRY 分发各页 reload；全程抑制控件槽。"""
+        self._reloading = True
+        try:
+            settings = load_settings()
+            for _, _, _, reload_name in _PAGE_REGISTRY:
+                if reload_name is not None:
+                    getattr(self, reload_name)(settings)
+        finally:
+            self._reloading = False
+
+    def _reload_permission(self, settings) -> None:
+        """权限页：定位持久化档位（未知档静默回退默认档）。"""
+        mode = settings[KEY_PERMISSION_MODE]
+        radio = self._mode_radios.get(mode) or self._mode_radios[DEFAULT_PERMISSION_MODE]
+        radio.setChecked(True)
+
+    def _reload_appearance(self, settings) -> None:
+        """外观页：主题 / 字号 / 对话区渲染轨回读。"""
+        theme_index = self._theme_combo.findData(settings[KEY_THEME])
+        self._theme_combo.setCurrentIndex(max(theme_index, 0))
+        self._font_spin.setValue(settings[KEY_FONT_SIZE])
+        renderer_index = self._renderer_combo.findData(settings[KEY_CHAT_RENDERER])
+        self._renderer_combo.setCurrentIndex(max(renderer_index, 0))
+
+    def _reload_terminal(self, settings) -> None:
+        self._swap_check.setChecked(settings[KEY_TERMINAL_SWAP_COPY_PASTE])
+        self._close_delay_spin.setValue(settings[KEY_TERMINAL_AI_TAB_CLOSE_DELAY_S])
+
+    def _reload_notify(self, settings) -> None:
+        self._notify_sound_check.setChecked(settings[KEY_NOTIFY_SOUND_ENABLED])
+        self._notify_banner_check.setChecked(settings[KEY_NOTIFY_BANNER_ENABLED])
+        # 下拉框先重建文件列表再定位持久化值；持久化值已不在目录内时
+        # 补「（缺失）」项并选中（不静默篡改用户选择，播放侧对缺失静默跳过）
+        files = sorted(p.name for p in SOUNDS_ACTIVE_DIR.glob("*.wav"))
+        for event, _label, key in _NOTIFY_SOUND_EVENTS:
+            combo = self._notify_sound_combos[event]
+            combo.clear()
+            for name in files:
+                combo.addItem(name, name)
+            current = settings[key]
+            index = combo.findData(current)
+            if index < 0:
+                combo.addItem(f"{current}（缺失）", current)
+                index = combo.count() - 1
+            combo.setCurrentIndex(index)
+
+    def _reload_model(self, settings) -> None:
+        """模型页三级回显：后台（vendor 由 backend 经注册表推导，D2 不读
+        settings）→ 接口列表重建并定位 backend → 模型列表（缓存优先）定位
+        当前别名；每级失效静默回退该级首个可用项。
+
+        展示值来源（2026-0803-0112 计划 T5，异构选择语义）：**当前活动
+        标签**的有效选择（经 ChatTabs.current_backend/current_version
+        回读，零标签时为新建注入值），不再直读持久化「最近使用值」；
+        标签切换经 selection_changed → _sync_settings_dialog 链路重刷。
+
+        模型列表按接口级缓存：spec.list_models 可能是子进程调用，缓存命中
+        时同步填充；缓存 miss（showEvent 清缓存后 / 接口切换）改投
+        事件循环空闲异步拉取——showEvent 在 GUI 线程同步执行子进程会
+        卡住窗口首帧绘制，呈现「先闪一个小窗口再出完整窗口」的中间态；
+        窗口显示定型后填充，视觉闪动消除。
+        """
+        # 空白窗口守卫（2026-0905-2044 计划 D1）：无会话标签，三下拉保持
+        # 建页降级初态（空 + 禁用），无填充需求
+        if self._ctx.chat_tabs is None:
+            return
+        backend = self._ctx.chat_tabs.current_backend() or settings[KEY_MODEL_BACKEND]
+        # 一级：后台（持久化不存后台键，由接口实现名推导）
+        vendor_index = self._vendor_combo.findData(vendor_of(backend))
+        if vendor_index < 0 or not self._vendor_combo.model().item(vendor_index).isEnabled():
+            vendor_index = self._first_enabled_index(self._vendor_combo)
+        self._vendor_combo.setCurrentIndex(max(vendor_index, 0))
+        # 二级：接口（先清后建后定位；失效回退首个可用接口）
+        self._rebuild_interfaces(self._vendor_combo.currentData())
+        backend_index = self._interface_combo.findData(backend)
+        if backend_index < 0 or not self._interface_combo.model().item(backend_index).isEnabled():
+            backend_index = self._first_enabled_index(self._interface_combo)
+        self._interface_combo.setCurrentIndex(max(backend_index, 0))
+        # 三级：模型（缓存命中同步填，miss 异步拉取；回显值取当前活动
+        # 标签的有效模型别名，2026-0803-0112 计划 T5）
+        current_backend = self._interface_combo.currentData()
+        remembered = self._ctx.chat_tabs.current_version()
+        if current_backend in self._models_cache:
+            self._fill_models(current_backend, remembered)
+        else:
+            QTimer.singleShot(0, lambda: self._load_and_fill_models(
+                current_backend, remembered))
+
+    def _rebuild_interfaces(self, vendor: str | None) -> None:
+        """接口下拉按后台重建（先清后建，D6 红线 4）：仅列该后台的 spec；
+        不可用接口行级禁用并标注；默认定位首个可用项。"""
+        self._interface_combo.clear()
+        for spec in vendor_groups().get(vendor or "", []):
+            available = spec.available()
+            text = spec.label if available else f"{spec.label}（未检测到）"
+            self._interface_combo.addItem(text, spec.name)
+            if not available:
+                self._interface_combo.model().item(
+                    self._interface_combo.count() - 1).setEnabled(False)
+        index = self._first_enabled_index(self._interface_combo)
+        self._interface_combo.setCurrentIndex(max(index, 0))
+
+    def _load_and_fill_models(self, backend: str, version: str | None) -> None:
+        """异步拉取并填充模型列表（缓存 miss 路径）：子进程调用挪出 show
+        同步路径后的实际执行点；全程置 _reloading 与同步路径语义对齐。"""
+        self._reloading = True
+        try:
+            if backend not in self._models_cache:
+                spec = spec_of(backend or "")
+                self._models_cache[backend] = (
+                    spec.list_models() if spec is not None and spec.available() else [])
+            self._fill_models(backend, version)
+        finally:
+            self._reloading = False
+
+    def _fill_models(self, backend: str, version: str | None) -> None:
+        """模型下拉框填充（缓存已就绪）：清空 → 逐别名灌入 → 定位持久化别名
+        （失效回退首项；只调接口级缓存，无跨后台共享模型表，D6 红线 1）。
+
+        呈现：item 文本优先显示名（spec.list_display_names 命中时，与
+        ModelBar 同款规则），userData 恒为别名——持久化读写与当前值
+        定位均走 userData，显示名纯 UI 呈现不进数据链路。
+        """
+        self._model_combo.clear()
+        spec = spec_of(backend)
+        display_names = (
+            spec.list_display_names()
+            if spec is not None and spec.list_display_names is not None else {})
+        for alias in self._models_cache.get(backend, []):
+            self._model_combo.addItem(display_names.get(alias) or alias, alias)
+        version_index = self._model_combo.findData(version)
+        if self._model_combo.count():
+            self._model_combo.setCurrentIndex(max(version_index, 0))
+
+    @staticmethod
+    def _first_enabled_index(combo: QComboBox) -> int:
+        """首个可用项索引（禁用项不作回退落点）；全部禁用返回 -1。"""
+        model = combo.model()
+        for i in range(combo.count()):
+            if model.item(i).isEnabled():
+                return i
+        return -1
+
+    # ------------------------------------------------------------------
+    # 显示：重载控件态 + busy 联动初值
+    # ------------------------------------------------------------------
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        self._models_cache.clear()  # 每次打开强制刷新一次模型列表
+        self.reload()
+        # 空白窗口无 chat_tabs（None 守卫，2026-0905-2044 计划）：三下拉恒禁用
+        self.set_model_enabled(
+            self._ctx.chat_tabs is not None and not self._ctx.chat_tabs.is_busy())
+
+    # ------------------------------------------------------------------
+    # 内部
+    # ------------------------------------------------------------------
+    def _make_hint(self, text: str, parent: QWidget | None = None) -> QLabel:
+        """说明文字（颜色由 apply_theme 按 muted_text 令牌重刷；一律可换行）。"""
+        label = QLabel(text, parent)
+        label.setWordWrap(True)
+        self._hint_labels.append(label)
+        return label
+
+    def _make_hint_icon(self, tooltip: str, parent: QWidget | None = None) -> QLabel:
+        """问号提示图标：成段说明的收纳处，悬停出 tooltip。
+
+        固定 16×16 描边正圆按钮（规范 §6.2 体系；颜色与 hover 态由
+        apply_theme 按 border/muted_text/accent 令牌整段重刷）。
+        字形固定像素字号——圆圈尺寸恒定，字形随 app 全局字号放大必然
+        溢出描边（13pt 实测字形 17px > 16px 圈）。
+        """
+        icon = QLabel("?", parent)
+        icon.setToolTip(tooltip)
+        icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        icon.setFixedSize(16, 16)
+        font = icon.font()
+        font.setPixelSize(11)
+        icon.setFont(font)
+        self._hint_icons.append(icon)
+        return icon
+
+    def _make_separator(self, shape: QFrame.Shape) -> QFrame:
+        """分隔线（颜色由 apply_theme 按 border 令牌重刷）。"""
+        frame = QFrame(self)
+        frame.setFrameShape(shape)
+        self._sep_frames.append(frame)
+        return frame

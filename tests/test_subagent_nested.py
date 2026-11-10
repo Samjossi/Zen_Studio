@@ -15,8 +15,8 @@ import json
 import queue
 from pathlib import Path
 
-from llm.providers.acp import _split_hierarchical_tid, map_session_update
-from llm.providers.kimi_acp import (
+from ide.llm.providers.acp import _split_hierarchical_tid, map_session_update
+from ide.llm.providers.kimi_acp import (
     _SIDECAR_PARSE_FAIL_LIMIT,
     _WireSidecar,
     _synthesize_wire_call,

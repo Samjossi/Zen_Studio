@@ -4,10 +4,10 @@ from pathlib import Path
 
 import pytest
 
-import gui.settings as settings_mod
-from gui import theme as theme_mod
-from gui.settings import DEFAULT_THEME, KEY_FONT_SIZE, KEY_THEME
-from gui.theme import (
+import ide.gui.settings as settings_mod
+from ide.gui import theme as theme_mod
+from ide.gui.settings import DEFAULT_THEME, KEY_FONT_SIZE, KEY_THEME
+from ide.gui.theme import (
     CHAT_PACK,
     CHROME_PACK,
     GIT_GRAPH_PACK,

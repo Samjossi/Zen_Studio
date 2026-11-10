@@ -20,8 +20,8 @@ from PySide6.QtCore import QEventLoop, QTimer, QUrl
 from PySide6.QtMultimedia import QMediaPlayer
 from PySide6.QtWidgets import QApplication
 
-import gui.sound_player as sound_player
-from gui.panels.viewer.media_viewer import MediaViewer
+import ide.gui.sound_player as sound_player
+from ide.gui.panels.viewer.media_viewer import MediaViewer
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 WORKDIR = PROJECT_ROOT / ".temp" / "tests_media_viewer"
@@ -110,7 +110,7 @@ def test_loaded_media_triggers_autoplay_and_disarms_timer(qapp, monkeypatch):
 def test_load_timeout_fails_and_degrades_audio(qapp, monkeypatch):
     degraded = []
     monkeypatch.setattr(
-        "gui.panels.viewer.media_viewer.play_system",
+        "ide.gui.panels.viewer.media_viewer.play_system",
         lambda p: degraded.append(p) or True)
     viewer = make_viewer(monkeypatch)
     failed = []
@@ -127,7 +127,7 @@ def test_load_timeout_fails_and_degrades_audio(qapp, monkeypatch):
 def test_load_timeout_does_not_degrade_video(qapp, monkeypatch):
     degraded = []
     monkeypatch.setattr(
-        "gui.panels.viewer.media_viewer.play_system",
+        "ide.gui.panels.viewer.media_viewer.play_system",
         lambda p: degraded.append(p) or True)
     viewer = make_viewer(monkeypatch)
     failed = []
@@ -153,7 +153,7 @@ def test_error_empty_silent_nonempty_emits(qapp, monkeypatch):
 
 def test_failure_reported_once_per_open(qapp, monkeypatch):
     monkeypatch.setattr(
-        "gui.panels.viewer.media_viewer.play_system", lambda p: True)
+        "ide.gui.panels.viewer.media_viewer.play_system", lambda p: True)
     viewer = make_viewer(monkeypatch)
     failed = []
     viewer.failed.connect(failed.append)

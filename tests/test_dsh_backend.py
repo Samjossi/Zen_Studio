@@ -15,11 +15,11 @@
 import pytest
 from PySide6.QtWidgets import QApplication
 
-import gui.panels.chat.model_bar as model_bar_mod
-from gui.panels.chat.model_bar import ModelBar
-from llm.providers import dsh_acp
-from llm.providers.dsh_acp import DshAcpLLM, list_dsh_display_names, list_dsh_models
-from llm.registry import BackendSpec, REGISTRY, resolve_efforts, spec_of, vendor_groups
+import ide.gui.panels.chat.model_bar as model_bar_mod
+from ide.gui.panels.chat.model_bar import ModelBar
+from ide.llm.providers import dsh_acp
+from ide.llm.providers.dsh_acp import DshAcpLLM, list_dsh_display_names, list_dsh_models
+from ide.llm.registry import BackendSpec, REGISTRY, resolve_efforts, spec_of, vendor_groups
 
 #: ACP 2026-11-05 实测后保留的现行模型；值为不透明 JSON 对串，原样透传
 _ACP_MODELS = [

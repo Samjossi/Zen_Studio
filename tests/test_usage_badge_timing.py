@@ -7,8 +7,8 @@
 """
 from datetime import datetime
 
-from gui.panels.chat.panel import _compose_usage_tooltip, _format_duration
-from llm import TurnSpeed, UsageStats
+from ide.gui.panels.chat.panel import _compose_usage_tooltip, _format_duration
+from ide.llm import TurnSpeed, UsageStats
 
 NOW = datetime(2026, 10, 22, 15, 30)
 

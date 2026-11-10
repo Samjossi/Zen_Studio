@@ -19,9 +19,9 @@ from datetime import datetime
 
 sys.path.insert(0, "src")
 
-from core.paths import PROJECT_ROOT
-from llm.providers.acp import AcpConnection
-from llm.providers.kimi_common import _find_bin
+from ide.core.paths import PROJECT_ROOT
+from ide.llm.providers.acp import AcpConnection
+from ide.llm.providers.kimi_common import _find_bin
 
 ARCHIVE_DIR = PROJECT_ROOT / "文档" / "帧存档"
 

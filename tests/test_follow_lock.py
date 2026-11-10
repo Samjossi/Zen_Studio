@@ -8,8 +8,8 @@ setValue 模拟用户手势——valueChanged 方向判定正是唯一入口）�
 import pytest
 from PySide6.QtWidgets import QApplication
 
-from gui.panels.chat.output import ChatOutput
-from gui.panels.chat.transcript import ChatTranscriptView
+from ide.gui.panels.chat.output import ChatOutput
+from ide.gui.panels.chat.transcript import ChatTranscriptView
 
 CHAT_PACK = {
     "reasoning_fg": "#888888",

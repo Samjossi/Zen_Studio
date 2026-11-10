@@ -1,12 +1,12 @@
-"""core/child_env.py 环境净化单元测试（收编自 scripts/test_child_env.py）。
+"""ide/core/child_env.py 环境净化单元测试（收编自 scripts/test_child_env.py）。
 
 覆盖 文档/修改记录/2026-0811-0909 计划 T3 验证清单。
 不触真实子进程：直接对注入的假 env 字典调用 sanitize_environ() 断言。
 """
 from __future__ import annotations
 
-from core.child_env import _is_private_lib_dir, sanitize_environ
-from core.paths import PROJECT_ROOT
+from ide.core.child_env import _is_private_lib_dir, sanitize_environ
+from ide.core.paths import PROJECT_ROOT
 
 MOUNT_A = "/tmp/.mount_zen_stekLeAF/usr/bin/_internal"
 MOUNT_B = "/tmp/.mount_zen_stLFnhJj/usr/bin/_internal"

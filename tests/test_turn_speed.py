@@ -6,7 +6,7 @@ usage.record.time − llm.request.time、基线截断、残缺条目及非 turn 
 """
 import json
 
-from llm.providers.kimi_acp import _read_wire_turn_speed
+from ide.llm.providers.kimi_acp import _read_wire_turn_speed
 
 
 def _write_wire(tmp_path, records: list[dict]):

@@ -5,7 +5,7 @@
 （QMenu）会被灌入 background: transparent，覆盖应用级主题底色致
 菜单全透明（cards.py BodyText/BodyHtml 实证根因）。
 
-本守卫扫描 src/gui/panels/chat/ 下全部 setStyleSheet 调用，规则二则：
+本守卫扫描 src/ide/gui/panels/chat/ 下全部 setStyleSheet 调用，规则二则：
 1. 拦截「无选择器（无 {} 规则块）且含 background 声明」的模式；
    selection-background-color 等连字符复合属性不算命中。
 2. 拦截「字符串常量段含 #CardBodyText/#CardBodyHtml 选择器」的裸
@@ -22,7 +22,7 @@ import re
 import sys
 from pathlib import Path
 
-SCAN_DIR = Path("src/gui/panels/chat")
+SCAN_DIR = Path("src/ide/gui/panels/chat")
 
 #: 裸 background 声明（负向回顾排除 selection-background-color 等
 #: 连字符复合属性）

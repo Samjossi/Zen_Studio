@@ -9,12 +9,12 @@ from pathlib import Path
 import pytest
 from PySide6.QtWidgets import QApplication
 
-import gui.settings as settings_mod
-from gui.panels.chat.panel import ChatPanel, _is_fs_mutation_terminal
-from gui.panels.chat.tabs import ChatTabs
-import gui.panels.chat.model_bar as model_bar_mod
-from llm import Chunk
-from llm.registry import BackendSpec
+import ide.gui.settings as settings_mod
+from ide.gui.panels.chat.panel import ChatPanel, _is_fs_mutation_terminal
+from ide.gui.panels.chat.tabs import ChatTabs
+import ide.gui.panels.chat.model_bar as model_bar_mod
+from ide.llm import Chunk
+from ide.llm.registry import BackendSpec
 
 #: 持久化隔离目录（项目纪律：临时文件一律落 ./.temp/，禁用系统临时目录）
 _TEMP_DIR = Path(__file__).resolve().parents[1] / ".temp" / "test_git_refresh_signal"

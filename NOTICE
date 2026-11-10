@@ -54,8 +54,8 @@ Zen Studio 站在巨人的肩膀上。本文件列出项目在设计、代码与
 
 - Eclipse Theia SCM History Graph（EPL-2.0）
   Copyright (C) 2026 EclipseSource GmbH and others.
-  `src/core/git/graph.py` 移植 parents → lanes 算法，
-  `src/gui/git_graph_renderer.py` 移植 SVG 视觉几何，对应算法测试翻译自
+  `src/ide/core/git/graph.py` 移植 parents → lanes 算法，
+  `src/ide/gui/git_graph_renderer.py` 移植 SVG 视觉几何，对应算法测试翻译自
   `scm-history-graph-lanes.spec.ts`。这些文件保留 EPL-2.0 许可声明；
   完整许可证见 `LICENSES/EPL-2.0.txt`，源文件随项目源码一同提供。
 

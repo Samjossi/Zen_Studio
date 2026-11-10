@@ -7,8 +7,8 @@ status_of_dir 的 _rel 换算用虚构仓库根（Path.resolve 非严格模式�
 """
 from __future__ import annotations
 
-from core.git import status as st
-from core.git.service import GitStatusService
+from ide.core.git import status as st
+from ide.core.git.service import GitStatusService
 
 REPO = "/repo"  # 虚构仓库根（不落盘）
 

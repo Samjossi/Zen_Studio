@@ -9,14 +9,14 @@ from types import SimpleNamespace
 import pytest
 from PySide6.QtWidgets import QApplication
 
-import gui.git_graph_content as content_mod
-from core.git import log as git_log
-from core.git.graph import GraphEdge
-from core.git.log import CommitGraph, CommitRow
-from gui.git_graph_content import GitGraphContent
-from gui.git_graph_dialog import GitGraphDialog
-from gui.panels.file_explorer.explorer import FileExplorer
-from gui.panels.git_graph_panel import GitGraphPanel
+import ide.gui.git_graph_content as content_mod
+from ide.core.git import log as git_log
+from ide.core.git.graph import GraphEdge
+from ide.core.git.log import CommitGraph, CommitRow
+from ide.gui.git_graph_content import GitGraphContent
+from ide.gui.git_graph_dialog import GitGraphDialog
+from ide.gui.panels.file_explorer.explorer import FileExplorer
+from ide.gui.panels.git_graph_panel import GitGraphPanel
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 WORKDIR = PROJECT_ROOT / ".temp" / "test_git_graph_panel"

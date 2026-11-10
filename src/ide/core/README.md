@@ -1,0 +1,39 @@
+# ide/core/ — 底层设施包
+
+> **状态**：已实施
+> **范围**：`ide/core/` 包 — 版本 / 路径 / Git 数据层 / 外部应用调起
+> **时间**：2026-07-31 01:30（UTC+8）
+
+---
+
+## 1. 定位
+
+`ide/core/` 是 Zen Studio 的**零 Qt 依赖底层设施包**，被 `ide/gui/`（前端）与 `ide/llm/`（后端）两方消费。架构红线：**依赖方向单向**（`ide/gui/` → `ide/llm/`，两者 → `ide/core/`），`ide/core/` 不 import 任何 GUI/LLM 代码，也不引入 PySide6——保持纯 Python 可单测。
+
+## 2. 文件结构
+
+| 文件 | 说明 |
+|:---|:---|
+| `ide/core/__init__.py` | 包初始化 |
+| `ide/core/version.py` | **版本加载器**：唯一来源为 `pyproject.toml` 的 version 字段（三段基础版本，`building/version.py bump` 代改），构建号取 git 提交计数自动追加为四段完整版本；冻结态改读 bundle 内 `version.txt`（spec 构建时注入）；本模块导入时解析并导出 `APP_VERSION`（全链失效回退兜底并告警）；消费方一律 import，禁止散落写死、禁止自行读文件 |
+| `ide/core/paths.py` | **项目级路径常量唯一推导点**：全库其余模块一律 import，禁止手写 `parents[N]` 推导；PyInstaller frozen 兼容（`sys._MEIPASS` 检测），打包态用户数据写 XDG 配置目录（`${XDG_CONFIG_HOME:-~/.config}/zen-studio/`），开发态维持项目内 `config/` |
+| `ide/core/external_apps.py` | 外部应用程序调起：「使用 Typora 打开」的探测与启动共享逻辑（OOP 封装 + 依赖注入，探针/进程创建构造注入可假依赖单测；`subprocess.Popen` 非阻塞，禁止 `os.system` 阻塞 UI） |
+| `ide/core/child_env.py` | **子进程环境净化唯一收口**：`main.py` 启动时一次性剔除 `LD_LIBRARY_PATH`/`QT_PLUGIN_PATH`/`QML2_IMPORT_PATH` 的 IDE 私有条目（bootloader 前插的 `_internal` / PySide6 运行时钩子写入的解包根路径 / AppImage 历史挂载点），防污染泄漏进集成终端/ACP/外部应用；按条目过滤，用户自设条目保留 |
+| `ide/core/git/` | Git 数据层子包（见 §3） |
+
+## 3. Git 数据层（`ide/core/git/`）
+
+subprocess 调系统 git CLI 的纯 Python 包（选型：`2026-0720-0135_Git文件装饰与简易差异指示方案选型.md` 方案 A）。GUI 侧由 `MainWindow` 持有唯一 `GitStatusService` 实例注入各面板消费（事件驱动刷新，详见 `ide/gui/README.md` §9）。
+
+| 文件 | 说明 |
+|:---|:---|
+| `ide/core/git/runner.py` | git CLI 调用封装：超时保护、异常静默、环境检测；失败一律返回 None/False 静默降级（无 git 环境属正常场景而非故障） |
+| `ide/core/git/status.py` | `git status --porcelain=v1 -z` 解析 → {相对路径: 状态}（`-z` 格式规避中文/空格路径转义问题） |
+| `ide/core/git/numstat.py` | `git diff --numstat -z HEAD` 解析 → {相对路径: (新增行数, 删除行数)} |
+| `ide/core/git/service.py` | `GitStatusService` 数据层门面：状态/统计查询聚合 + 结果缓存 + 环境降级 |
+
+## 4. 纪律
+
+- ❌ 禁止在 `ide/core/` 引入 PySide6 或任何 GUI 依赖；
+- ❌ 禁止在 `ide/core/` 外手写项目根 / assets / config 路径推导（一律走 `ide/core/paths.py`）；
+- ❌ 禁止在 `ide/core/` 外写死版本号字面量或自读版本文件（一律经 `ide/core/version.py` 的 `APP_VERSION`）。

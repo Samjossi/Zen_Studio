@@ -12,9 +12,9 @@ from __future__ import annotations
 import pytest
 from PySide6.QtWidgets import QApplication
 
-from core.git import status as git_status
-from core.git.service import ChangeEntry
-from gui.panels.changes.panel import ChangesPanel
+from ide.core.git import status as git_status
+from ide.core.git.service import ChangeEntry
+from ide.gui.panels.changes.panel import ChangesPanel
 
 REPO = "/repo"  # 虚构仓库根（不落盘）
 

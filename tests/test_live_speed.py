@@ -4,7 +4,7 @@
 """
 from collections import deque
 
-from gui.panels.chat.panel import _windowed_speed
+from ide.gui.panels.chat.panel import _windowed_speed
 
 
 def test_windowed_speed_normal_rate():

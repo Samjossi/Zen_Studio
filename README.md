@@ -62,7 +62,7 @@ Zen Studio 的设计哲学是 **Agent 驱动**：代码修改一律经 AI agent 
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-详细布局与面板机制见 `src/gui/README.md`。
+详细布局与面板机制见 `src/ide/gui/README.md`。
 
 ## 4. 技术栈与架构
 
@@ -78,8 +78,8 @@ Zen Studio 的设计哲学是 **Agent 驱动**：代码修改一律经 AI agent 
 
 关键架构约束：
 
-- **依赖方向单向**：`gui/`（前端）→ `llm/`（后端），`core/` 为零 Qt 依赖底层；包内不反向 import；
-- **版本单一来源**：`pyproject.toml` 的 `version` 字段（三段基础版本，发版经 `building/version.py bump` 代改），构建号取 git 提交计数自动追加为四段完整版本；代码侧一律经 `src/core/version.py` 的 `APP_VERSION` 读取，打包侧经 spec 自算注入 `version.txt`；
+- **依赖方向单向**：`ide.gui`（前端）→ `ide.llm`（后端），`ide.core` 为零 Qt 依赖底层；包内不反向 import；
+- **版本单一来源**：`pyproject.toml` 的 `version` 字段（三段基础版本，发版经 `building/version.py bump` 代改），构建号取 git 提交计数自动追加为四段完整版本；代码侧一律经 `src/ide/core/version.py` 的 `APP_VERSION` 读取，打包侧经 spec 自算注入 `version.txt`；
 - **AI 友好代码协议**：全库遵循 `维护手册/AI 友好代码协议-v1.2.0.md`（方法级拆分、docstring 决策留痕、禁止上帝对象）。
 
 ## 5. 目录结构
@@ -87,10 +87,11 @@ Zen Studio 的设计哲学是 **Agent 驱动**：代码修改一律经 AI agent 
 | 路径 | 说明 |
 |:---|:---|
 | `main.py` | 入口：参数解析（工作区根 / 自动截图）→ 主题 → 主窗口（顶部含 `src/` 引导段，源码包已迁入 `src/`） |
-| `src/gui/` | 全部图形界面代码（主窗口 / 菜单 / 五面板 / 主题 / 设置中心），详见 `src/gui/README.md` |
-| `src/llm/` | LLM 调用薄层（`LanguageModel` Protocol + ACP 注册表七后端：Kimi / DSH / Reasonix / OpenCode / Kilo Code / Dream / Local），详见 `src/llm/README.md` |
+| `src/ide/` | IDE 自有代码的统一命名空间；源码边界与增量模块规则详见 `src/README.md` |
+| `src/ide/gui/` | 全部图形界面代码（主窗口 / 菜单 / 五面板 / 主题 / 设置中心），详见 `src/ide/gui/README.md` |
+| `src/ide/llm/` | LLM 调用薄层（`LanguageModel` Protocol + ACP 注册表七后端：Kimi / DSH / Reasonix / OpenCode / Kilo Code / Dream / Local），详见 `src/ide/llm/README.md` |
 | `dream-acp/` | Dream 后台 ACP 协议文件夹：带版本号协议文档 + 最小示例 agent + spike 握手工具（自包含零依赖，将来整体迁出 Dream 项目作底本） |
-| `src/core/` | 底层设施：版本单一来源 / 路径解析 / Git 数据层 / 外部应用调起 |
+| `src/ide/core/` | 底层设施：版本单一来源 / 路径解析 / Git 数据层 / 外部应用调起 |
 | `src/markdown_it/` `src/mdurl/` | vendored 运行时依赖（Markdown 渲染内核及其 URL 依赖，ruff 已排除） |
 | `assets/` | 主题 qss、自带字体（OFL）、Logo 成套件与候选池、`readme/` 文档素材（README 引用的截图与 GIF） |
 | `building/` | PyInstaller spec、AppImage 构建脚本与产物 |
@@ -166,7 +167,8 @@ building/dist/zen-studio/zen-studio
 | `AGENTS.md` | AI / 工程师操作约束（仅操作项目目录、强制 `.venv`、中文响应等） |
 | `文档编写规范.md` | 文档命名、头部元信息、文件引用、符号约定（v3.1 强制约束型） |
 | `维护手册/AI 友好代码协议-v1.2.0.md` | 代码编写强制协议 |
-| `src/gui/README.md` `src/llm/README.md` | 两大核心包的详细机制说明 |
+| `src/README.md` | 源码目录边界、第三方依赖与增量模块位置 |
+| `src/ide/core/README.md` `src/ide/gui/README.md` `src/ide/llm/README.md` | 三个 IDE 核心包的详细机制说明 |
 | `文档/修改记录/` | 全部实施计划与诊断报告归档（时间戳命名） |
 | `文档/选型记录/` | 技术选型论证归档 |
 

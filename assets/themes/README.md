@@ -1,6 +1,6 @@
 # assets/themes/ — QSS 主题模板
 
-全局唯一的 QSS 模板 `base.qss` 的存放目录，是 `src/gui/theme.py` 消费的**只读资源**，随打包收编进产物。
+全局唯一的 QSS 模板 `base.qss` 的存放目录，是 `src/ide/gui/theme.py` 消费的**只读资源**，随打包收编进产物。
 
 ## 机制
 

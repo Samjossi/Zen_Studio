@@ -13,7 +13,7 @@ scripts/test_question_permission.py；0807-0148 计划 §5.1、0812-0952 计划 
   文档/帧存档/askuser_*.json——multi_select 蛇形字段名；
   文档/帧存档/ask_reasonix_*.json——multiSelect 驼峰兼容）。
 """
-from llm.permission_policy import (
+from ide.llm.permission_policy import (
     DECISION_ALLOW,
     DECISION_ASK,
     MODE_AUTO_ALL,
@@ -24,7 +24,7 @@ from llm.permission_policy import (
     decide_permission,
     is_question_request,
 )
-from llm.providers.acp import _extract_question_options
+from ide.llm.providers.acp import _extract_question_options
 
 FOUR_MODES = (MODE_CONFIRM_ALL, MODE_CONFIRM_EXECUTE, MODE_AUTO_GUARDED, MODE_AUTO_ALL)
 

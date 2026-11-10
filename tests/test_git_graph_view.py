@@ -8,16 +8,16 @@ from PySide6.QtCore import QEvent, QPoint, QPointF, QRect, Qt
 from PySide6.QtGui import QColor, QHelpEvent, QImage, QMouseEvent, QPainter
 from PySide6.QtWidgets import QApplication, QStyleOptionViewItem, QToolTip
 
-from core.git.graph import GraphEdge, GraphRow
-from core.git.log import CommitGraph, CommitRow, RefBadge
-from gui.git_graph_view import (
+from ide.core.git.graph import GraphEdge, GraphRow
+from ide.core.git.log import CommitGraph, CommitRow, RefBadge
+from ide.gui.git_graph_view import (
     COL_AUTHOR,
     COL_COMMIT,
     COL_DATE,
     COL_GRAPH,
     GitGraphView,
 )
-from gui.theme import get_theme_palette
+from ide.gui.theme import get_theme_palette
 
 
 @pytest.fixture(scope="module")

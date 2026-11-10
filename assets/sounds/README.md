@@ -1,6 +1,6 @@
 # assets/sounds/ — 提示音资产总目录
 
-Zen Studio 全部提示音资产的集中存放地，音频源自 kilocode（MIT 许可）。运行时消费链路见 `src/gui/sound_player.py`，设置中心「通知」页负责挑选与持久化。
+Zen Studio 全部提示音资产的集中存放地，音频源自 kilocode（MIT 许可）。运行时消费链路见 `src/ide/gui/sound_player.py`，设置中心「通知」页负责挑选与持久化。
 
 ## 子目录
 

@@ -1,5 +1,5 @@
 """platform_info 纯函数断言：platform 注入双向 + offscreen 默认不误判。"""
-from core.platform_info import is_wayland, is_x11
+from ide.core.platform_info import is_wayland, is_x11
 
 
 def test_is_wayland():
