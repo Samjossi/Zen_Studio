@@ -29,7 +29,7 @@
 | `ide/gui/menus/` | 菜单栏子包：`registry.py` Action 注册表（`菜单.动作` 键名全局可寻址）/ `assembler.py` 装配器 / 每菜单一文件（file/edit/view/terminal/settings/help） |
 | `ide/gui/git_graph_content.py` | 提交图共享内容：结构化视图 / 彩色富文本降级 / 占位三页栈，统一取数、缓存、主题与字号重绘 |
 | `ide/gui/git_graph_renderer.py` | Theia SCM History Graph 视觉几何的 Qt 原生承接：三类边、节点上下线、普通/HEAD 节点，内嵌与弹窗共享 |
-| `ide/gui/git_graph_view.py` | 提交 DAG 视图：内嵌 summary 双列（固定宽拓扑 + 仅提交主题）、整行悬停元信息；完整弹窗保留四列、refs 徽标与提交文本 |
+| `ide/gui/git_graph_view.py` | 提交 DAG 视图：内嵌 summary 双列（固定宽拓扑 + 紧凑 refs 徽标与提交主题）、整行悬停元信息；完整弹窗保留四列、refs 徽标与提交文本 |
 | `ide/gui/git_graph_dialog.py` | 完整提交图非模态弹窗：仓库与分支信息行、共享内容、刷新按钮 |
 | `ide/gui/panels/git_graph_panel.py` | 右栏上内嵌拓扑与主题摘要双列：进入页面与页内按钮两类加载入口，隐藏时不轮询 |
 | `ide/gui/panels/__init__.py` | 面板包初始化，对外导出 `FileExplorer`、`ViewerPanel` |
@@ -150,7 +150,7 @@
 |:---|:---|
 | 浏览 | 目录展开/折叠（懒加载）、多选（Ctrl/Shift） |
 | 模式切换 | Git 仓库头部显示 `⇄`：文件树 ↔ 提交历史 DAG；Git 页隐藏文件树搜索栏与搜索/刷新悬浮钮，非 Git 环境隐藏按钮并回退文件树 |
-| 提交拓扑 | 内嵌页为 summary 双列：左侧固定宽拓扑，右侧仅提交主题；完整 id + parents 经 Theia 泳道算法生成节点、pass-through / branch-out / merge-in 三类边，HEAD 双圆与加粗主题由真实 refs 判定。长主题右侧省略，整行 tooltip 显示 hash、完整主题、作者、双时间以及 refs，超宽泳道横向滚动 |
+| 提交拓扑 | 内嵌页为 summary 双列：左侧固定宽拓扑，右侧紧凑 refs 徽标与提交主题；完整 id + parents 经 Theia 泳道算法生成节点、pass-through / branch-out / merge-in 三类边，HEAD 双圆与加粗主题由真实 refs 判定。refs 只标记引用位置；不在 HEAD 历史中的主题使用 `muted_text`，可达性未知保持正文色，悬停/选中恢复正文色。长主题右侧省略，整行 tooltip 显示三态范围、hash、完整主题、作者、双时间以及 refs，超宽泳道横向滚动 |
 | 刷新边界 | 每次进入 Git 页加载一次，页内按钮手动重拉；控制器状态刷新与页面隐藏均不读取提交历史，刷新按完整 commit id 恢复选中及横纵滚动位置，resize 与主题/字号重绘不取数 |
 | 信号 | `file_opened(str)` 双击文件 → 查看器；提交图本期只读，不转发工作区变更操作 |
 | 右键菜单 | 打开、在文件管理器中显示、新建文件、新建目录、重命名、删除（带确认）；仅文件树页使用 |
@@ -163,7 +163,7 @@
 
 Git 数据层 `ide/core/git/` 为零 Qt 依赖的纯 Python 包（subprocess 调系统 git CLI；选型见 `2026-0720-0135_Git文件装饰与简易差异指示方案选型.md`）。`MainWindow` 持有唯一 `GitStatusService` 实例并注入各面板，**事件驱动刷新**：窗口激活 / 查看器外部重载 / 视图菜单手动刷新 / AI 轮次结束 / AI 改盘类工具终态（`files_maybe_changed`，轮次进行中逐文件实时源，覆盖子代理嵌套帧）/ 文件树模型结构变更六个事件源，经 300ms 去抖汇流后一次刷新；同一份工作区变更清单只扇出到右栏下变更面板，同时更新文件树着色、查看器徽标和状态栏统计，主题重绘不新增 Git 查询。
 
-`ide/core/git/graph.py` 是无 Qt 的 Theia parents → lanes 算法移植；`ide/gui/git_graph_renderer.py` 将其三类边与 SVG 几何承接为 QPainter 图元。结构化主取数使用 `--topo-order`，每条提交固定一行；500 条之外的父提交只形成图边界。`GitGraphContent`（`ide/gui/git_graph_content.py`）统一承载结构化视图、彩色富文本降级、占位页、取数与缓存，结构化取数失败时回退彩色 `git log --graph` 文本。内嵌 `GitGraphPanel` 使用 summary 双列（固定宽拓扑 + 仅提交主题），视图菜单打开的 `GitGraphDialog` 复用同一内容并保留完整四列详细文本；两者主题和字号重绘都不额外执行 Git。
+`ide/core/git/graph.py` 是无 Qt 的 Theia parents → lanes 算法移植；`ide/gui/git_graph_renderer.py` 将其三类边与 SVG 几何承接为 QPainter 图元。结构化主取数使用 `--topo-order`，每条提交固定一行；500 条之外的父提交只形成图边界。`GitGraphContent`（`ide/gui/git_graph_content.py`）统一承载结构化视图、彩色富文本降级、占位页、取数与缓存，结构化取数失败时回退彩色 `git log --graph` 文本。内嵌 `GitGraphPanel` 使用 summary 双列（固定宽拓扑 + 紧凑 refs 徽标与提交主题），视图菜单打开的 `GitGraphDialog` 复用同一内容并保留完整四列详细文本；两者主题和字号重绘都不额外执行 Git。
 
 `ChangesList`（`ide/gui/panels/changes/list.py`）是无头部的三列扁平列表，统一实现状态色、删除线、增减统计、空态与双击分派；仅由 `ChangesPanel`（右栏下）持有，面板在此基础上保留头部与收起按钮：
 

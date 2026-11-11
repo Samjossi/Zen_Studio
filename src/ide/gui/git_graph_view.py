@@ -2,8 +2,8 @@
 
 - 图形列消费完整 commit id/parents 计算出的 GraphRow，三种边和节点线
   使用统一的 Qt 原生几何；内嵌与完整模式共享同一拓扑模型。
-- 摘要模式显示固定宽拓扑与提交主题，完整模式显示 hash、refs 徽标与主题；
-  摘要模式的完整元数据在整行 tooltip 中按需显示。
+- 摘要模式显示固定宽拓扑、紧凑 refs 与提交主题，非 HEAD 可达主题弱化；
+  完整模式显示 hash、refs 徽标与主题，完整元数据在整行 tooltip 按需显示。
 - 主题与字号重绘使用现有模型缓存；刷新按完整 id 恢复选中与横纵滚动值。
 """
 from __future__ import annotations
@@ -109,9 +109,15 @@ class CommitGraphModel(QAbstractTableModel):
                 f"{_REF_KIND_LABELS.get(badge.kind, badge.kind)}：{badge.label}"
                 for badge in row.refs
             ) or "无"
+            if row.on_head is True:
+                scope = "HEAD 可达"
+            elif row.on_head is False:
+                scope = "不在 HEAD 历史中"
+            else:
+                scope = "未知（HEAD 可达性获取失败）"
             return (
                 f"提交：{row.commit}\n主题：{row.subject}\n作者：{row.author}\n"
-                f"时间：{times}\n引用：{refs}"
+                f"时间：{times}\n引用：{refs}\n范围：{scope}"
             )
         if role == Qt.ItemDataRole.DisplayRole:
             if row is None:
@@ -200,7 +206,12 @@ class GraphColumnDelegate(QStyledItemDelegate):
 
 
 class CommitColumnDelegate(QStyledItemDelegate):
-    """提交列：内嵌模式仅画主题，完整模式画 hash、refs 徽标与主题。"""
+    """提交列：内嵌模式画 refs 与主题，完整模式画 hash、refs 与主题。"""
+
+    _SUMMARY_BADGE_HPAD = 4
+    _SUMMARY_BADGE_GAP = 4
+    _SUMMARY_SUBJECT_MIN_WIDTH = 48
+    _REF_KIND_ORDER = {"branch": 0, "tag": 1, "remote": 2}
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -228,6 +239,79 @@ class CommitColumnDelegate(QStyledItemDelegate):
     def set_hover_row(self, row: int) -> None:
         self._hover_row = row
 
+    def _summary_ref_badges(self, badges: tuple) -> tuple:
+        has_local_or_tag = any(
+            badge.kind in ("branch", "tag") for badge in badges)
+        visible = [
+            badge for badge in badges
+            if badge.kind in ("branch", "tag")
+            or (badge.kind == "remote" and not has_local_or_tag
+                and not badge.label.endswith("/HEAD"))
+        ]
+        return tuple(sorted(
+            visible,
+            key=lambda badge: (
+                self._REF_KIND_ORDER[badge.kind], badge.label),
+        ))
+
+    def _paint_ref_badges(
+        self, painter, rect, fm, badges, *, compact: bool
+    ) -> int:
+        x = rect.left()
+        cy = rect.top() + rect.height() / 2
+        hpad = self._SUMMARY_BADGE_HPAD if compact else _BADGE_HPAD
+        gap = self._SUMMARY_BADGE_GAP if compact else _BADGE_GAP
+        badge_h = max(14, fm.height() - 2) if compact else fm.height() + 2
+        if compact:
+            subject_reserve = min(self._SUMMARY_SUBJECT_MIN_WIDTH, rect.width())
+            badge_budget = max(0, rect.width() - subject_reserve)
+            end = rect.left() + badge_budget
+            max_badge_width = min(int(rect.width() * 0.45), badge_budget)
+        else:
+            end = rect.right()
+            max_badge_width = 0
+
+        def paint_badge(text: str, width: int, color: QColor) -> None:
+            nonlocal x
+            top = int(cy - badge_h / 2)
+            bg = QColor(color)
+            bg.setAlphaF(0.12)
+            border = QColor(color)
+            border.setAlphaF(0.45)
+            painter.setPen(QPen(border, 1))
+            painter.setBrush(bg)
+            painter.drawRoundedRect(
+                x, top, width, badge_h, badge_h / 2, badge_h / 2)
+            painter.setPen(color)
+            painter.drawText(
+                x + hpad, top, width - hpad * 2, badge_h,
+                Qt.AlignmentFlag.AlignVCenter, text)
+            x += width + gap
+
+        for index, badge in enumerate(badges):
+            color = self._badge_colors.get(badge.kind, self._muted_color)
+            if compact:
+                if max_badge_width <= hpad * 2 or x >= end:
+                    break
+                text = fm.elidedText(
+                    badge.label, Qt.TextElideMode.ElideMiddle,
+                    max_badge_width - hpad * 2)
+                width = min(
+                    fm.horizontalAdvance(text) + hpad * 2, max_badge_width)
+                if x + width > end:
+                    overflow = f"+{len(badges) - index}"
+                    overflow_width = fm.horizontalAdvance(overflow) + hpad * 2
+                    if x + overflow_width <= end:
+                        paint_badge(overflow, overflow_width, self._muted_color)
+                    break
+            else:
+                text = badge.label
+                width = fm.horizontalAdvance(text) + hpad * 2
+                if x + width > end:
+                    break
+            paint_badge(text, width, color)
+        return x - rect.left()
+
     def paint(self, painter: QPainter, option: QStyleOptionViewItem,
               index: QModelIndex) -> None:
         hovered = self._summary_mode and index.row() == self._hover_row
@@ -247,48 +331,40 @@ class CommitColumnDelegate(QStyledItemDelegate):
             painter.restore()
             return
         if self._summary_mode:
+            painter.setFont(option.font)
+            badge_fm = QFontMetrics(option.font)
+            badges = self._summary_ref_badges(row.refs)
+            used = self._paint_ref_badges(
+                painter, rect, badge_fm, badges, compact=True)
             font = QFont(option.font)
             if row.is_head:
                 font.setBold(True)
             painter.setFont(font)
-            painter.setPen(self._text_color)
-            elided = QFontMetrics(font).elidedText(
-                row.subject, Qt.TextElideMode.ElideRight, rect.width())
-            painter.drawText(
-                rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
-                elided)
+            selected = bool(option.state & QStyle.StateFlag.State_Selected)
+            dimmed = row.on_head is False and not hovered and not selected
+            painter.setPen(self._muted_color if dimmed else self._text_color)
+            fm = QFontMetrics(font)
+            remaining = rect.width() - used
+            if remaining > 0:
+                elided = fm.elidedText(
+                    row.subject, Qt.TextElideMode.ElideRight, remaining)
+                painter.drawText(
+                    rect.left() + used, rect.top(), remaining, rect.height(),
+                    Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+                    elided)
             painter.restore()
             return
 
         fm = QFontMetrics(option.font)
         x = rect.left()
-        cy = rect.top() + rect.height() / 2
         painter.setFont(option.font)
         painter.setPen(self._hash_color)
         painter.drawText(x, rect.top(), fm.horizontalAdvance(row.commit),
                          rect.height(), Qt.AlignmentFlag.AlignVCenter, row.commit)
         x += fm.horizontalAdvance(row.commit) + _BADGE_GAP
-
-        badge_h = fm.height() + 2
-        for badge in row.refs:
-            color = self._badge_colors.get(badge.kind, self._muted_color)
-            text_w = fm.horizontalAdvance(badge.label)
-            w = text_w + _BADGE_HPAD * 2
-            if x + w > rect.right():
-                break
-            bg = QColor(color)
-            bg.setAlphaF(0.12)
-            border = QColor(color)
-            border.setAlphaF(0.45)
-            painter.setPen(QPen(border, 1))
-            painter.setBrush(bg)
-            painter.drawRoundedRect(
-                x, int(cy - badge_h / 2), w, badge_h, badge_h / 2, badge_h / 2)
-            painter.setPen(color)
-            painter.drawText(
-                x + _BADGE_HPAD, int(cy - badge_h / 2), w - _BADGE_HPAD * 2, badge_h,
-                Qt.AlignmentFlag.AlignVCenter, badge.label)
-            x += w + _BADGE_GAP
+        badge_rect = rect.adjusted(x - rect.left(), 0, 0, 0)
+        x += self._paint_ref_badges(
+            painter, badge_rect, fm, row.refs, compact=False)
         font = QFont(option.font)
         if row.is_head:
             font.setBold(True)

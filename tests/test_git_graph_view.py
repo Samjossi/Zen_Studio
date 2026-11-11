@@ -6,7 +6,7 @@ from dataclasses import replace
 import pytest
 from PySide6.QtCore import QEvent, QPoint, QPointF, QRect, Qt
 from PySide6.QtGui import QColor, QHelpEvent, QImage, QMouseEvent, QPainter
-from PySide6.QtWidgets import QApplication, QStyleOptionViewItem, QToolTip
+from PySide6.QtWidgets import QApplication, QStyle, QStyleOptionViewItem, QToolTip
 
 from ide.core.git.graph import GraphEdge, GraphRow
 from ide.core.git.log import CommitGraph, CommitRow, RefBadge
@@ -77,6 +77,7 @@ def _paint_cell(
     row: int = 0,
     *,
     hover: bool = False,
+    selected: bool = False,
     width: int | None = None,
 ) -> QImage:
     index = view._model.index(row, column)
@@ -91,6 +92,8 @@ def _paint_cell(
     option = QStyleOptionViewItem()
     option.rect = QRect(0, 0, width, height)
     option.font = view.font()
+    if selected:
+        option.state |= QStyle.StateFlag.State_Selected
     delegate.set_hover_row(row if hover else -1)
     painter = QPainter(image)
     delegate.paint(painter, option, index)
@@ -104,9 +107,11 @@ def _paint_row(view: GitGraphView, row: int = 0, *, hover: bool = False) -> QIma
 
 
 def _paint_commit(
-    view: GitGraphView, row: int = 0, *, hover: bool = False, width: int = 240,
+    view: GitGraphView, row: int = 0, *, hover: bool = False,
+    selected: bool = False, width: int = 240,
 ) -> QImage:
-    return _paint_cell(view, COL_COMMIT, row, hover=hover, width=width)
+    return _paint_cell(
+        view, COL_COMMIT, row, hover=hover, selected=selected, width=width)
 
 
 def _difference_count(first: QImage, second: QImage) -> int:
@@ -136,7 +141,6 @@ def _show_graph(qapp, graph: CommitGraph, *, summary_mode: bool = True) -> GitGr
     view = GitGraphView()
     view.set_summary_mode(summary_mode)
     view.set_graph(graph)
-    view.show()
     qapp.processEvents()
     return view
 
@@ -237,7 +241,6 @@ def test_graph_width_tracks_lanes_and_wide_graph_has_horizontal_scroll(qapp):
     view.set_summary_mode(True)
     view.resize(120, 100)
     view.set_graph(_graph(lanes=20))
-    view.show()
     qapp.processEvents()
     content_width = view._graph_delegate.content_width(20)
     assert view.columnWidth(COL_GRAPH) == content_width
@@ -263,27 +266,148 @@ def test_summary_graph_stays_fixed_and_commit_uses_remaining_viewport(qapp):
     view.deleteLater()
 
 
-def test_summary_pixels_contain_only_subject_while_full_mode_keeps_hash_and_refs(qapp):
+def test_summary_pixels_include_refs_but_not_other_metadata(qapp):
     original = replace(
         _commit(0), subject="共同主题", commit="abc123",
         refs=(RefBadge("branch", "main"),),
     )
-    changed = replace(
-        original, commit="xyz789", refs=(RefBadge("tag", "v2.0"),))
+    changed_refs = replace(
+        original, refs=(RefBadge("tag", "v2.0"),))
+    changed_metadata = replace(
+        original, commit="xyz789", author="其他作者", rel_date="昨天",
+        abs_date="2026-11-10 12:38")
     view = _show_graph(qapp, CommitGraph(rows=(original,), truncated_hint=None))
     summary_original = _paint_commit(view)
     assert _has_any_ink(summary_original)
-    view.set_graph(CommitGraph(rows=(changed,), truncated_hint=None))
-    summary_changed = _paint_commit(view)
-    assert _difference_count(summary_original, summary_changed) == 0
+    view.set_graph(CommitGraph(rows=(changed_refs,), truncated_hint=None))
+    assert _difference_count(summary_original, _paint_commit(view)) > 0
+    view.set_graph(CommitGraph(rows=(changed_metadata,), truncated_hint=None))
+    assert _difference_count(summary_original, _paint_commit(view)) == 0
 
     view.set_summary_mode(False)
     view.set_graph(CommitGraph(rows=(original,), truncated_hint=None))
     full_original = _paint_commit(view)
-    view.set_graph(CommitGraph(rows=(changed,), truncated_hint=None))
-    full_changed = _paint_commit(view)
-    assert _difference_count(full_original, full_changed) > 0
-    view.close()
+    view.set_graph(CommitGraph(rows=(changed_refs,), truncated_hint=None))
+    assert _difference_count(full_original, _paint_commit(view)) > 0
+    view.set_graph(CommitGraph(rows=(changed_metadata,), truncated_hint=None))
+    assert _difference_count(full_original, _paint_commit(view)) > 0
+    view.deleteLater()
+
+
+def test_summary_ref_filtering_sorting_and_remote_fallback(qapp):
+    view = _show_graph(qapp, CommitGraph(rows=(_commit(0),), truncated_hint=None))
+    delegate = view._commit_delegate
+    badges = (
+        RefBadge("remote", "origin/main"),
+        RefBadge("tag", "v2.0"),
+        RefBadge("head", "HEAD"),
+        RefBadge("branch", "zeta"),
+        RefBadge("branch", "main"),
+        RefBadge("remote", "origin/HEAD"),
+    )
+    assert delegate._summary_ref_badges(badges) == (
+        RefBadge("branch", "main"),
+        RefBadge("branch", "zeta"),
+        RefBadge("tag", "v2.0"),
+    )
+    remote_only = (
+        RefBadge("remote", "origin/zeta"),
+        RefBadge("remote", "origin/HEAD"),
+        RefBadge("remote", "origin/feature"),
+    )
+    assert delegate._summary_ref_badges(remote_only) == (
+        RefBadge("remote", "origin/feature"),
+        RefBadge("remote", "origin/zeta"),
+    )
+    view.deleteLater()
+
+
+@pytest.mark.parametrize("on_head,scope", [
+    (True, "范围：HEAD 可达"),
+    (False, "范围：不在 HEAD 历史中"),
+    (None, "范围：未知（HEAD 可达性获取失败）"),
+])
+def test_tooltip_reports_three_state_head_scope(qapp, on_head, scope):
+    row = replace(_commit(0), on_head=on_head)
+    view = _show_graph(qapp, CommitGraph(rows=(row,), truncated_hint=None))
+    tooltip = view._model.data(
+        view._model.index(0, COL_COMMIT), Qt.ItemDataRole.ToolTipRole)
+    assert scope in tooltip
+    view.deleteLater()
+
+
+def test_summary_dimming_unknown_hover_and_selection_colors(qapp):
+    normal = replace(
+        _commit(0), subject="相同主题", refs=(), on_head=True)
+    dimmed = replace(normal, on_head=False)
+    unknown = replace(normal, on_head=None)
+    view = _show_graph(qapp, CommitGraph(
+        rows=(dimmed, normal, unknown), truncated_hint=None))
+    view.apply_theme("cloud")
+    dimmed_image = _paint_commit(view, 0)
+    normal_image = _paint_commit(view, 1)
+    unknown_image = _paint_commit(view, 2)
+    assert _difference_count(dimmed_image, normal_image) > 0
+    assert _difference_count(unknown_image, normal_image) == 0
+
+    palette = get_theme_palette("cloud")
+    assert any(
+        dimmed_image.pixelColor(x, y) == QColor(palette["muted_text"])
+        for y in range(dimmed_image.height()) for x in range(dimmed_image.width())
+    )
+    assert any(
+        normal_image.pixelColor(x, y) == QColor(palette["text"])
+        for y in range(normal_image.height()) for x in range(normal_image.width())
+    )
+    assert _difference_count(
+        _paint_commit(view, 0, hover=True),
+        _paint_commit(view, 1, hover=True),
+    ) == 0
+    assert _difference_count(
+        _paint_commit(view, 0, selected=True),
+        _paint_commit(view, 1, selected=True),
+    ) == 0
+    view.deleteLater()
+
+
+def test_summary_many_long_refs_keep_subject_area_and_row_height(qapp):
+    refs = tuple(
+        RefBadge("branch", f"feature/非常长的分支名称-{index}" * 3)
+        for index in range(8)
+    )
+    row = replace(_commit(0), refs=refs, subject="提交主题仍然保留")
+    view = _show_graph(qapp, CommitGraph(rows=(row,), truncated_hint=None))
+    image = _paint_commit(view, width=180)
+    assert _has_any_ink(image)
+    assert image.height() == 22
+    white = QColor(Qt.GlobalColor.white)
+    assert all(
+        image.pixelColor(x, y) == white
+        for x in range(image.width() - 4, image.width())
+        for y in range(image.height())
+    )
+    narrow = _paint_commit(view, width=8)
+    assert narrow.height() == 22
+    view.deleteLater()
+
+
+def test_full_mode_keeps_remote_symbolic_ref(qapp):
+    refs = (
+        RefBadge("head", "HEAD"),
+        RefBadge("branch", "main"),
+        RefBadge("remote", "origin/main"),
+        RefBadge("remote", "origin/HEAD"),
+        RefBadge("tag", "v1.0"),
+    )
+    with_symbolic = replace(_commit(0), refs=refs)
+    without_symbolic = replace(
+        _commit(0), refs=tuple(badge for badge in refs if badge.label != "origin/HEAD"))
+    view = _show_graph(
+        qapp, CommitGraph(rows=(with_symbolic,), truncated_hint=None),
+        summary_mode=False)
+    original = _paint_commit(view, width=500)
+    view.set_graph(CommitGraph(rows=(without_symbolic,), truncated_hint=None))
+    assert _difference_count(original, _paint_commit(view, width=500)) > 0
     view.deleteLater()
 
 
@@ -442,7 +566,6 @@ def test_refresh_restores_full_identity_and_both_scroll_positions(qapp):
     view.set_summary_mode(True)
     view.resize(160, 100)
     view.set_graph(_graph(40, lanes=20))
-    view.show()
     qapp.processEvents()
     view.setCurrentIndex(view._model.index(20, COL_GRAPH))
     view.verticalScrollBar().setValue(view.verticalScrollBar().maximum() // 2)

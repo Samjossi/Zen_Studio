@@ -54,6 +54,36 @@ def merged_repo() -> Path:
     _git(repo, "merge", "--no-ff", "feature", "-m", "merge feature")
     _git(repo, "tag", "v1.0")
     _git(repo, "update-ref", "refs/remotes/origin/main", "HEAD")
+    _git(repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
+    return repo
+
+
+@pytest.fixture(scope="module")
+def linear_repo() -> Path:
+    repo = WORKDIR / "linear"
+    shutil.rmtree(repo, ignore_errors=True)
+    repo.mkdir(parents=True)
+    _git(repo, "init", "-b", "main")
+    _git(repo, "config", "user.name", "Zen Tester")
+    _git(repo, "config", "user.email", "zen@example.invalid")
+    _commit(repo, "app.py", "base\n", "base")
+    _git(repo, "checkout", "-b", "feature")
+    for index in range(5):
+        _git(repo, "commit", "--allow-empty", "-m", f"feature {index}")
+    _git(repo, "checkout", "main")
+    return repo
+
+
+@pytest.fixture(scope="module")
+def unborn_head_repo() -> Path:
+    repo = WORKDIR / "unborn_head"
+    shutil.rmtree(repo, ignore_errors=True)
+    repo.mkdir(parents=True)
+    _git(repo, "init", "-b", "main")
+    _git(repo, "config", "user.name", "Zen Tester")
+    _git(repo, "config", "user.email", "zen@example.invalid")
+    _commit(repo, "app.py", "base\n", "base")
+    _git(repo, "checkout", "--orphan", "unborn")
     return repo
 
 
@@ -106,13 +136,15 @@ def _service(repo: Path, enabled: bool = True):
 
 def test_structured_fetch_uses_full_ids_parents_and_topo_order(monkeypatch, merged_repo):
     calls = []
+    full_id = "a" * 40
+    parent_id = "b" * 40
 
     def fake_git(_repo, *args):
         calls.append(args)
         if args[:2] == ("rev-list", "--all"):
             return "1\n"
-        full_id = "a" * 40
-        parent_id = "b" * 40
+        if args == ("rev-list", "HEAD"):
+            return f"{full_id}\n"
         return "\x1f".join((
             full_id, parent_id, "abc123", "subject", "author", "now",
             "2026-11-06T05:54:00+08:00", "HEAD -> refs/heads/main",
@@ -126,9 +158,10 @@ def test_structured_fetch_uses_full_ids_parents_and_topo_order(monkeypatch, merg
     assert "--graph" not in command
     assert "--color=always" not in command
     assert "%H%x1f%P%x1f%h" in command[-1]
-    assert graph.rows[0].commit_id == "a" * 40
-    assert graph.rows[0].parent_ids == ("b" * 40,)
+    assert graph.rows[0].commit_id == full_id
+    assert graph.rows[0].parent_ids == (parent_id,)
     assert graph.rows[0].commit == "abc123"
+    assert graph.rows[0].on_head is True
 
 
 def test_real_merge_fixture_matches_git_topology_and_all_ref_kinds(merged_repo):
@@ -150,6 +183,40 @@ def test_real_merge_fixture_matches_git_topology_and_all_ref_kinds(merged_repo):
     head = graph.rows[0]
     assert head.is_head
     assert {badge.kind for badge in head.refs} >= {"head", "branch", "remote", "tag"}
+    assert any(badge.label == "origin/HEAD" for badge in head.refs)
+    assert all(row.on_head is True for row in graph.rows)
+
+
+def test_linear_side_branch_marks_only_head_reachable_rows(linear_repo):
+    graph = git_log.fetch_commit_rows(str(linear_repo))
+    assert graph is not None
+    side_rows = [row for row in graph.rows if row.subject.startswith("feature ")]
+    assert len(side_rows) == 5
+    assert all(row.on_head is False for row in side_rows)
+    assert all(row.on_head for row in graph.rows if row not in side_rows)
+    assert len({row.graph_row.lane for row in graph.rows}) == 1
+
+
+def test_head_reachability_failure_keeps_rows_unknown(merged_repo, monkeypatch):
+    real_git = git_log.runner.run_git
+
+    def fail_head(_repo, *args):
+        if args == ("rev-list", "HEAD"):
+            return None
+        return real_git(_repo, *args)
+
+    monkeypatch.setattr(git_log.runner, "run_git", fail_head)
+    graph = git_log.fetch_commit_rows(str(merged_repo))
+    assert graph is not None
+    assert graph.rows
+    assert all(row.on_head is None for row in graph.rows)
+
+
+def test_unborn_head_with_other_refs_keeps_rows_unknown(unborn_head_repo):
+    graph = git_log.fetch_commit_rows(str(unborn_head_repo))
+    assert graph is not None
+    assert [row.subject for row in graph.rows] == ["base"]
+    assert graph.rows[0].on_head is None
 
 
 def test_parallel_fixture_has_exact_octopus_edges_and_long_lanes(parallel_repo):
@@ -182,6 +249,7 @@ def test_truncation_keeps_500_real_rows_and_open_graph_boundary(truncated_repo):
     assert all(len(commit_id) == 40 for commit_id in loaded_ids)
     assert graph.rows[-1].parent_ids[0] not in loaded_ids
     assert graph.rows[-1].graph_row.has_continuation
+    assert all(row.on_head is True for row in graph.rows)
 
 
 def test_panel_summary_mode_geometry_and_repaint_do_not_repeat_git(
@@ -212,6 +280,8 @@ def test_panel_summary_mode_geometry_and_repaint_do_not_repeat_git(
     panel.resize(160, 300)
     panel.apply_theme("mint")
     panel.refresh_font()
+    view._set_hover_row(0)
+    view.viewport().update()
     qapp.processEvents()
     assert calls == 1
     assert view.columnWidth(0) == view._graph_delegate.content_width(

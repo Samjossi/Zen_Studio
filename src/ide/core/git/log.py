@@ -4,8 +4,9 @@
 - fetch_commit_rows：以完整 commit id、有序 parent ids 和提交元数据构造
   拓扑模型；--topo-order 保证纯泳道算法的输入前提。
 - --all 覆盖全部分支/标签引用；--decorate=full 输出 refs 全路径供精确分类。
+- rev-list HEAD 提供三态 on_head：可达、不可达、查询失败的未知；未知不触发降级。
 - MAX_COUNT 限制加载量；未加载父提交只形成图边界，不生成额外提交行。
-- 失败（无 git/非仓库/空仓库/超时/格式漂移）一律返回 None 静默降级。
+- 主取数失败（无 git/非仓库/空仓库/超时/格式漂移）返回 None 静默降级。
 """
 from __future__ import annotations
 
@@ -46,6 +47,7 @@ class CommitRow:
     commit_id: str = ""
     parent_ids: tuple[str, ...] = ()
     is_head: bool = False
+    on_head: bool | None = None
     commit: str = ""
     subject: str = ""
     author: str = ""
@@ -123,8 +125,14 @@ def fetch_commit_rows(repo_root: str) -> CommitGraph | None:
 
     graph_rows = compute_graph_rows(
         (row.commit_id, row.parent_ids) for row in rows)
+    reachable = runner.run_git(repo_root, "rev-list", "HEAD")
+    head_ids = set(reachable.split()) if reachable is not None else None
     rows = [
-        replace(row, graph_row=graph_row)
+        replace(
+            row,
+            graph_row=graph_row,
+            on_head=None if head_ids is None else row.commit_id in head_ids,
+        )
         for row, graph_row in zip(rows, graph_rows, strict=True)
     ]
     hint = None
