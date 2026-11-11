@@ -120,7 +120,7 @@ INTERNAL="$ONEDIR/_internal"
 DANGLING="$(find "$ONEDIR" -xtype l -print -delete | wc -l)"
 (( DANGLING == 0 )) || echo "    清理悬空符号链接 ${DANGLING} 个（spec 过滤残留）"
 # 不该打包项断言（计划 §4.2 清单）
-for banned in "assets/fonts/思源宋体" "assets/logo候选池" "参考代码"; do
+for banned in "assets/fonts/思源宋体" "assets/logo/logo候选池" "参考代码"; do
     [[ -e "$INTERNAL/$banned" ]] && { echo "❌ 禁打包项混入产物：$banned"; exit 1; }
 done
 # 版本文件断言：spec 自算注入的 version.txt 必须入包，且内容与
@@ -159,7 +159,7 @@ StartupNotify=true
 EOF
 # 版本元数据注入产物内部（文件名保持固定不带版本）
 echo "X-AppImage-Version=$VERSION" >> "$APPDIR/zen-studio.desktop"
-cp "assets/logo/logo_256.png" "$APPDIR/zen-studio.png"
+cp "assets/logo/正式logo/logo_256.png" "$APPDIR/zen-studio.png"
 
 echo "==> [4/5] appimagetool 打包"
 export ARCH=x86_64
@@ -191,7 +191,7 @@ for want in "AppRun" "zen-studio.desktop" "zen-studio.png" \
             "usr/bin/_internal/assets/fonts/更纱黑体/LICENSE.txt" \
             "usr/bin/_internal/assets/fonts/Noto彩色Emoji/LICENSE.txt" \
             "usr/bin/_internal/assets/fonts/Noto彩色Emoji/NotoColorEmoji.ttf" \
-            "usr/bin/_internal/assets/logo/logo_256.png" \
+            "usr/bin/_internal/assets/logo/正式logo/logo_256.png" \
             "usr/bin/_internal/version.txt" \
             "usr/bin/_internal/LICENSE" \
             "usr/bin/_internal/NOTICE" \
@@ -202,7 +202,7 @@ for want in "AppRun" "zen-studio.desktop" "zen-studio.png" \
     [[ -e "$SQ/$want" ]] || { echo "❌ 冒烟缺失：$want"; exit 1; }
 done
 for banned in "usr/bin/_internal/assets/fonts/思源宋体" \
-              "usr/bin/_internal/assets/logo候选池" \
+              "usr/bin/_internal/assets/logo/logo候选池" \
               "usr/bin/_internal/参考代码"; do
     [[ -e "$SQ/$banned" ]] && { echo "❌ 冒烟发现禁打包项：$banned"; exit 1; }
 done

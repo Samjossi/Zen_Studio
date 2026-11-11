@@ -65,7 +65,7 @@ a = Analysis(
         # Noto 彩色 Emoji（0807 计划 D2-C：思源缺 emoji 字形的内置回退，
         # Qt 回退链自动拼接；OFL-1.1，约 10M）
         (os.path.join(PROJECT_ROOT, "assets/fonts/Noto彩色Emoji"), "assets/fonts/Noto彩色Emoji"),
-        (os.path.join(PROJECT_ROOT, "assets/logo"), "assets/logo"),
+        (os.path.join(PROJECT_ROOT, "assets/logo/正式logo"), "assets/logo/正式logo"),
         # QSS 主题模板（ide/gui/theme.py THEME_TEMPLATE_FILE 消费的只读资源）
         (os.path.join(PROJECT_ROOT, "assets/themes"), "assets/themes"),
         # 任务完成提示音（ide/gui/sound_player.py 消费；sounds/备选池 为候选

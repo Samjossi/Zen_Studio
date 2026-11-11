@@ -1,4 +1,4 @@
-"""Logo 栅格化脚本：读 assets/logo/logo.svg 母版，一次渲染八尺寸 PNG 落回同目录。
+"""Logo 栅格化脚本：读 assets/logo/正式logo/logo.svg 母版，一次渲染八尺寸 PNG 落回同目录。
 
 幂等覆盖写。换标流程 = 改母版 → 重跑本脚本（禁止手改单件 PNG 造成尺寸间不一致）。
 零新增第三方依赖：QSvgRenderer / QImage 均来自项目已有 PySide6。
@@ -21,7 +21,7 @@ from PySide6.QtSvg import QSvgRenderer
 SIZES = (16, 24, 32, 48, 64, 128, 256, 512)
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-LOGO_DIR = PROJECT_ROOT / "assets" / "logo"
+LOGO_DIR = PROJECT_ROOT / "assets" / "logo" / "正式logo"
 MASTER_SVG = LOGO_DIR / "logo.svg"
 
 

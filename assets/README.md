@@ -16,17 +16,17 @@ Zen Studio 全部**运行时资产**的集中存放地，**会被 PyInstaller �
 | `themes/` | QSS 主题模板（`base.qss`，ide/gui/theme.py 消费的只读资源） | ✅ 打包 |
 | `sounds/正在使用/` | 提示音启用目录（`done.wav`/`error.wav`/`question.wav` 语义默认音 + 备选池 45 个 wav 全量副本，ide/gui/sound_player.py 消费；设置中心「通知」页从本目录挑选；源自 kilocode，MIT 许可） | ✅ 打包 |
 | `sounds/备选池/` | 提示音备用库存（复制进 `正在使用/` 后才可启用，非运行时消费） | ❌ **不打包** |
-| `logo/` | 正式 Logo 全套资产（母版 SVG + 八尺寸 PNG） | ✅ 打包 |
-| `logo候选池/` | Logo 设计草稿（历史候选方案存档） | ❌ **不打包** |
+| `logo/正式logo/` | 正式 Logo 全套资产（母版 SVG + 八尺寸 PNG） | ✅ 打包 |
+| `logo/logo候选池/` | Logo 设计草稿（历史候选方案存档） | ❌ **不打包** |
 | `icons/` | 通用矢量图标素材（SVG 母版，如 arrow_up/arrow_down），非本应用运行时资产，供手动迁移至其他项目取用 | ❌ **不打包** |
 | `readme/` | 根目录 `README.md` 引用的文档素材（界面截图、演示 GIF），非运行时资产 | ❌ **不打包** |
 
 ## 纪律
 
 - **一族一目录**：同类资产必须放入专属子目录，**禁止向 `assets/` 根直接散落文件**。
-- 打包收编按**子目录**进行（`fonts/更纱黑体`、`fonts/思源黑体`、`themes`、`logo` 四条 `datas`），
+- 打包收编按**子目录**进行（`fonts/更纱黑体`、`fonts/思源黑体`、`themes`、`logo/正式logo` 四条 `datas`），
   因此新增「需要打包」的资产时必须**同时**：
   1. 放入合适的既有子目录（或新建专目录）；
   2. 在 `building/zen-studio.spec` 的 `datas` 中补一条收编记录。
-- `fonts/思源宋体/`、`logo候选池/`、`sounds/备选池/` 与 `readme/` **禁止**加入 `datas`，也禁止恢复整目录收编。
+- `fonts/思源宋体/`、`logo/logo候选池/`、`sounds/备选池/` 与 `readme/` **禁止**加入 `datas`，也禁止恢复整目录收编。
 - 运行时通过 `src/ide/core/paths.py` 的路径常量访问本目录，禁止散落的手写路径推导。

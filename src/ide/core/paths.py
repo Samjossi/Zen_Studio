@@ -35,8 +35,8 @@ PROJECT_ROOT = Path(
 #: 资产根（assets/：字体 + Logo + 主题模板等只读资源，spec datas 按子目录收编）
 ASSETS_DIR = PROJECT_ROOT / "assets"
 
-#: Logo 专目录（assets/logo/：母版 logo.svg + 八尺寸 PNG 成套件）
-LOGO_DIR = ASSETS_DIR / "logo"
+#: 正式 Logo 专目录（assets/logo/正式logo/：母版 logo.svg + 八尺寸 PNG 成套件）
+LOGO_DIR = ASSETS_DIR / "logo" / "正式logo"
 
 #: 主题模板专目录（assets/themes/：base.qss，ide/gui/theme.py 消费的只读资源）
 THEMES_ASSETS_DIR = ASSETS_DIR / "themes"

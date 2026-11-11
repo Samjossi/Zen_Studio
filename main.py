@@ -49,7 +49,7 @@ SCREENSHOT_DIR = (USER_CONFIG_DIR / "screenshots") if IS_FROZEN else (PROJECT_RO
 #: （config/logs/ 已入 .gitignore，见 2026-0909-2349 计划 T1）
 LOG_FILE = USER_CONFIG_DIR / "logs" / "zen-studio.log"
 
-#: 窗口图标注册尺寸（assets/logo/ 成套件取 16–256；512 留给 .desktop 与高分屏）
+#: 窗口图标注册尺寸（assets/logo/正式logo/ 成套件取 16–256；512 留给 .desktop 与高分屏）
 LOGO_ICON_SIZES = (16, 24, 32, 48, 64, 128, 256)
 
 

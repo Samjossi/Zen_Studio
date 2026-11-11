@@ -10,7 +10,7 @@
 #
 # 关联约束：StartupWMClass 必须与 main.py 中 app.setDesktopFileName("zen-studio")
 # 同名——Wayland 下任务栏/Dock 图标凭此关联，缺一环则显示默认齿轮图标。
-# Logo 多尺寸源见 assets/logo/（logo_16.png … logo_512.png），
+# Logo 多尺寸源见 assets/logo/正式logo/（logo_16.png … logo_512.png），
 # 如需注册 hicolor 图标主题体系可自取（当前非目标）。
 
 [Desktop Entry]
@@ -18,7 +18,7 @@ Type=Application
 Name=Zen Studio
 Comment=Agent 驱动的桌面 IDE（本机 agent CLI 统一后端）
 Exec=<INSTALL_DIR>/zen-studio
-Icon=<INSTALL_DIR>/_internal/assets/logo/logo_256.png
+Icon=<INSTALL_DIR>/_internal/assets/logo/正式logo/logo_256.png
 Terminal=false
 Categories=Development;IDE;
 StartupWMClass=zen-studio
