@@ -681,7 +681,13 @@ class MainWindow(QMainWindow):
         else:
             cmd = [sys.executable, str(PROJECT_ROOT / "main.py"),
                    folder if folder is not None else "--blank"]
-        proc = subprocess.Popen(cmd)
+        proc = subprocess.Popen(
+            cmd,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
         self.statusBar().showMessage(
             f"已在新窗口打开：{folder}" if folder is not None else "已新建空白窗口",
             self.STATUS_MSG_TIMEOUT_MS)
