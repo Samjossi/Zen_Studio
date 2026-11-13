@@ -15,6 +15,6 @@
 
 **为什么**：offscreen 只关 GUI 显示，不关音频后端——在有声卡的开发机上，未打桩的播放会真实出声。曾有一条"验证播放不崩溃"的用例（`test_notification.py` 的 `test_sound_real_file_no_crash`）未打桩，导致每次跑门禁都外放一声 `done.wav`（= `bip-bop-01.wav` 音色）；由于门禁按纪律在任务收尾（提交前）执行，用户总在任务快结束时听到这声来路不明的提示音，且设置中心关不掉它（测试走隔离配置，不读用户设置）。排查结论详见 `文档/审计报告/2026-1013-1152_任务收尾额外提示音bip-bop-01溯源审计报告.md`。
 
-**现行处理方式**：提示音已改为独立系统播放器子进程，测试必须打桩 `subprocess.Popen`；媒体查看器继续使用假播放器 `_FakePlayer`。链路照跑、断言照做，只是不启动真实音频进程。若哪天发现门禁时又有提示音外放，先怀疑有涉及音频的用例没打桩。
+**现行处理方式**：提示音已改为独立系统播放器子进程，测试必须打桩 `subprocess.Popen`，只验证调用链而不启动真实音频进程。若新增媒体查看器测试，也必须使用假播放器或播放桩。若哪天发现门禁时又有提示音外放，先怀疑有涉及音频的用例没打桩。
 
-新增涉及音频的用例时：monkeypatch `_play` / `play_system` / `subprocess.Popen`，或使用假播放器（`test_notification.py` 的 `_FakeProcess`、`test_media_viewer.py` 的 `_FakePlayer` 两个先例）。
+新增涉及音频的用例时：monkeypatch `_play` / `play_system` / `subprocess.Popen`，或使用假播放器；进程桩可参考 `test_notification.py` 的 `_FakeProcess`。
