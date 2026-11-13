@@ -528,8 +528,9 @@ def test_hover_state_synchronizes_both_columns_and_refresh_clears_it(qapp):
     normal_graph = _paint_row(view)
     normal_commit = _paint_commit(view)
     rect = view.visualRect(view._model.index(0, COL_COMMIT))
+    local_pos = QPointF(rect.center())
     event = QMouseEvent(
-        QEvent.Type.MouseMove, QPointF(rect.center()), Qt.MouseButton.NoButton,
+        QEvent.Type.MouseMove, local_pos, local_pos, Qt.MouseButton.NoButton,
         Qt.MouseButton.NoButton, Qt.KeyboardModifier.NoModifier)
     QApplication.sendEvent(view.viewport(), event)
     qapp.processEvents()
