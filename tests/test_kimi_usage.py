@@ -264,3 +264,42 @@ def test_wire_usage_rejects_invalid_field_values(tmp_path, field, value):
         session_dir, context_sizes=CONTEXT_SIZES, model_alias=ALIAS)
     assert parsed is not None
     assert parsed[2] is None
+
+
+# ----------------------------------------------------------------------
+# 轮次真实消耗（2026-1114-1452 计划：TurnConsumption 随轮末 usage chunk）
+# ----------------------------------------------------------------------
+def test_turn_end_chunk_carries_consumption(monkeypatch, tmp_path):
+    session_dir = _write_wire(tmp_path, [_request(), _record()])
+    chunks, _ = _run_turn(
+        monkeypatch, [_response(), _usage_update()], session_dir)
+    usage = [chunk for chunk in chunks if chunk.kind == "usage"]
+    assert len(usage) == 1
+    consumption = usage[0].consumption
+    assert consumption is not None
+    assert (consumption.input_other, consumption.input_cache_read,
+            consumption.input_cache_creation, consumption.output) == (100, 200, 30, 40)
+    assert consumption.turn_id == "session_x:1"
+
+
+def test_consumption_sums_multiple_calls(monkeypatch, tmp_path):
+    session_dir = _write_wire(tmp_path, [
+        _request(1000, "0.0"), _record(6000),
+        _request(7000, "0.1"), _record(9000),
+    ])
+    chunks, _ = _run_turn(monkeypatch, [_response(), _usage_update()], session_dir)
+    consumption = [c for c in chunks if c.kind == "usage"][0].consumption
+    assert consumption is not None
+    assert consumption.input_other == 200
+    assert consumption.output == 80
+    assert consumption.turn_id == "session_x:2"
+
+
+def test_consumption_survives_speed_pairing_failure(monkeypatch, tmp_path):
+    # 用量时间戳早于请求（速度配对失败）不影响消耗求和
+    session_dir = _write_wire(tmp_path, [_request(1000), _record(500)])
+    chunks, _ = _run_turn(monkeypatch, [_response(), _usage_update()], session_dir)
+    usage = [chunk for chunk in chunks if chunk.kind == "usage"][0]
+    assert usage.speed is None
+    assert usage.consumption is not None
+    assert usage.consumption.output == 40

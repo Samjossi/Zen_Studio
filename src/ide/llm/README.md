@@ -21,7 +21,7 @@
 | 文件 | 说明 |
 |:---|:---|
 | `ide/llm/__init__.py` | 包初始化：导出统一接口、后端常量（`BACKEND_KIMI_ACP`/`BACKEND_LABELS`，由 REGISTRY 派生 re-export）与 provider 类 |
-| `ide/llm/base.py` | `LanguageModel` Protocol + `Message` 类型别名 + `Chunk` 流式块（kind：text/reasoning/usage；`speed` 可选字段携轮次输出速度，2026-10-23，work plans/2026-1023-1632）+ `UsageStats` 用量定型（source 三级 push/transcript/estimate，2026-07-31，文档/修改记录/2026-0731-1454）+ `TurnSpeed` 输出速度定型（output_tokens/gen_seconds，仅模型生成时间计分母）+ `poll_usage()` 可选轮询方法（默认 None，2026-08-02，文档/修改记录/2026-0802-0117） |
+| `ide/llm/base.py` | `LanguageModel` Protocol + `Message` 类型别名 + `Chunk` 流式块（kind：text/reasoning/usage；`speed` 可选字段携轮次输出速度，2026-10-23，work plans/2026-1023-1632）+ `UsageStats` 用量定型（source 三级 push/transcript/estimate，2026-07-31，文档/修改记录/2026-0731-1454）+ `TurnSpeed` 输出速度定型（output_tokens/gen_seconds，仅模型生成时间计分母）+ `TurnConsumption` 轮次真实消耗定型（输入缓存读写/输出四项 + turn_id 去重键，随轮末 usage chunk 的 `consumption` 字段携带，仅 kimi / DSH 产出，2026-1114-1452 计划）+ `poll_usage()` 可选轮询方法（默认 None，2026-08-02，文档/修改记录/2026-0802-0117） |
 | `ide/llm/context_limits.py` | 模型上下文窗口上限查询（2026-07-31，文档/修改记录/2026-0731-1454）：`reasonix_context_window()`（config.toml `[[providers]].context_window` 动态解析，缺项 None 不臆造）+ `reasonix_config_path()` 路径主定义（providers 反向复用，无环） |
 | `ide/llm/registry.py` | 后端注册表：`BackendSpec`（name/label/vendor/available/list_models/factory + 可选 `dev_note` 开发中告知文案，2026-08-14，文档/修改记录/2026-0814-0603 计划）+ `REGISTRY` 单点 + 查询 API（`spec_of`/`vendor_of`/`vendor_groups`）；模型列表进程级缓存（`_cached_list_models` 包装，锁覆盖查拉写防并发重复拉取）+ `refresh_models()` 唯一失效口（2026-07-30，文档/修改记录/2026-0730-2338）；import 无副作用，探测均惰性 |
 | `ide/llm/providers/__init__.py` | provider 子包标记（每家厂商一个文件） |

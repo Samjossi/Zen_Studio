@@ -52,6 +52,12 @@ def build(menubar: QMenuBar, ctx: QMainWindow, actions: ActionRegistry) -> None:
     action.triggered.connect(ctx.show_git_graph)
     actions.register("view.git_graph", action)
 
+    # Token 用量热力图弹窗（2026-1114-1452 计划）：非模态单例；数据为
+    # 全局落盘记录，空白窗口同样可打开（不做空窗守卫）
+    action = menu.addAction("Token 用量热力图(&U)")
+    action.triggered.connect(ctx.show_token_usage)
+    actions.register("view.token_usage", action)
+
     # 文件树手动刷新：watcher 溢出/外部批量改动致状态滞留时由用户触发全量重读
     action = menu.addAction("刷新文件树(&F)")
     action.triggered.connect(

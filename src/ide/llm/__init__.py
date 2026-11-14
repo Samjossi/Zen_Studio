@@ -8,7 +8,14 @@
 
 依赖方向（无环）：本模块 → registry → providers → llm.base。
 """
-from ide.llm.base import Chunk, LanguageModel, Message, TurnSpeed, UsageStats
+from ide.llm.base import (
+    Chunk,
+    LanguageModel,
+    Message,
+    TurnConsumption,
+    TurnSpeed,
+    UsageStats,
+)
 from ide.llm.providers.acp import PermissionHandler, PermissionParams
 from ide.llm.providers.dream_acp import DreamAcpLLM, dream_available, list_dream_models
 from ide.llm.providers.dsh_acp import DshAcpLLM, dsh_available, list_dsh_models
@@ -41,6 +48,7 @@ __all__ = [
     "LanguageModel",
     "Message",
     "TurnSpeed",
+    "TurnConsumption",
     "UsageStats",
     "BACKEND_KIMI_ACP",
     "BACKEND_LABELS",

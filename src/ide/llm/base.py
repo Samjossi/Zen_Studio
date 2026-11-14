@@ -69,6 +69,27 @@ class TurnSpeed:
 
 
 @dataclass(frozen=True)
+class TurnConsumption:
+    """一轮对话的真实 token 消耗载荷（2026-1114-1452 计划）。
+
+    口径：轮内各次 API 调用的实测消耗求和，与 UsageStats 的上下文
+    窗口占用是两套语义，互不复用数值。四项拆分保留缓存读写（计费
+    单价不同）；turn_id 供落盘去重（同轮重复收尾不双记）。
+    目前仅 kimi / DSH 后端产出，其余后端无逐次真值通道恒 None。
+    """
+
+    input_other: int          # 非缓存输入 token 合计
+    input_cache_read: int     # 缓存命中输入 token 合计
+    input_cache_creation: int # 缓存写入输入 token 合计
+    output: int               # 输出 token 合计
+    turn_id: str              # 去重键（会话 id + 轮次序号）
+
+    @property
+    def total(self) -> int:
+        return self.input_other + self.input_cache_read + self.input_cache_creation + self.output
+
+
+@dataclass(frozen=True)
 class Chunk:
     """流式块：kind 区分正文、思维链、上下文用量通知与 AI 活动信息。
 
@@ -90,6 +111,9 @@ class Chunk:
     #: 轮次输出速度（kind="usage" 时可同帧携带；仅 kimi 后端产出，
     #: 其余后端恒 None，GUI 无数据不显示对应行）
     speed: "TurnSpeed | None" = None
+    #: 轮次真实 token 消耗（kind="usage" 时可同帧携带；仅 kimi / DSH
+    #: 后端产出，2026-1114-1452 计划；GUI 轮末落盘进按日统计与滚动汇总）
+    consumption: "TurnConsumption | None" = None
 
 
 class TodoEntry(TypedDict, total=False):

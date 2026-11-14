@@ -24,6 +24,11 @@ turnStep 的请求参与轮次计数与速度配对，超时保留已落盘的�
 不差分），分母 Σ(record.time − request.time)，仅含模型生成时间，
 工具/审批间隙不计。私有 wire 格式假设登记于维护手册 §6。
 
+轮次真实 token 消耗（2026-1114-1452 计划）：与速度同一次 wire 读取
+求和四项（inputOther/inputCacheRead/inputCacheCreation/output），随
+收尾 usage chunk 的 `consumption` 字段携带 TurnConsumption；速度配对
+失败不影响消耗求和，GUI 轮末落盘进按日统计与滚动汇总（仅主代理 main 口径）。
+
 session/update 映射（1602 计划 T3）：私有 _map_update 已删除，统一改调
 ide/llm/providers/acp.py 的公共实现 map_session_update（D4 上收——原四份
 逐行一致副本同一改动改四处必然漂移）。
@@ -48,7 +53,14 @@ from typing import Iterator
 
 from ide.core.paths import PROJECT_ROOT  # agent 工作目录限定于项目根
 from ide.core.version import APP_VERSION
-from ide.llm.base import Chunk, LanguageModel, Message, TurnSpeed, UsageStats
+from ide.llm.base import (
+    Chunk,
+    LanguageModel,
+    Message,
+    TurnConsumption,
+    TurnSpeed,
+    UsageStats,
+)
 # PermissionOption/PermissionParams/ToolCallInfo 仅 re-export（ide/llm/permission_policy 从此处取型），
 # 冗余名别名是 ruff 约定的显式 re-export 写法，勿当未用导入删除
 from ide.llm.providers.acp import (
@@ -188,21 +200,25 @@ def _read_wire_usage(
     return parsed[0], parsed[2]
 
 
-def _read_wire_turn_speed(
-    session_dir: Path, usage_baseline: int
-) -> TurnSpeed | None:
-    """轮次输出速度：基线后逐次 turn 请求与用量记录配对求和。
+def _read_wire_turn_metrics(
+    session_dir: Path, usage_baseline: int, session_id: str | None = None
+) -> tuple[TurnSpeed | None, TurnConsumption | None]:
+    """轮末一次全量读：输出速度与真实消耗（2026-1114-1452）同 pass 求和。
 
     `usage.output` 是单次调用值，直取求和，禁止差分。分母仅计请求到
     用量记录的生成耗时，工具/审批间隙不计。非 turn 请求不得改变配对。
+    消耗口径与速度解耦：速度配对失败（缺时间戳等）不影响四项求和；
+    turn_id 取 `session_id:轮末累计用量条数`，同轮重复收尾幂等去重。
     """
     records = _read_wire_records(session_dir)
     if records is None:
-        return None
+        return None, None
     seen = 0
     pending_req_time: int | None = None
     output_total = 0
     gen_ms_total = 0
+    sums = [0, 0, 0, 0]
+    new_usage = 0
     for r in records:
         rtype = r.get("type")
         if _is_turn_request(r):
@@ -212,6 +228,11 @@ def _read_wire_turn_speed(
             seen += 1
             if seen <= usage_baseline:
                 continue
+            values = _usage_values(r.get("usage"))
+            if values is not None:
+                new_usage += 1
+                for i, value in enumerate(values):
+                    sums[i] += value
             usage = r.get("usage") or {}
             output = usage.get("output")
             rec_time = r.get("time")
@@ -222,10 +243,22 @@ def _read_wire_turn_speed(
                 continue
             output_total += output
             gen_ms_total += rec_time - pending_req_time
-    if output_total <= 0 or gen_ms_total <= 0:
-        return None
-    return TurnSpeed(
-        output_tokens=output_total, gen_seconds=gen_ms_total / 1000)
+    speed = (TurnSpeed(output_tokens=output_total, gen_seconds=gen_ms_total / 1000)
+             if output_total > 0 and gen_ms_total > 0 else None)
+    consumption: TurnConsumption | None = None
+    if session_id and new_usage > 0 and any(sums):
+        consumption = TurnConsumption(
+            input_other=sums[0], input_cache_read=sums[1],
+            input_cache_creation=sums[2], output=sums[3],
+            turn_id=f"{session_id}:{usage_baseline + new_usage}")
+    return speed, consumption
+
+
+def _read_wire_turn_speed(
+    session_dir: Path, usage_baseline: int
+) -> TurnSpeed | None:
+    """轮次输出速度（薄封装；消耗求和见 _read_wire_turn_metrics）。"""
+    return _read_wire_turn_metrics(session_dir, usage_baseline)[0]
 
 
 def _read_wire_usage_tail(
@@ -838,8 +871,11 @@ class KimiAcpLLM(LanguageModel):
                 yield from self._drain_sidecar(sidecar_queue)
         if sidecar is not None:
             yield from self._drain_sidecar(sidecar_queue)
-        speed = (_read_wire_turn_speed(session_dir, usage_baseline)
-                 if session_dir is not None else None)
+        speed: TurnSpeed | None = None
+        consumption: TurnConsumption | None = None
+        if session_dir is not None:
+            speed, consumption = _read_wire_turn_metrics(
+                session_dir, usage_baseline, self._session_id)
         stats = push_stats or wire_stats
         if stats is not None:
             self._usage_warning_active = False
@@ -854,8 +890,9 @@ class KimiAcpLLM(LanguageModel):
                 reasons.append("wire 无本轮有效用量")
             logger.warning("kimi 轮末上下文用量不可用（%s）", "、".join(reasons))
             self._usage_warning_active = True
-        if stats is not None or speed is not None:
-            yield Chunk("usage", "", usage=stats, speed=speed)
+        if stats is not None or speed is not None or consumption is not None:
+            yield Chunk("usage", "", usage=stats, speed=speed,
+                        consumption=consumption)
 
     def _drain_sidecar(self, sidecar_queue: "queue.Queue[dict]") -> Iterator[Chunk]:
         """排干旁路合成队列：update dict 经 map_session_update 真实映射

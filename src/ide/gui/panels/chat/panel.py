@@ -97,6 +97,7 @@ from ide.gui.settings import (
     KEY_PERMISSION_MODE,
     KEY_THEME,
 )
+from ide.core import token_stats
 from ide.gui.theme import get_theme_palette, load_settings
 from ide.gui.window_state import decode_state, encode_state
 from ide.llm import (
@@ -105,6 +106,7 @@ from ide.llm import (
     LanguageModel,
     Message,
     PermissionParams,
+    TurnConsumption,
     TurnSpeed,
     UsageStats,
     resolve_efforts,
@@ -328,6 +330,9 @@ class ChatPanel(QWidget):
         #: 最近一次正常收尾轮的输出速度（仅 kimi 后端产出，随 usage chunk
         #: 同帧携带；内存态与 _usage 同寿命，失败/中断轮不更新）
         self._turn_speed: TurnSpeed | None = None
+        #: 本轮真实 token 消耗（2026-1114-1452 计划；仅 kimi / DSH 产出，
+        #: 随轮末 usage chunk 携带；轮收尾时落盘进按日统计与滚动汇总后清空）
+        self._turn_consumption: TurnConsumption | None = None
         #: 实时输出速度采样（内存态与 _usage 同寿命，轮收尾/切后端清空）：
         #: (time.monotonic(), 累计流式字符数) 采样点滚动队列 + 累计计数；
         #: text/reasoning chunk 到达即采样，速率由 _windowed_speed 剪窗计算
@@ -1137,6 +1142,8 @@ class ChatPanel(QWidget):
                 self._usage = chunk.usage
             if chunk.speed is not None:
                 self._turn_speed = chunk.speed
+            if chunk.consumption is not None:
+                self._turn_consumption = chunk.consumption
             if chunk.usage is not None or chunk.speed is not None:
                 self._refresh_usage_label()
             return
@@ -1265,7 +1272,28 @@ class ChatPanel(QWidget):
         self._tail_last[tid] = now
         return True
 
+    def _flush_turn_consumption(self) -> None:
+        """本轮真实消耗落盘（成功/失败/中断同口径：已发生的调用照记）。
+
+        turn_id 幂等去重；I/O 失败由 token_stats 内部记日志吞掉，
+        统计永不打断对话。
+        """
+        consumption = self._turn_consumption
+        self._turn_consumption = None
+        if consumption is None:
+            return
+        token_stats.record_turn(
+            backend=self.model_bar.current_backend() or "unknown",
+            model=self.model_bar.current_version() or "",
+            turn_id=consumption.turn_id,
+            input_other=consumption.input_other,
+            input_cache_read=consumption.input_cache_read,
+            input_cache_creation=consumption.input_cache_creation,
+            output=consumption.output,
+        )
+
     def _on_finished(self, error: str) -> None:
+        self._flush_turn_consumption()
         if self._turn_started_at is not None:  # 轮次计时收尾（正常/失败同记）
             self._last_turn = {
                 "started": self._turn_started_at,
@@ -1311,6 +1339,7 @@ class ChatPanel(QWidget):
     def _on_stopped(self) -> None:
         """用户中断收尾（第三态）：整体回滚——中断轮不入历史；
         屏幕已输出内容不擦除（可复制兜底），追加停止标注。"""
+        self._flush_turn_consumption()  # 中断轮已发生的调用消耗照记
         self._usage_timer.stop()  # 中断即停轮询，不残留空转
         if self._turn_started_at is not None:  # 中断轮同记上轮任务
             self._last_turn = {

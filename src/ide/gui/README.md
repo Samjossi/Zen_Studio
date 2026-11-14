@@ -31,6 +31,7 @@
 | `ide/gui/git_graph_renderer.py` | Theia SCM History Graph 视觉几何的 Qt 原生承接：三类边、节点上下线、普通/HEAD 节点，内嵌与弹窗共享 |
 | `ide/gui/git_graph_view.py` | 提交 DAG 视图：内嵌 summary 双列（固定宽拓扑 + 紧凑 refs 徽标与提交主题）、整行悬停元信息；完整弹窗保留四列、refs 徽标与提交文本 |
 | `ide/gui/git_graph_dialog.py` | 完整提交图非模态弹窗：仓库与分支信息行、共享内容、刷新按钮 |
+| `ide/gui/token_usage_dialog.py` | Token 用量热力图非模态弹窗（2026-1114-1452 计划）：近一年 GitHub 式绿色格子图（QPainter 自绘，0~4 分位分档、随主题明暗换绿色组）、悬停显示当日输入/输出/合计与分后端小计、底部今日/最近七天/最近三十天滚动汇总；数据源 `ide/core/token_stats.py` |
 | `ide/gui/panels/git_graph_panel.py` | 右栏上内嵌拓扑与主题摘要双列：进入页面与页内按钮两类加载入口，隐藏时不轮询 |
 | `ide/gui/panels/__init__.py` | 面板包初始化，对外导出 `FileExplorer`、`ViewerPanel` |
 | `ide/gui/panels/find_bar.py` | 查找浮层组件：viewer 与 terminal 两面板共用的右上角悬浮查找条（搜索语义归宿主面板） |
@@ -87,7 +88,7 @@
 | 面板显隐 | 单一入口法：`MainWindow.set_xxx_visible` 同步注册表勾选态与可见性，菜单勾选与面板头部「−」按钮汇入 |
 | 启用态刷新 | 编辑（复制/全选）与终端（清屏/终止）菜单在 `aboutToShow` 按焦点控件能力/会话存活态即时刷新 |
 
-菜单内容速览：**文件**（打开文件 / 在新窗口打开文件夹=多开进程 / 打开配置目录 / 退出）；**编辑**（复制 / 全选——转发焦点控件；查找——按焦点分发终端或查看器浮层）；**视图**（四面板显隐 / 噪音过滤 / 恢复默认布局 / Git 刷新）；**终端**（新建 / 清屏 / 重开 / 终止，与头部按钮、右键菜单同一实现路径）；**设置**（设置中心…——唯一偏好配置面 / 打开配置文件 / 恢复默认设置，三项入口菜单）；**帮助**（关于）。
+菜单内容速览：**文件**（打开文件 / 在新窗口打开文件夹=多开进程 / 打开配置目录 / 退出）；**编辑**（复制 / 全选——转发焦点控件；查找——按焦点分发终端或查看器浮层）；**视图**（四面板显隐 / 噪音过滤 / 恢复默认布局 / Git 刷新 / 提交历史图 / Token 用量热力图）；**终端**（新建 / 清屏 / 重开 / 终止，与头部按钮、右键菜单同一实现路径）；**设置**（设置中心…——唯一偏好配置面 / 打开配置文件 / 恢复默认设置，三项入口菜单）；**帮助**（关于）。
 
 **一窗一根与空白新窗口**（2026-08-31，work plans/2026-0831-2350 计划）：一进程绑定一工作区根（启动参数 `uv run main.py [folder]` 注入，缺省回退项目根；`--blank` 起空白窗口不绑定目录），换根入口仍为 `subprocess.Popen` 起新进程，进程边界天然隔离文件树/终端/Git/agent cwd。**同一工作区根同时只允许一个窗口**：`main()` 经 `ide/gui/root_ownership.py` 的 `QLocalServer` 按根占用登记（`config/sockets/<hash8>.sock`），任何入口（菜单 spawn / 命令行 / 双击图标）命中已占用根时唤活已有窗口（showNormal + raise + activateWindow，对齐 VS Code）后以退出码 3 退出，不再同根多开；崩溃残留的陈旧套接字由 connect 探测失败 → removeServer → 重试 listen 自愈。「新建窗口」改为空白窗口：文件树槽位欢迎占位、聊天槽位置灰占位、终端禁用不自动 spawn shell、布局读写走全局 `default.json`；空窗内经「打开文件夹」就地填充（复用换根关旧窗路径）。非默认工作区窗口标题标注根路径（空窗标题「未打开文件夹」）。共享配置并发治理：`settings.json` 经 flock 文件锁串行化"读-合并-写" + 原子写；窗口状态按工作区哈希分文件（`config/window_state/<hash8>.json`，2026-07-24 收编子目录对齐 VS Code `workspaceStorage/`），各窗口恢复各自几何；新工作区首开继承全局 `config/window_state/default.json`（最近关闭窗口布局，关闭时双写、后写胜，VS Code 语义）。
 

@@ -323,6 +323,20 @@ dsh acp
   目录变化；新会话候选仅含 `deepseek-flash` 与 `deepseek-v4-pro`，显示名与官方
   目录一致。0.2.2-rc.1 的 ACP 动态目录实测仍返回旧别名，Zen 不将其列为新候选。
 
+**轮次 token 消耗采集（2026-1114-1452 计划，私有格式假设登记）**：ACP
+`usage_update` 只有 used/size 上下文占用，不能当消耗计量；真值取自 dsh 会话
+落盘日志 `<DSH_HOME 或 ~/.dsh>/sessions/--<normalized-cwd>--/<sessionId>/
+session.vN.jsonl[.zstd]` 的 `assistant/message` 事件 `data.usage`
+（`inputTokens`/`outputTokens`/`cacheReadTokens`；`reasoningTokens` 为输出子集
+不重复计入）。实现：`dsh_acp.py` `_session_log_path` / `_turn_consumption`
+（轮前基线 + 轮末差量求和，turn_id=`sessionId:累计事件数` 幂等去重）。注意：
+- 默认压缩为 **zstd**，依赖系统 `zstd -dc` 解压；系统无 zstd 时静默停采；
+- 项目目录名归一化规则私有，Zen 不拼装、按 sessionId 一层 glob 直匹配；
+- 格式漂移（字段缺失/类型异常）整条跳过，不臆造数值；升级 DSH 后若热力图
+  不再出数，优先核对该文件格式（真值来源：`参考代码/deepseek-harness/
+  packages/session/session-persistence-jsonl/README.zh.md` 与 snapshots/sdk/）。
+- 回归测试：`tests/test_dsh_usage.py`。
+
 ---
 
 ## 使用建议

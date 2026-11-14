@@ -85,6 +85,7 @@ from ide.gui.panels.terminal import TerminalPanel
 from ide.gui.panels.terminal.agent_bridge import AgentTerminalBridge
 from ide.gui.panels.welcome import PlaceholderPanel, WelcomePanel
 from ide.gui.git_graph_dialog import GitGraphDialog
+from ide.gui.token_usage_dialog import TokenUsageDialog
 from ide.gui.recent_projects import RecentProjectsStore
 from ide.gui.root_ownership import EXIT_ROOT_OCCUPIED
 from ide.gui.settings import (
@@ -188,6 +189,8 @@ class MainWindow(QMainWindow):
         self._settings_dialog: SettingsDialog | None = None
         #: 提交历史图对话框（非模态单例，同设置中心惰性创建模式）
         self._git_graph_dialog: GitGraphDialog | None = None
+        #: Token 用量热力图对话框（非模态单例，同上惰性创建模式）
+        self._token_usage_dialog: TokenUsageDialog | None = None
         #: 对话框同步挂起计数（>0 时 _sync_settings_dialog 短路）：批量应用路径
         #: （如 reset_settings 多槽连发）挂起期间各槽内置 sync 被抑制，结束后
         #: 单次终态 reload，避免 N 槽触发 N+1 次全量 reload（flock 磁盘读）
@@ -785,6 +788,20 @@ class MainWindow(QMainWindow):
         self._git_graph_dialog.activateWindow()
 
     # ------------------------------------------------------------------
+    # Token 用量热力图对话框（视图菜单 ▸ Token 用量热力图；非模态单例）
+    # ------------------------------------------------------------------
+    def show_token_usage(self) -> None:
+        """打开 Token 用量热力图：首次惰性创建，重复打开 raise 现有实例。
+
+        数据是跨工作区全局落盘记录，空白窗口不做守卫（与提交历史图不同）。
+        """
+        if self._token_usage_dialog is None:
+            self._token_usage_dialog = TokenUsageDialog(self)
+        self._token_usage_dialog.show()
+        self._token_usage_dialog.raise_()
+        self._token_usage_dialog.activateWindow()
+
+    # ------------------------------------------------------------------
     # 一窗一根：外部唤活（root_server newConnection → 置前抢焦点）
     # ------------------------------------------------------------------
     def _on_root_connection(self) -> None:
@@ -836,6 +853,8 @@ class MainWindow(QMainWindow):
         if self._git_graph_dialog is not None:
             # 提交历史图等宽文本区字号跟随全局（同查看器/终端先例）
             self._git_graph_dialog.refresh_font()
+        if self._token_usage_dialog is not None:
+            self._token_usage_dialog.refresh_font()
         if self.git_controller is not None and \
                 (diff_dialog := self.git_controller.diff_dialog) is not None:
             # 变更对比等宽文本区字号跟随全局（同提交历史图先例）
