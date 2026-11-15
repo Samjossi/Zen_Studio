@@ -34,6 +34,7 @@ QDialog {
 
 #WindowShell {
     background-color: $window_bg;
+    border: 1px solid $window_border;  /* 1px 主题色轮廓边：无边框窗分界 + 主题个性（开关在 theme.py 覆盖层） */
 }
 
 /* ---- 面板分区与标题行（objectName 接线见各面板代码） ---- */

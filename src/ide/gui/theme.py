@@ -34,6 +34,7 @@ from ide.gui.settings import (
     DEFAULT_THEME,
     KEY_FONT_SIZE,
     KEY_THEME,
+    KEY_WINDOW_BORDER,
     AppSettings,
     load_settings as _load_raw_settings,
     update_settings,
@@ -245,7 +246,7 @@ CHAT_PACK: ChatPack = {
 #: qss 令牌键集合（校验脚本据此剔除资源包键，双向比对模板占位符）
 QSS_TOKEN_KEYS = (
     "accent", "text", "muted_text",
-    "window_bg", "sidebar_bg", "card_bg",
+    "window_bg", "window_border", "sidebar_bg", "card_bg",
     "border", "border_hover", "input_bg", "combo_hover_bg",
     "popup_bg", "popup_border", "popup_separator", "menu_border",
     "list_item_hover",
@@ -270,6 +271,7 @@ THEME_PALETTES: dict[str, dict] = {
     "cloud": {
         "label": "云白",
         "accent": "#0765d4",
+        "window_border": "#0765d4",  # 主窗 1px 轮廓边色 = accent（1600 计划 D3）
         "text": "#1d1d1f",
         "muted_text": "#86868b",
         "window_bg": "#ffffff",
@@ -306,6 +308,7 @@ THEME_PALETTES: dict[str, dict] = {
     "wheat": {
         "label": "暖米",
         "accent": "#c26a1a",
+        "window_border": "#c26a1a",  # 主窗 1px 轮廓边色 = accent（1600 计划 D3）
         "text": "#463f33",
         "muted_text": "#9a8f7d",
         "window_bg": "#fffefd",
@@ -342,6 +345,7 @@ THEME_PALETTES: dict[str, dict] = {
     "sky": {
         "label": "晴空",
         "accent": "#0284c7",
+        "window_border": "#0284c7",  # 主窗 1px 轮廓边色 = accent（1600 计划 D3）
         "text": "#1e293b",
         "muted_text": "#7d8da0",
         "window_bg": "#fdfeff",
@@ -378,6 +382,7 @@ THEME_PALETTES: dict[str, dict] = {
     "mint": {
         "label": "薄荷",
         "accent": "#15803d",
+        "window_border": "#15803d",  # 主窗 1px 轮廓边色 = accent（1600 计划 D3）
         "text": "#20301f",
         "muted_text": "#7f9a84",
         "window_bg": "#fdfffd",
@@ -489,6 +494,16 @@ def render_theme(theme: str) -> str:
     return template.substitute(get_theme_palette(theme))
 
 
+def window_border_override(enabled: bool) -> str:
+    """主窗色边关闭态覆盖片段：同选择器后写胜出（QSS 层叠规则），空串 = 不追加。
+
+    为什么用覆盖而非令牌换 transparent：border: none 让出 1px inset，
+    语义「无描边」与「透明描边」分明。render_theme 保持纯函数，开关只作
+    用于本片段（1600 计划 D4）。纯函数，单测直断。
+    """
+    return "" if enabled else "#WindowShell { border: none; }"
+
+
 # ----------------------------------------------------------------------
 # 持久化（通用读写见 ide/gui/settings.py；此处补主题有效性校验）
 # ----------------------------------------------------------------------
@@ -572,10 +587,11 @@ def apply_theme(app: QApplication) -> None:
     settings = load_settings()
 
     try:
-        app.setStyleSheet(render_theme(settings[KEY_THEME]))
+        qss = render_theme(settings[KEY_THEME])
     except OSError:
         # 模板文件缺失（打包错误）时静默回退到 Qt 默认样式
-        app.setStyleSheet("")
+        qss = ""
+    app.setStyleSheet(qss + window_border_override(settings[KEY_WINDOW_BORDER]))
 
     _apply_palette(app, get_theme_palette(settings[KEY_THEME]))
     register_bundled_fonts()

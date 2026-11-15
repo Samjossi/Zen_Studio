@@ -20,6 +20,7 @@ from ide.gui.theme import (
     is_valid,
     list_available_themes,
     render_theme,
+    window_border_override,
 )
 
 _LIGHT_THEMES = ("cloud", "wheat", "sky", "mint")
@@ -76,3 +77,22 @@ def test_light_themes_render_and_share_single_resource_packs():
         assert all(f"${token}" not in qss for token in QSS_TOKEN_KEYS)
         for key, pack in _SHARED_PACKS.items():
             assert palette[key] is pack
+
+
+def test_window_border_token_matches_accent_and_renders():
+    """主窗色边令牌（1600 计划）：四主题齐备、值 = accent（防两值漂移），
+    模板渲染无残留占位符。"""
+    for name in _LIGHT_THEMES:
+        palette = get_theme_palette(name)
+        assert palette["window_border"] == palette["accent"]
+        qss = render_theme(name)
+        assert "$window_border" not in qss
+        assert f"border: 1px solid {palette['window_border']}" in qss
+
+
+def test_window_border_override_fragment():
+    """关闭态覆盖片段（D4）：同选择器后写胜出；开启态空串不追加。
+    纯函数断言，不依赖 QApplication。"""
+    assert window_border_override(True) == ""
+    off = window_border_override(False)
+    assert off == "#WindowShell { border: none; }"

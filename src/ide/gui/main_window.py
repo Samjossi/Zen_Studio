@@ -99,6 +99,7 @@ from ide.gui.settings import (
     KEY_TERMINAL_AI_TAB_CLOSE_DELAY_S,
     KEY_TERMINAL_SWAP_COPY_PASTE,
     KEY_THEME,
+    KEY_WINDOW_BORDER,
     SETTINGS_FILE,
     update_settings,
 )
@@ -861,6 +862,19 @@ class MainWindow(QMainWindow):
             diff_dialog.refresh_font()
         self._sync_settings_dialog()
         self.statusBar().showMessage(f"字号：{size} pt", self.STATUS_MSG_SHORT_MS)
+
+    def set_window_border(self, enabled: bool) -> None:
+        """主窗 1px 主题色描边开关（设置中心外观页入口）：持久化 + 即时热生效。
+
+        热应用只重渲染 app 级 QSS（theme.py 按开关追加/撤下覆盖片段），
+        不碰任何构造期冻结色——与字号路径（_apply_font_size）同机制，无需重启。
+        """
+        update_settings({KEY_WINDOW_BORDER: enabled})
+        if (app := QApplication.instance()) is not None:
+            apply_theme(app)
+        self._sync_settings_dialog()
+        state = "开" if enabled else "关"
+        self.statusBar().showMessage(f"主窗色边：{state}", self.STATUS_MSG_SHORT_MS)
 
     def apply_model_selection(self, backend: str, version: str | None) -> None:
         """设置中心驱动的模型切换：收敛到 ChatTabs（只作用当前活动标签，

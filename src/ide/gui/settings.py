@@ -53,6 +53,9 @@ SETTINGS_LOCK_FILE = CONFIG_DIR / "settings.lock"
 KEY_THEME = "theme"
 KEY_FONT_SIZE = "font_size"
 KEY_FONT_FAMILY = "font_family"
+#: 主窗口 1px 主题色描边开关（2026-1114-1600 计划：无边框窗在 X11 无投影环，
+#: 浅色窗底与白色壁纸分界不清；色边 = 主题 accent，关闭时追加覆盖规则隐藏）
+KEY_WINDOW_BORDER = "window_border"
 KEY_MODEL_BACKEND = "model_backend"
 KEY_MODEL_VERSIONS = "model_versions"
 #: 推理强度记忆表（2026-0806 计划）：接口实现名 → 用户显式选定的强度值
@@ -104,12 +107,14 @@ DEFAULT_TERMINAL_AI_TAB_CLOSE_DELAY_S = 12
 
 
 class AppSettings(TypedDict):
-    """settings.json 全量结构（17 个固定键，均为用户偏好）。"""
+    """settings.json 全量结构（18 个固定键，均为用户偏好）。"""
 
     theme: str                   # 主题名（ide/gui/theme.py 注册表键）
     font_size: int               # 全局 UI 字号（pt）
     #: 全局 UI 字体族（apply_theme 应用；目前固定自带思源黑体，登记供持久化一致）
     font_family: str
+    #: 主窗口 1px 主题色描边开关（默认开；关闭态由 theme.py 追加覆盖规则实现）
+    window_border: bool
     #: 聊天面板当前接口（registry 后端名）
     model_backend: str
     #: 模型记忆表（2026-0731-0052 计划 D1）：接口实现名 → 用户显式选定的
@@ -151,6 +156,7 @@ class AppSettingsPatch(TypedDict, total=False):
     theme: str
     font_size: int
     font_family: str
+    window_border: bool
     model_backend: str
     model_versions: dict[str, str]
     model_efforts: dict[str, str]
@@ -171,6 +177,7 @@ DEFAULT_SETTINGS: AppSettings = {
     KEY_THEME: DEFAULT_THEME,
     KEY_FONT_SIZE: 10,
     KEY_FONT_FAMILY: "Source Han Sans CN",
+    KEY_WINDOW_BORDER: True,
     KEY_MODEL_BACKEND: BACKEND_KIMI_ACP,
     KEY_MODEL_VERSIONS: {},
     KEY_MODEL_EFFORTS: {},

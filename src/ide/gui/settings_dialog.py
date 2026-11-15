@@ -80,6 +80,7 @@ from ide.gui.settings import (
     KEY_TERMINAL_AI_TAB_CLOSE_DELAY_S,
     KEY_TERMINAL_SWAP_COPY_PASTE,
     KEY_THEME,
+    KEY_WINDOW_BORDER,
     TERMINAL_AI_TAB_CLOSE_DELAY_MAX_S,
     TERMINAL_AI_TAB_CLOSE_DELAY_MIN_S,
     update_settings,
@@ -164,7 +165,7 @@ class SettingsDialog(QDialog):
     """设置中心：非模态单例（MainWindow 持有），页面注册表驱动导航。
 
     :param ctx: MainWindow（鸭子类型：apply_model_selection / switch_theme /
-        set_font_size / set_terminal_swap_copy_paste /
+        set_font_size / set_window_border / set_terminal_swap_copy_paste /
         set_terminal_ai_tab_close_delay /
         open_settings_file / reset_settings / chat_tabs / statusBar；
         FONT_SIZE_MIN/MAX/STATUS_MSG_TIMEOUT_MS 类常量）。
@@ -483,10 +484,23 @@ class SettingsDialog(QDialog):
         layout.addRow("主题", self._theme_combo)
         layout.addRow("字号", self._font_spin)
         layout.addRow("对话区渲染", renderer_field)
+        self._border_check = QCheckBox("主窗口 1px 主题色描边", page)
+        border_row = QHBoxLayout()
+        border_row.addWidget(self._border_check)
+        border_row.addStretch(1)
+        border_row.addWidget(self._make_hint_icon(
+            "主窗口四周的 1px 主题色轮廓边，切换后立即生效，无需重启。", page))
+        layout.addRow("主窗色边", border_row)
         self._theme_combo.activated.connect(self._on_theme_activated)
         self._font_spin.valueChanged.connect(self._on_font_changed)
         self._renderer_combo.activated.connect(self._on_renderer_activated)
+        self._border_check.toggled.connect(self._on_border_toggled)
         return page
+
+    def _on_border_toggled(self, checked: bool) -> None:
+        if not self._reloading:
+            # 持久化 + 热应用由 MainWindow.set_window_border 统一发，不重复
+            self._ctx.set_window_border(checked)
 
     def _on_renderer_activated(self, index: int) -> None:
         if not self._reloading:
@@ -684,12 +698,13 @@ class SettingsDialog(QDialog):
         radio.setChecked(True)
 
     def _reload_appearance(self, settings) -> None:
-        """外观页：主题 / 字号 / 对话区渲染轨回读。"""
+        """外观页：主题 / 字号 / 对话区渲染轨 / 主窗色边回读。"""
         theme_index = self._theme_combo.findData(settings[KEY_THEME])
         self._theme_combo.setCurrentIndex(max(theme_index, 0))
         self._font_spin.setValue(settings[KEY_FONT_SIZE])
         renderer_index = self._renderer_combo.findData(settings[KEY_CHAT_RENDERER])
         self._renderer_combo.setCurrentIndex(max(renderer_index, 0))
+        self._border_check.setChecked(settings[KEY_WINDOW_BORDER])
 
     def _reload_terminal(self, settings) -> None:
         self._swap_check.setChecked(settings[KEY_TERMINAL_SWAP_COPY_PASTE])

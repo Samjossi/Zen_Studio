@@ -38,12 +38,16 @@ def isolated_settings(monkeypatch):
     return settings_file
 
 
-def _make_dialog() -> SettingsDialog:
+def _make_dialog(border_calls: list | None = None) -> SettingsDialog:
     """桩 ctx 构建设置中心（同 test_notification 范式，chat_tabs=None 走降级守卫）。"""
 
     class _FakeBar:
         def showMessage(self, *a, **k):
             pass
+
+    def _record_window_border(checked):
+        if border_calls is not None:
+            border_calls.append(checked)
 
     ctx = QWidget()
     ctx.statusBar = lambda: _FakeBar()
@@ -54,6 +58,7 @@ def _make_dialog() -> SettingsDialog:
     ctx.apply_model_selection = lambda *a: None
     ctx.switch_theme = lambda *a: None
     ctx.set_font_size = lambda *a: None
+    ctx.set_window_border = _record_window_border
     ctx.set_terminal_swap_copy_paste = lambda *a: None
     ctx.set_chat_renderer = lambda *a: None
     ctx.open_settings_file = lambda: None
@@ -129,6 +134,30 @@ def test_tooltip_installer_idempotent(qapp):
     assert first is not None
     popups_mod.install_translucent_tooltips(qapp)
     assert popups_mod._tooltip_filter is first
+
+
+def test_window_border_checkbox_initial_state_follows_settings(qapp, isolated_settings):
+    """1600 计划：主窗色边复选框初始态跟随持久化值（默认开）。"""
+    dialog = _make_dialog()
+    dialog.reload()
+    assert dialog._border_check.isChecked()
+    isolated_settings.write_text(
+        json.dumps({"window_border": False}), encoding="utf-8")
+    dialog_off = _make_dialog()
+    dialog_off.reload()
+    assert not dialog_off._border_check.isChecked()
+
+
+def test_window_border_checkbox_toggles_ctx(qapp, isolated_settings):
+    """1600 计划：勾选变化经 _reloading 守卫后调 ctx.set_window_border。"""
+    calls: list = []
+    dialog = _make_dialog(border_calls=calls)
+    dialog.reload()
+    assert calls == []  # reload 回显被 _reloading 守卫抑制，不触发 ctx
+    dialog._border_check.setChecked(False)
+    assert calls == [False]
+    dialog._border_check.setChecked(True)
+    assert calls == [False, True]
 
 
 def test_retained_texts_simplified(qapp, isolated_settings):
