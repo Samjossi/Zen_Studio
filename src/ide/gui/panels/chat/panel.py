@@ -287,7 +287,7 @@ class ChatPanel(QWidget):
             terminal 能力，agent Bash 在其内部进程执行）
         """
         super().__init__(parent)
-        self.setObjectName("SidePanel")  # 侧栏灰底分区（主题 qss 统一着色）
+        self.setObjectName("SidePanel")  # 侧栏分区接线 qss 选择器；分区底色已取消（2026-1115-0442），透明随窗底
         # 自定义 QWidget 子类的 qss 背景需 WA_StyledBackground 才会绘制
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self._history: list[Message] = []

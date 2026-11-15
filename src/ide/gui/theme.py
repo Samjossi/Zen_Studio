@@ -132,8 +132,8 @@ class ChatPack(TypedDict):
 
 
 #: 标题栏配色包键（无边框自绘标题栏 TitleBar 专用，见 ide/gui/title_bar.py；
-#: 2026-0730-0043 计划决策点 D1 落 B 方案：A 方案复用 sidebar_bg 与 window_bg
-#: 色差 <2% 无区分度，故每主题一包四键。close_hover 为跨主题通用警示红
+#: 2026-0730-0043 计划决策点 D1 落 B 方案：A 方案复用现有背景令牌，其底色
+#: 与 window_bg 色差 <2% 无区分度，故每主题一包四键。close_hover 为跨主题通用警示红
 #: #c75450，入令牌便于后续微调——决策点 D4）
 class TitleBarPack(TypedDict):
     bg: str
@@ -154,7 +154,7 @@ WARNING_COLOR = "#c0392b"
 #: qss 令牌键集合（校验脚本据此剔除资源包键，双向比对模板占位符）
 QSS_TOKEN_KEYS = (
     "accent", "text", "muted_text",
-    "window_bg", "window_border", "sidebar_bg", "card_bg",
+    "window_bg", "window_border", "card_bg",
     "border", "border_hover", "input_bg", "combo_hover_bg",
     "popup_bg", "popup_border", "popup_separator", "menu_border",
     "list_item_hover",
@@ -204,7 +204,6 @@ THEME_PALETTES: dict[str, dict] = {
         "text": "#1d1d1f",
         "muted_text": "#86868b",
         "window_bg": "#ffffff",
-        "sidebar_bg": "#fafafb",
         "card_bg": "#ffffff",
         "border": "#d2d2d7",
         "border_hover": "#c0c0c5",
@@ -305,7 +304,6 @@ THEME_PALETTES: dict[str, dict] = {
         "text": "#463f33",
         "muted_text": "#9a8f7d",
         "window_bg": "#fffefd",
-        "sidebar_bg": "#fefdfb",
         "card_bg": "#ffffff",
         "border": "#ddd2c0",
         "border_hover": "#cbbca4",
@@ -406,7 +404,6 @@ THEME_PALETTES: dict[str, dict] = {
         "text": "#1e293b",
         "muted_text": "#7d8da0",
         "window_bg": "#fdfeff",
-        "sidebar_bg": "#fbfdfe",
         "card_bg": "#ffffff",
         "border": "#c6d9e6",
         "border_hover": "#adc9dc",
@@ -505,7 +502,6 @@ THEME_PALETTES: dict[str, dict] = {
         "text": "#20301f",
         "muted_text": "#7f9a84",
         "window_bg": "#fdfffd",
-        "sidebar_bg": "#fbfefb",
         "card_bg": "#ffffff",
         "border": "#c8dcc9",
         "border_hover": "#b2ceb4",

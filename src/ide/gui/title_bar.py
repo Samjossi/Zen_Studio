@@ -12,7 +12,7 @@
 配色（2026-07-30，文档/修改记录/2026-0730-0043 计划阶段一）：原固定深色四硬编码
 收编主题令牌体系——决策点 D1 落 B 方案，每主题 `title_bar` 令牌包
 （bg/text/hover/close_hover 四键，见 ide/gui/theme.py THEME_PALETTES）；
-A 方案（复用 sidebar_bg 等现有令牌）经核算 sidebar_bg 与 window_bg 色差 <2%，
+A 方案（复用现有背景令牌）经核算其底色与 window_bg 色差 <2%，
 四亮色主题下标题栏与菜单栏/内容区无区分度，否决。关闭 hover 红 #c75450
 跨主题通用，入令牌包便于后续微调（D4）。`apply_theme` 曾挂
 MainWindow.switch_theme 转发链即时联动（同 viewer_panel/settings_dialog 先例）——
