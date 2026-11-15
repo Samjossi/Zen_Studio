@@ -133,6 +133,13 @@ class MainWindow(QMainWindow):
     DEFAULT_SIZES_EDITOR = [550, 250]       # 中栏垂直：查看器 / 终端
     DEFAULT_SIZES_SIDEBAR = [340, 170]        # 右栏垂直：文件树 / 变更面板
 
+    #: 可视壳外层布局四边内边距 px（1600 计划 §12.2）：令全部子控件退离
+    #: #WindowShell 的 QSS 边框带——Qt 子控件绘制在父控件 QSS 边框之上，
+    #: 零边距时不透明底的 TitleBar 正好盖住顶边 1px 主题色描边（真机实证），
+    #: 四边各退 1px 后描边恒完整；1px 几何差不可感知。像素级回归守于
+    #: tests/test_window_border_mainwin.py（探针含不透明顶栏）
+    SHELL_OUTER_MARGIN_PX = 1
+
     #: 状态栏消息时长（ms）：常规操作反馈 / 轻量提示 / 需细读的说明
     STATUS_MSG_TIMEOUT_MS = 3000
     STATUS_MSG_SHORT_MS = 2000
@@ -314,7 +321,8 @@ class MainWindow(QMainWindow):
         # 防折叠：右栏文件树最小宽度由 FileExplorer.MIN_WIDTH 约束
         self._splitter_main.setCollapsible(2, False)
 
-        # 可视壳 #WindowShell：外层 vbox 零边距零间距，自上而下
+        # 可视壳 #WindowShell：外层 vbox 四边 1px 内边距（SHELL_OUTER_MARGIN_PX，
+        # 退离 QSS 边框带防不透明 TitleBar 盖边，见常量注释）零间距，自上而下
         # [TitleBar][QMenuBar][内容包装器][QStatusBar]。
         # 窗口级外边距（左/右各 12px——叠面板 6px 得 18px；上 6px——菜单栏定高截断
         # 镜像余量后，菜单栏底→卡片顶 = 6 + 面板 6 = 12px；底部 0——底部间距由状态栏
@@ -328,7 +336,8 @@ class MainWindow(QMainWindow):
         shell.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         outer = QVBoxLayout(shell)
         # 改动（文档/修改记录/2026-0730-0007 计划 T7）：原 (12, 6, 12, 0) 下沉至内容包装器
-        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setContentsMargins(self.SHELL_OUTER_MARGIN_PX, self.SHELL_OUTER_MARGIN_PX,
+                                 self.SHELL_OUTER_MARGIN_PX, self.SHELL_OUTER_MARGIN_PX)
         outer.setSpacing(0)
         # ---- 标题栏 + 菜单栏行（QMainWindow 无 API 在菜单槽之上插部件，
         # 菜单栏改显式创建 reparent 进可视壳，不再占用菜单槽；T8/T9 联动）----
