@@ -75,13 +75,16 @@ class TerminalPack(TypedDict):
     find_cur: str
 
 
-#: 查看器控件配色包键（行号/当前行/查找命中）
+#: 查看器控件配色包键（行号/当前行/查找命中 + md 行内代码底）
 class ChromePack(TypedDict):
     line_number_fg: str
     line_number_bg: str
     current_line_bg: str
     find_bg: str
     find_cur: str
+    #: md 行内代码/代码块/表头底（markdown_view 专用；不随 line_number_bg
+    #: 染色，避免行号栏主题色连带染色 md 代码底——D6 预解耦）
+    code_bg: str
 
 
 #: Git 状态色包键（状态枚举见 ide/core/git/status.py）
@@ -180,6 +183,12 @@ PACK_KEYS = ("label", "syntax", "terminal", "chrome", "git_status", "chat",
 #:   保留 #168396，终端 cyan/brightcyan 同理不动。
 #: - chat.usage_hot_fg/tool_error_fg 同引 WARNING_COLOR 单一来源；
 #:   timeline_read_fg 兼作正文文件路径链接色（1836 计划 L2-5 复用不新增键）。
+#: - 审美键与灰键跟随主题色相（非蓝共享色审美键适配计划）：语法
+#:   Namespace/Builtin/Function/Decorator/String/Number/Comment/Operator
+#:   按主题族适配，chrome 行号对、chat reasoning/tool_fg/气泡/输出底、
+#:   git_status ignored、git_graph hash_fg 冷暖跟随；语义/功能色（终端 16 色、
+#:   git 状态色、diff 红绿、徽标、Error 红）四主题同值不动；chrome code_bg
+#:   为 md 行内代码底专用键，四主题统一基线灰、不随行号栏染主题色。
 #:
 #: 主题注册表：键 = 主题名；label = 菜单显示名；其余为 qss 令牌 + 六资源包。
 #: 新增主题 = 加一行字典（六包逐值手写）。
@@ -223,20 +232,20 @@ THEME_PALETTES: dict[str, dict] = {
         },
         "syntax": {
             Token.Keyword: {"color": "#0a5cc4", "bold": True},
-            Token.Keyword.Namespace: {"color": "#7A3DB8", "bold": True},
-            Token.Name.Builtin: {"color": "#7A3DB8"},
+            Token.Keyword.Namespace: {"color": "#7a3db8", "bold": True},
+            Token.Name.Builtin: {"color": "#7a3db8"},
             Token.Name.Function: {"color": "#803080"},
             Token.Name.Class: {"color": "#4a8ad4", "bold": True},
             Token.Name.Decorator: {"color": "#806000"},
-            Token.String: {"color": "#007A1C"},
-            Token.Number: {"color": "#A0522D"},
+            Token.String: {"color": "#007a1c"},
+            Token.Number: {"color": "#a0522d"},
             Token.Comment: {"color": "#888888", "italic": True},
             Token.Operator: {"color": "#333333"},
             Token.Generic.Heading: {"color": "#4a8ad4", "bold": True},
             Token.Generic.Subheading: {"color": "#4a8ad4", "bold": True},
             Token.Generic.Strong: {"bold": True},
             Token.Generic.Emph: {"italic": True},
-            Token.Error: {"color": "#CC0000"},
+            Token.Error: {"color": "#cc0000"},
         },
         "terminal": {
             "default_fg": "#1a1a1a", "default_bg": "#ffffff",
@@ -253,6 +262,7 @@ THEME_PALETTES: dict[str, dict] = {
             "line_number_fg": "#999999", "line_number_bg": "#f5f5f5",
             "current_line_bg": "#eaf1fb",
             "find_bg": "#fff3bf", "find_cur": "#ffd43b",
+            "code_bg": "#f5f5f5",
         },
         "git_status": {
             "modified": "#0765d4",   # accent 同族蓝（去共享化归位）
@@ -323,20 +333,20 @@ THEME_PALETTES: dict[str, dict] = {
         },
         "syntax": {
             Token.Keyword: {"color": "#9a5410", "bold": True},
-            Token.Keyword.Namespace: {"color": "#7A3DB8", "bold": True},
-            Token.Name.Builtin: {"color": "#7A3DB8"},
-            Token.Name.Function: {"color": "#803080"},
+            Token.Keyword.Namespace: {"color": "#8a4b8f", "bold": True},
+            Token.Name.Builtin: {"color": "#8a4b8f"},
+            Token.Name.Function: {"color": "#9c4a6e"},
             Token.Name.Class: {"color": "#b5772a", "bold": True},
-            Token.Name.Decorator: {"color": "#806000"},
-            Token.String: {"color": "#007A1C"},
-            Token.Number: {"color": "#A0522D"},
-            Token.Comment: {"color": "#888888", "italic": True},
-            Token.Operator: {"color": "#333333"},
+            Token.Name.Decorator: {"color": "#8a6a1a"},
+            Token.String: {"color": "#5c7a1e"},
+            Token.Number: {"color": "#96521f"},
+            Token.Comment: {"color": "#8c8578", "italic": True},
+            Token.Operator: {"color": "#3a352c"},
             Token.Generic.Heading: {"color": "#b5772a", "bold": True},
             Token.Generic.Subheading: {"color": "#b5772a", "bold": True},
             Token.Generic.Strong: {"bold": True},
             Token.Generic.Emph: {"italic": True},
-            Token.Error: {"color": "#CC0000"},
+            Token.Error: {"color": "#cc0000"},
         },
         "terminal": {
             "default_fg": "#1a1a1a", "default_bg": "#ffffff",
@@ -352,27 +362,28 @@ THEME_PALETTES: dict[str, dict] = {
             "find_bg": "#37ffdc64", "find_cur": "#6effb400",
         },
         "chrome": {
-            "line_number_fg": "#999999", "line_number_bg": "#f5f5f5",
+            "line_number_fg": "#9a938a", "line_number_bg": "#f5f1e9",
             "current_line_bg": "#f8f0e4",
             "find_bg": "#fff3bf", "find_cur": "#ffd43b",
+            "code_bg": "#f5f5f5",
         },
         "git_status": {
             "modified": "#b85e14",   # accent 同族橙（去共享化归位，🟡 走查重点）
             "untracked": "#1f8a3d",  # 绿
             "deleted": "#c0392b",    # 红
-            "ignored": "#a8a8a8",    # 灰
+            "ignored": "#a8a194",    # 灰（暖族跟随）
             "conflict": "#d40000",   # 强红
         },
         "chat": {
-            "reasoning_fg": "#888888",
+            "reasoning_fg": "#8c8578",
             "usage_hot_fg": WARNING_COLOR,
-            "tool_fg": "#6f6f6f",
+            "tool_fg": "#6e685c",
             "tool_error_fg": WARNING_COLOR,
             "timeline_read_fg": "#b85e14",
             "timeline_write_fg": "#d08a3e",
             "timeline_tool_fg": "#168396",
-            "user_bubble_bg": "#ededf0",
-            "tool_output_bg": "#f5f5f7",
+            "user_bubble_bg": "#f0ebe0",
+            "tool_output_bg": "#f7f4ec",
             "diff_add_fg": "#3a8437",
             "diff_del_fg": "#ed4831",
             "diff_add_bg": "#e6ffec",
@@ -385,7 +396,7 @@ THEME_PALETTES: dict[str, dict] = {
             "branch": "#1f8a3d",   # 绿（本地分支）
             "tag": "#a05000",      # 棕橙（标签）
             "remote": "#168396",   # 青（远程分支，D1：青非蓝保留）
-            "hash_fg": "#767676",  # 灰（短 hash 弱化）
+            "hash_fg": "#7a746a",  # 灰（短 hash 弱化，暖族跟随）
         },
     },
     "sky": {
@@ -423,20 +434,20 @@ THEME_PALETTES: dict[str, dict] = {
         },
         "syntax": {
             Token.Keyword: {"color": "#0369a1", "bold": True},
-            Token.Keyword.Namespace: {"color": "#7A3DB8", "bold": True},
-            Token.Name.Builtin: {"color": "#7A3DB8"},
-            Token.Name.Function: {"color": "#803080"},
+            Token.Keyword.Namespace: {"color": "#7448b0", "bold": True},
+            Token.Name.Builtin: {"color": "#7448b0"},
+            Token.Name.Function: {"color": "#7a3a8c"},
             Token.Name.Class: {"color": "#3f96c8", "bold": True},
-            Token.Name.Decorator: {"color": "#806000"},
-            Token.String: {"color": "#007A1C"},
-            Token.Number: {"color": "#A0522D"},
-            Token.Comment: {"color": "#888888", "italic": True},
-            Token.Operator: {"color": "#333333"},
+            Token.Name.Decorator: {"color": "#7a6a1e"},
+            Token.String: {"color": "#0b7a30"},
+            Token.Number: {"color": "#96683c"},
+            Token.Comment: {"color": "#7a8794", "italic": True},
+            Token.Operator: {"color": "#333a42"},
             Token.Generic.Heading: {"color": "#3f96c8", "bold": True},
             Token.Generic.Subheading: {"color": "#3f96c8", "bold": True},
             Token.Generic.Strong: {"bold": True},
             Token.Generic.Emph: {"italic": True},
-            Token.Error: {"color": "#CC0000"},
+            Token.Error: {"color": "#cc0000"},
         },
         "terminal": {
             "default_fg": "#1a1a1a", "default_bg": "#ffffff",
@@ -450,27 +461,28 @@ THEME_PALETTES: dict[str, dict] = {
             "find_bg": "#37ffdc64", "find_cur": "#6effb400",
         },
         "chrome": {
-            "line_number_fg": "#999999", "line_number_bg": "#f5f5f5",
+            "line_number_fg": "#8a96a2", "line_number_bg": "#eff4f8",
             "current_line_bg": "#e6f3fa",
             "find_bg": "#fff3bf", "find_cur": "#ffd43b",
+            "code_bg": "#f5f5f5",
         },
         "git_status": {
             "modified": "#0284c7",   # accent 同族蓝（去共享化归位）
             "untracked": "#1f8a3d",  # 绿
             "deleted": "#c0392b",    # 红
-            "ignored": "#a8a8a8",    # 灰
+            "ignored": "#98a2ac",    # 灰（冷族蓝灰跟随）
             "conflict": "#d40000",   # 强红
         },
         "chat": {
-            "reasoning_fg": "#888888",
+            "reasoning_fg": "#7a8794",
             "usage_hot_fg": WARNING_COLOR,
-            "tool_fg": "#6f6f6f",
+            "tool_fg": "#5e6b78",
             "tool_error_fg": WARNING_COLOR,
             "timeline_read_fg": "#0284c7",
             "timeline_write_fg": "#38bdf8",
             "timeline_tool_fg": "#168396",
-            "user_bubble_bg": "#ededf0",
-            "tool_output_bg": "#f5f5f7",
+            "user_bubble_bg": "#e8eef4",
+            "tool_output_bg": "#f0f5f9",
             "diff_add_fg": "#3a8437",
             "diff_del_fg": "#ed4831",
             "diff_add_bg": "#e6ffec",
@@ -483,7 +495,7 @@ THEME_PALETTES: dict[str, dict] = {
             "branch": "#1f8a3d",   # 绿（本地分支）
             "tag": "#a05000",      # 棕橙（标签）
             "remote": "#168396",   # 青（远程分支，D1：青非蓝保留）
-            "hash_fg": "#767676",  # 灰（短 hash 弱化）
+            "hash_fg": "#68727d",  # 灰（短 hash 弱化，冷族蓝灰跟随）
         },
     },
     "mint": {
@@ -521,20 +533,20 @@ THEME_PALETTES: dict[str, dict] = {
         },
         "syntax": {
             Token.Keyword: {"color": "#0f6e3f", "bold": True},
-            Token.Keyword.Namespace: {"color": "#7A3DB8", "bold": True},
-            Token.Name.Builtin: {"color": "#7A3DB8"},
-            Token.Name.Function: {"color": "#803080"},
+            Token.Keyword.Namespace: {"color": "#7440a8", "bold": True},
+            Token.Name.Builtin: {"color": "#7440a8"},
+            Token.Name.Function: {"color": "#7e3a78"},
             Token.Name.Class: {"color": "#3d9060", "bold": True},
-            Token.Name.Decorator: {"color": "#806000"},
-            Token.String: {"color": "#007A1C"},
-            Token.Number: {"color": "#A0522D"},
-            Token.Comment: {"color": "#888888", "italic": True},
-            Token.Operator: {"color": "#333333"},
+            Token.Name.Decorator: {"color": "#6e6a1a"},
+            Token.String: {"color": "#0b7a38"},
+            Token.Number: {"color": "#96683c"},
+            Token.Comment: {"color": "#7a8a7b", "italic": True},
+            Token.Operator: {"color": "#333833"},
             Token.Generic.Heading: {"color": "#3d9060", "bold": True},
             Token.Generic.Subheading: {"color": "#3d9060", "bold": True},
             Token.Generic.Strong: {"bold": True},
             Token.Generic.Emph: {"italic": True},
-            Token.Error: {"color": "#CC0000"},
+            Token.Error: {"color": "#cc0000"},
         },
         "terminal": {
             "default_fg": "#1a1a1a", "default_bg": "#ffffff",
@@ -551,27 +563,28 @@ THEME_PALETTES: dict[str, dict] = {
             "find_bg": "#37ffdc64", "find_cur": "#6effb400",
         },
         "chrome": {
-            "line_number_fg": "#999999", "line_number_bg": "#f5f5f5",
+            "line_number_fg": "#8c9a8e", "line_number_bg": "#eff5f0",
             "current_line_bg": "#e9f4ec",
             "find_bg": "#fff3bf", "find_cur": "#ffd43b",
+            "code_bg": "#f5f5f5",
         },
         "git_status": {
             "modified": "#0f6e3f",   # accent 同族深绿（去共享化归位，🟡 走查重点）
             "untracked": "#1f8a3d",  # 绿（中绿档，与 modified 深绿靠明度区分）
             "deleted": "#c0392b",    # 红
-            "ignored": "#a8a8a8",    # 灰
+            "ignored": "#9aa89c",    # 灰（绿族跟随）
             "conflict": "#d40000",   # 强红
         },
         "chat": {
-            "reasoning_fg": "#888888",
+            "reasoning_fg": "#7a8a7b",
             "usage_hot_fg": WARNING_COLOR,
-            "tool_fg": "#6f6f6f",
+            "tool_fg": "#5e6e60",
             "tool_error_fg": WARNING_COLOR,
             "timeline_read_fg": "#15803d",
             "timeline_write_fg": "#3fa96b",
             "timeline_tool_fg": "#168396",
-            "user_bubble_bg": "#ededf0",
-            "tool_output_bg": "#f5f5f7",
+            "user_bubble_bg": "#e6f0e8",
+            "tool_output_bg": "#f0f6f1",
             "diff_add_fg": "#3a8437",
             "diff_del_fg": "#ed4831",
             "diff_add_bg": "#e6ffec",
@@ -584,7 +597,7 @@ THEME_PALETTES: dict[str, dict] = {
             "branch": "#1f8a3d",   # 绿（本地分支）
             "tag": "#a05000",      # 棕橙（标签）
             "remote": "#168396",   # 青（远程分支，D1：青非蓝保留）
-            "hash_fg": "#767676",  # 灰（短 hash 弱化）
+            "hash_fg": "#68736b",  # 灰（短 hash 弱化，绿族跟随）
         },
     },
 }

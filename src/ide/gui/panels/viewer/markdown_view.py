@@ -211,7 +211,7 @@ class MarkdownView(QTextBrowser):
     # 主题与字号
     # ------------------------------------------------------------------
     def apply_theme(self, palette: dict) -> None:
-        """切换主题：重建文档默认样式表（色值取调色板现有令牌派生，不新增令牌）。"""
+        """切换主题：重建文档默认样式表（色值取调色板令牌）。"""
         self.document().setDefaultStyleSheet(self._build_stylesheet(palette))
         self._selection_color = QColor(palette["accent"])  # 自绘选区带色源
         self.viewport().update()
@@ -221,13 +221,15 @@ class MarkdownView(QTextBrowser):
         """md 各元素排版样式：Qt 富文本 CSS 子集内重建（2026-0811-0402 计划 D4）。
 
         标题字号阶梯用相对关键字（不做动态 pt 计算）；表格/代码块/引用着色
-        全部沿用现有调色板令牌派生，不新增令牌；代码块不做语法着色。
+        沿用现有调色板令牌；code_bg 为行内代码/代码块/表头底专用键——
+        不借用 line_number_bg，否则行号栏随主题染色会连带染色 md 代码底。
+        代码块不做语法着色。
         """
         text = palette["text"]
         muted = palette["muted_text"]
         accent = palette["accent"]
         border = palette["border"]
-        code_bg = palette["chrome"]["line_number_bg"]  # 代码块底借用行号栏底色令牌
+        code_bg = palette["chrome"]["code_bg"]
         return f"""
             body {{ color: {text}; }}
             a {{ color: {accent}; text-decoration: none; }}

@@ -1,9 +1,11 @@
-"""主题注册表、每主题资源包（去共享化）与旧配置回退回归。"""
+"""主题注册表、每主题资源包（去共享化 + 审美键/灰键主题适配）与旧配置回退回归。"""
 import json
+import re
 from pathlib import Path
 
 import pytest
 from pygments.token import Token
+from PySide6.QtGui import QColor
 
 import ide.gui.settings as settings_mod
 from ide.gui import theme as theme_mod
@@ -44,26 +46,28 @@ _PACK_KEY_SETS = {
     "git_graph": frozenset(GitGraphPack.__annotations__),
 }
 
-#: 旧共享六包基线（去共享化前的模块级常量值）：非蓝键逐值保留断言的数据
+#: 旧共享六包基线（去共享化前的模块级常量值）：维持键逐值保留断言的数据
 #: 来源。蓝键（_BLUE_KEYS）的旧值（如 modified 天蓝 #1e88e5）不参与相等
 #: 断言——绝迹性由 test_old_shared_blue_values_absent_everywhere 守护。
+#: Namespace/String/Number/Error 四处大写值已按现行包值归一小写（同色同值，
+#: 大写使「包值 in html」型断言假阴性）。
 _BASELINE_PACKS = {
     "syntax": {
         Token.Keyword: {"color": "#0000AF", "bold": True},
-        Token.Keyword.Namespace: {"color": "#7A3DB8", "bold": True},
-        Token.Name.Builtin: {"color": "#7A3DB8"},
+        Token.Keyword.Namespace: {"color": "#7a3db8", "bold": True},
+        Token.Name.Builtin: {"color": "#7a3db8"},
         Token.Name.Function: {"color": "#803080"},
         Token.Name.Class: {"color": "#2050A0", "bold": True},
         Token.Name.Decorator: {"color": "#806000"},
-        Token.String: {"color": "#007A1C"},
-        Token.Number: {"color": "#A0522D"},
+        Token.String: {"color": "#007a1c"},
+        Token.Number: {"color": "#a0522d"},
         Token.Comment: {"color": "#888888", "italic": True},
         Token.Operator: {"color": "#333333"},
         Token.Generic.Heading: {"color": "#2050A0", "bold": True},
         Token.Generic.Subheading: {"color": "#2050A0", "bold": True},
         Token.Generic.Strong: {"bold": True},
         Token.Generic.Emph: {"italic": True},
-        Token.Error: {"color": "#CC0000"},
+        Token.Error: {"color": "#cc0000"},
     },
     "terminal": {
         "default_fg": "#1a1a1a", "default_bg": "#ffffff",
@@ -130,6 +134,113 @@ _BLUE_KEYS = {
     }),
     "git_graph": frozenset(),
 }
+
+#: 维持键集合（选项 3 口径：语义/功能色四主题互相同值且等于旧共享基线）：
+#: terminal 非蓝全槽、chrome find_* 黄系查找色、git_status 三状态色、
+#: git_graph 徽标四色、chat diff_* 四键与 timeline_tool_fg / usage_hot_fg /
+#: tool_error_fg、syntax Error 红与 Generic.Strong/Emph（无颜色属性）
+_MAINTAINED_KEYS = {
+    "syntax": frozenset({
+        Token.Generic.Strong, Token.Generic.Emph, Token.Error,
+    }),
+    "terminal": frozenset(TerminalPack.__annotations__) - {"blue", "brightblue"},
+    "chrome": frozenset({"find_bg", "find_cur"}),
+    "git_status": frozenset({"untracked", "deleted", "conflict"}),
+    "chat": frozenset({
+        "diff_add_fg", "diff_del_fg", "diff_add_bg", "diff_del_bg",
+        "timeline_tool_fg", "usage_hot_fg", "tool_error_fg",
+    }),
+    "git_graph": frozenset({"head", "branch", "tag", "remote"}),
+}
+
+#: §5.1/§5.2 终值表（非蓝共享色审美键适配计划；cloud 行 = 旧共享基线，
+#: D1 拍板锚定不动）：语法七枚审美键 + chrome 行号对/code_bg + chat 四灰键
+#: + git_status ignored + git_graph hash_fg。sky/mint 的 Comment/reasoning_fg
+# 与 sky hash_fg 为对比度地板同族压暗微调（实施记录走查节）。
+_THEME_ADAPTED = {
+    "cloud": {
+        ("syntax", Token.Keyword.Namespace): "#7a3db8",
+        ("syntax", Token.Name.Builtin): "#7a3db8",
+        ("syntax", Token.Name.Function): "#803080",
+        ("syntax", Token.Name.Decorator): "#806000",
+        ("syntax", Token.String): "#007a1c",
+        ("syntax", Token.Number): "#a0522d",
+        ("syntax", Token.Comment): "#888888",
+        ("syntax", Token.Operator): "#333333",
+        ("chrome", "line_number_fg"): "#999999",
+        ("chrome", "line_number_bg"): "#f5f5f5",
+        ("chrome", "code_bg"): "#f5f5f5",
+        ("chat", "reasoning_fg"): "#888888",
+        ("chat", "tool_fg"): "#6f6f6f",
+        ("chat", "user_bubble_bg"): "#ededf0",
+        ("chat", "tool_output_bg"): "#f5f5f7",
+        ("git_status", "ignored"): "#a8a8a8",
+        ("git_graph", "hash_fg"): "#767676",
+    },
+    "wheat": {
+        ("syntax", Token.Keyword.Namespace): "#8a4b8f",
+        ("syntax", Token.Name.Builtin): "#8a4b8f",
+        ("syntax", Token.Name.Function): "#9c4a6e",
+        ("syntax", Token.Name.Decorator): "#8a6a1a",
+        ("syntax", Token.String): "#5c7a1e",
+        ("syntax", Token.Number): "#96521f",
+        ("syntax", Token.Comment): "#8c8578",
+        ("syntax", Token.Operator): "#3a352c",
+        ("chrome", "line_number_fg"): "#9a938a",
+        ("chrome", "line_number_bg"): "#f5f1e9",
+        ("chrome", "code_bg"): "#f5f5f5",
+        ("chat", "reasoning_fg"): "#8c8578",
+        ("chat", "tool_fg"): "#6e685c",
+        ("chat", "user_bubble_bg"): "#f0ebe0",
+        ("chat", "tool_output_bg"): "#f7f4ec",
+        ("git_status", "ignored"): "#a8a194",
+        ("git_graph", "hash_fg"): "#7a746a",
+    },
+    "sky": {
+        ("syntax", Token.Keyword.Namespace): "#7448b0",
+        ("syntax", Token.Name.Builtin): "#7448b0",
+        ("syntax", Token.Name.Function): "#7a3a8c",
+        ("syntax", Token.Name.Decorator): "#7a6a1e",
+        ("syntax", Token.String): "#0b7a30",
+        ("syntax", Token.Number): "#96683c",
+        ("syntax", Token.Comment): "#7a8794",
+        ("syntax", Token.Operator): "#333a42",
+        ("chrome", "line_number_fg"): "#8a96a2",
+        ("chrome", "line_number_bg"): "#eff4f8",
+        ("chrome", "code_bg"): "#f5f5f5",
+        ("chat", "reasoning_fg"): "#7a8794",
+        ("chat", "tool_fg"): "#5e6b78",
+        ("chat", "user_bubble_bg"): "#e8eef4",
+        ("chat", "tool_output_bg"): "#f0f5f9",
+        ("git_status", "ignored"): "#98a2ac",
+        ("git_graph", "hash_fg"): "#68727d",
+    },
+    "mint": {
+        ("syntax", Token.Keyword.Namespace): "#7440a8",
+        ("syntax", Token.Name.Builtin): "#7440a8",
+        ("syntax", Token.Name.Function): "#7e3a78",
+        ("syntax", Token.Name.Decorator): "#6e6a1a",
+        ("syntax", Token.String): "#0b7a38",
+        ("syntax", Token.Number): "#96683c",
+        ("syntax", Token.Comment): "#7a8a7b",
+        ("syntax", Token.Operator): "#333833",
+        ("chrome", "line_number_fg"): "#8c9a8e",
+        ("chrome", "line_number_bg"): "#eff5f0",
+        ("chrome", "code_bg"): "#f5f5f5",
+        ("chat", "reasoning_fg"): "#7a8a7b",
+        ("chat", "tool_fg"): "#5e6e60",
+        ("chat", "user_bubble_bg"): "#e6f0e8",
+        ("chat", "tool_output_bg"): "#f0f6f1",
+        ("git_status", "ignored"): "#9aa89c",
+        ("git_graph", "hash_fg"): "#68736b",
+    },
+}
+
+#: 正文级文字键（§5.3 在 #ffffff 底上对比度 ≥ 4.5）：语法七键 + chat tool_fg
+_BODY_TEXT_TOKENS = (
+    Token.Keyword.Namespace, Token.Name.Builtin, Token.Name.Function,
+    Token.Name.Decorator, Token.String, Token.Number, Token.Operator,
+)
 
 #: §5.3 终值表（含表外三键：Name.Class/Generic.Heading/Generic.Subheading
 #: 取本主题 Keyword 同族较浅档，渲染走查定稿后锁定于此）
@@ -224,6 +335,43 @@ def _pack_color_values(theme: str) -> set[str]:
     return values
 
 
+def _pack_color_values_raw(theme: str) -> set[str]:
+    """某主题六包内全部色值字符串（原始大小写，大写扫描断言专用）。"""
+    palette = get_theme_palette(theme)
+    values: set[str] = set()
+    for pack_name in _SIX_PACKS:
+        for value in palette[pack_name].values():
+            if isinstance(value, str):
+                values.add(value)
+            elif isinstance(value, dict):
+                values.update(v for v in value.values() if isinstance(v, str))
+    return values
+
+
+def _pack_color(theme: str, pack_name: str, key) -> str:
+    """取包内某键色值（syntax 包剥 color 字段），对比度断言专用。"""
+    value = get_theme_palette(theme)[pack_name][key]
+    return value["color"] if pack_name == "syntax" else value
+
+
+def _luminance(hex_color: str) -> float:
+    """WCAG 相对亮度（sRGB 线性化），QColor 取通道值。"""
+    def linearize(channel: float) -> float:
+        return (channel / 12.92 if channel <= 0.04045
+                else ((channel + 0.055) / 1.055) ** 2.4)
+
+    color = QColor(hex_color)
+    return (0.2126 * linearize(color.redF())
+            + 0.7152 * linearize(color.greenF())
+            + 0.0722 * linearize(color.blueF()))
+
+
+def _contrast_ratio(fg: str, bg: str) -> float:
+    """WCAG 对比度 = (L1 + 0.05) / (L2 + 0.05)，L1 ≥ L2。"""
+    l1, l2 = sorted((_luminance(fg), _luminance(bg)), reverse=True)
+    return (l1 + 0.05) / (l2 + 0.05)
+
+
 @pytest.fixture()
 def isolated_settings(monkeypatch):
     _TEMP_DIR.mkdir(parents=True, exist_ok=True)
@@ -270,21 +418,35 @@ def test_every_theme_has_all_six_packs_with_schema_keys():
                 f"{name}/{pack_name} 键集合与包 schema 不一致"
 
 
-def test_non_blue_pack_values_match_old_shared_baseline():
-    """非蓝键值与旧共享基线逐值相等（去共享化只动蓝键的纪律守护；
-    唯一例外 wheat brown/brightbrown 明度微调——决策点 D2 拍板口子，
-    由 test_wheat_brown_overrides 单独锁定）。"""
+def test_pack_keys_partition_maintained_adapted_blue():
+    """基线拆分漏键的结构性拦截：每包「维持 ∪ 适配 ∪ 蓝 = 全键」且两两不相交
+    （适配键集合取四主题行的公共键集——各行键集一致由适配表测试守护）。"""
+    for pack_name in _SIX_PACKS:
+        adapted = frozenset(
+            key for (p, key) in _THEME_ADAPTED["cloud"] if p == pack_name)
+        maintained = _MAINTAINED_KEYS[pack_name]
+        blue = _BLUE_KEYS[pack_name]
+        union = maintained | adapted | blue
+        assert union == _PACK_KEY_SETS[pack_name], \
+            f"{pack_name} 维持/适配/蓝三集合并 ≠ 包 schema 全键"
+        assert len(union) == len(maintained) + len(adapted) + len(blue), \
+            f"{pack_name} 维持/适配/蓝三集合存在交集"
+
+
+def test_maintained_keys_match_old_shared_baseline():
+    """选项 3 口径守护：语义/功能色四主题互相同值且等于旧共享基线
+    （terminal 非蓝全槽、chrome find_* 黄系、git_status 三状态色、
+    git_graph 徽标四色、chat diff_*/timeline_tool_fg/usage_hot_fg/
+    tool_error_fg、syntax Error 红与 Generic.Strong/Emph）。"""
     for name in _LIGHT_THEMES:
         palette = get_theme_palette(name)
         for pack_name in _SIX_PACKS:
             baseline = _BASELINE_PACKS[pack_name]
-            for key, expected in baseline.items():
-                if key in _BLUE_KEYS[pack_name]:
-                    continue
+            for key in _MAINTAINED_KEYS[pack_name]:
                 if key in _WHEAT_BROWN_OVERRIDES.get(pack_name, {}):
-                    continue
-                assert palette[pack_name][key] == expected, \
-                    f"{name}/{pack_name}/{key} 非蓝键偏离旧共享基线"
+                    continue  # D2 拍板口子，由 test_wheat_brown_overrides 单独锁定
+                assert palette[pack_name][key] == baseline[key], \
+                    f"{name}/{pack_name}/{key} 维持键偏离旧共享基线"
 
 
 def test_wheat_brown_overrides():
@@ -294,6 +456,69 @@ def test_wheat_brown_overrides():
         for key, expected in overrides.items():
             assert palette[pack_name][key] == expected, \
                 f"wheat/{pack_name}/{key} 与 D2 微调值不符"
+
+
+def test_adapted_keys_match_theme_table():
+    """§5.1/§5.2 终值表锁定：语法七审美键 + 八灰键 + code_bg 逐主题适配
+    （cloud 行 = 旧基线锚定，D1）；四主题行键集一致（拆分漏键守护）。"""
+    for name in _LIGHT_THEMES:
+        assert set(_THEME_ADAPTED[name]) == set(_THEME_ADAPTED["cloud"]), \
+            f"{name} 适配表键集与 cloud 行不一致"
+        palette = get_theme_palette(name)
+        for (pack_name, key), expected in _THEME_ADAPTED[name].items():
+            actual = palette[pack_name][key]
+            if pack_name == "syntax":
+                actual = actual["color"]
+            assert actual == expected, \
+                f"{name}/{pack_name}/{key} 适配值与 §5.1/§5.2 表不符"
+
+
+def test_adapted_key_contrast_floors():
+    """§5.3 机器断言（QColor 相对亮度公式逐主题计算，不依赖目检）：
+    正文级键白底 ≥ 4.5；弱层级键不弱于 cloud 现状对比度——D1 锚定 cloud
+    不动，而行号对与 ignored 的现状对比度（2.61/2.38）本身低于 3.0，
+    统一以 cloud 同键同底对比度为地板；行号对按各自底成对校验。"""
+    cloud = get_theme_palette("cloud")
+    weak_floors = {
+        ("syntax", Token.Comment): _contrast_ratio(
+            cloud["syntax"][Token.Comment]["color"], "#ffffff"),
+        ("chat", "reasoning_fg"): _contrast_ratio(
+            cloud["chat"]["reasoning_fg"], "#ffffff"),
+        ("git_graph", "hash_fg"): _contrast_ratio(
+            cloud["git_graph"]["hash_fg"], "#ffffff"),
+        ("git_status", "ignored"): _contrast_ratio(
+            cloud["git_status"]["ignored"], "#ffffff"),
+    }
+    pair_floor = _contrast_ratio(cloud["chrome"]["line_number_fg"],
+                                 cloud["chrome"]["line_number_bg"])
+    for name in _LIGHT_THEMES:
+        palette = get_theme_palette(name)
+        for token in _BODY_TEXT_TOKENS:
+            fg = palette["syntax"][token]["color"]
+            assert _contrast_ratio(fg, "#ffffff") >= 4.5, \
+                f"{name}/syntax/{token} 白底对比度低于 4.5"
+        assert _contrast_ratio(palette["chat"]["tool_fg"], "#ffffff") >= 4.5, \
+            f"{name}/chat/tool_fg 白底对比度低于 4.5"
+        for (pack_name, key), floor in weak_floors.items():
+            fg = _pack_color(name, pack_name, key)
+            assert _contrast_ratio(fg, "#ffffff") >= floor - 1e-9, \
+                f"{name}/{pack_name}/{key} 白底对比度弱于 cloud 现状"
+        pair = _contrast_ratio(palette["chrome"]["line_number_fg"],
+                               palette["chrome"]["line_number_bg"])
+        assert pair >= pair_floor - 1e-9, \
+            f"{name}/chrome 行号对对比度弱于 cloud 现状"
+
+
+def test_no_uppercase_hex_in_pack_values():
+    """全包色值小写扫描：Qt HTML 导出色值归一小写，大写使「包值 in html」
+    型断言假阴性（姊妹项目经验）；旧大写基线值（#7A3DB8/#007A1C/#A0522D/
+    #CC0000）已随本次适配归一小写。"""
+    hex_color = re.compile(r"^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$")
+    for name in _LIGHT_THEMES:
+        for value in _pack_color_values_raw(name):
+            if hex_color.match(value):
+                assert value == value.lower(), \
+                    f"{name} 六包色值含大写十六进制: {value}"
 
 
 def test_blue_keys_match_theme_table():
