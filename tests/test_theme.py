@@ -267,7 +267,7 @@ _EXPECTED_BLUE_VALUES = {
         ("terminal", "blue"): "#8c5a10",
         ("terminal", "brightblue"): "#c07818",
         ("chrome", "current_line_bg"): "#f8f0e4",
-        ("git_status", "modified"): "#b85e14",
+        ("git_status", "modified"): "#406da0",
         ("chat", "timeline_read_fg"): "#b85e14",
         ("chat", "timeline_write_fg"): "#d08a3e",
         ("chat", "diff_hunk_fg"): "#9a5410",
@@ -281,7 +281,7 @@ _EXPECTED_BLUE_VALUES = {
         ("terminal", "blue"): "#0369a1",
         ("terminal", "brightblue"): "#0ea5e9",
         ("chrome", "current_line_bg"): "#e6f3fa",
-        ("git_status", "modified"): "#0284c7",
+        ("git_status", "modified"): "#0369a1",
         ("chat", "timeline_read_fg"): "#0284c7",
         ("chat", "timeline_write_fg"): "#38bdf8",
         ("chat", "diff_hunk_fg"): "#0369a1",
@@ -295,7 +295,7 @@ _EXPECTED_BLUE_VALUES = {
         ("terminal", "blue"): "#0e5f53",
         ("terminal", "brightblue"): "#1fad8a",
         ("chrome", "current_line_bg"): "#e9f4ec",
-        ("git_status", "modified"): "#0f6e3f",
+        ("git_status", "modified"): "#0765d4",
         ("chat", "timeline_read_fg"): "#15803d",
         ("chat", "timeline_write_fg"): "#3fa96b",
         ("chat", "diff_hunk_fg"): "#0f6e3f",
@@ -370,6 +370,11 @@ def _contrast_ratio(fg: str, bg: str) -> float:
     """WCAG 对比度 = (L1 + 0.05) / (L2 + 0.05)，L1 ≥ L2。"""
     l1, l2 = sorted((_luminance(fg), _luminance(bg)), reverse=True)
     return (l1 + 0.05) / (l2 + 0.05)
+
+
+def _hue_degrees(hex_color: str) -> float:
+    """色相角（度）。无彩色相 QColor 返回 -360.0，天然落在族区间断言外。"""
+    return QColor(hex_color).hueF() * 360.0
 
 
 @pytest.fixture()
@@ -523,7 +528,8 @@ def test_no_uppercase_hex_in_pack_values():
 
 def test_blue_keys_match_theme_table():
     """§5.3 终值表锁定：蓝键按各主题 accent 同族归位（cloud/sky 蓝族、
-    wheat 橙族、mint 绿族），含表外三键的 Keyword 同族较浅档。"""
+    wheat 橙族、mint 绿族），含表外三键的 Keyword 同族较浅档；唯一例外
+    git_status.modified 按语义族铁律四主题恒蓝族（1311 §5.1 终值表）。"""
     for name in _LIGHT_THEMES:
         palette = get_theme_palette(name)
         for (pack_name, key), expected in _EXPECTED_BLUE_VALUES[name].items():
@@ -532,6 +538,26 @@ def test_blue_keys_match_theme_table():
                 actual = actual["color"]
             assert actual == expected, \
                 f"{name}/{pack_name}/{key} 蓝键值与 §5.3 表不符"
+
+
+def test_git_modified_stays_in_blue_hue_family():
+    """1311 语义族铁律的机器化身：git_status.modified 四主题 hue 角全部
+    落在蓝族区间（200°–222°，按四主题实际分布 201.3°–212.5° 收紧留裕）——
+    任何主题把 modified 改回琥珀/绿/灰即被拦截（1643 归位初值曾实证漂移：
+    wheat 琥珀出族、mint 绿与 untracked 撞色）。"""
+    for name in _LIGHT_THEMES:
+        hue = _hue_degrees(get_theme_palette(name)["git_status"]["modified"])
+        assert 200.0 <= hue <= 222.0, \
+            f"{name}/git_status/modified hue {hue:.1f}° 越出蓝族区间"
+
+
+def test_git_modified_contrast_on_white():
+    """1311 §5.1 取值规则①：modified 是正文级状态色，四主题对白底 ≥ 4.5
+    （白底为最浅底色保守下界；sky 原档 #0284c7 实测 4.10 即由此拦截）。"""
+    for name in _LIGHT_THEMES:
+        fg = get_theme_palette(name)["git_status"]["modified"]
+        assert _contrast_ratio(fg, "#ffffff") >= 4.5, \
+            f"{name}/git_status/modified 白底对比度低于 4.5"
 
 
 def test_old_shared_blue_values_absent_everywhere():

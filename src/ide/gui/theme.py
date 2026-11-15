@@ -366,7 +366,7 @@ THEME_PALETTES: dict[str, dict] = {
             "code_bg": "#f5f5f5",
         },
         "git_status": {
-            "modified": "#b85e14",   # accent 同族橙（去共享化归位，🟡 走查重点）
+            "modified": "#406da0",   # 语义族铁律恒蓝族；低饱和灰蓝压暖主题色温冲突
             "untracked": "#1f8a3d",  # 绿
             "deleted": "#c0392b",    # 红
             "ignored": "#a8a194",    # 灰（暖族跟随）
@@ -464,7 +464,7 @@ THEME_PALETTES: dict[str, dict] = {
             "code_bg": "#f5f5f5",
         },
         "git_status": {
-            "modified": "#0284c7",   # accent 同族蓝（去共享化归位）
+            "modified": "#0369a1",   # 语义族铁律恒蓝族；较 accent 加深，白底对比度不足正文级
             "untracked": "#1f8a3d",  # 绿
             "deleted": "#c0392b",    # 红
             "ignored": "#98a2ac",    # 灰（冷族蓝灰跟随）
@@ -565,7 +565,7 @@ THEME_PALETTES: dict[str, dict] = {
             "code_bg": "#f5f5f5",
         },
         "git_status": {
-            "modified": "#0f6e3f",   # accent 同族深绿（去共享化归位，🟡 走查重点）
+            "modified": "#0765d4",   # 语义族铁律恒蓝族；原绿与 untracked 撞色不可辨，取基准蓝
             "untracked": "#1f8a3d",  # 绿（中绿档，与 modified 深绿靠明度区分）
             "deleted": "#c0392b",    # 红
             "ignored": "#9aa89c",    # 灰（绿族跟随）
