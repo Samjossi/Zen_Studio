@@ -138,6 +138,9 @@ class ChatTabs(QWidget):
         self._tabs.setObjectName("ChatTabs")
         self._tabs.setTabsClosable(True)
         self._tabs.setDocumentMode(True)
+        # 关原生基线：drawBase 默认 True 时 QCommonStyle 以 palette.light()
+        # 在标签条顶画 1px 白线，透明 tab 盖不住，非白底主题显形
+        self._tabs.tabBar().setDrawBase(False)
         # 「+」新建按钮：固定右上角（达上限禁用并提示）
         self._add_button = QToolButton(self)
         self._add_button.setText("+")
