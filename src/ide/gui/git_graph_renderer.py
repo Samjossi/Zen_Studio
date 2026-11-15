@@ -12,7 +12,8 @@ from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPainterPath, Q
 from PySide6.QtWidgets import QApplication
 
 from ide.core.git.graph import GraphRow
-from ide.gui.theme import get_mono_family
+from ide.gui.settings import DEFAULT_THEME
+from ide.gui.theme import get_mono_family, get_theme_palette
 
 _LANE_COLOR_KEYS = (
     "blue", "red", "green", "magenta",
@@ -22,7 +23,10 @@ _LANE_COLOR_KEYS = (
 
 class GitGraphRenderer:
     def __init__(self) -> None:
-        self._colors = [QColor("#0451a5") for _ in _LANE_COLOR_KEYS]
+        # apply_theme 前的占位车道色：取默认主题终端包 blue 键（六包去共享化
+        # 后旧共享蓝已绝迹，占位须同源默认主题，apply_theme 后即被覆盖）
+        placeholder = get_theme_palette(DEFAULT_THEME)["terminal"]["blue"]
+        self._colors = [QColor(placeholder) for _ in _LANE_COLOR_KEYS]
         self._background = QColor("#ffffff")
         self._lane_width = 22
         self._row_height = 22

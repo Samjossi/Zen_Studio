@@ -145,14 +145,16 @@ def test_base_content_binary_returns_none(monkeypatch):
 # 主题包新键（1914 计划 T2）
 # ----------------------------------------------------------------------
 def test_chat_pack_diff_visual_keys_all_themes():
-    """四主题 chat 包均含整行底色/hunk 蓝带四键，并共享同一套色值。"""
+    """四主题 chat 包均含整行底色/hunk 分块带四键（1914 计划 T2）。1643 去
+    共享化后 hunk 蓝带按各主题色相归位，逐主题色值由 test_theme.py 的
+    §5.3 表锁定；此处只守键齐备 + 整行红绿底色跨主题一致（非蓝键不动）。"""
     keys = ("diff_add_bg", "diff_del_bg", "diff_hunk_fg", "diff_hunk_bg")
-    combos = set()
+    row_bgs = set()
     for name in list_available_themes():
         chat = get_theme_palette(name)["chat"]
         assert all(key in chat for key in keys), name
-        combos.add(tuple(chat[key] for key in keys))
-    assert len(combos) == 1, "四个亮色主题共享同一份资源包"
+        row_bgs.add((chat["diff_add_bg"], chat["diff_del_bg"]))
+    assert len(row_bgs) == 1, "整行红绿底色四主题同值（非蓝键，去共享化不动）"
 
 
 # ----------------------------------------------------------------------

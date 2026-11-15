@@ -16,7 +16,8 @@ from PySide6.QtWidgets import (
 )
 
 from ide.gui.popups import TranslucentMenuPlainTextEdit
-from ide.gui.theme import CHAT_PACK, WARNING_COLOR
+from ide.gui.settings import KEY_THEME
+from ide.gui.theme import WARNING_COLOR, get_theme_palette, load_settings
 from ide.llm import PermissionParams
 
 #: 选项 kind → 中文按钮文案（agent 提供英文 name 时兜底）
@@ -174,10 +175,12 @@ class QuestionDialog(QDialog):
             button = buttons.addButton(label, QDialogButtonBox.ButtonRole.ActionRole)
             button.clicked.connect(lambda _checked=False, oid=opt.get("optionId"): self._choose(oid))
         # 自由作答引导（0807-0445 方案 B）：ACP 通道回传不了自由文本，
-        # 引导用户 Skip 后走正文输入（弱化色，单一来源 CHAT_PACK tool_fg）
+        # 引导用户 Skip 后走正文输入（弱化色；按当前主题调色板取 chat 包
+        # tool_fg，与 ChatPanel 同惯用法——六包去共享化后无模块级 CHAT_PACK）
         other_hint = QLabel(OTHER_HINT_TEXT, self)
         other_hint.setWordWrap(True)
-        other_hint.setStyleSheet(f"color: {CHAT_PACK['tool_fg']};")
+        chat_pack = get_theme_palette(load_settings()[KEY_THEME])["chat"]
+        other_hint.setStyleSheet(f"color: {chat_pack['tool_fg']};")
         layout.addWidget(other_hint)
         layout.addWidget(buttons)
 

@@ -6,10 +6,12 @@ $token 占位符由 string.Template 按 THEME_PALETTES[主题名] 渲染（缺�
 KeyError，fail-fast）。耦合色（如菜单/下拉同底色）物理同源，不可能漂移；
 新增主题 = THEME_PALETTES 加一行字典。
 
-资源包单套化：语法高亮/终端 ANSI/查看器行号/Git 状态色/Git Graph 徽标/
-聊天面板六套资源包各只保留一份模块级常量，四个亮色主题共享引用
-（共享即引用，不复制）。未来新增主题可逐值手写，或基于共享包覆盖单项
-（如 {**CHROME_PACK, "find_bg": "#xxx"}）。
+资源包（去共享化，反转 2026-07-20 单套化）：语法高亮/终端 ANSI/查看器行号/
+Git 状态色/Git Graph 徽标/聊天面板六套资源包，由四主题共享一份模块级常量
+改为每主题自带一份内联副本。Why：单套化当时的前提是深色主题移除后只剩
+亮色系、色相趋同；如今主题家族已分化为蓝（cloud/sky）/橙（wheat）/
+绿（mint）阵营，继续共享含蓝的包等于强迫非蓝主题接受异色。每主题色系统
+一自闭，新增主题六包逐值手写。
 
 字体（2026-07-19，见 文档/修改记录/2026-0719-1152_字体库统一计划.md）：
 双字体族全部自带、统一注册自 assets/fonts/，不引用系统字体——
@@ -45,7 +47,8 @@ from ide.gui.settings import (
 THEME_TEMPLATE_FILE = THEMES_ASSETS_DIR / "base.qss"
 
 # ----------------------------------------------------------------------
-# 资源包（全部主题数据单点汇聚于本模块；六套资源各只此一套，四主题共享引用）
+# 资源包 schema（六套资源的键集合 TypedDict 定义；色值不再设模块级常量，
+# 去共享化后内联于各主题条目——why 见模块 docstring 与 THEME_PALETTES 注释）
 # ----------------------------------------------------------------------
 
 #: 终端配色包键（ANSI 16 色 + 默认前后景 + 查找命中叠加色）
@@ -91,7 +94,7 @@ class GitStatusPack(TypedDict):
 
 
 #: Git 提交历史图配色包键（refs 徽标四型 + hash 文本色；图线色复用
-#: TERMINAL_PACK 不另设键——1542 计划 D4/D6。kind 枚举见 ide/core/git/log.py）
+#: 各主题终端包色键不另设键——1542 计划 D4/D6。kind 枚举见 ide/core/git/log.py）
 class GitGraphPack(TypedDict):
     head: str
     branch: str
@@ -112,7 +115,7 @@ class ChatPack(TypedDict):
     user_bubble_bg: str
     tool_output_bg: str
     #: diff 卡 hunk 逐行着色（0645 融合计划 T9，1425 封存款 K7 色值直抄；
-    #: 仅新轨卡片视图消费，四主题共享引用纪律不变）
+    #: 仅新轨卡片视图消费）
     diff_add_fg: str
     diff_del_fg: str
     #: 变更对比视图整行底色与 hunk 分块带四键（1914 计划 D2：
@@ -136,108 +139,10 @@ class TitleBarPack(TypedDict):
     close_hover: str
 
 
-#: 语法高亮配色包（token 类别 → 样式）
-SYNTAX_PACK: dict = {
-    Token.Keyword: {"color": "#0000AF", "bold": True},
-    Token.Keyword.Namespace: {"color": "#7A3DB8", "bold": True},
-    Token.Name.Builtin: {"color": "#7A3DB8"},
-    Token.Name.Function: {"color": "#803080"},
-    Token.Name.Class: {"color": "#2050A0", "bold": True},
-    Token.Name.Decorator: {"color": "#806000"},
-    Token.String: {"color": "#007A1C"},
-    Token.Number: {"color": "#A0522D"},
-    Token.Comment: {"color": "#888888", "italic": True},
-    Token.Operator: {"color": "#333333"},
-    Token.Generic.Heading: {"color": "#2050A0", "bold": True},
-    Token.Generic.Subheading: {"color": "#2050A0", "bold": True},
-    Token.Generic.Strong: {"bold": True},
-    Token.Generic.Emph: {"italic": True},
-    Token.Error: {"color": "#CC0000"},
-}
-
-#: 终端配色包：ANSI 16 色 + 查找命中叠加色（find_* 为 #AARRGGBB 带透明度，
-#: AnsiPalette 单独取用、不进 ANSI 颜色名查表）
-TERMINAL_PACK: TerminalPack = {
-    "default_fg": "#1a1a1a", "default_bg": "#ffffff",
-    "black": "#000000", "red": "#c41a16", "green": "#007a1c", "brown": "#a05000",
-    "blue": "#0451a5", "magenta": "#a02c91", "cyan": "#168396", "white": "#767676",
-    "brightblack": "#555555", "brightred": "#e5484d", "brightgreen": "#18a058",
-    "brightbrown": "#c26a00", "brightblue": "#1a6fd4", "brightmagenta": "#c044ae",
-    "brightcyan": "#00a7b5", "brightwhite": "#000000",
-    "find_bg": "#37ffdc64", "find_cur": "#6effb400",
-}
-
-#: 查看器控件配色包（行号/当前行/查找命中）
-CHROME_PACK: ChromePack = {
-    "line_number_fg": "#999999", "line_number_bg": "#f5f5f5",
-    "current_line_bg": "#eef4fb",
-    "find_bg": "#fff3bf", "find_cur": "#ffd43b",
-}
-
-#: Git 状态色包（model 的 ForegroundRole 不走 qss，故色值在此集中维护。
-#: 状态枚举见 ide/core/git/status.py：modified/untracked/deleted/ignored/conflict）
-GIT_STATUS_PACK: GitStatusPack = {
-    "modified": "#1e88e5",   # 天蓝
-    "untracked": "#1f8a3d",  # 绿
-    "deleted": "#c0392b",    # 红
-    "ignored": "#a8a8a8",    # 灰
-    "conflict": "#d40000",   # 强红
-}
-
-#: Git 提交历史图配色包（refs 徽标四型分色 + hash 弱化色；徽标背景/边框
-#: 由消费方按色值派生透明度，不另设键。四主题均为亮色，共享单套）
-GIT_GRAPH_PACK: GitGraphPack = {
-    "head": "#a02c91",     # 品红（HEAD 特殊位）
-    "branch": "#1f8a3d",   # 绿（本地分支）
-    "tag": "#a05000",      # 棕橙（标签）
-    "remote": "#168396",   # 青（远程分支）
-    "hash_fg": "#767676",  # 灰（短 hash 弱化）
-}
-
 #: UI 警示色单一来源（危险操作/高危选项文案；PermissionDialog 危险原因行、
-#: 设置中心 auto_all 档说明共用。与 GIT_STATUS_PACK["deleted"] 语义无关——
+#: 设置中心 auto_all 档说明共用。与 git_status 包 deleted 键语义无关——
 #: 后者是文件状态色，色值碰巧相同，不引用本常量）
 WARNING_COLOR = "#c0392b"
-
-#: 聊天面板配色包（reasoning_fg 思维链灰：与正文样式区分的弱化前景色；
-#: usage_hot_fg 上下文用量徽章热态色（≥80% 警示），引用警示色单一来源；
-#: tool_fg 工具行/todo 清单灰（1602 计划 T7：与 reasoning_fg 区分一级明度——
-#: 工具活动是「事实记录」，比思维链的「自言自语」视觉权重高一档；
-#: todo 完成项弱化复用 reasoning_fg 不新增键）；
-#: tool_error_fg 失败状态行色，同引警示色单一来源；
-#: user_bubble_bg / tool_output_bg 用户消息气泡卡与 bash 工具输出卡底色
-#: （1836 计划 L2-1/L2-3：QTextBrowser table+bgcolor 卡片技法的唯一色源；
-#: 两档明度差——气泡卡承担「用户/AI 消息层级区分」主职责略深，输出卡
-#: 是工具行附属细节略浅）；
-#: timeline_*_fg 会话活动时间线色块条三键（1824 计划 T2，移植 kilocode
-#: TaskTimeline palette——read/write 取 VS Code 浅色主题对应变量值：
-#: read=textLink-foreground、write=focusBorder；tool（其他工具）参考侧为
-#: activityBarBadge.background #007acc，与 read 色差过小视觉混档，改取
-#: 终端包 cyan 同值青蓝拉开区分度（截图走查实证调优）；
-#: 条上 text/reasoning 复用 reasoning_fg、todo 复用 tool_fg、error 复用
-#: tool_error_fg，不另设键——单一来源纪律；read 色（VS Code 链接前景色
-#: 同源）兼作正文文件路径链接色，1836 计划 L2-5 复用不新增键）；
-#: diff_add_fg / diff_del_fg diff 卡 hunk 逐行红绿（0645 融合计划 T9，
-#: 1425 封存款 K7 色值直抄，仅新轨卡片视图消费）
-CHAT_PACK: ChatPack = {
-    "reasoning_fg": "#888888",
-    "usage_hot_fg": WARNING_COLOR,
-    "tool_fg": "#6f6f6f",
-    "tool_error_fg": WARNING_COLOR,
-    "timeline_read_fg": "#006ab1",
-    "timeline_write_fg": "#0090f1",
-    "timeline_tool_fg": "#168396",
-    "user_bubble_bg": "#ededf0",
-    "tool_output_bg": "#f5f5f7",
-    "diff_add_fg": "#3a8437",
-    "diff_del_fg": "#ed4831",
-    # 整行底色取 GitHub 亮色 diff 同族极浅实底（白底下 alpha 与实底等效，
-    # 实底规避 Qt 富文本 alpha 叠底渲染差异）
-    "diff_add_bg": "#e6ffec",
-    "diff_del_bg": "#ffebe9",
-    "diff_hunk_fg": "#1d4ed8",
-    "diff_hunk_bg": "#ddf4ff",
-}
 
 # ----------------------------------------------------------------------
 # 主题调色板注册表（qss 令牌 + 六资源包；注册顺序即设置中心外观页下拉顺序）
@@ -261,8 +166,23 @@ QSS_TOKEN_KEYS = (
 PACK_KEYS = ("label", "syntax", "terminal", "chrome", "git_status", "chat",
              "title_bar", "git_graph")
 
+#: 六包内联约定（去共享化后色值写在各主题条目内，此处记跨包 why）：
+#: - 终端 find_* 为 #AARRGGBB 带透明度（AnsiPalette 单独取用，不进 ANSI
+#:   颜色名查表）；brown 即 ANSI yellow。
+#: - 蓝键归位（theme 资源包去共享化改造计划 §5.3）：syntax 的 Keyword/
+#:   Name.Class/Generic.Heading/Generic.Subheading、terminal 的 blue/
+#:   brightblue、chrome 的 current_line_bg、git_status 的 modified、chat 的
+#:   timeline_read/write_fg 与 diff_hunk_fg/bg——cloud/sky 留蓝族（各自
+#:   accent 同族），wheat 归橙族、mint 归绿族（各自 accent 同族深色档）；
+#:   Name.Class/Heading/Subheading 取本主题 Keyword 同族较浅档（浅于
+#:   Keyword、深于注释灰，维持旧层次关系）。
+#: - 青非蓝（决策点 D1）：git_graph.remote 与 chat.timeline_tool_fg 全主题
+#:   保留 #168396，终端 cyan/brightcyan 同理不动。
+#: - chat.usage_hot_fg/tool_error_fg 同引 WARNING_COLOR 单一来源；
+#:   timeline_read_fg 兼作正文文件路径链接色（1836 计划 L2-5 复用不新增键）。
+#:
 #: 主题注册表：键 = 主题名；label = 菜单显示名；其余为 qss 令牌 + 六资源包。
-#: 四个亮色主题共享同一组资源包常量；未来新增主题可全手写或单项覆盖。
+#: 新增主题 = 加一行字典（六包逐值手写）。
 #:
 #: 1259 教训：四主题 combo_hover_bg 为 transparent——hover 伪态背景不触发
 #: 选中背景接管，透明等价于未设置（见 base.qss 下拉框段注释）；QComboBox 普通态
@@ -301,9 +221,72 @@ THEME_PALETTES: dict[str, dict] = {
             "bg": "#e8e8ec", "text": "#1d1d1f",
             "hover": "rgba(0, 0, 0, 0.07)", "close_hover": "#c75450",
         },
-        "syntax": SYNTAX_PACK, "terminal": TERMINAL_PACK,
-        "chrome": CHROME_PACK, "git_status": GIT_STATUS_PACK, "chat": CHAT_PACK,
-        "git_graph": GIT_GRAPH_PACK,
+        "syntax": {
+            Token.Keyword: {"color": "#0a5cc4", "bold": True},
+            Token.Keyword.Namespace: {"color": "#7A3DB8", "bold": True},
+            Token.Name.Builtin: {"color": "#7A3DB8"},
+            Token.Name.Function: {"color": "#803080"},
+            Token.Name.Class: {"color": "#4a8ad4", "bold": True},
+            Token.Name.Decorator: {"color": "#806000"},
+            Token.String: {"color": "#007A1C"},
+            Token.Number: {"color": "#A0522D"},
+            Token.Comment: {"color": "#888888", "italic": True},
+            Token.Operator: {"color": "#333333"},
+            Token.Generic.Heading: {"color": "#4a8ad4", "bold": True},
+            Token.Generic.Subheading: {"color": "#4a8ad4", "bold": True},
+            Token.Generic.Strong: {"bold": True},
+            Token.Generic.Emph: {"italic": True},
+            Token.Error: {"color": "#CC0000"},
+        },
+        "terminal": {
+            "default_fg": "#1a1a1a", "default_bg": "#ffffff",
+            "black": "#000000", "red": "#c41a16", "green": "#007a1c",
+            "brown": "#a05000", "blue": "#075cb8", "magenta": "#a02c91",
+            "cyan": "#168396", "white": "#767676",
+            "brightblack": "#555555", "brightred": "#e5484d",
+            "brightgreen": "#18a058", "brightbrown": "#c26a00",
+            "brightblue": "#2e86e8", "brightmagenta": "#c044ae",
+            "brightcyan": "#00a7b5", "brightwhite": "#000000",
+            "find_bg": "#37ffdc64", "find_cur": "#6effb400",
+        },
+        "chrome": {
+            "line_number_fg": "#999999", "line_number_bg": "#f5f5f5",
+            "current_line_bg": "#eaf1fb",
+            "find_bg": "#fff3bf", "find_cur": "#ffd43b",
+        },
+        "git_status": {
+            "modified": "#0765d4",   # accent 同族蓝（去共享化归位）
+            "untracked": "#1f8a3d",  # 绿
+            "deleted": "#c0392b",    # 红
+            "ignored": "#a8a8a8",    # 灰
+            "conflict": "#d40000",   # 强红
+        },
+        "chat": {
+            "reasoning_fg": "#888888",
+            "usage_hot_fg": WARNING_COLOR,
+            "tool_fg": "#6f6f6f",
+            "tool_error_fg": WARNING_COLOR,
+            "timeline_read_fg": "#0765d4",
+            "timeline_write_fg": "#3b8fe8",
+            "timeline_tool_fg": "#168396",
+            "user_bubble_bg": "#ededf0",
+            "tool_output_bg": "#f5f5f7",
+            "diff_add_fg": "#3a8437",
+            "diff_del_fg": "#ed4831",
+            # 整行底色取 GitHub 亮色 diff 同族极浅实底（白底下 alpha 与实底等效，
+            # 实底规避 Qt 富文本 alpha 叠底渲染差异）
+            "diff_add_bg": "#e6ffec",
+            "diff_del_bg": "#ffebe9",
+            "diff_hunk_fg": "#0a5cc4",
+            "diff_hunk_bg": "#e2eefa",
+        },
+        "git_graph": {
+            "head": "#a02c91",     # 品红（HEAD 特殊位）
+            "branch": "#1f8a3d",   # 绿（本地分支）
+            "tag": "#a05000",      # 棕橙（标签）
+            "remote": "#168396",   # 青（远程分支，D1：青非蓝保留）
+            "hash_fg": "#767676",  # 灰（短 hash 弱化）
+        },
     },
     "wheat": {
         "label": "暖米",
@@ -338,9 +321,72 @@ THEME_PALETTES: dict[str, dict] = {
             "bg": "#f0e9dc", "text": "#463f33",
             "hover": "rgba(120, 90, 40, 0.10)", "close_hover": "#c75450",
         },
-        "syntax": SYNTAX_PACK, "terminal": TERMINAL_PACK,
-        "chrome": CHROME_PACK, "git_status": GIT_STATUS_PACK, "chat": CHAT_PACK,
-        "git_graph": GIT_GRAPH_PACK,
+        "syntax": {
+            Token.Keyword: {"color": "#9a5410", "bold": True},
+            Token.Keyword.Namespace: {"color": "#7A3DB8", "bold": True},
+            Token.Name.Builtin: {"color": "#7A3DB8"},
+            Token.Name.Function: {"color": "#803080"},
+            Token.Name.Class: {"color": "#b5772a", "bold": True},
+            Token.Name.Decorator: {"color": "#806000"},
+            Token.String: {"color": "#007A1C"},
+            Token.Number: {"color": "#A0522D"},
+            Token.Comment: {"color": "#888888", "italic": True},
+            Token.Operator: {"color": "#333333"},
+            Token.Generic.Heading: {"color": "#b5772a", "bold": True},
+            Token.Generic.Subheading: {"color": "#b5772a", "bold": True},
+            Token.Generic.Strong: {"bold": True},
+            Token.Generic.Emph: {"italic": True},
+            Token.Error: {"color": "#CC0000"},
+        },
+        "terminal": {
+            "default_fg": "#1a1a1a", "default_bg": "#ffffff",
+            "black": "#000000", "red": "#c41a16", "green": "#007a1c",
+            # brown 槽明度下调（D2 拍板唯一例外）：归位后 blue 槽进橙族
+            # #8c5a10，与原 brown 色相仅差 5.8° 撞色，靠明度差 44 级分辨
+            "brown": "#5f3200", "blue": "#8c5a10", "magenta": "#a02c91",
+            "cyan": "#168396", "white": "#767676",
+            "brightblack": "#555555", "brightred": "#e5484d",
+            "brightgreen": "#18a058", "brightbrown": "#8f4c00",
+            "brightblue": "#c07818", "brightmagenta": "#c044ae",
+            "brightcyan": "#00a7b5", "brightwhite": "#000000",
+            "find_bg": "#37ffdc64", "find_cur": "#6effb400",
+        },
+        "chrome": {
+            "line_number_fg": "#999999", "line_number_bg": "#f5f5f5",
+            "current_line_bg": "#f8f0e4",
+            "find_bg": "#fff3bf", "find_cur": "#ffd43b",
+        },
+        "git_status": {
+            "modified": "#b85e14",   # accent 同族橙（去共享化归位，🟡 走查重点）
+            "untracked": "#1f8a3d",  # 绿
+            "deleted": "#c0392b",    # 红
+            "ignored": "#a8a8a8",    # 灰
+            "conflict": "#d40000",   # 强红
+        },
+        "chat": {
+            "reasoning_fg": "#888888",
+            "usage_hot_fg": WARNING_COLOR,
+            "tool_fg": "#6f6f6f",
+            "tool_error_fg": WARNING_COLOR,
+            "timeline_read_fg": "#b85e14",
+            "timeline_write_fg": "#d08a3e",
+            "timeline_tool_fg": "#168396",
+            "user_bubble_bg": "#ededf0",
+            "tool_output_bg": "#f5f5f7",
+            "diff_add_fg": "#3a8437",
+            "diff_del_fg": "#ed4831",
+            "diff_add_bg": "#e6ffec",
+            "diff_del_bg": "#ffebe9",
+            "diff_hunk_fg": "#9a5410",
+            "diff_hunk_bg": "#f3e8d8",
+        },
+        "git_graph": {
+            "head": "#a02c91",     # 品红（HEAD 特殊位）
+            "branch": "#1f8a3d",   # 绿（本地分支）
+            "tag": "#a05000",      # 棕橙（标签）
+            "remote": "#168396",   # 青（远程分支，D1：青非蓝保留）
+            "hash_fg": "#767676",  # 灰（短 hash 弱化）
+        },
     },
     "sky": {
         "label": "晴空",
@@ -375,9 +421,70 @@ THEME_PALETTES: dict[str, dict] = {
             "bg": "#dfeaf3", "text": "#1e293b",
             "hover": "rgba(2, 132, 199, 0.10)", "close_hover": "#c75450",
         },
-        "syntax": SYNTAX_PACK, "terminal": TERMINAL_PACK,
-        "chrome": CHROME_PACK, "git_status": GIT_STATUS_PACK, "chat": CHAT_PACK,
-        "git_graph": GIT_GRAPH_PACK,
+        "syntax": {
+            Token.Keyword: {"color": "#0369a1", "bold": True},
+            Token.Keyword.Namespace: {"color": "#7A3DB8", "bold": True},
+            Token.Name.Builtin: {"color": "#7A3DB8"},
+            Token.Name.Function: {"color": "#803080"},
+            Token.Name.Class: {"color": "#3f96c8", "bold": True},
+            Token.Name.Decorator: {"color": "#806000"},
+            Token.String: {"color": "#007A1C"},
+            Token.Number: {"color": "#A0522D"},
+            Token.Comment: {"color": "#888888", "italic": True},
+            Token.Operator: {"color": "#333333"},
+            Token.Generic.Heading: {"color": "#3f96c8", "bold": True},
+            Token.Generic.Subheading: {"color": "#3f96c8", "bold": True},
+            Token.Generic.Strong: {"bold": True},
+            Token.Generic.Emph: {"italic": True},
+            Token.Error: {"color": "#CC0000"},
+        },
+        "terminal": {
+            "default_fg": "#1a1a1a", "default_bg": "#ffffff",
+            "black": "#000000", "red": "#c41a16", "green": "#007a1c",
+            "brown": "#a05000", "blue": "#0369a1", "magenta": "#a02c91",
+            "cyan": "#168396", "white": "#767676",
+            "brightblack": "#555555", "brightred": "#e5484d",
+            "brightgreen": "#18a058", "brightbrown": "#c26a00",
+            "brightblue": "#0ea5e9", "brightmagenta": "#c044ae",
+            "brightcyan": "#00a7b5", "brightwhite": "#000000",
+            "find_bg": "#37ffdc64", "find_cur": "#6effb400",
+        },
+        "chrome": {
+            "line_number_fg": "#999999", "line_number_bg": "#f5f5f5",
+            "current_line_bg": "#e6f3fa",
+            "find_bg": "#fff3bf", "find_cur": "#ffd43b",
+        },
+        "git_status": {
+            "modified": "#0284c7",   # accent 同族蓝（去共享化归位）
+            "untracked": "#1f8a3d",  # 绿
+            "deleted": "#c0392b",    # 红
+            "ignored": "#a8a8a8",    # 灰
+            "conflict": "#d40000",   # 强红
+        },
+        "chat": {
+            "reasoning_fg": "#888888",
+            "usage_hot_fg": WARNING_COLOR,
+            "tool_fg": "#6f6f6f",
+            "tool_error_fg": WARNING_COLOR,
+            "timeline_read_fg": "#0284c7",
+            "timeline_write_fg": "#38bdf8",
+            "timeline_tool_fg": "#168396",
+            "user_bubble_bg": "#ededf0",
+            "tool_output_bg": "#f5f5f7",
+            "diff_add_fg": "#3a8437",
+            "diff_del_fg": "#ed4831",
+            "diff_add_bg": "#e6ffec",
+            "diff_del_bg": "#ffebe9",
+            "diff_hunk_fg": "#0369a1",
+            "diff_hunk_bg": "#ddf2fc",
+        },
+        "git_graph": {
+            "head": "#a02c91",     # 品红（HEAD 特殊位）
+            "branch": "#1f8a3d",   # 绿（本地分支）
+            "tag": "#a05000",      # 棕橙（标签）
+            "remote": "#168396",   # 青（远程分支，D1：青非蓝保留）
+            "hash_fg": "#767676",  # 灰（短 hash 弱化）
+        },
     },
     "mint": {
         "label": "薄荷",
@@ -412,9 +519,73 @@ THEME_PALETTES: dict[str, dict] = {
             "bg": "#dfeddf", "text": "#20301f",
             "hover": "rgba(21, 128, 61, 0.10)", "close_hover": "#c75450",
         },
-        "syntax": SYNTAX_PACK, "terminal": TERMINAL_PACK,
-        "chrome": CHROME_PACK, "git_status": GIT_STATUS_PACK, "chat": CHAT_PACK,
-        "git_graph": GIT_GRAPH_PACK,
+        "syntax": {
+            Token.Keyword: {"color": "#0f6e3f", "bold": True},
+            Token.Keyword.Namespace: {"color": "#7A3DB8", "bold": True},
+            Token.Name.Builtin: {"color": "#7A3DB8"},
+            Token.Name.Function: {"color": "#803080"},
+            Token.Name.Class: {"color": "#3d9060", "bold": True},
+            Token.Name.Decorator: {"color": "#806000"},
+            Token.String: {"color": "#007A1C"},
+            Token.Number: {"color": "#A0522D"},
+            Token.Comment: {"color": "#888888", "italic": True},
+            Token.Operator: {"color": "#333333"},
+            Token.Generic.Heading: {"color": "#3d9060", "bold": True},
+            Token.Generic.Subheading: {"color": "#3d9060", "bold": True},
+            Token.Generic.Strong: {"bold": True},
+            Token.Generic.Emph: {"italic": True},
+            Token.Error: {"color": "#CC0000"},
+        },
+        "terminal": {
+            "default_fg": "#1a1a1a", "default_bg": "#ffffff",
+            "black": "#000000", "red": "#c41a16", "green": "#007a1c",
+            # blue 槽同族内微调（🟡 走查定稿）：原 §5.3 初值 #0f6e4f/#189a63
+            # 与 green/brightgreen 色相贴脸（距 12~55），hue 上移青侧——
+            # blue 171° 置于 green 134° 与 cyan 191° 之间，brightblue 165° 同理
+            "brown": "#a05000", "blue": "#0e5f53", "magenta": "#a02c91",
+            "cyan": "#168396", "white": "#767676",
+            "brightblack": "#555555", "brightred": "#e5484d",
+            "brightgreen": "#18a058", "brightbrown": "#c26a00",
+            "brightblue": "#1fad8a", "brightmagenta": "#c044ae",
+            "brightcyan": "#00a7b5", "brightwhite": "#000000",
+            "find_bg": "#37ffdc64", "find_cur": "#6effb400",
+        },
+        "chrome": {
+            "line_number_fg": "#999999", "line_number_bg": "#f5f5f5",
+            "current_line_bg": "#e9f4ec",
+            "find_bg": "#fff3bf", "find_cur": "#ffd43b",
+        },
+        "git_status": {
+            "modified": "#0f6e3f",   # accent 同族深绿（去共享化归位，🟡 走查重点）
+            "untracked": "#1f8a3d",  # 绿（中绿档，与 modified 深绿靠明度区分）
+            "deleted": "#c0392b",    # 红
+            "ignored": "#a8a8a8",    # 灰
+            "conflict": "#d40000",   # 强红
+        },
+        "chat": {
+            "reasoning_fg": "#888888",
+            "usage_hot_fg": WARNING_COLOR,
+            "tool_fg": "#6f6f6f",
+            "tool_error_fg": WARNING_COLOR,
+            "timeline_read_fg": "#15803d",
+            "timeline_write_fg": "#3fa96b",
+            "timeline_tool_fg": "#168396",
+            "user_bubble_bg": "#ededf0",
+            "tool_output_bg": "#f5f5f7",
+            "diff_add_fg": "#3a8437",
+            "diff_del_fg": "#ed4831",
+            "diff_add_bg": "#e6ffec",
+            "diff_del_bg": "#ffebe9",
+            "diff_hunk_fg": "#0f6e3f",
+            "diff_hunk_bg": "#dff0e4",
+        },
+        "git_graph": {
+            "head": "#a02c91",     # 品红（HEAD 特殊位）
+            "branch": "#1f8a3d",   # 绿（本地分支）
+            "tag": "#a05000",      # 棕橙（标签）
+            "remote": "#168396",   # 青（远程分支，D1：青非蓝保留）
+            "hash_fg": "#767676",  # 灰（短 hash 弱化）
+        },
     },
 }
 

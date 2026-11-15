@@ -42,7 +42,7 @@ from ide.gui.panels.chat.cards import (  # noqa: E402
 from ide.gui.panels.chat.permission_dialog import QuestionDialog  # noqa: E402
 from ide.gui.panels.chat.panel import ChatPanel  # noqa: E402
 from ide.gui.panels.chat.transcript import ChatTranscriptView  # noqa: E402
-from ide.gui.theme import CHAT_PACK, DEFAULT_THEME, get_theme_palette  # noqa: E402
+from ide.gui.theme import DEFAULT_THEME, get_theme_palette  # noqa: E402
 from ide.llm.providers.acp import map_session_update  # noqa: E402
 from ide.llm.providers.kimi_acp import (  # noqa: E402
     _synthesize_wire_call,
@@ -54,7 +54,9 @@ ASSET_DIR = SHOT_DIR / "_assets"
 CARD_WIDTH = 560  # 模拟真实对话区卡片可用宽
 
 #: 真实主题色袋（单一来源纪律：与运行态卡片同套色值——四主题均为亮色，
-#: 硬编色值会让对比度类样式回归在 mock 阶段漏网）
+#: 硬编色值会让对比度类样式回归在 mock 阶段漏网）。六包去共享化后无模块级
+#: CHAT_PACK，取默认主题包局部别名（本脚本仅截默认主题观感图）
+CHAT_PACK = get_theme_palette(DEFAULT_THEME)["chat"]
 COLORS = CardColors(
     CHAT_PACK["reasoning_fg"], CHAT_PACK["tool_fg"],
     CHAT_PACK["tool_error_fg"], CHAT_PACK["user_bubble_bg"],
