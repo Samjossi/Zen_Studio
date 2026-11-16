@@ -1,8 +1,10 @@
-"""kilocode 后端封存行为测试（计划 2026-0917-0646 T5）。
+"""后端封存行为测试（计划 2026-0917-0646 T5；2026-1116-1240 计划扩展至
+OpenCode / Reasonix / 本地模型三家）。
 
 覆盖：
-- 注册表层：kilocode-acp 项 archived=True、dev_note 非空、菜单分组名
-  含「已封存」；其余接口 archived 默认为 False（封存不影响成熟后端）；
+- 注册表层：四家封存接口（kilocode / reasonix / opencode / local）
+  archived=True、dev_note 非空、菜单分组名含「已封存」；kimi / dsh / dream
+  不封存；
 - panel 层：_blocked_by_archive 对封存接口拦停并追加「系统」消息，
   对成熟接口放行；_on_send 直发路径在封存接口上不实例化 provider
   （不为禁用后端拉起 agent 子进程）。
@@ -12,8 +14,15 @@ panel 用例经 __new__ 裸实例 + 属性桩驱动，不构造 Qt 控件树，o
 """
 from types import SimpleNamespace
 
+import pytest
+
 from ide.gui.panels.chat.panel import ChatPanel
 from ide.llm.registry import REGISTRY, spec_of
+
+#: 封存接口全集（2026-1116-1240 计划：Kimi / DSH 之外的全部 CLI 后台）
+_ARCHIVED = ("kilocode-acp", "reasonix-acp", "opencode-acp", "local-acp")
+#: 不封存的接口（kimi / dsh 现行有效，dream 为自家协议开发接口层）
+_ACTIVE = ("kimi-acp", "dsh-acp", "dream-acp")
 
 
 def _bare_panel(backend: str) -> tuple[ChatPanel, list[tuple[str, str]]]:
@@ -27,18 +36,18 @@ def _bare_panel(backend: str) -> tuple[ChatPanel, list[tuple[str, str]]]:
     return panel, messages
 
 
-def test_kilocode_spec_is_archived():
-    spec = spec_of("kilocode-acp")
+@pytest.mark.parametrize("name", _ARCHIVED)
+def test_archived_spec_is_archived(name):
+    spec = spec_of(name)
     assert spec is not None
     assert spec.archived is True
     assert spec.dev_note and "封存" in spec.dev_note
     assert "已封存" in spec.vendor_label
 
 
-def test_other_backends_not_archived():
-    for name, spec in REGISTRY.items():
-        if name != "kilocode-acp":
-            assert spec.archived is False, f"{name} 不应被封存"
+def test_active_backends_not_archived():
+    for name in _ACTIVE:
+        assert REGISTRY[name].archived is False, f"{name} 不应被封存"
 
 
 def test_blocked_by_archive_intercepts_with_note():

@@ -24,7 +24,7 @@
    _TERMINAL_CAPABILITY=False。
 5. usage_update 推送通道有效（spike 轮次内实测 2 帧），用量徽章走
    公共映射；轮次真实消耗另从会话落盘日志差量求和（2026-1114-1452
-   计划，格式假设与 zstd 依赖见维护手册 §7），response 到达后先于
+   计划，格式假设与 zstd 依赖见维护手册 §2），response 到达后先于
    错误抛出采集——失败轮已发生的调用消耗照记。
 
 session/update 映射统一走公共实现 map_session_update。

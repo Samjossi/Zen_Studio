@@ -286,7 +286,7 @@ REGISTRY: dict[str, BackendSpec] = {
             name="reasonix-acp",
             label="Reasonix ACP",
             vendor="reasonix",
-            vendor_label="Reasonix",
+            vendor_label="Reasonix（已封存）",
             available=reasonix_available,
             list_models=_cached_list_models("reasonix-acp", list_reasonix_models),
             factory=ReasonixAcpLLM,
@@ -302,12 +302,19 @@ REGISTRY: dict[str, BackendSpec] = {
             # 数据源（configOptions 需先起会话，R4 后续候选），静态声明
             efforts=("auto", "disabled", "high", "max"),
             default_effort="auto",
+            # 封存保留菜单入口（同 kilocode：available=False 会隐藏入口，
+            # 用户需能切到本接口看到封存口径），发送由 panel 按 archived 拦停
+            dev_note=(
+                "Reasonix 后端已封存，不再随项目更新与验证。如需使用，请自行"
+                "修改 ide/llm/registry.py 的 reasonix-acp 注册项（撤除 archived "
+                "标记）并重新编译。"),
+            archived=True,
         ),
         BackendSpec(
             name="opencode-acp",
             label="OpenCode ACP",
             vendor="opencode",
-            vendor_label="OpenCode",
+            vendor_label="OpenCode（已封存）",
             available=opencode_available,
             list_models=_cached_list_models("opencode-acp", list_opencode_models),
             factory=OpenCodeAcpLLM,
@@ -319,6 +326,13 @@ REGISTRY: dict[str, BackendSpec] = {
             # 2026-08-06）：opencode 原版 configOptions 仅 model + mode
             # 两项，**无 effort 轴**（kilo fork 的 effort 是 kilo 自加）——
             # 维持留空不暴露
+            # 封存保留菜单入口（同 kilocode：available=False 会隐藏入口，
+            # 用户需能切到本接口看到封存口径），发送由 panel 按 archived 拦停
+            dev_note=(
+                "OpenCode 后端已封存，不再随项目更新与验证。如需使用，请自行"
+                "修改 ide/llm/registry.py 的 opencode-acp 注册项（撤除 archived "
+                "标记）并重新编译。"),
+            archived=True,
         ),
         BackendSpec(
             name="kilocode-acp",
@@ -373,7 +387,7 @@ REGISTRY: dict[str, BackendSpec] = {
             name="local-acp",
             label="Local ACP",
             vendor="local",
-            vendor_label="Local",
+            vendor_label="Local（已封存）",
             available=local_available,
             # 枚举走 `local models` 子进程（Local CLI 服务端扫描 model_dir
             # 的 *.gguf 产出），无静态表；兜底空列表纪律同各后台
@@ -384,6 +398,13 @@ REGISTRY: dict[str, BackendSpec] = {
             # 本地模型无强度目录，单档 auto 仅作状态呈现（同 dream 收敛语义）
             efforts=("auto",),
             default_effort="auto",
+            # 封存保留菜单入口（同 kilocode：available=False 会隐藏入口，
+            # 用户需能切到本接口看到封存口径），发送由 panel 按 archived 拦停
+            dev_note=(
+                "本地模型（Local CLI）后端已封存，不再随项目更新与验证。如需"
+                "使用，请自行修改 ide/llm/registry.py 的 local-acp 注册项"
+                "（撤除 archived 标记）并重新编译。"),
+            archived=True,
         ),
     )
 }

@@ -22,7 +22,7 @@ turnStep 的请求参与轮次计数与速度配对，超时保留已落盘的�
 轮次输出速度随收尾 usage chunk 携带 TurnSpeed：基线后逐次配对
 `llm.request → usage.record`，分子 Σ usage.output（单次调用值，直取
 不差分），分母 Σ(record.time − request.time)，仅含模型生成时间，
-工具/审批间隙不计。私有 wire 格式假设登记于维护手册 §6。
+工具/审批间隙不计。私有 wire 格式假设登记于维护手册 §8。
 
 轮次真实 token 消耗（2026-1114-1452 计划）：与速度同一次 wire 读取
 求和四项（inputOther/inputCacheRead/inputCacheCreation/output），随
