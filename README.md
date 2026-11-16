@@ -80,7 +80,7 @@ Zen Studio 的设计哲学是 **Agent 驱动**：代码修改一律经 AI agent 
 
 - **依赖方向单向**：`ide.gui`（前端）→ `ide.llm`（后端），`ide.core` 为零 Qt 依赖底层；包内不反向 import；
 - **版本单一来源**：`pyproject.toml` 的 `version` 字段（三段基础版本，发版经 `building/version.py bump` 代改），构建号取 git 提交计数自动追加为四段完整版本；代码侧一律经 `src/ide/core/version.py` 的 `APP_VERSION` 读取，打包侧经 spec 自算注入 `version.txt`；
-- **AI 友好代码协议**：全库遵循 `维护手册/AI 友好代码协议-v1.2.0.md`（方法级拆分、docstring 决策留痕、禁止上帝对象）。
+- **AI 友好代码协议**：全库遵循 `AI 友好代码协议-v1.2.0.md`（方法级拆分、docstring 决策留痕、禁止上帝对象）。
 
 ## 5. 目录结构
 
@@ -96,7 +96,7 @@ Zen Studio 的设计哲学是 **Agent 驱动**：代码修改一律经 AI agent 
 | `assets/` | 主题 qss、自带字体（OFL）、Logo 成套件与候选池、`readme/` 文档素材（README 引用的截图与 GIF） |
 | `building/` | PyInstaller spec、AppImage 构建脚本与产物 |
 | `config/` | 运行时配置（settings / 最近项目 / 窗口状态，gitignored 数据；版本单一来源已迁至 `pyproject.toml`） |
-| `维护手册/` | 开发维护手册：AI 友好代码协议 / 视觉验证闭环开发指南 / 工具箱说明 / 虚拟环境创建约定 / 后端CLI工具维护说明手册 |
+| `维护手册/` | 开发维护手册：视觉验证闭环开发指南 / 工具箱说明 / 后端CLI工具维护说明手册 |
 | `scripts/` | 工具脚本（Logo 渲染等） |
 | `work charter/` `work plans/` `work options/` | 章程 / 计划 / 选型三级工作文档（当前批次已归档至 `文档/`） |
 | `文档/` | 归档文档库：修改记录 / 选型记录 / 审计报告 / 理论依据 / 提示语句 |
@@ -107,7 +107,7 @@ Zen Studio 的设计哲学是 **Agent 驱动**：代码修改一律经 AI agent 
 ### 6.1 环境准备
 
 ```bash
-# 需要 Python ≥ 3.12 与 uv；虚拟环境创建约定见 维护手册/ai创建虚拟环境.md
+# 需要 Python ≥ 3.12 与 uv
 uv sync
 ```
 
@@ -166,7 +166,7 @@ building/dist/zen-studio/zen-studio
 |:---|:---|
 | `AGENTS.md` | AI / 工程师操作约束（仅操作项目目录、强制 `.venv`、中文响应等） |
 | `文档编写规范.md` | 文档命名、头部元信息、文件引用、符号约定（v3.1 强制约束型） |
-| `维护手册/AI 友好代码协议-v1.2.0.md` | 代码编写强制协议 |
+| `AI 友好代码协议-v1.2.0.md` | 代码编写强制协议（本地维护，不入库） |
 | `src/README.md` | 源码目录边界、第三方依赖与增量模块位置 |
 | `src/ide/core/README.md` `src/ide/gui/README.md` `src/ide/llm/README.md` | 三个 IDE 核心包的详细机制说明 |
 | `文档/修改记录/` | 全部实施计划与诊断报告归档（时间戳命名） |
