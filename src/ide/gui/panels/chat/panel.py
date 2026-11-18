@@ -96,6 +96,7 @@ from ide.gui.settings import (
     KEY_KIMI_WIRE_SIDECAR,
     KEY_PERMISSION_MODE,
     KEY_THEME,
+    KEY_TURN_STALL_TIMEOUT_MIN,
 )
 from ide.core import token_stats
 from ide.gui.theme import get_theme_palette, load_settings
@@ -344,6 +345,16 @@ class ChatPanel(QWidget):
         self._usage_timer = QTimer(self)
         self._usage_timer.setInterval(2000)  # 对齐 usage.record 1~3s 写盘节奏
         self._usage_timer.timeout.connect(self._poll_usage_tick)
+        #: 轮次挂起看门狗（2026-1118-1115 计划 D2）：轮次内距末条消息帧超
+        #: 阈值（设置 turn_stall_timeout_min，0=关）自动中断并提示——agent
+        #: 丢失任务完成事件时轮次永久挂起，busy/排队待发永不解除且无提示，
+        #: 看门狗把「无限期静默」变为「自动中断 + 可诊断系统消息」
+        self._stall_timer = QTimer(self)
+        self._stall_timer.setInterval(30_000)
+        self._stall_timer.timeout.connect(self._stall_watchdog_tick)
+        #: 末条消息帧的 monotonic 时刻（_on_chunk 更新；轮次起播点同记）：
+        #: 看门狗 idle 口径数据源；非轮次态为 None
+        self._last_chunk_at: float | None = None
 
         chat_pack = get_theme_palette(load_settings()[KEY_THEME])["chat"]
         # 双轨并存：cards 卡片折叠轨（默认）/ classic 旧轨 ChatOutput
@@ -499,6 +510,7 @@ class ChatPanel(QWidget):
         if backend != self._llm_name:
             old = self._providers.pop(self._llm_name, None)
             self._usage_timer.stop()  # 切后端停轮询，不残留空转
+            self._stall_timer.stop()  # 看门狗同停（轮次簿记随后端切换作废）
             # 旧后端会话用量不得残留到新后端：清零徽章（reset_session 语义点）
             self._usage = None
             # 计时簿记同清（与 _usage 同寿命）：新会话从下一轮发送重新计
@@ -578,6 +590,7 @@ class ChatPanel(QWidget):
         """
         self.request_stop()
         self._usage_timer.stop()  # 标签销毁前停轮询（随 tab 生命周期）
+        self._stall_timer.stop()  # 看门狗同停（随 tab 生命周期）
         worker = self._worker
         providers = list(self._providers.values())
         if worker is not None:
@@ -1063,6 +1076,8 @@ class ChatPanel(QWidget):
         self._worker.stopped_by_user.connect(self._on_stopped)
         self._worker.start()
         self._usage_timer.start()  # 轮次内用量轮询（kimi 尾部读 wire.jsonl）
+        self._last_chunk_at = time.monotonic()  # 看门狗起播点（首轮帧前口径）
+        self._stall_timer.start()  # 轮次挂起看门狗（D2）
         turn_start = datetime.now()
         self._turn_started_at = turn_start
         if self._session_started_at is None:  # 首轮发送 = 会话开始
@@ -1134,7 +1149,32 @@ class ChatPanel(QWidget):
             self._usage = stats
             self._refresh_usage_label()
 
+    def _stall_watchdog_tick(self) -> None:
+        """轮次挂起看门狗 tick：距末条消息帧超阈值 → 自动中断 + 明确提示。
+
+        阈值经设置项 turn_stall_timeout_min 读取（tick 时现读，改设置即
+        生效），0 = 关闭。判定口径是「无任何消息帧」而非「无正文」——
+        execute 运行中的 in_progress 帧、思维链、tool 活动均刷新计时；
+        只有 agent 彻底沉默（丢失任务完成事件等）才触发。
+        触发走 request_stop()：连接层本地中断保证秒级收尾（D1），随后
+        既有 _on_stopped 路径解除 busy、取消排队待发。
+        """
+        threshold_min = load_settings()[KEY_TURN_STALL_TIMEOUT_MIN]
+        if not threshold_min or self._worker is None \
+                or self._last_chunk_at is None:
+            return
+        idle_s = time.monotonic() - self._last_chunk_at
+        if idle_s < threshold_min * 60:
+            return
+        minutes = int(idle_s // 60)
+        self._last_chunk_at = None  # 防 tick 间隔内重复触发
+        self.output.append_message(
+            "系统", f"本轮已 {minutes} 分钟无响应，已自动中断，"
+                    "可重新发送；反复出现请新建会话")
+        self.request_stop()
+
     def _on_chunk(self, chunk: Chunk) -> None:
+        self._last_chunk_at = time.monotonic()  # 看门狗 idle 口径：任何消息帧均刷新
         self.timeline.feed(chunk)  # 时间线色块条旁路分接
         if chunk.kind == "usage":
             # 上下文用量通知：只更新徽章簿记，不进输出区文本流、不入 _history
@@ -1317,6 +1357,7 @@ class ChatPanel(QWidget):
         self.output.end_stream()
         self._worker = None
         self._usage_timer.stop()  # 轮次收尾停轮询（收尾真值已由 chunk 兜底）
+        self._stall_timer.stop()  # 看门狗同停（_last_chunk_at 随轮次作废）
         self.turn_finished.emit()
         # 三态收尾：正常完成自动发输入框待发内容（接续轮 busy 不间断）；
         # 失败解除待发态——草稿本在输入框零回滚成本 + 系统提示（防连环
@@ -1341,6 +1382,7 @@ class ChatPanel(QWidget):
         屏幕已输出内容不擦除（可复制兜底），追加停止标注。"""
         self._flush_turn_consumption()  # 中断轮已发生的调用消耗照记
         self._usage_timer.stop()  # 中断即停轮询，不残留空转
+        self._stall_timer.stop()  # 看门狗同停
         if self._turn_started_at is not None:  # 中断轮同记上轮任务
             self._last_turn = {
                 "started": self._turn_started_at,

@@ -671,14 +671,17 @@ class KimiAcpLLM(LanguageModel):
             self._session_id = None
 
     def cancel(self) -> None:
-        """取消当前轮次（协议级）：发 `session/cancel`；无轮次时 no-op。
+        """取消当前轮次：协议 `session/cancel` + 本地 abort_turn；无轮次时 no-op。
 
         不持 `_turn_lock`（cancel 从 GUI 线程来，锁由 chat 所在 worker 持有）；
         不终止连接进程——长驻连接是会话资产，仅结束当前轮次。
+        本地中断（2026-1118-1115 计划 D1）：agent 沉默时协议通知无回包，
+        abort_turn 保证阻塞中的轮次消费秒级解封，停止按钮不失效。
         """
         conn = self._conn
         if conn is not None and self._session_id:
             conn.cancel_turn(self._session_id)
+            conn.abort_turn()
 
     def _ensure_session(self) -> AcpConnection:
         if self._closed:  # 标签已销毁：拒绝新建连接（评审 CRITICAL#1）

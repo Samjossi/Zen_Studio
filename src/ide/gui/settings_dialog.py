@@ -80,9 +80,12 @@ from ide.gui.settings import (
     KEY_TERMINAL_AI_TAB_CLOSE_DELAY_S,
     KEY_TERMINAL_SWAP_COPY_PASTE,
     KEY_THEME,
+    KEY_TURN_STALL_TIMEOUT_MIN,
     KEY_WINDOW_BORDER,
     TERMINAL_AI_TAB_CLOSE_DELAY_MAX_S,
     TERMINAL_AI_TAB_CLOSE_DELAY_MIN_S,
+    TURN_STALL_TIMEOUT_MAX_MIN,
+    TURN_STALL_TIMEOUT_MIN_MIN,
     update_settings,
 )
 from ide.core.paths import SOUNDS_ACTIVE_DIR
@@ -156,8 +159,8 @@ _PAGE_REGISTRY: tuple[tuple[str, str, str, str | None], ...] = (
      "_build_terminal_page", "_reload_terminal"),
     ("通知", "任务完成与交互提问的声音与横幅提醒。",
      "_build_notify_page", "_reload_notify"),
-    ("高级", "配置文件查看与重置操作。",
-     "_build_advanced_page", None),
+    ("高级", "会话无响应看门狗与配置文件操作。",
+     "_build_advanced_page", "_reload_advanced"),
 )
 
 
@@ -658,6 +661,20 @@ class SettingsDialog(QDialog):
         page = QWidget(self)
         layout = QVBoxLayout(page)
         layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        stall_row = QHBoxLayout()
+        stall_row.addWidget(QLabel("会话无响应自动中断阈值：", page))
+        self._stall_spin = QSpinBox(page)
+        self._stall_spin.setRange(
+            TURN_STALL_TIMEOUT_MIN_MIN, TURN_STALL_TIMEOUT_MAX_MIN)
+        self._stall_spin.setSuffix(" 分钟")
+        self._stall_spin.valueChanged.connect(self._on_stall_timeout_changed)
+        stall_row.addWidget(self._stall_spin)
+        stall_row.addStretch(1)
+        stall_row.addWidget(self._make_hint_icon(
+            "一轮对话中超过此时长没有任何消息（AI 输出/工具活动）即自动中断并提示；\n"
+            "设为 0 关闭。长等待任务（如浏览器授权）期间无消息属正常，阈值应大于其等待时长。",
+            page))
+        layout.addLayout(stall_row)
         path_label = make_label_selectable(
             BandLabel(f"配置目录：{CONFIG_DIR}", page))
         path_label.setWordWrap(True)
@@ -676,6 +693,10 @@ class SettingsDialog(QDialog):
         layout.addLayout(button_row)
         layout.addStretch(1)
         return page
+
+    def _on_stall_timeout_changed(self, value: int) -> None:
+        if not self._reloading:
+            update_settings({KEY_TURN_STALL_TIMEOUT_MIN: value})
 
     # ------------------------------------------------------------------
     # 状态重载（MainWindow._sync_settings_dialog 唯一回调入口）
@@ -709,6 +730,9 @@ class SettingsDialog(QDialog):
     def _reload_terminal(self, settings) -> None:
         self._swap_check.setChecked(settings[KEY_TERMINAL_SWAP_COPY_PASTE])
         self._close_delay_spin.setValue(settings[KEY_TERMINAL_AI_TAB_CLOSE_DELAY_S])
+
+    def _reload_advanced(self, settings) -> None:
+        self._stall_spin.setValue(settings[KEY_TURN_STALL_TIMEOUT_MIN])
 
     def _reload_notify(self, settings) -> None:
         self._notify_sound_check.setChecked(settings[KEY_NOTIFY_SOUND_ENABLED])

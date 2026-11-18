@@ -19,6 +19,7 @@ import queue
 import re
 import subprocess
 import threading
+import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Literal, Protocol, TypedDict
@@ -37,6 +38,16 @@ from ide.core.paths import workspace_display_path
 logger = logging.getLogger(__name__)
 
 _ACP_TIMEOUT_S = 30  # initialize / session/new / set_config_option 等控制请求超时
+
+#: next_update 拆拍节拍（秒）：timeout=None 时内部以该粒度轮询队列，
+#: 使阻塞中的轮次消费能响应本地中断（TurnAborted）；对外阻塞语义不变
+_NEXT_UPDATE_TICK_S = 1.0
+
+
+class TurnAborted(Exception):
+    """轮次本地中断信号：cancel 路径置位 _turn_abort 后，阻塞中的
+    next_update 拆拍检查发现即抛出。agent 沉默时协议 cancel 无回包，
+    本地中断是解封 worker 的唯一路径（2026-1118-1115 计划 D1）。"""
 
 #: terminal/* 反向请求方法集（无 handler 时分发维持 -32601 兜底语义）
 _TERMINAL_METHODS = frozenset({
@@ -1189,6 +1200,9 @@ class AcpConnection:
         self._pending: dict[int, queue.Queue[dict]] = {}
         self._updates: queue.Queue[_TurnMessage] = queue.Queue()
         self._turn_id: int | None = None  # 活跃轮次的 prompt 请求 id（其响应改走 _updates）
+        #: 轮次本地中断（abort_turn 置位，begin_turn 清除）：agent 沉默时
+        #: 协议 cancel 无回包，本信号让阻塞中的 next_update 拆拍逃逸
+        self._turn_abort = threading.Event()
         self.is_alive = True
         self._terminated = False  # 死讯注入幂等标志（reader EOF 与 terminate 谁先谁注入）
         #: 审批处理器（GUI 经 set_permission_handler 注入）；None=自动允许（C2 语义）
@@ -1414,6 +1428,7 @@ class AcpConnection:
     def begin_turn(self, method: str, params: dict) -> int:
         """登记轮次请求：其响应与通知同走 `_updates`，由 chat() 逐条消费。"""
         with self._write_lock:
+            self._turn_abort.clear()  # 新一轮消费前清中断：上轮 cancel 残留不得误伤
             self._next += 1
             self._turn_id = self._next
             try:
@@ -1422,6 +1437,16 @@ class AcpConnection:
                 self._turn_id = None
                 raise RuntimeError(f"{self._agent_name} 写入失败：{e}") from e
             return self._turn_id
+
+    def abort_turn(self) -> None:
+        """本地中断当前轮次：置 _turn_abort，阻塞中的 next_update 拆拍
+        检查发现后以 TurnAborted 解封（可从任意线程调用，幂等）。
+
+        与 cancel_turn 的协议通知互补——协议通知给 agent 优雅收场的机会，
+        本地中断保证 agent 沉默（丢失任务完成事件等）时 worker 也能在
+        秒级醒来。无活跃轮次时置位无害：begin_turn 统一清除。
+        """
+        self._turn_abort.set()
 
     def end_turn(self) -> None:
         self._turn_id = None
@@ -1456,8 +1481,26 @@ class AcpConnection:
 
         timeout 秒数超时抛 queue.Empty（0813-1919 计划 T4：kimi wire
         旁路与 conn 双源汇合的轮询消费用；其余后端不传超时保持原语义）。
+
+        2026-1118-1115 计划 D1 拆拍：内部以 ≤_NEXT_UPDATE_TICK_S 的队列
+        等待逼近调用方语义，每拍检查 _turn_abort——置位即抛 TurnAborted。
+        对外语义不变（None=无限等帧），但 agent 永久沉默时阻塞中的轮次
+        消费可在秒级被本地中断解封（停止按钮不失效的前提）。
         """
-        return self._updates.get(timeout=timeout)
+        deadline = None if timeout is None else time.monotonic() + timeout
+        while True:
+            if self._turn_abort.is_set():
+                raise TurnAborted()
+            if deadline is None:
+                slice_timeout = _NEXT_UPDATE_TICK_S
+            else:
+                slice_timeout = min(_NEXT_UPDATE_TICK_S,
+                                    max(0.0, deadline - time.monotonic()))
+            try:
+                return self._updates.get(timeout=slice_timeout)
+            except queue.Empty:
+                if deadline is not None and time.monotonic() >= deadline:
+                    raise
 
     def terminate(self) -> None:
         """终止子进程并主动注入死讯：consumer 立即醒来，不必等 reader EOF。
@@ -1479,6 +1522,7 @@ class AcpConnection:
 
 __all__ = [
     "AcpConnection",
+    "TurnAborted",
     "PermissionOption",
     "ToolCallInfo",
     "PermissionParams",

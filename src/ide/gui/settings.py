@@ -105,6 +105,15 @@ TERMINAL_AI_TAB_CLOSE_DELAY_MIN_S = 0
 TERMINAL_AI_TAB_CLOSE_DELAY_MAX_S = 999
 DEFAULT_TERMINAL_AI_TAB_CLOSE_DELAY_S = 12
 
+#: 轮次挂起看门狗阈值（分钟，2026-1118-1115 计划 D2）：一轮内距末条消息
+#: 帧超此时长即自动中断并提示；0 = 关闭。默认 10 分钟的依据：execute
+#: 运行中 agent 有 in_progress 帧流动，静默等待型任务（浏览器 OAuth 等）
+#: 可能长时间无帧，阈值须显著大于正常等待
+KEY_TURN_STALL_TIMEOUT_MIN = "turn_stall_timeout_min"
+TURN_STALL_TIMEOUT_MIN_MIN = 0
+TURN_STALL_TIMEOUT_MAX_MIN = 120
+DEFAULT_TURN_STALL_TIMEOUT_MIN = 10
+
 
 class AppSettings(TypedDict):
     """settings.json 全量结构（18 个固定键，均为用户偏好）。"""
@@ -148,6 +157,9 @@ class AppSettings(TypedDict):
     notify_sound_error: str
     #: 交互提问（AskUserQuestion）提示音文件名（默认 question.wav）
     notify_sound_question: str
+    #: 轮次挂起看门狗阈值（分钟；一轮内距末条消息帧超此时长自动中断+提示，
+    #: 0 = 关闭。2026-1118-1115 计划 D2）
+    turn_stall_timeout_min: int
 
 
 class AppSettingsPatch(TypedDict, total=False):
@@ -170,6 +182,7 @@ class AppSettingsPatch(TypedDict, total=False):
     notify_sound_done: str
     notify_sound_error: str
     notify_sound_question: str
+    turn_stall_timeout_min: int
 
 
 #: 默认值：文件缺失 / 字段缺失 / JSON 损坏时回退
@@ -191,6 +204,7 @@ DEFAULT_SETTINGS: AppSettings = {
     KEY_NOTIFY_SOUND_DONE: "done.wav",
     KEY_NOTIFY_SOUND_ERROR: "error.wav",
     KEY_NOTIFY_SOUND_QUESTION: "question.wav",
+    KEY_TURN_STALL_TIMEOUT_MIN: DEFAULT_TURN_STALL_TIMEOUT_MIN,
 }
 
 
@@ -249,6 +263,14 @@ def load_settings() -> AppSettings:
     for key in (KEY_NOTIFY_SOUND_DONE, KEY_NOTIFY_SOUND_ERROR, KEY_NOTIFY_SOUND_QUESTION):
         if not isinstance(settings[key], str):
             settings[key] = DEFAULT_SETTINGS[key]
+    # 值域防御：看门狗阈值非 int（bool 亦拒）回默认；越界钳制到值域
+    stall_timeout = settings[KEY_TURN_STALL_TIMEOUT_MIN]
+    if not isinstance(stall_timeout, int) or isinstance(stall_timeout, bool):
+        settings[KEY_TURN_STALL_TIMEOUT_MIN] = DEFAULT_TURN_STALL_TIMEOUT_MIN
+    else:
+        settings[KEY_TURN_STALL_TIMEOUT_MIN] = max(
+            TURN_STALL_TIMEOUT_MIN_MIN,
+            min(TURN_STALL_TIMEOUT_MAX_MIN, stall_timeout))
     # 异常/文件缺失路径同样脱离共享引用
     settings[KEY_MODEL_VERSIONS] = dict(settings[KEY_MODEL_VERSIONS])
     settings[KEY_MODEL_EFFORTS] = dict(settings[KEY_MODEL_EFFORTS])
