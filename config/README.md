@@ -24,10 +24,20 @@ Zen Studio 的**开发态**运行时配置存放地。本目录内数据文件�
 | `config/sessions/<hash8>.json` | 会话记录存档（各聊天标签文字对话），按工作区根哈希分文件 | `src/gui/panels/chat/session_store.py` |
 | `config/sockets/<hash8>.sock` | 一窗一根占用登记套接字（QLocalServer 按工作区根哈希 listen；进程退出残留的陈旧套接字由下次启动探测自愈清理） | `src/gui/root_ownership.py` |
 | `config/logs/zen-studio.log` | 运行日志（INFO 级，文件 + stderr 双输出，无轮转；打包态 stderr 不可见，此文件为唯一出错观测面，见 `2026-0909-2349_吞错无日志整改落地计划.md`） | `main.py` `setup_logging()` 初始化，各模块 `logging.getLogger(__name__)` |
-| `config/token_usage.jsonl` | Token 用量逐轮真实消耗记录（一行一轮，输入含缓存读写 + 输出；`turn_id` 去重；热力图与日/周/月统计数据源，2026-1114-1452 计划） | `src/ide/core/token_stats.py` |
-| `config/token_usage.lock` | `token_usage.jsonl` 的 flock 文件锁（多开实例追加写串行化） | `src/ide/core/token_stats.py` |
 
-## 3. 并发与写盘纪律
+## 3. 用户级共享账本（不在本目录）
+
+Token 用量账本自 2026-1117-0627 计划起**迁出 `config/`**，固定为
+`${XDG_CONFIG_HOME:-~/.config}/zen-studio/token_usage.jsonl`（锁文件同目录
+`token_usage.lock`）：同一 OS 用户下所有源码副本、所有 IDE 实例、开发态与
+打包态共用一本，复制源码不再带出第二本账。可被 `ZEN_TOKEN_USAGE_FILE`
+（仅绝对路径）覆盖。
+
+本目录下若仍存在 `config/token_usage.jsonl`，它是**迁移来源**（冷备），
+新代码不再读写；按 `turn_id` 合并到共享路径用
+`scripts/merge_token_usage.py`。
+
+## 4. 并发与写盘纪律
 
 - 多开实例（一进程一工作区根）共享 `settings.json`：一律经 `src/gui/settings.py` 的**「flock 文件锁串行化 + 读全量 → 合并 → 原子写」**路径，禁止任何模块直接 open 写本目录文件；
 - 窗口状态与会话存档按工作区哈希分文件，各窗口只读写自己的 `<hash8>.json`（窗口状态外加关闭时双写 `default.json`），天然无跨进程竞争；同根多开已由「一窗一根」占用登记（`config/sockets/`）结构性消除（2026-08-31）；

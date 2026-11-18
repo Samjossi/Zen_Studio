@@ -2,7 +2,8 @@
 import json
 from datetime import date, datetime
 
-from ide.core import token_stats
+from ide.core import paths, token_stats
+from ide.core.paths import PROJECT_ROOT, USER_CONFIG_DIR, USER_GLOBAL_CONFIG_DIR
 from ide.core.token_stats import DayUsage, level_of, load_daily, record_turn, summarize
 
 TS = datetime(2026, 11, 14, 12, 0)  #  naive 本地时刻（聚合口径与机器时区无关）
@@ -110,3 +111,52 @@ def test_level_of_quartiles():
     assert level_of(51, totals) == 3
     assert level_of(71, totals) == 4
     assert level_of(80, totals) == 4
+
+
+def test_usage_file_default(monkeypatch):
+    monkeypatch.delenv("ZEN_TOKEN_USAGE_FILE", raising=False)
+    assert token_stats._usage_file() == USER_GLOBAL_CONFIG_DIR / "token_usage.jsonl"
+
+
+def test_usage_file_env_override(monkeypatch, tmp_path):
+    override = tmp_path / "shared.jsonl"
+    monkeypatch.setenv("ZEN_TOKEN_USAGE_FILE", str(override))
+    assert token_stats._usage_file() == override
+
+
+def test_usage_file_relative_override_falls_back(monkeypatch, caplog):
+    monkeypatch.setenv("ZEN_TOKEN_USAGE_FILE", "relative.jsonl")
+    with caplog.at_level("WARNING", logger="ide.core.token_stats"):
+        result = token_stats._usage_file()
+    assert result == USER_GLOBAL_CONFIG_DIR / "token_usage.jsonl"
+    assert any("ZEN_TOKEN_USAGE_FILE" in r.message for r in caplog.records)
+
+
+def test_global_config_dir_is_user_level():
+    # 跨副本共享：用户级根不随源码副本走，开发态与 USER_CONFIG_DIR（项目 config/）不同指
+    assert USER_GLOBAL_CONFIG_DIR.name == "zen-studio"
+    assert USER_GLOBAL_CONFIG_DIR != USER_CONFIG_DIR
+    assert PROJECT_ROOT / "config" not in USER_GLOBAL_CONFIG_DIR.parents
+    assert USER_GLOBAL_CONFIG_DIR.is_absolute()
+
+
+def test_xdg_config_home_parsing(monkeypatch, tmp_path):
+    # 绝对 XDG 生效；相对 XDG 按 XDG 规范忽略，回退 ~/.config
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    assert paths._xdg_config_dir() == tmp_path / "xdg" / "zen-studio"
+    monkeypatch.setenv("XDG_CONFIG_HOME", "relative/xdg")
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    assert paths._xdg_config_dir() == tmp_path / "home" / ".config" / "zen-studio"
+
+
+def test_shared_ledger_two_turns_same_file(tmp_path):
+    path = tmp_path / "usage.jsonl"
+    assert _record(path, turn_id="s:1")
+    assert _record(path, turn_id="s:2", backend="dsh-acp")
+    assert len(path.read_text(encoding="utf-8").splitlines()) == 2
+
+
+def test_record_creates_lock_next_to_ledger(tmp_path):
+    path = tmp_path / "usage.jsonl"
+    assert _record(path)
+    assert (tmp_path / "usage.lock").exists()

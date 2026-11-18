@@ -52,15 +52,25 @@ SOUNDS_ACTIVE_DIR = SOUNDS_DIR / "正在使用"
 #: 开发态：项目内 config/；打包态：${XDG_CONFIG_HOME:-~/.config}/zen-studio/
 #: XDG 规范：XDG_CONFIG_HOME 为相对路径时视为无效须忽略（审计 W5），
 #: 否则写盘落点随进程 CWD 漂移，AppImage 只读 CWD 下 mkdir 必崩
-def _user_config_dir() -> Path:
-    if not _MEIPASS:
-        return PROJECT_ROOT / "config"
+def _xdg_config_dir() -> Path:
+    """XDG 配置目录下的 zen-studio 根（用户级，与源码副本位置无关）。"""
     xdg = Path(os.environ.get("XDG_CONFIG_HOME") or "")
     base = xdg if xdg.is_absolute() else Path.home() / ".config"
     return base / "zen-studio"
 
 
+def _user_config_dir() -> Path:
+    if not _MEIPASS:
+        return PROJECT_ROOT / "config"
+    return _xdg_config_dir()
+
+
 USER_CONFIG_DIR = _user_config_dir()
+
+#: 用户级全局数据根：开发态与打包态同指 ${XDG_CONFIG_HOME:-~/.config}/zen-studio/，
+#: 不受源码副本位置影响；token 用量账本等“跨副本共享”数据一律落此，
+#: 防止复制源码连 config/ 一起复制时分账。settings 等副本私有配置仍走 USER_CONFIG_DIR
+USER_GLOBAL_CONFIG_DIR = _xdg_config_dir()
 
 
 def workspace_digest(workspace_root: str) -> str:

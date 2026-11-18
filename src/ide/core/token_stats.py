@@ -8,9 +8,10 @@
 最近三十天滚动窗口（均含今日）。仅 kimi / DSH 后端采集，其余后端
 无真值通道不入账。
 
-存储：config/token_usage.jsonl（append-only，一行一轮；打包态经
-USER_CONFIG_DIR 分流至 XDG）。turn_id 去重防同轮重复收尾双记；
-多开实例共享文件，写入走 flock 串行化（settings.lock 同例）。
+存储：用户级 ${XDG_CONFIG_HOME:-~/.config}/zen-studio/token_usage.jsonl
+（append-only，一行一轮；所有源码副本/IDE 实例共用一本，复制源码不再
+带出第二本账）。turn_id 去重防同轮重复收尾双记；多开实例共享文件，
+写入走 flock 串行化（settings.lock 同例）。
 """
 import fcntl
 import json
@@ -20,13 +21,31 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-from ide.core.paths import USER_CONFIG_DIR
+from ide.core.paths import USER_GLOBAL_CONFIG_DIR
 
 logger = logging.getLogger(__name__)
 
-#: 用量记录文件与 flock 锁（仅 Linux；进程死亡锁自动释放）
-USAGE_FILE = USER_CONFIG_DIR / "token_usage.jsonl"
-USAGE_LOCK_FILE = USER_CONFIG_DIR / "token_usage.lock"
+
+def _usage_file() -> Path:
+    """账本路径：同一 OS 用户下所有副本/实例共用，必须是用户级绝对路径。
+
+    ZEN_TOKEN_USAGE_FILE 仅接受绝对路径（或 ~ 开头），相对路径视为
+    配置错误：记 warning 并回退默认，避免写盘落点随进程 CWD 漂移。
+    """
+    override = os.environ.get("ZEN_TOKEN_USAGE_FILE")
+    if override:
+        candidate = Path(override).expanduser()
+        if candidate.is_absolute():
+            return candidate
+        logger.warning(
+            "ZEN_TOKEN_USAGE_FILE 必须是绝对路径，已回退默认路径: %s", override)
+    return USER_GLOBAL_CONFIG_DIR / "token_usage.jsonl"
+
+
+#: 用量记录文件与 flock 锁（仅 Linux；进程死亡锁自动释放）。
+#: 模块导入时定型，运行中改环境变量不生效，须重启 IDE
+USAGE_FILE = _usage_file()
+USAGE_LOCK_FILE = USAGE_FILE.with_suffix(".lock")
 
 #: 记录字段（落盘 schema；消费侧一律经本常量组引用，禁止裸字符串漂移）
 _KEY_TS = "ts"
