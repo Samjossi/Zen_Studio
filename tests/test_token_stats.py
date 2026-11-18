@@ -2,6 +2,8 @@
 import json
 from datetime import date, datetime
 
+import pytest
+
 from ide.core import paths, token_stats
 from ide.core.paths import PROJECT_ROOT, USER_CONFIG_DIR, USER_GLOBAL_CONFIG_DIR
 from ide.core.token_stats import DayUsage, level_of, load_daily, record_turn, summarize
@@ -160,3 +162,29 @@ def test_record_creates_lock_next_to_ledger(tmp_path):
     path = tmp_path / "usage.jsonl"
     assert _record(path)
     assert (tmp_path / "usage.lock").exists()
+
+
+@pytest.mark.parametrize("n, expected", [
+    (0, "0"),
+    (999, "999"),
+    (1_000, "1K"),
+    (3_113, "3.1K"),
+    (86_500, "86.5K"),
+    (30_000, "30K"),            # 尾零去除，不得出现 30.0K
+    (500_000, "500K"),
+    (999_999, "1000K"),         # 跨档进位属可接受简写
+    (1_000_000, "1M"),
+    (368_598_460, "368.6M"),
+    (999_999_999, "1000M"),
+    (1_200_000_000, "1.2B"),
+    (12_500_000_000, "12.5B"),
+    (12_250_000_000, "12.25B"),
+])
+def test_format_token_amount(n, expected):
+    assert token_stats.format_token_amount(n) == expected
+
+
+@pytest.mark.parametrize("bad", [1.5, "1000", None, -1, True])
+def test_format_token_amount_rejects_non_int(bad):
+    with pytest.raises(TypeError):
+        token_stats.format_token_amount(bad)

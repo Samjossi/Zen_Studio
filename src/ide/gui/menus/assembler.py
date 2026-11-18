@@ -12,13 +12,15 @@ from ide.gui.menus import (
     help_menu,
     settings_menu,
     terminal_menu,
+    usage_menu,
     view_menu,
 )
 from ide.gui.menus.registry import ActionRegistry
 from ide.gui.popups import make_translucent_popup
 
-#: 构建顺序即菜单栏顺序：文件/编辑/视图/终端 → 设置 → 帮助
-MODULES = (file_menu, edit_menu, view_menu, terminal_menu, settings_menu, help_menu)
+#: 构建顺序即菜单栏顺序：文件/编辑/视图/终端 → 设置 → 用量 → 帮助
+MODULES = (file_menu, edit_menu, view_menu, terminal_menu, settings_menu,
+           usage_menu, help_menu)
 
 
 class MenuBar:

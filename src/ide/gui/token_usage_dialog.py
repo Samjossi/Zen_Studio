@@ -147,9 +147,9 @@ class TokenUsageDialog(QDialog):
         self._heatmap.set_data(daily, today)
         summary = token_stats.summarize(daily, today)
         self._summary_label.setText(
-            f"今日用量 {summary.today:,} tokens　　"
-            f"最近七天用量 {summary.last_7_days:,} tokens　　"
-            f"最近三十天用量 {summary.last_30_days:,} tokens")
+            f"今日用量 {token_stats.format_token_amount(summary.today)} tokens　　"
+            f"最近七天用量 {token_stats.format_token_amount(summary.last_7_days)} tokens　　"
+            f"最近三十天用量 {token_stats.format_token_amount(summary.last_30_days)} tokens")
 
     def apply_theme(self, theme: str) -> None:
         """主题切换：格子色绘制时取调色板，触发重绘即可。"""

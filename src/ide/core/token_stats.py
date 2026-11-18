@@ -175,6 +175,25 @@ def summarize(daily: dict[date, DayUsage], today: date) -> UsageSummary:
                         last_30_days=last_30_total)
 
 
+def format_token_amount(n: int) -> str:
+    """汇总标签缩写：<1,000 千分位原样；<1M 转 K；<1B 转 M；≥1B 转 B。
+
+    跨档进位（999,999 → 1000K）属可接受简写，不回退档位；精确值由
+    tooltip 展示兜底。负值/非 int 视为调用方缺陷，抛错不静默。
+    """
+    if isinstance(n, bool) or not isinstance(n, int) or n < 0:
+        raise TypeError(f"token 用量必须是非负 int，收到: {n!r}")
+    if n < 1_000:
+        return f"{n:,}"
+    if n < 1_000_000:
+        value, unit, digits = n / 1_000, "K", 1
+    elif n < 1_000_000_000:
+        value, unit, digits = n / 1_000_000, "M", 1
+    else:
+        value, unit, digits = n / 1_000_000_000, "B", 2
+    return f"{value:.{digits}f}".rstrip("0").rstrip(".") + unit
+
+
 def level_of(day_total: int, nonzero_totals: list[int]) -> int:
     """绿色分档 0~4：0 消耗为 0 档；非零日按全样本分位数切 4 档。
 
