@@ -281,7 +281,7 @@ _EXPECTED_BLUE_VALUES = {
         ("terminal", "blue"): "#0369a1",
         ("terminal", "brightblue"): "#0ea5e9",
         ("chrome", "current_line_bg"): "#e6f3fa",
-        ("git_status", "modified"): "#0369a1",
+        ("git_status", "modified"): "#0284c7",
         ("chat", "timeline_read_fg"): "#0284c7",
         ("chat", "timeline_write_fg"): "#38bdf8",
         ("chat", "diff_hunk_fg"): "#0369a1",
@@ -552,9 +552,12 @@ def test_git_modified_stays_in_blue_hue_family():
 
 
 def test_git_modified_contrast_on_white():
-    """1311 §5.1 取值规则①：modified 是正文级状态色，四主题对白底 ≥ 4.5
-    （白底为最浅底色保守下界；sky 原档 #0284c7 实测 4.10 即由此拦截）。"""
+    """1311 §5.1 取值规则①：modified 是正文级状态色，对白底 ≥ 4.5
+    （白底为最浅底色保守下界）。sky 例外：modified 直取 accent 与主题强调
+    同色（用户拍板），接受其 4.10 对比度，不再适用正文级门槛。"""
     for name in _LIGHT_THEMES:
+        if name == "sky":
+            continue
         fg = get_theme_palette(name)["git_status"]["modified"]
         assert _contrast_ratio(fg, "#ffffff") >= 4.5, \
             f"{name}/git_status/modified 白底对比度低于 4.5"

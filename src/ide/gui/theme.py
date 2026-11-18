@@ -464,7 +464,7 @@ THEME_PALETTES: dict[str, dict] = {
             "code_bg": "#f5f5f5",
         },
         "git_status": {
-            "modified": "#0369a1",   # 语义族铁律恒蓝族；较 accent 加深，白底对比度不足正文级
+            "modified": "#0284c7",   # 语义族铁律恒蓝族；直接取 accent，modified 与主题强调同色（用户拍板）
             "untracked": "#1f8a3d",  # 绿
             "deleted": "#c0392b",    # 红
             "ignored": "#98a2ac",    # 灰（冷族蓝灰跟随）
