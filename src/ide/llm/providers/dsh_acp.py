@@ -258,6 +258,10 @@ class DshAcpLLM(LanguageModel):
         self._model = model
         #: 推理强度预选值（None = 未定制，agent 默认强度生效）
         self._effort: str | None = None
+        #: 图片能力运行时实测位（initialize 的 promptCapabilities.image）：
+        #: None = 尚未建连（GUI 回退注册表静态位）；True/False = dsh 实测
+        #: 真值。能力取决于 dsh 侧是否挂载附件存储，只有 initialize 说真话
+        self.supports_images_override: bool | None = None
         self._cwd = os.path.abspath(workspace_root or str(PROJECT_ROOT))
         self._conn: AcpConnection | None = None
         self._session_id: str | None = None
@@ -384,6 +388,9 @@ class DshAcpLLM(LanguageModel):
                 "clientInfo": {"name": "zen-studio", "title": "Zen Studio", "version": APP_VERSION},
             }, timeout=60)  # 首次 boot 初始化 acp profile 可能耗时（计划 §4 风险项）
             self._log_agent_info(init_result)
+            caps = (init_result.get("agentCapabilities") or {}).get(
+                "promptCapabilities") or {}
+            self.supports_images_override = caps.get("image") is True
         if self._session_id is None:
             try:
                 result = self._conn.request(

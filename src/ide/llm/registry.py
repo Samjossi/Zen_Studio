@@ -264,8 +264,9 @@ REGISTRY: dict[str, BackendSpec] = {
             # set_config_option 拒绝为信号（provider 内降级不崩 UI）
             list_models=list_dsh_models,
             factory=DshAcpLLM,
-            # spike 实测 initialize promptCapabilities.image=false
-            # （acp profile 默认未挂附件存储）；dsh 侧挂载后实测翻案
+            # 兜底初值 False（spike 实测 acp profile 默认未挂附件存储）；
+            # 运行时真值以 initialize 的 promptCapabilities.image 实测为准
+            # （provider.supports_images_override，GUI 侧优先消费）
             supports_images=False,
             # 接口级静态档位（ACP 2026-11-05 实测 reasoning_effort 值域
             # off/low/high/max、默认 high；configId 拼写归 provider 的

@@ -818,10 +818,19 @@ class ChatPanel(QWidget):
     # 图片附件（能力位注入 / 附件行变化）
     # ------------------------------------------------------------------
     def _supports_images(self) -> bool:
-        """当前后端图片附件能力（注册表 BackendSpec.supports_images；
-        接口级判定）。"""
+        """当前后端图片附件能力：provider 运行时实测覆盖位优先
+        （dsh initialize 的 promptCapabilities.image），无覆盖位回退
+        注册表 BackendSpec.supports_images 静态值。"""
+        provider = self._providers.get(self._llm_name)
+        if getattr(provider, "supports_images_override", None) is not None:
+            return bool(provider.supports_images_override)
         spec = spec_of(self._llm_name)
         return bool(spec and spec.supports_images)
+
+    #: 上次应用的图片能力位（_apply_image_capability 幂等簿记）：轮末刷新
+    #: 与初始化/后端切换共用单点，能力位未变即短路——防「残留附件」提示
+    #: 随轮次重复弹
+    _images_applied: bool | None = None
 
     def _apply_image_capability(self) -> None:
         """按当前后端能力位刷新图片入口语义（初始化与后端切换共用单点）。
@@ -830,6 +839,9 @@ class ChatPanel(QWidget):
         能力外：退化为 @路径 透传。
         """
         enabled = self._supports_images()
+        if enabled == self._images_applied:
+            return  # 能力位未变：幂等短路
+        self._images_applied = enabled
         self.input.set_image_attachments_enabled(enabled)
         if not enabled and self.attachments.count() > 0:
             # 切到能力外后端时残留附件：保留在附件行但发送时不再携带
@@ -1376,6 +1388,8 @@ class ChatPanel(QWidget):
         # 计时簿记已变（上轮入库/接续轮起新轮），tooltip 即时刷新不等
         # 下一帧用量
         self._refresh_usage_label()
+        # 本轮 initialize 后 dsh 图片能力实测位可能刚到位：幂等刷新附件入口
+        self._apply_image_capability()
 
     def _on_stopped(self) -> None:
         """用户中断收尾（第三态）：整体回滚——中断轮不入历史；

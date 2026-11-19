@@ -1528,6 +1528,8 @@ _TOOL_NAME_CARDS: dict[str, type] = {
     "agent": SubagentCard,
     "task": SubagentCard,
     "readmediafile": MediaReadCard,
+    # DSH 看图工具名（参数 snake_case 的 file_path），与 readmediafile 同卡
+    "read_image": MediaReadCard,
     "todolist": TodoListCard,
     "todowrite": TodoListCard,
     # DSH 清单工具名为下划线形态 todo_write；归一化只剥 `mcp__` 前缀不剥

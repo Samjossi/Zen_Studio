@@ -571,17 +571,20 @@ def _extract_result_summary(text: str) -> str:
 #: 通用入参区已知键（0645 计划 D3：按 kind 取 rawInput 关键字段，
 #: 未命中任何已知键时 JSON pretty 兜底——「尽可能全」的兜底保证，
 #: 即使专门渲染未覆盖的字段也不丢信息）
+#: snake_case 键（file_path/old_string/new_string/replace_all）为 DSH 命名
+#: 口径，与 kimi 系 camelCase 并存并联——漏收即整族入参区落 JSON 兜底
 _INPUT_DETAIL_KEYS: dict[str, tuple[str, ...]] = {
     "execute": ("command",),
-    "edit": ("path", "filePath", "oldString", "newString"),
-    "read": ("path", "filePath", "offset", "limit"),
+    "edit": ("path", "filePath", "file_path", "oldString", "newString",
+             "old_string", "new_string", "replace_all"),
+    "read": ("path", "filePath", "file_path", "offset", "limit"),
     "search": ("pattern", "query", "path", "include"),
     "fetch": ("url",),
     "think": ("description", "prompt", "subagent_type"),
     # 0806 计划 T1：ReadMediaFile/AskUserQuestion/Agent/TodoList 等
     # ACP kind 恒为 "other"，无白名单则已知键提取必然落空
-    "other": ("path", "filePath", "url", "query", "command", "prompt",
-              "description", "questions", "todos", "name"),
+    "other": ("path", "filePath", "file_path", "url", "query", "command",
+              "prompt", "description", "questions", "todos", "name"),
 }
 _INPUT_DETAIL_VALUE_MAX = 2000  # 单字段值字符上限（入参区是兜底非主渲染）
 _INPUT_DETAIL_BRIEF_VALUE_MAX = 200  # 长文本键摘要上限（0806 计划 T1：
@@ -664,7 +667,7 @@ def _extract_media_path(update: dict) -> str | None:
     raw = update.get("rawInput")
     if not isinstance(raw, dict):
         return None
-    path = raw.get("path") or raw.get("filePath")
+    path = raw.get("path") or raw.get("filePath") or raw.get("file_path")
     if not isinstance(path, str) or not path:
         return None
     ext = Path(path).suffix.lower()
@@ -672,9 +675,11 @@ def _extract_media_path(update: dict) -> str | None:
         return path
     if ext:
         return None  # 非图扩展名：无图可缩
+    # 无扩展名兜底工具名集合：kimi readmediafile + DSH read_image（DSH
+    # 看图 schema 仅图片格式，白名单已覆盖，此为无扩展名图片防御口径）
     title = update.get("title")
     if isinstance(title, str) and \
-            title.strip().split("__")[-1].lower() == "readmediafile":
+            title.strip().split("__")[-1].lower() in ("readmediafile", "read_image"):
         return path
     return None
 
@@ -847,7 +852,8 @@ def _tool_call_summary(update: dict) -> str | None:
         if locations and isinstance(locations[0], dict):
             if path := _truncate_line(locations[0].get("path")):
                 return path
-        return _truncate_line(raw.get("path") or raw.get("filePath"))
+        return _truncate_line(raw.get("path") or raw.get("filePath")
+                              or raw.get("file_path"))
     if kind == "search":
         return _truncate_line(raw.get("pattern") or raw.get("query"))
     if kind == "fetch":
