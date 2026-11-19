@@ -1,58 +1,60 @@
 # 后端CLI工具维护说明手册
 
-> 本文档汇总了团队常用 后端CLI工具的官方说明地址，供工程师在遇到疑惑时快速查阅。
-> 最后更新：2026-11-16（DSH 升为 §2；新增 §3 Dream ACP（开发中）；OpenCode / Reasonix / 本地模型标记已封存；原 §6 数据通道登记顺延为 §8）
+> 本文档只保留团队常用后端 CLI 的安装、运行、更新与验证命令。
+> 升级后需重启 Zen Studio，再验证版本与实际会话。
+> 最后更新：2026-11-19
 
 ---
 
 ## 1. Kimi Code（原 Kimi CLI）
 
-Kimi 官方推出的 AI 编程代理，支持终端、VS Code 扩展及 API 接入。
+Kimi 官方 AI 编程代理，Zen Studio 通过 `kimi acp` 接入。
 
-| 资源             | 地址                                                         |
-| ---------------- | ------------------------------------------------------------ |
-| 主文档站         | https://www.kimi.com/code/docs/                              |
-| CLI 快速开始     | https://www.kimi.com/code/docs/kimi-code-cli/guides/getting-started.html |
-| 中文帮助中心入门 | https://www.kimi.com/zh-cn/help/kimi-code/cli-getting-started |
-| GitHub 仓库      | https://github.com/MoonshotAI/kimi-code                      |
-| 旧版文档（参考） | https://moonshotai.github.io/kimi-cli/zh/                    |
+| 资源 | 地址 |
+| --- | --- |
+| 主文档站 | https://www.kimi.com/code/docs/ |
+| CLI 快速开始 | https://www.kimi.com/code/docs/kimi-code-cli/guides/getting-started.html |
+| GitHub 仓库 | https://github.com/MoonshotAI/kimi-code |
 
-**安装命令：**
+### 安装
+
 ```bash
-# 新版（Node.js，推荐）。2026-09-17 起官方安装地址为：
 curl -fsSL https://code.kimi.com/kimi-code/install.sh | bash
-# （旧地址 https://www.kimi.com/code/install.sh 已失效，返回 HTML 页面而非脚本）
-
-# 已安装实例升级
-kimi upgrade -y
-
-# 旧版（Python/uv，逐步停止维护）
-uv tool install kimi-cli
 ```
 
-> 模型备注（2026-10-24）：**K3.1 Pro 系列上线**——`k3.1-pro`（3T 级新旗舰，
-> 1M 上下文限高档位会员，仅 thinking，档位 low/high/max 默认 max，图像+视频输入）
-> 与 `k3.1-pro-highspeed`（同能力高速版，约 2~3× 速度、约 2× 额度消耗）。
-> 本机 CLI 2.0.0 实测 `provider list --json` 目录字段齐全（supportEfforts/
-> defaultEffort/displayName 直给，无 overrides 子表），Zen Studio 侧零改动接入。
-> 官方建议切 K3.1 Pro 开新会话（切模型/档位使上下文缓存失效）。
-> 详见 `work plans/2026-1024-0403_K3.1Pro新模型接入落地计划.md`。
+### 运行
 
-> 模型备注（2026-09-17）：`kimi-for-coding` 已全量升级为 **K2.8 Preview**
-> （Model ID 不变；思考档位 low/high/max、默认 max；全会员档位 1M 上下文）。
-> 目录元数据由服务端在登录时下发：本机 config.toml 快照未自动刷新时，
-> 用 `[models."kimi-code/kimi-for-coding".overrides]` 固定新元数据
-> （managed 刷新不改写 overrides），或重新 `kimi login` 让目录权威刷新。
-> Zen Studio 侧 `efforts_from_catalog` 已按 effective 语义并入 overrides。
+交互式：
 
-> 提示：新版 Kimi Code CLI 已从 Python/uv 迁移至 Node.js，旧用户可通过 `kimi migrate` 一键迁移配置和会话历史。
+```bash
+kimi
+```
+
+ACP（Zen Studio 使用）：
+
+```bash
+kimi acp
+```
+
+### 更新
+
+```bash
+kimi upgrade -y
+```
+
+### 验证
+
+```bash
+kimi --version
+```
+
+当前应输出 `2.6.3`。
 
 ---
 
 ## 2. DeepSeek Harness（DSH）
 
-DeepSeek 官方开源的 Agent Harness，CLI 命令为 `dsh`，采用插件化架构；Zen Studio
-通过 `dsh acp` 接入。项目仍处于开发者预览阶段，升级时需核对破坏性变更。
+DeepSeek 官方开源的 Agent Harness，CLI 命令为 `dsh`；Zen Studio 通过 `dsh acp` 接入。
 
 | 资源 | 地址 |
 | --- | --- |
@@ -60,335 +62,76 @@ DeepSeek 官方开源的 Agent Harness，CLI 命令为 `dsh`，采用插件化�
 | 官方文档站 | https://deepseek-harness.github.io/deepseek-harness/ |
 | CLI 说明 | https://github.com/deepseek-ai/deepseek-harness/blob/master/apps/cli/README.zh.md |
 | 模型配置指南 | https://github.com/deepseek-ai/deepseek-harness/blob/master/docs/user/guide/providers.zh.md |
-| 内置模型目录源码 | https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/llm/llm-deepseek/src/models.ts |
-| DeepSeek API 模型与价格 | https://api-docs.deepseek.com/zh-cn/quick_start/pricing |
-| DeepSeek API 更新日志 | https://api-docs.deepseek.com/zh-cn/updates/ |
 
-**运行命令：**
+### 安装
+
 ```bash
-# Web UI
-npx @deepseek-ai/dsh web
+npm i -g @deepseek-ai/dsh@0.2.2-rc.5
+```
 
-# ACP（Zen Studio 使用）
+### 运行
+
+Web UI：
+
+```bash
+dsh web
+```
+
+ACP（Zen Studio 使用）：
+
+```bash
 dsh acp
 ```
 
-> 2026-11-05 核对：npm `latest` 为 **0.2.2-rc.1**；该系列要求 Node.js ≥24.9。
-> 本机已升级至 DSH 0.2.2-rc.1 + Node.js 24.9.0。模型条目同步见
-> `work plans/2026-1105-2152_DSH模型目录条目同步落地计划.md`。
+### 更新
 
-**DeepSeek 官方路由的现行内置目录**（0.2.2-rc.1 与 `master` 一致）：
+```bash
+npm i -g @deepseek-ai/dsh@latest
+```
 
-| 模型 ID | DSH 显示名 | 上下文窗口 | DSH 目录输入类型 | 推理强度 |
-| --- | --- | ---: | --- | --- |
-| `deepseek-flash` | DeepSeek-V4.1-Flash | 1,048,576 tokens | 文本、图片 | off / low / high / max，默认 high |
-| `deepseek-v4-pro` | DeepSeek-V4-Pro | 1,048,576 tokens | 文本 | off / low / high / max，默认 high |
+### 验证
 
-- **V4.1-Flash-1017 是后端版本升级，不是新增模型 ID**：2026-10-17 起仍用
-  `deepseek-flash` 调用，调用方式与价格不变；不要新增
-  `deepseek-v4.1-flash-1017` 之类的推测条目。
-- `deepseek-v4-flash` 与 `deepseek-v4-flash-vision-exp` 是仍被 API 接受的旧名，
-  请求由 V4.1-Flash-1017 提供服务并按 Flash 计费；它们不是独立现行模型，最新
-  DSH 内置目录已不再列出。新配置使用 `deepseek-flash`。
-- 使用默认端点时，DSH 会跟随 DeepSeek API 发布的模型列表，约每十分钟后台刷新，
-  失败时退回内置目录；自定义模型目录后不再自动跟随。DeepSeek 账号登录路由的
-  模型清单则由账号服务下发。因此“内置兜底目录”和账号实际可选清单可能不同。
-- Zen Studio 在 `src/ide/llm/providers/dsh_acp.py` 使用静态表，不会自动跟随上述
-  目录变化；新会话候选仅含 `deepseek-flash` 与 `deepseek-v4-pro`，显示名与官方
-  目录一致。0.2.2-rc.1 的 ACP 动态目录实测仍返回旧别名，Zen 不将其列为新候选。
+```bash
+dsh --version
+```
 
-**轮次 token 消耗采集（2026-1114-1452 计划，私有格式假设登记）**：ACP
-`usage_update` 只有 used/size 上下文占用，不能当消耗计量；真值取自 dsh 会话
-落盘日志 `<DSH_HOME 或 ~/.dsh>/sessions/--<normalized-cwd>--/<sessionId>/
-session.vN.jsonl[.zstd]` 的 `assistant/message` 事件 `data.usage`
-（`inputTokens`/`outputTokens`/`cacheReadTokens`；`reasoningTokens` 为输出子集
-不重复计入）。实现：`dsh_acp.py` `_session_log_path` / `_turn_consumption`
-（轮前基线 + 轮末差量求和，turn_id=`sessionId:累计事件数` 幂等去重）。注意：
-- 默认压缩为 **zstd**，依赖系统 `zstd -dc` 解压；系统无 zstd 时静默停采；
-- 项目目录名归一化规则私有，Zen 不拼装、按 sessionId 一层 glob 直匹配；
-- 格式漂移（字段缺失/类型异常）整条跳过，不臆造数值；升级 DSH 后若热力图
-  不再出数，优先核对该文件格式（真值来源：`参考代码/deepseek-harness/
-  packages/session/session-persistence-jsonl/README.zh.md` 与 snapshots/sdk/）。
-- 回归测试：`tests/test_dsh_usage.py`。
+当前应输出 `0.2.2-rc.5`；Node.js 要求 `>=24.9.0`。
 
 ---
 
 ## 3. Dream ACP（开发中）
 
-> **🔧 开发中**：自家协议接口层，本身不含模型。界面所示 dream-creator 不代表
-> 具体模型——当前回复由本机 Dream CLI 服务端配置的模型生成。开发中状态经
-> 界面 dev_note 如实告知；本节登记仓内资源，无外部官方地址。
-
-Zen Studio 自维护的 ACP 协议开发底本对接层（非第三方 CLI 产品）：Dream 是本地
-模型 CLI 后台，客户端以 `dream acp` 启动长驻子进程，走 stdio ndjson JSON-RPC
-完成握手、会话、流式对话、工具审批与取消。协议真值来源即本仓库 `dream-acp/`
-目录（协议 v1.0，自包含、零依赖、搬走即完整）。
+Zen Studio 自维护的 ACP 协议对接层，协议真值在本仓库 `dream-acp/`；本身不含模型。
 
 | 资源 | 地址 |
 | --- | --- |
-| 协议正式文档 | `dream-acp/protocol/dream-acp-v1.md`（仓内路径，协议 v1.0） |
-| 开发底本说明 | `dream-acp/README.md`（仓内路径） |
-| 示例 agent | `dream-acp/example/dream`（Python 单文件可执行，覆盖协议每一条） |
-| 协议断言脚本 | `dream-acp/tools/spike_handshake.py`（`--bin` 可指向真实二进制） |
+| 协议正式文档 | `dream-acp/protocol/dream-acp-v1.md` |
+| 开发底本说明 | `dream-acp/README.md` |
+| 示例 agent | `dream-acp/example/dream` |
+| 协议断言脚本 | `dream-acp/tools/spike_handshake.py` |
 
-**运行命令：**
+### 安装
+
+无需安装，仓内自带示例 agent。
+
+### 运行
+
 ```bash
-# 示例 agent 以 ACP 模式启动（stdio ndjson，日志走 stderr）
 ./dream-acp/example/dream acp
-
-# 协议断言（自动拉起示例 agent 逐条验证协议面）
-python3 dream-acp/tools/spike_handshake.py
 ```
 
-> 接入实现：`src/ide/llm/providers/dream_acp.py`（与 ReasonixAcpLLM 同构；
-> 模型收敛唯一别名 `dream-creator`、强度唯一档 `auto`，均由服务端配置决定，
-> IDE 零感知）。真实 Dream CLI 服务端可用后，`--bin` 指向真实二进制复用同一套
-> spike 断言即视为协议兼容。
+### 更新
 
----
+随本仓库更新。
 
-## 4. OpenCode
+### 验证
 
-> **⚠️ 已封存（2026-11-16）**：界面中该后端保留菜单入口但发送被拦停；如需使用，请自行修改 `src/ide/llm/registry.py` 的 `opencode-acp` 注册项（撤除 `archived` 标记）并重新编译。
-> 以下资料仅存档备查。
-
-100% 开源（MIT）的终端 AI 编程代理，支持 Claude、GPT、Gemini 及 75+ 家模型提供商。
-
-| 资源                 | 地址                            |
-| -------------------- | ------------------------------- |
-| 官方网站             | https://opencode.ai/            |
-| 官方文档             | https://opencode.ai/docs        |
-| CLI 参考（中文社区） | https://opencodecn.com/docs/cli |
-| GitHub 仓库          | https://github.com/sst/opencode |
-
-**安装命令：**
 ```bash
-curl -fsSL https://opencode.ai/install | bash
-# 或
-npm i -g opencode-ai
-```
-
-> 模型备注（2026-09-17 实测）：models.dev 缓存仍列出上游已退役别名——
-> `deepseek/deepseek-chat` 可调通（上游路由至 V4.1 Flash）；
-> `deepseek/deepseek-reasoner` 已失效（`model not found`，Zen Studio 会
-> 回落 agent 默认模型）。建议选用 `deepseek/deepseek-v4-flash` /
-> `deepseek/deepseek-v4-pro` 现行名。
-
----
-
-## 5. Kilo Code
-
-> **⚠️ 已封存（2026-09-17）**：Zen Studio 内该后端转为个人维护状态，不再随项目更新与验证。
-> 界面中该后端保留菜单入口但发送被拦停；如需使用，请自行修改 `src/ide/llm/registry.py`
-> 的 `kilocode-acp` 注册项（撤除 `archived` 标记）并重新编译。
-> 以下资料仅存档备查。
-
-开源（MIT）的 AI 编程 Agent，支持 VS Code、JetBrains 和 CLI，可接入 500+ 模型。
-
-| 资源              | 地址                                                         |
-| ----------------- | ------------------------------------------------------------ |
-| 官方网站          | https://kilo.ai/                                             |
-| 完整文档          | https://kilo.ai/docs/                                        |
-| CLI 专用说明      | https://kilo.ai/cli                                          |
-| GitHub 仓库       | https://github.com/Kilo-Org/kilocode                         |
-| VS Code 扩展      | https://marketplace.visualstudio.com/items?itemName=kilocode.Kilo-Code |
-| JetBrains 插件    | https://plugins.jetbrains.com/plugin/kilo-code               |
-| Skills / MCP 市场 | https://github.com/Kilo-Org/kilo-marketplace                 |
-
-**安装命令：**
-```bash
-# npm
-npm install -g @kilocode/cli
-
-# curl
-curl -fsSL https://kilo.ai/cli/install | bash
-
-# Homebrew
-brew install Kilo-Org/tap/kilo
+.venv/bin/python dream-acp/tools/spike_handshake.py
 ```
 
 ---
 
-## 6. Reasonix
+## 4. 已封存工具
 
-> **⚠️ 已封存（2026-11-16）**：界面中该后端保留菜单入口但发送被拦停；如需使用，请自行修改 `src/ide/llm/registry.py` 的 `reasonix-acp` 注册项（撤除 `archived` 标记）并重新编译。
-> 以下资料仅存档备查。
-
-DeepSeek 原生的开源终端 AI 编程代理，核心设计围绕 prefix-cache 稳定性优化。
-
-| 资源                  | 地址                                                         |
-| --------------------- | ------------------------------------------------------------ |
-| GitHub 仓库           | https://github.com/esengine/DeepSeek-Reasonix                |
-| 官方文档              | https://reasonix.io/docs                                     |
-| 项目主页              | https://deepseekreasonix.com/                                |
-| NPM 包页面            | https://www.npmjs.com/package/reasonix                       |
-| VS Code 扩展          | https://marketplace.visualstudio.com/items?itemName=SivanLiu.reasonix-agent |
-| DeepSeek API 接入指南 | https://api-docs.deepseek.com/zh-cn/quickstart               |
-
-**安装命令：**
-```bash
-# 试用
-npx reasonix code
-
-# 全局安装
-npm i -g reasonix@next
-
-# macOS Homebrew
-brew install esengine/reasonix/reasonix
-```
-
-> 本机配置备注：2026-08-12 起 `~/.reasonix/config.toml` 已设 `[sandbox] bash = "off"`
-> （Ubuntu 24.04 AppArmor 默认策略拦截 bwrap 致沙箱不可用、bash 工具瘫痪，
-> 详见《文档/修改记录/2026-0812-0301_Reasonix沙箱不可用导致AI反复尝试bash问题调查报告.md》）。
-
-> 模型备注（2026-09-17）：DeepSeek 旧模型名 `deepseek-chat`/`deepseek-reasoner`
-> 已于 2026-07-24 被上游停用（分别对应 V4 Flash 非思考/思考模式）；2026-09-10
-> 发布 **V4.1 Flash**，过渡期 V4 Pro 请求被路由至 V4.1 Flash 并按 Flash 单价计费。
-> reasonix 无 CLI 枚举命令，新模型需手动写入 `~/.reasonix/config.toml` 的
-> `[[providers]]` 段才会出现在 Zen Studio 模型菜单。
-
----
-
-## 7. 本地模型（Local CLI）
-
-> **⚠️ 已封存（2026-11-16）**：界面中该后端保留菜单入口但发送被拦停；如需使用，请自行修改 `src/ide/llm/registry.py` 的 `local-acp` 注册项（撤除 `archived` 标记）并重新编译。
-> 以下资料仅存档备查。
-
-本项目自维护的本地 GGUF 模型后台，源码在独立仓库 Local CLI（2026-10-05
-自本仓库外迁，此前为项目根 `Local_Cli/` 子项目；更早自 `参考代码/Dream_Cli/`
-复制改名，2026-1004-2124 计划），协议面与
-`dream-acp/protocol/dream-acp-v1.md` 同源（ACP v1，stdio ndjson；
-外迁后 Local CLI 仓内 `协议/dream-acp-v1.md` 为 vendor 副本，本仓库仍为上游真值）。
-
-**体系结构**：Zen Studio（`local-acp` provider）→ 长驻 `local-cli acp` 子进程
-→ llama-server 子进程（OpenAI 兼容 HTTP，localhost 随机端口）→ GGUF 模型文件。
-
-**安装：**
-```bash
-# Local CLI 本体（uv 工程，独立 .venv；独立仓库，克隆到本机任意位置）
-cd /path/to/Local_Cli && uv sync
-# 让 Zen Studio 探测到（探测链：PATH → $LOCAL_HOME/bin/local-cli → ~/.local-cli/bin/local-cli）
-ln -s "$PWD/.venv/bin/local-cli" ~/.local/bin/local-cli
-
-# 推理运行时 llama.cpp（CPU 构建示例；产物约定不放项目目录）
-git clone --depth 1 https://github.com/ggml-org/llama.cpp ~/opt/llama.cpp
-cmake -S ~/opt/llama.cpp -B ~/opt/llama.cpp/build -DCMAKE_BUILD_TYPE=Release \
-  -DLLAMA_BUILD_TESTS=OFF -DLLAMA_CURL=OFF
-cmake --build ~/opt/llama.cpp/build --target llama-server llama-cli -j "$(nproc)"
-```
-
-**配置**（`~/.local-cli/config.toml`，全部键可缺省）：
-
-| 键 | 默认 | 说明 |
-|:---|:---|:---|
-| `model_dir` | `~/models` | GGUF 模型目录，`local-cli models` 扫描此目录的 `*.gguf` |
-| `llama_server_bin` | 探测链：配置项 → `$LLAMA_SERVER_BIN` → PATH → `~/opt/llama.cpp/build/bin/llama-server` | llama-server 二进制路径 |
-| `backend` | `mock` | `mock`（演示，无模型）/ `gguf`（真实推理） |
-| `ctx_size` | `4096` | llama-server 上下文窗口 |
-| `threads` | 机器默认 | llama-server 推理线程数 |
-
-配置路径解析：`$LOCAL_CLI_CONFIG` 环境变量 → `~/.local-cli/config.toml` → 内置默认。
-
-**排错：**
-
-| 现象 | 排查 |
-|:---|:---|
-| 菜单「本地模型」标（未检测到） | `which local-cli`；桌面会话 PATH 不含 ~/.local/bin 时建 `~/.local-cli/bin/local-cli` 软链兜底 |
-| 模型列表为空 | `local-cli models` 直跑看报错；多为 `model_dir` 未配置或目录无 `.gguf` |
-| 对话报「模型未加载/配置缺失」 | Local CLI stderr 日志；手动 `llama-server --model <gguf>` 验证模型能否加载 |
-| 21 GB 级 MoE 加载慢/占内存 | 正常现象（实测冷载约 10 s、RSS 约 31 GB @ctx 4096）；内存紧张机型改用 9B 级模型 |
-
-**实测基线（2026-10-04，46 GB 内存无 GPU 机型，llama.cpp v0.5.0-dev CPU 构建）**：
-9B Q4_K_XL 加载约 3 s、RSS 7.7 GB；35B-A3B MXFP4 MoE 加载约 10 s、约 13 tok/s
-（8 线程）、RSS 30.8 GB（ctx 4096）。思维链经 SSE `reasoning_content` 独立字段下发。
-
----
-
-## 8. Zen Studio 数据通道登记（公开协议与私有旁路）
-
-### 8.1 kimi wire.jsonl 子代理旁路（2026-08-13 登记）
-
-**机制**：Zen Studio 的 kimi-acp 后端在轮次内旁路读取会话落盘目录
-`~/.kimi-code/sessions/<工作区键>/<sessionId>/agents/agent-N/wire.jsonl`
-（子代理 wire），增量解析合成嵌套工具卡（实现：`src/ide/llm/providers/kimi_acp.py`
-`_WireSidecar`；开关：config/settings.json `kimi_wire_sidecar`，默认开）。
-该通道是**客户端私有行为**，kimi-code 无任何格式契约，CLI 升级可能漂移。
-
-**登记的格式假设**（实测样本：2026-08-13 `wd_dream_cli` 会话 agent-0
-wire.jsonl，546 行）：
-
-- 记录单位：逐行 JSON（jsonl）；相关记录 `type == "context.append_loop_event"`，
-  事件体在 `event` 键内；
-- 工具调用帧：`event.type == "tool.call"`，含 `toolCallId`（`tool_XXX` 形态）、
-  `name`（工具名原文，如 `Bash`/`Edit`/`Write`/`Read`/`Grep`/`TodoList`）、
-  `args`（入参 dict——Bash 为 `command`、Edit 为 `path/old_string/new_string`
-  蛇形、Write 为 `path/content`、TodoList 为 `todos`）；
-- 工具回执帧：`event.type == "tool.result"`，含同名 `toolCallId` 与
-  `result.output`（纯文本；**错误以 output 文本形态落盘，无独立 error 字段**）；
-- 无 in_progress 中间帧（旁路只合成起止两帧）；思维链为
-  `content.part` 事件（v1 跳过不渲染）；
-- 子代理目录命名 `agent-N`（N 递增），与在途 Agent 调用的关联按目录
-  创建时序先到先得（单在途假设）。
-
-**熔断与降级**：单行 JSON 解析失败累计 ≥8 次旁路静默收束；目录发现失败/
-wire 缺失/关联不上均静默回退纯 ACP 行为（子代理仅起止 + 成果摘要）。
-
-**失效排查路径**：
-
-1. 症状「子代理卡片不再嵌套」→ 先看 `agents/agent-N/wire.jsonl` 是否仍
-   存在且为上述形态（`head -5` 对照登记假设）；
-2. 格式漂移确认后：临时回退——`config/settings.json` 置
-   `"kimi_wire_sidecar": false`；
-3. 根治——按新样本修订 `_synthesize_wire_call/_synthesize_wire_result`
-   与登记假设，并跑 `.venv/bin/python scripts/test_subagent_nested.py`
-   （驱动样本 `.temp/subagent_wire_sample.jsonl` 需同步重制）。
-
-### 8.2 kimi 上下文用量与输出速度（2026-10-26 修订）
-
-**公开主通道：ACP `usage_update`**。Kimi 在 prompt response 后异步发送
-该通知，`used` 是 agent 对外报告的当前上下文 token 数，`size` 是模型目录
-的实际上下文窗口。Zen 在同一个 ≤3s 轮末窗口内继续消费 ACP 与 wire，
-ACP 有效值优先（`source="push"`），避免两路等待串行叠加。该数值是上下文
-占用，不是会员额度；官方 token_counting 策略可包含未实测尾部估算。
-
-**私有实时与兜底通道**：主代理
-`~/.kimi-code/sessions/<工作区键>/<sessionId>/agents/main/wire.jsonl`
-（实现：`src/ide/llm/providers/kimi_acp.py` `_read_wire_turn_stats` /
-`_read_wire_turn_speed` / `_read_wire_usage_tail`）。wire 无格式契约，仅用于
-轮内 2s 尾部轮询、ACP 缺失兜底（`source="transcript"`）与输出速度计算。
-
-**当前格式与口径**：
-
-- `type == "usage.record"` 且 `usageScope == "turn"`：`used` 为
-  `inputOther + inputCacheRead + inputCacheCreation + output` 四项总和，
-  与上游 `tokenUsageTotal()` 对齐；四项必须均为非负整数，缺失/异常条目跳过；
-- `output` 是单次调用输出值，速度计算直接求和，禁止差分；生成耗时为配对
-  `usage.record.time − llm.request.time`，工具与审批间隙不计；
-- `type == "llm.request"` 仅带非空 `turnStep` 者属于 turn 请求，参与基线、
-  轮末计数与速度配对；operation/compaction 等无 `turnStep` 记录不得混入；
-- `llm.request.maxTokens` 来自 `maxCompletionTokens`，是输出预算且可缺省，
-  **禁止作为上下文窗口**。wire 的 `size` 由 `modelAlias` 查
-  `kimi provider list --json` 的 `maxContextSize`（先合并 overrides）；
-- 模型目录在 worker 会话准备阶段加载并缓存，GUI 轮询只读缓存和 wire 尾部
-  64KB，不起子进程、不每 2s 全量读 MB 级文件；目录失败不阻断聊天；
-- 轮末超时保留本轮已落盘的有效用量子集；速度按有效配对子集计算，无有效
-  配对仅省略速度行，不连累徽章。
-
-**降级与排查**：ACP 缺失才使用 wire；双源均无效时保持徽章空态或最后有效值，
-不伪造 0%、不按文本长度估算。症状「徽章不刷新 / tooltip 无输出速度行」先查
-ACP 是否到达，再用脱敏 wire 摘要核对上述字段，禁止复制凭证、消息正文、工具
-参数或完整会话。回归测试为 `tests/test_kimi_usage.py`、
-`tests/test_kimi_catalog.py`、`tests/test_turn_speed.py`。
-
----
-
-## 使用建议
-
-1. **优先查阅官方文档**：各工具的官方文档站通常包含最新版本的使用说明、配置项和故障排查。
-2. **关注 GitHub Release**：重大版本更新和 Breaking Changes 会在 GitHub Release 页面说明。
-3. **Issue 反馈**：遇到 Bug 或功能请求时，优先在对应 GitHub 仓库提交 Issue。
-4. **定期更新手册**：建议每季度检查一次各工具的官方地址是否有变更，并同步更新本文档。
-
----
-
-*本文档由 Kimi AI 整理生成，仅供内部维护参考。*
+OpenCode、Kilo Code、Reasonix、本地模型（Local CLI）已封存：界面保留入口但发送被拦停。历史资料见 git 历史。
