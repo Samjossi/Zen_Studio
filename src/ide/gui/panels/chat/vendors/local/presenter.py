@@ -67,6 +67,20 @@ class LocalCardPresenter:
         return True
 
     @staticmethod
+    def timeline_projection(payload: dict) -> dict:
+        """把 Local 载荷压成时间线中立投影：摘要与失败原因仍归本厂商解释。"""
+        title = payload.get("title") or "?"
+        summary = payload.get("summary") or ""
+        return {
+            "tool_call_id": payload.get("tool_call_id"),
+            "tool_kind": payload.get("tool_kind") or "",
+            "tip": f"{title} — {summary}" if summary else title,
+            "weight": max(1, len(title) + len(summary)),
+            "failed": payload.get("status") == "failed",
+            "failure_detail": payload.get("error") or "",
+        }
+
+    @staticmethod
     def is_fs_mutation_terminal(payload: dict) -> bool:
         """终态帧且 kind 为改盘类（edit/execute）→ 应提示刷新 Git。"""
         return payload.get("status") in ("completed", "failed") \

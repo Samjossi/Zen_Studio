@@ -1215,7 +1215,14 @@ class ChatPanel(QWidget):
 
     def _on_chunk(self, chunk: Chunk) -> None:
         self._last_chunk_at = time.monotonic()  # 看门狗 idle 口径：任何消息帧均刷新
-        self.timeline.feed(chunk)  # 时间线色块条旁路分接
+        # 时间线色块条旁路分接：工具帧先经厂商 presenter 压成中性投影，
+        # 通用组件不读 summary/status/error 等厂商载荷字段
+        if chunk.kind in ("tool_call", "tool_call_update"):
+            self.timeline.feed_tool(
+                chunk.kind,
+                self._presenter.timeline_projection(chunk.payload or {}))
+        else:
+            self.timeline.feed(chunk)
         if chunk.kind == "usage":
             # 上下文用量通知：只更新徽章簿记，不进输出区文本流、不入 _history
             if chunk.usage is not None:

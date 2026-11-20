@@ -32,6 +32,8 @@ LLM_REGISTRY = f"{LLM_ROOT}/registry.py"
 LLM_REGISTRY_MODULE = "ide.llm.registry"
 PROVIDERS_ROOT = f"{LLM_ROOT}/providers"
 ACP_ROOT = f"{PROVIDERS_ROOT}/acp"
+GUI_ROOT = "src/ide/gui"
+GUI_SETTINGS = f"{GUI_ROOT}/settings.py"
 GUI_CHAT_ROOT = "src/ide/gui/panels/chat"
 GUI_VENDORS_ROOT = f"{GUI_CHAT_ROOT}/vendors"
 GUI_REGISTRY = f"{GUI_VENDORS_ROOT}/registry.py"
@@ -100,6 +102,69 @@ FORBIDDEN_PUBLIC_TOKENS = (
     "llm.request",
 )
 
+#: 厂商显示名/界面标签：公共 LLM 层与通用聊天 GUI 的字符串常量中不得出现。
+#: 大小写敏感——小写 `local` 是 BackendSpec.vendor 路由值（通用面板必须认识），
+#: 大写 `Local` 才是显示名。厂商显示名只由注册表与厂商 spec 持有。
+FORBIDDEN_PUBLIC_DISPLAY_NAMES = (
+    "Kimi ACP",
+    "Kimi",
+    "DeepSeek Harness",
+    "DSH",
+    "Local ACP",
+    "Local",
+)
+
+#: 通用聊天 GUI 载荷字段黑名单：这些字段的语义解释归厂商包（presenter/cards）。
+GENERIC_PAYLOAD_FORBIDDEN_KEYS = (
+    "command",
+    "output",
+    "output_total_lines",
+    "summary",
+    "status",
+    "error",
+    "error_detail",
+    "diff_hunks",
+    "is_subagent",
+    "questions",
+    "result_summary",
+    "media_path",
+)
+
+#: 通用聊天 GUI 载荷白名单：路由/生命周期元数据 + 厂商 presenter 产出的
+#: 中性时间线投影（tip/weight/failed/failure_detail）。白名单之外的键同样
+#: 视为未登记违约——新增载荷必须先说明由谁解释，不能默认落到通用层。
+GENERIC_PAYLOAD_ALLOWED_KEYS = frozenset({
+    "tool_call_id",
+    "parent_tool_call_id",
+    "tool_kind",
+    "title",
+    #: todo 快照：通用时间线只取条目数，不解释单条内容
+    "entries",
+    #: ActivityTimeline 的中性投影键（presenter 从厂商载荷压出）
+    "tip",
+    "weight",
+    "failed",
+    "failure_detail",
+})
+
+#: 字典只读/改写方法：属性名不是载荷字段，检查字段读取时要跳过
+_PAYLOAD_MAPPING_METHODS = frozenset({
+    "get", "pop", "setdefault", "keys", "values", "items", "update", "copy",
+    "clear",
+})
+
+#: 新增厂商私有模块：只有本厂商后台包可以导入；公共 ACP 与通用 GUI 不得导入
+VENDOR_PRIVATE_MODULES = {
+    "ide.llm.providers.kimi.wire": "kimi",
+    "ide.llm.providers.kimi.usage": "kimi",
+    "ide.llm.providers.kimi.subagent": "kimi",
+    "ide.llm.providers.dsh.session_log": "dsh",
+}
+
+#: 厂商设置键的受控例外：组合根声明 + 设置 schema（持久化键不能删除）
+VENDOR_SETTING_KEY = "kimi_wire_sidecar"
+VENDOR_SETTING_CONST_PREFIX = "KEY_KIMI_"
+
 
 @dataclass(frozen=True)
 class ImportRef:
@@ -121,11 +186,26 @@ class ImportRef:
 
 
 @dataclass(frozen=True)
+class SourceSemantics:
+    """AST 语义视图：只收字符串常量、属性名与标识符（注释天然不在 AST）。
+
+    每项带行号，便于违规信息定位；docstring 虽以字符串常量节点存在，但
+    它是文档而非代码语义，由 `_docstring_nodes()` 排除。
+    """
+
+    strings: tuple[tuple[str, int], ...]
+    attributes: tuple[tuple[str, int], ...]
+    identifiers: tuple[tuple[str, int], ...]
+
+
+@dataclass(frozen=True)
 class ModuleInfo:
     rel_path: str
     module: str
     is_package: bool
     source: str
+    tree: ast.Module
+    semantics: SourceSemantics
     imports: tuple[ImportRef, ...]
 
     def targets(self) -> list[str]:
@@ -163,6 +243,43 @@ def _resolve_relative(
     return ".".join(package_parts)
 
 
+def _docstring_nodes(tree: ast.Module) -> set[int]:
+    """模块/类/函数的首条字符串表达式节点 id（只排除 docstring，不放过普通串）。"""
+    nodes: set[int] = set()
+    for node in ast.walk(tree):
+        if not isinstance(
+                node, (ast.Module, ast.ClassDef, ast.FunctionDef,
+                       ast.AsyncFunctionDef)):
+            continue
+        body = node.body
+        if body and isinstance(body[0], ast.Expr) \
+                and isinstance(body[0].value, ast.Constant) \
+                and isinstance(body[0].value.value, str):
+            nodes.add(id(body[0].value))
+    return nodes
+
+
+def _semantics(tree: ast.Module) -> SourceSemantics:
+    """收集语义 token；注释不在 AST 中，docstring 按节点 id 排除。"""
+    docstrings = _docstring_nodes(tree)
+    strings: list[tuple[str, int]] = []
+    attributes: list[tuple[str, int]] = []
+    identifiers: list[tuple[str, int]] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Constant) and isinstance(node.value, str) \
+                and id(node) not in docstrings:
+            strings.append((node.value, node.lineno))
+        elif isinstance(node, ast.Attribute):
+            attributes.append((node.attr, node.lineno))
+        elif isinstance(node, ast.Name):
+            identifiers.append((node.id, node.lineno))
+    return SourceSemantics(
+        strings=tuple(strings),
+        attributes=tuple(attributes),
+        identifiers=tuple(identifiers),
+    )
+
+
 def _load_module(rel_path: str, source: str | None = None) -> ModuleInfo:
     is_package = rel_path.endswith("/__init__.py") or rel_path == "__init__.py"
     text = source if source is not None else (
@@ -183,6 +300,8 @@ def _load_module(rel_path: str, source: str | None = None) -> ModuleInfo:
         module=module_name,
         is_package=is_package,
         source=text,
+        tree=tree,
+        semantics=_semantics(tree),
         imports=tuple(imports),
     )
 
@@ -390,16 +509,10 @@ def _check_public_vocabulary(modules: tuple[ModuleInfo, ...]) -> list[str]:
 def _check_generic_capability_contract(
         modules: tuple[ModuleInfo, ...]) -> list[str]:
     """通用聊天 GUI 只消费能力快照与厂商设置声明，不探私有接口与键名。"""
-    problems: list[str] = []
+    problems = _check_capability_probes(modules)
     for m in modules:
         if not _is_public_gui(m):
             continue
-        for attr in CAPABILITY_PROBE_ATTRS:
-            pattern = rf"getattr\(\s*[^,\n]+,\s*['\"]{re.escape(attr)}['\"]"
-            if re.search(pattern, m.source):
-                problems.append(
-                    f"{m.rel_path}: 通用 GUI 不得用 getattr 探能力私有接口"
-                    f"（{attr}），应走 capabilities_of()")
         if "KEY_KIMI_" in m.source or "kimi_wire_sidecar" in m.source:
             problems.append(
                 f"{m.rel_path}: 通用 GUI 不得出现厂商设置键名"
@@ -408,6 +521,271 @@ def _check_generic_capability_contract(
             if text in m.source:
                 problems.append(
                     f"{m.rel_path}: 通用 GUI 出现厂商专属文案（{text}）")
+    return problems
+
+
+def _is_generic_gui_tree(m: ModuleInfo) -> bool:
+    """整个 GUI 树（含设置中心），排除厂商卡片包与卡片组合根。"""
+    return _is_under(m.rel_path, GUI_ROOT) and not _is_under(
+        m.rel_path, GUI_VENDORS_ROOT)
+
+
+def _check_semantic_vocabulary(modules: tuple[ModuleInfo, ...]) -> list[str]:
+    """规则 1：公共层/通用 GUI 的字符串常量不得含厂商词表与显示名。"""
+    problems: list[str] = []
+    for m in modules:
+        if not (_is_public_llm(m) or _is_public_gui(m)):
+            continue
+        for value, lineno in m.semantics.strings:
+            lowered = value.lower()
+            for token in FORBIDDEN_PUBLIC_TOKENS:
+                if token.lower() in lowered:
+                    problems.append(
+                        f"{m.rel_path}:{lineno}: 字符串常量出现厂商私有词表"
+                        f"（{token}）")
+            for name in sorted(
+                    FORBIDDEN_PUBLIC_DISPLAY_NAMES, key=len, reverse=True):
+                if name in value:
+                    problems.append(
+                        f"{m.rel_path}:{lineno}: 字符串常量出现厂商显示名"
+                        f"（{name}）")
+                    break
+    return problems
+
+
+def _is_payload_expr(node: ast.AST | None, aliases: set[str]) -> bool:
+    """载荷字典表达式：名字/属性以 payload(s) 结尾，或经赋值别名指向载荷。"""
+    if isinstance(node, ast.Name):
+        return bool(re.search(r"payloads?$", node.id)) or node.id in aliases
+    if isinstance(node, ast.Attribute):
+        return bool(re.search(r"payloads?$", node.attr))
+    if isinstance(node, ast.BoolOp):
+        return any(_is_payload_expr(value, aliases) for value in node.values)
+    if isinstance(node, ast.IfExp):
+        return _is_payload_expr(node.body, aliases) \
+            or _is_payload_expr(node.orelse, aliases)
+    return False
+
+
+def _payload_aliases(tree: ast.Module) -> set[str]:
+    """收集 `p = payload` / `p = chunk.payload` 这类别名（迭代到不动点）。"""
+    aliases: set[str] = set()
+    changed = True
+    while changed:
+        changed = False
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Assign):
+                targets, value = node.targets, node.value
+            elif isinstance(node, ast.AnnAssign):
+                targets, value = [node.target], node.value
+            else:
+                continue
+            if value is None or not _is_payload_expr(value, aliases):
+                continue
+            for target in targets:
+                if isinstance(target, ast.Name) and target.id not in aliases:
+                    aliases.add(target.id)
+                    changed = True
+    return aliases
+
+
+def _payload_key_problem(key: str) -> str | None:
+    if key in GENERIC_PAYLOAD_FORBIDDEN_KEYS:
+        return (f"载荷字段（{key}）只允许出现在厂商包，通用 GUI 不得读取")
+    if key not in GENERIC_PAYLOAD_ALLOWED_KEYS:
+        return (f"未登记载荷字段（{key}）：新增字段须先登记白名单并说明"
+                "由厂商 presenter 解释")
+    return None
+
+
+def _check_generic_payload_fields(
+        modules: tuple[ModuleInfo, ...]) -> list[str]:
+    """规则 2：通用聊天 GUI 只读路由/生命周期字段，不解释厂商载荷。"""
+    problems: list[str] = []
+    for m in modules:
+        if not _is_public_gui(m):
+            continue
+        aliases = _payload_aliases(m.tree)
+        for node in ast.walk(m.tree):
+            key: str | None = None
+            lineno = getattr(node, "lineno", 0)
+            if isinstance(node, ast.Call) \
+                    and isinstance(node.func, ast.Attribute) \
+                    and node.func.attr in _PAYLOAD_MAPPING_METHODS \
+                    and node.args \
+                    and _is_payload_expr(node.func.value, aliases) \
+                    and isinstance(node.args[0], ast.Constant) \
+                    and isinstance(node.args[0].value, str):
+                key = node.args[0].value
+            elif isinstance(node, ast.Call) \
+                    and isinstance(node.func, ast.Name) \
+                    and node.func.id == "getattr" \
+                    and len(node.args) >= 2 \
+                    and _is_payload_expr(node.args[0], aliases) \
+                    and isinstance(node.args[1], ast.Constant) \
+                    and isinstance(node.args[1].value, str):
+                key = node.args[1].value
+            elif isinstance(node, ast.Subscript) \
+                    and _is_payload_expr(node.value, aliases) \
+                    and isinstance(node.slice, ast.Constant) \
+                    and isinstance(node.slice.value, str):
+                key = node.slice.value
+            elif isinstance(node, ast.Attribute) \
+                    and node.attr not in _PAYLOAD_MAPPING_METHODS \
+                    and _is_payload_expr(node.value, aliases):
+                key = node.attr
+            if key is None:
+                continue
+            problem = _payload_key_problem(key)
+            if problem:
+                problems.append(f"{m.rel_path}:{lineno}: {problem}")
+    return problems
+
+
+def _is_capabilities_call(node: ast.AST | None) -> bool:
+    if not isinstance(node, ast.Call):
+        return False
+    if isinstance(node.func, ast.Name):
+        return node.func.id == "capabilities_of"
+    return isinstance(node.func, ast.Attribute) \
+        and node.func.attr == "capabilities_of"
+
+
+def _capability_snapshot_names(tree: ast.Module) -> tuple[set[str], set[str]]:
+    """收集 `caps = capabilities_of(...)` 的变量名与 `self._caps = ...` 属性名。"""
+    names: set[str] = set()
+    attrs: set[str] = set()
+    changed = True
+    while changed:
+        changed = False
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Assign):
+                targets, value = node.targets, node.value
+            elif isinstance(node, ast.AnnAssign):
+                targets, value = [node.target], node.value
+            else:
+                continue
+            if value is None:
+                continue
+            known = _is_capabilities_call(value) or (
+                isinstance(value, ast.Name) and value.id in names) or (
+                isinstance(value, ast.Attribute) and value.attr in attrs)
+            if not known:
+                continue
+            for target in targets:
+                if isinstance(target, ast.Name) and target.id not in names:
+                    names.add(target.id)
+                    changed = True
+                elif isinstance(target, ast.Attribute) \
+                        and target.attr not in attrs:
+                    attrs.add(target.attr)
+                    changed = True
+    return names, attrs
+
+
+def _is_capability_snapshot(
+        node: ast.AST | None, names: set[str], attrs: set[str]) -> bool:
+    if _is_capabilities_call(node):
+        return True
+    if isinstance(node, ast.Name):
+        return node.id in names
+    return isinstance(node, ast.Attribute) and node.attr in attrs
+
+
+def _check_capability_probes(modules: tuple[ModuleInfo, ...]) -> list[str]:
+    """规则 3：通用 GUI 只读 capabilities_of() 快照，不探 provider 私有接口。"""
+    problems: list[str] = []
+    for m in modules:
+        if not _is_public_gui(m):
+            continue
+        names, attrs = _capability_snapshot_names(m.tree)
+        for node in ast.walk(m.tree):
+            lineno = getattr(node, "lineno", 0)
+            if isinstance(node, ast.Attribute) \
+                    and node.attr in CAPABILITY_PROBE_ATTRS \
+                    and not _is_capability_snapshot(node.value, names, attrs):
+                problems.append(
+                    f"{m.rel_path}:{lineno}: 通用 GUI 不得读取能力私有接口"
+                    f"（{node.attr}），应走 capabilities_of()")
+            elif isinstance(node, ast.Call) \
+                    and isinstance(node.func, ast.Name) \
+                    and node.func.id in ("getattr", "hasattr") \
+                    and len(node.args) >= 2 \
+                    and isinstance(node.args[1], ast.Constant) \
+                    and node.args[1].value in CAPABILITY_PROBE_ATTRS \
+                    and not _is_capability_snapshot(node.args[0], names, attrs):
+                problems.append(
+                    f"{m.rel_path}:{lineno}: 通用 GUI 不得用 "
+                    f"{node.func.id} 探能力私有接口（{node.args[1].value}），"
+                    "应走 capabilities_of()")
+    return problems
+
+
+def _vendor_setting_key_problem(m: ModuleInfo, value: str, lineno: int) -> str | None:
+    if VENDOR_SETTING_KEY not in value \
+            and VENDOR_SETTING_CONST_PREFIX not in value:
+        return None
+    return (f"{m.rel_path}:{lineno}: 通用 GUI 不得出现厂商设置键"
+            f"（{VENDOR_SETTING_KEY}/{VENDOR_SETTING_CONST_PREFIX}*），"
+            "应经 BackendSpec.vendor_settings 过滤注入")
+
+
+def _check_vendor_setting_keys(modules: tuple[ModuleInfo, ...]) -> list[str]:
+    """规则 4：Kimi 设置键只在 Kimi 包、后台组合根与设置 schema 出现。"""
+    problems: list[str] = []
+    allowed_paths = {
+        LLM_REGISTRY,       # 组合根声明 vendor_settings
+        GUI_SETTINGS,       # 设置 schema：持久化键/默认值不能删（S0 回写约定）
+    }
+    for m in modules:
+        if not (_is_public_llm(m) or _is_generic_gui_tree(m)):
+            continue
+        if m.rel_path in allowed_paths \
+                or _is_under(m.rel_path, f"{PROVIDERS_ROOT}/kimi"):
+            continue
+        for value, lineno in m.semantics.strings:
+            problem = _vendor_setting_key_problem(m, value, lineno)
+            if problem:
+                problems.append(problem)
+        for name, lineno in m.semantics.attributes:
+            if name.startswith(VENDOR_SETTING_CONST_PREFIX) \
+                    or name == VENDOR_SETTING_KEY:
+                problems.append(
+                    f"{m.rel_path}:{lineno}: 通用 GUI 不得读写厂商设置键"
+                    f"（{name}）")
+        for name, lineno in m.semantics.identifiers:
+            if name.startswith(VENDOR_SETTING_CONST_PREFIX):
+                problems.append(
+                    f"{m.rel_path}:{lineno}: 通用 GUI 不得引用厂商设置键常量"
+                    f"（{name}）")
+        for ref in m.imports:
+            for name in ref.names:
+                if name.startswith(VENDOR_SETTING_CONST_PREFIX):
+                    problems.append(
+                        f"{m.rel_path}: 通用 GUI 不得 import 厂商设置键常量"
+                        f"（{name}）")
+    return problems
+
+
+def _check_vendor_private_imports(
+        modules: tuple[ModuleInfo, ...]) -> list[str]:
+    """规则 5：新增厂商私有模块只允许本厂商后台包导入。"""
+    problems: list[str] = []
+    seen: set[tuple[str, str]] = set()
+    for m in modules:
+        for target in m.targets():
+            for base, vendor in VENDOR_PRIVATE_MODULES.items():
+                if target != base and not target.startswith(base + "."):
+                    continue
+                key = (m.rel_path, base)
+                if key in seen:
+                    continue
+                seen.add(key)
+                if _is_under(m.rel_path, f"{PROVIDERS_ROOT}/{vendor}"):
+                    continue
+                problems.append(
+                    f"{m.rel_path}: 只有 {vendor} 后台包可以导入厂商私有模块"
+                    f"（{base}）")
     return problems
 
 
@@ -420,6 +798,11 @@ def _all_violations(modules: tuple[ModuleInfo, ...]) -> list[str]:
         + _check_legacy_paths(modules)
         + _check_public_vocabulary(modules)
         + _check_generic_capability_contract(modules)
+        + _check_semantic_vocabulary(modules)
+        + _check_generic_payload_fields(modules)
+        + _check_capability_probes(modules)
+        + _check_vendor_setting_keys(modules)
+        + _check_vendor_private_imports(modules)
     )
 
 
@@ -444,8 +827,10 @@ def test_guard_scans_expected_production_files_only():
         f"{PROVIDERS_ROOT}/__init__.py",
         f"{ACP_ROOT}/__init__.py",
         f"{ACP_ROOT}/connection.py",
+        GUI_SETTINGS,
         f"{GUI_CHAT_ROOT}/panel.py",
         f"{GUI_CHAT_ROOT}/card_base.py",
+        f"{GUI_CHAT_ROOT}/timeline.py",
         f"{GUI_CHAT_ROOT}/transcript.py",
         GUI_REGISTRY,
     } <= rel_paths
@@ -652,3 +1037,190 @@ def test_guard_allows_capability_snapshot_field_read():
         f"{GUI_CHAT_ROOT}/panel.py",
         "pending = capabilities_of(provider).recovery_pending\n")
     assert _check_generic_capability_contract((module,)) == []
+
+
+# ----------------------------------------------------------------------
+# S2 语义/字段级规则：helper 自测、反例与通过用例
+# ----------------------------------------------------------------------
+def test_semantic_view_separates_comment_docstring_and_code_string():
+    """同一段词放进注释/docstring 不命中，放进字符串常量才命中。"""
+    source = '''"""DOC_TOKEN payload.get("status")"""
+# COMMENT_TOKEN payload.get("status")
+VALUE = "STRING_TOKEN"
+payload = {}
+payload.get("status")
+'''
+    semantics = _semantics(ast.parse(source))
+    strings = [value for value, _ in semantics.strings]
+    assert "STRING_TOKEN" in strings
+    assert all("DOC_TOKEN" not in value for value in strings)
+    assert all("COMMENT_TOKEN" not in value for value in strings)
+    # 代码里的键名是字符串常量，能被规则 2 看到
+    assert "status" in strings
+    assert "payload" in [name for name, _ in semantics.identifiers]
+    assert "get" in [name for name, _ in semantics.attributes]
+
+
+def test_guard_rejects_vendor_display_name_in_string_constant():
+    module = _synthetic(f"{GUI_CHAT_ROOT}/panel.py", 'LABEL = "Kimi ACP"\n')
+    problems = _check_semantic_vocabulary((module,))
+    assert any("厂商显示名" in problem for problem in problems), problems
+
+
+def test_guard_ignores_vendor_display_name_in_comment_and_docstring():
+    module = _synthetic(
+        f"{GUI_CHAT_ROOT}/panel.py",
+        '"""Kimi ACP 请求执行工具（历史文案，已中性化）"""\n'
+        "# Kimi ACP 请求执行工具\n"
+        'LABEL = "工具审批"\n')
+    assert _check_semantic_vocabulary((module,)) == []
+
+
+def test_guard_rejects_generic_payload_field_read():
+    module = _synthetic(
+        f"{GUI_CHAT_ROOT}/timeline.py",
+        "def render(payload):\n    return payload.get('status')\n")
+    problems = _check_generic_payload_fields((module,))
+    assert any("载荷字段（status）" in problem for problem in problems), problems
+
+
+def test_guard_rejects_aliased_and_subscript_payload_reads():
+    module = _synthetic(
+        f"{GUI_CHAT_ROOT}/timeline.py",
+        "def render(chunk):\n"
+        "    p = chunk.payload\n"
+        "    return p['command']\n")
+    problems = _check_generic_payload_fields((module,))
+    assert any("载荷字段（command）" in problem for problem in problems), problems
+
+
+def test_guard_rejects_unregistered_payload_field():
+    module = _synthetic(
+        f"{GUI_CHAT_ROOT}/timeline.py",
+        "def render(payload):\n    return payload.get('raw_input')\n")
+    problems = _check_generic_payload_fields((module,))
+    assert any("未登记载荷字段" in problem for problem in problems), problems
+
+
+def test_guard_allows_routing_and_projection_payload_fields():
+    module = _synthetic(
+        f"{GUI_CHAT_ROOT}/timeline.py",
+        "def render(payload):\n"
+        "    return (payload.get('tool_call_id'), payload.get('tip'),\n"
+        "            payload.get('weight'), payload.get('failed'))\n")
+    assert _check_generic_payload_fields((module,)) == []
+
+
+def test_guard_ignores_payload_access_text_in_docstring():
+    module = _synthetic(
+        f"{GUI_CHAT_ROOT}/timeline.py",
+        'def render(payload):\n'
+        '    """坏例子：payload.get(\'status\')，仅文档说明。"""\n'
+        "    return payload.get('title')\n")
+    assert _check_generic_payload_fields((module,)) == []
+
+
+def test_guard_does_not_treat_acp_permission_params_as_gui_payload():
+    """权限请求的 ACP params 是另一套契约，不是通用 GUI 工具载荷。"""
+    module = _synthetic(
+        f"{GUI_CHAT_ROOT}/permission_dialog.py",
+        "def summarize(tool_call):\n"
+        "    raw = tool_call.get('rawInput')\n"
+        "    return raw.get('command')\n")
+    assert _check_generic_payload_fields((module,)) == []
+
+
+def test_guard_rejects_capability_attribute_probe():
+    module = _synthetic(
+        f"{GUI_CHAT_ROOT}/panel.py",
+        "flag = provider.supports_images_override\n")
+    problems = _check_capability_probes((module,))
+    assert any("能力私有接口" in problem for problem in problems), problems
+
+
+def test_guard_allows_capability_snapshot_via_assignment():
+    module = _synthetic(
+        f"{GUI_CHAT_ROOT}/panel.py",
+        "caps = capabilities_of(provider)\n"
+        "pending = caps.recovery_pending\n")
+    assert _check_capability_probes((module,)) == []
+
+
+def test_guard_rejects_vendor_setting_constant_identifier():
+    module = _synthetic(
+        f"{GUI_CHAT_ROOT}/panel.py", "KEY_KIMI_WIRE_SIDECAR = True\n")
+    problems = _check_vendor_setting_keys((module,))
+    assert any("不得引用厂商设置键常量" in problem for problem in problems), problems
+
+
+def test_guard_allows_settings_schema_vendor_key():
+    """设置 schema 持有持久化键名与默认值是 S0 回写的受控例外。"""
+    module = _synthetic(
+        GUI_SETTINGS,
+        'KEY_KIMI_WIRE_SIDECAR = "kimi_wire_sidecar"\n'
+        'DEFAULT = {KEY_KIMI_WIRE_SIDECAR: True}\n')
+    assert _check_vendor_setting_keys((module,)) == []
+
+
+def test_guard_rejects_acp_importing_vendor_private_module():
+    module = _synthetic(
+        f"{ACP_ROOT}/connection.py",
+        "from ide.llm.providers.kimi.wire import parse_wire\n")
+    problems = _check_vendor_private_imports((module,))
+    assert any("厂商私有模块" in problem for problem in problems), problems
+
+
+def test_guard_rejects_generic_gui_importing_vendor_private_module():
+    module = _synthetic(
+        f"{GUI_CHAT_ROOT}/panel.py",
+        "import ide.llm.providers.dsh.session_log\n")
+    problems = _check_vendor_private_imports((module,))
+    assert any("只有 dsh 后台包" in problem for problem in problems), problems
+
+
+def test_guard_allows_own_vendor_private_module_import():
+    module = _synthetic(
+        f"{PROVIDERS_ROOT}/kimi/provider.py",
+        "from .wire import parse_wire\n")
+    assert _check_vendor_private_imports((module,)) == []
+
+
+@pytest.mark.parametrize(("rel_path", "source", "marker"), [
+    (f"{GUI_CHAT_ROOT}/panel.py", 'LABEL = "Kimi"\n', "厂商显示名"),
+    (f"{GUI_CHAT_ROOT}/timeline.py",
+     "def render(payload):\n    return payload.get('status')\n", "载荷字段"),
+    (f"{GUI_CHAT_ROOT}/panel.py",
+     "flag = provider.recovery_pending\n", "能力私有接口"),
+    (f"{GUI_CHAT_ROOT}/panel.py",
+     "KEY_KIMI_WIRE_SIDECAR = True\n", "不得引用厂商设置键常量"),
+    (f"{ACP_ROOT}/connection.py",
+     "from ide.llm.providers.kimi.wire import parse_wire\n", "厂商私有模块"),
+])
+def test_guard_aggregate_reports_each_semantic_rule(rel_path, source, marker):
+    """聚合入口必须真的接上五类新规则，而不是只有子函数自测。"""
+    problems = _all_violations((_synthetic(rel_path, source),))
+    assert any(marker in problem for problem in problems), problems
+
+
+def test_guard_rejects_vendor_setting_constant_import():
+    module = _synthetic(
+        f"{GUI_CHAT_ROOT}/panel.py",
+        "from ide.gui.settings import KEY_KIMI_WIRE_SIDECAR\n")
+    problems = _check_vendor_setting_keys((module,))
+    assert any("不得 import" in problem for problem in problems), problems
+
+
+@pytest.mark.parametrize("attr", CAPABILITY_PROBE_ATTRS)
+def test_guard_rejects_each_capability_probe_attr(attr):
+    module = _synthetic(
+        f"{GUI_CHAT_ROOT}/panel.py", f"value = getattr(provider, {attr!r}, None)\n")
+    problems = _check_capability_probes((module,))
+    assert any("能力私有接口" in problem for problem in problems), problems
+
+
+@pytest.mark.parametrize("target", VENDOR_PRIVATE_MODULES)
+def test_guard_rejects_each_vendor_private_module(target):
+    module = _synthetic(
+        f"{ACP_ROOT}/connection.py", f"from {target} import helper\n")
+    problems = _check_vendor_private_imports((module,))
+    assert any("厂商私有模块" in problem for problem in problems), problems

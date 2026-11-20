@@ -5,6 +5,7 @@ import pytest
 from PySide6.QtWidgets import QApplication
 
 from ide.gui.panels.chat.card_base import CardColors, OpenStateMap
+from ide.gui.panels.chat.timeline import ActivityTimeline
 from ide.gui.panels.chat.transcript import ChatTranscriptView
 from ide.gui.panels.chat.vendors.dsh import cards as dsh_cards
 from ide.gui.panels.chat.vendors.dsh import factory as dsh_factory
@@ -14,6 +15,7 @@ from ide.gui.panels.chat.vendors.kimi import factory as kimi_factory
 from ide.gui.panels.chat.vendors.kimi.presenter import KimiCardPresenter
 from ide.gui.panels.chat.vendors.local import cards as local_cards
 from ide.gui.panels.chat.vendors.local import factory as local_factory
+from ide.gui.panels.chat.vendors.local.presenter import LocalCardPresenter
 from ide.gui.theme import DEFAULT_THEME, get_theme_palette
 
 
@@ -198,3 +200,36 @@ def test_panel_and_card_base_keep_vendor_payload_out():
                       "todo_write", "diff_hunks", "media_path",
                       "result_summary", "error_detail"):
         assert forbidden not in lowered
+
+
+@pytest.mark.parametrize("presenter", [
+    KimiCardPresenter, DshCardPresenter, LocalCardPresenter,
+])
+def test_timeline_consumes_neutral_presenter_projection(qapp, presenter):
+    """时间线只吃 presenter 投影：摘要/失败原因仍由厂商解释，行为等价。"""
+    colors = {
+        "text": "#111111", "reasoning": "#222222", "todo": "#333333",
+        "tool_read": "#444444", "tool_write": "#555555",
+        "tool_other": "#666666", "error": "#777777",
+    }
+    timeline = ActivityTimeline(colors)
+    call = presenter.timeline_projection({
+        "tool_call_id": "tl-1", "title": "Bash", "summary": "列目录",
+        "tool_kind": "execute", "status": "in_progress",
+    })
+    timeline.feed_tool("tool_call", call)
+    bar = timeline._bars[0]
+    assert bar.category == "tool_other"
+    assert bar.tip == "Bash — 列目录"
+    assert bar.content == len("Bash") + len("列目录")
+
+    timeline.feed_tool("tool_call_update", presenter.timeline_projection({
+        "tool_call_id": "tl-1", "status": "completed",
+    }))
+    assert not bar.failed
+
+    timeline.feed_tool("tool_call_update", presenter.timeline_projection({
+        "tool_call_id": "tl-1", "status": "failed", "error": "退出码 1",
+    }))
+    assert bar.failed
+    assert bar.tip.endswith("（退出码 1）")

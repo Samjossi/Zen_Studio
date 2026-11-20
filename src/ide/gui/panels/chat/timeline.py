@@ -12,8 +12,9 @@ utils/timeline/{colors,sizes,geometry}.ts，只读参考）：
    替代参考侧的「工具名集合猜读/写」——更准且不维护猜测表；
 2. 数据粒度为「当前段」聚合：本仓 Chunk 流中 text/reasoning 是流式增量，
    连续同 kind 增量归入同一色块（等价参考侧 part 语义），kind 切换开新块；
-3. 条高依据为内容量代理（工具取 len(title)+len(summary)，GUI 不解析
-   rawInput——1602 纪律，不为此扩协议载荷）；
+3. 条高依据为内容量代理（工具由厂商 presenter 在 `timeline_projection()`
+   中压好 `weight`，通用组件不读 summary 等厂商载荷字段——1602 纪律，
+   不为此扩协议载荷）；
 4. 错误态不另设 category：failed 标志覆盖着色（保留原类型 tooltip），
    等价参考侧 error 最高优先级覆盖语义；
 5. 命中检测由二分查找简化为 O(1) 除法——条宽恒定（BAR_W）前提下
@@ -110,18 +111,25 @@ class ActivityTimeline(QWidget):
     def feed(self, chunk: Chunk) -> None:
         """消费一个流式块（旁路分接，不改动既有路由语义）。
 
-        text/reasoning 走「当前段」聚合；tool_call 恒开新块；
-        tool_call_update failed 帧按簿记改色；todo 更新既有块；usage 忽略。
+        text/reasoning 走「当前段」聚合；todo 更新既有块；usage 忽略。
+        工具帧的载荷解释归厂商 presenter，经 `feed_tool()` 收中性投影。
         """
         if chunk.kind in ("text", "reasoning"):
             self._feed_text(chunk.kind, len(chunk.text))
-        elif chunk.kind == "tool_call":
-            self._feed_tool_call(chunk.payload or {})
-        elif chunk.kind == "tool_call_update":
-            self._feed_tool_update(chunk.payload or {})
         elif chunk.kind == "todo":
             self._feed_todo((chunk.payload or {}).get("entries") or [])
         # usage 等其余 kind 不上条
+
+    def feed_tool(self, kind: str, entry: dict) -> None:
+        """消费厂商 presenter 压出的时间线投影（tip/weight/failed 等）。
+
+        投影键由各厂商 `timeline_projection()` 产出，通用组件不认识厂商
+        载荷字段；这样 failed 着色与 tooltip 摘要仍归厂商解释。
+        """
+        if kind == "tool_call":
+            self._feed_tool_call(entry)
+        elif kind == "tool_call_update":
+            self._feed_tool_update(entry)
 
     def end_turn(self) -> None:
         """轮次收尾：作废「当前段」指针，下一轮强制开新块（防跨轮串位，
@@ -148,30 +156,29 @@ class ActivityTimeline(QWidget):
             self._current = len(self._bars) - 1
         self._on_bars_changed()
 
-    def _feed_tool_call(self, payload: dict) -> None:
-        """工具调用帧：恒开新块（等价参考侧逐 part 一条），并簿记锚点键。"""
-        category = _KIND_CATEGORY.get(payload.get("tool_kind") or "", "tool_other")
-        title = payload.get("title") or "?"
-        summary = payload.get("summary") or ""
-        tip = f"{title} — {summary}" if summary else title
-        bar = TimelineBar(category, tip, max(1, len(title) + len(summary)),
-                          tool_call_id=payload.get("tool_call_id"))
+    def _feed_tool_call(self, entry: dict) -> None:
+        """工具调用投影：恒开新块（等价参考侧逐 part 一条），并簿记锚点键。"""
+        category = _KIND_CATEGORY.get(entry.get("tool_kind") or "", "tool_other")
+        tip = entry.get("tip") or "?"
+        weight = max(1, int(entry.get("weight") or 1))
+        bar = TimelineBar(category, tip, weight,
+                          tool_call_id=entry.get("tool_call_id"))
         self._bars.append(bar)
         if bar.tool_call_id:
             self._tool_index[bar.tool_call_id] = len(self._bars) - 1
         self._current = None  # 工具帧切断正文/思维链段聚合
         self._on_bars_changed()
 
-    def _feed_tool_update(self, payload: dict) -> None:
-        """状态更新帧：failed 终态将对应块改错误色（覆盖类型色，最高优先级）。"""
-        if payload.get("status") != "failed":
+    def _feed_tool_update(self, entry: dict) -> None:
+        """状态更新投影：failed 终态将对应块改错误色（覆盖类型色，最高优先级）。"""
+        if not entry.get("failed"):
             return
-        index = self._tool_index.get(payload.get("tool_call_id") or "")
+        index = self._tool_index.get(entry.get("tool_call_id") or "")
         if index is None:
             return  # 未知锚点（簿记外到达）：忽略，不上条不改色
         self._bars[index].failed = True
-        if error := payload.get("error"):
-            self._bars[index].tip += f"（{error}）"
+        if detail := entry.get("failure_detail"):
+            self._bars[index].tip += f"（{detail}）"
         self.update()
 
     def _feed_todo(self, entries: list) -> None:
