@@ -10,6 +10,7 @@ import pytest
 from ide.llm.providers.acp import TurnAborted, TurnCancelled
 from ide.llm.providers.dsh import provider as dsh_acp
 from ide.llm.providers.kimi import provider as kimi_acp
+from ide.llm.providers.kimi import usage as kimi_usage, wire as kimi_wire
 from ide.llm.providers.local import provider as local_acp
 
 SESSION_ID = "session-baseline"
@@ -208,10 +209,10 @@ def test_kimi_provider_text_usage_and_cancelled_stop(monkeypatch):
         _response(),
     ])
     _install_connection(monkeypatch, kimi_acp, conn)
-    monkeypatch.setattr(kimi_acp.KimiAcpLLM, "_ensure_context_sizes",
+    monkeypatch.setattr(kimi_usage.UsageTracker, "ensure_context_sizes",
                         lambda self: None)
-    monkeypatch.setattr(kimi_acp, "_session_dir_of", lambda session_id: None)
-    monkeypatch.setattr(kimi_acp, "_WIRE_USAGE_WAIT_S", 0.0)
+    monkeypatch.setattr(kimi_wire, "session_dir_of", lambda session_id: None)
+    monkeypatch.setattr(kimi_usage, "WIRE_USAGE_WAIT_S", 0.0)
     provider = kimi_acp.KimiAcpLLM(workspace_root=".")
     chunks = list(provider.chat([{"role": "user", "content": "hello"}]))
     assert [chunk.text for chunk in chunks if chunk.kind == "text"] == ["kimi 正文"]
@@ -276,11 +277,11 @@ def test_vendor_tool_turn_stop_and_close(
         ]
 
     if label == "kimi":
-        monkeypatch.setattr(kimi_acp.KimiAcpLLM, "_ensure_context_sizes",
+        monkeypatch.setattr(kimi_usage.UsageTracker, "ensure_context_sizes",
                             lambda self: None)
-        monkeypatch.setattr(kimi_acp, "_session_dir_of",
+        monkeypatch.setattr(kimi_wire, "session_dir_of",
                             lambda session_id: None)
-        monkeypatch.setattr(kimi_acp, "_WIRE_USAGE_WAIT_S", 0.0)
+        monkeypatch.setattr(kimi_usage, "WIRE_USAGE_WAIT_S", 0.0)
     elif label == "dsh":
         monkeypatch.setattr(dsh_acp, "_turn_consumption",
                             lambda *args: (None, 0))

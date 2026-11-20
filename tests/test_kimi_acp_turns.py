@@ -1,4 +1,5 @@
 import queue
+import threading
 from pathlib import Path
 
 import pytest
@@ -7,6 +8,7 @@ from ide.llm.base import UsageStats
 from ide.llm.providers.acp import TurnAborted, TurnCancelled
 from ide.llm.providers.kimi import KimiAcpLLM
 from ide.llm.providers.kimi import provider as kimi_acp
+from ide.llm.providers.kimi import usage as kimi_usage, wire as kimi_wire
 
 
 SESSION_ID = "session-test"
@@ -120,9 +122,9 @@ def usage_update(used=10):
 def provider_factory(monkeypatch):
     providers = []
     monkeypatch.setattr(kimi_acp, "_find_bin", lambda: "/fake/kimi")
-    monkeypatch.setattr(KimiAcpLLM, "_ensure_context_sizes", lambda self: None)
-    monkeypatch.setattr(kimi_acp, "_WIRE_USAGE_WAIT_S", 0.0)
-    monkeypatch.setattr(kimi_acp, "_session_dir_of", lambda session_id: None)
+    monkeypatch.setattr(kimi_usage.UsageTracker, "ensure_context_sizes", lambda self: None)
+    monkeypatch.setattr(kimi_usage, "WIRE_USAGE_WAIT_S", 0.0)
+    monkeypatch.setattr(kimi_wire, "session_dir_of", lambda session_id: None)
 
     def create(*connections):
         remaining = list(connections)
@@ -195,16 +197,52 @@ def test_i3_wire_cannot_override_end_turn(provider_factory, monkeypatch, wire_st
     provider.set_subagent_sidecar(False)
     if wire_state != "missing":
         monkeypatch.setattr(
-            kimi_acp, "_session_dir_of", lambda session_id: Path(".temp/wire-test"))
+            kimi_wire, "session_dir_of", lambda session_id: Path(".temp/wire-test"))
         parsed = None if wire_state == "broken" else (
             1, 1, UsageStats(used=10, size=100, cost=None, source="transcript"))
-        monkeypatch.setattr(kimi_acp, "_read_wire_turn_stats", lambda *args: parsed)
+        monkeypatch.setattr(kimi_wire, "read_turn_stats", lambda *args: parsed)
 
     chunks = chat(provider)
 
     assert any(chunk.kind == "text" and chunk.text == "ok" for chunk in chunks)
     assert not provider.recovery_pending
     assert conn.terminate_calls == 0
+
+
+def test_gui_poll_while_worker_turn_holds_lock_does_not_steal(provider_factory):
+    """GUI 轮询在 worker 持锁期间只做 wire，不排空 ACP 帧。"""
+    class BlockingConnection(FakeAcpConnection):
+        def __init__(self, events):
+            super().__init__(events)
+            self.waiting = threading.Event()
+            self.release = threading.Event()
+
+        def next_update(self, timeout=None):
+            if self.events.qsize() == 1:
+                self.waiting.set()
+                assert self.release.wait(timeout=5)
+            return super().next_update(timeout=timeout)
+
+    conn = BlockingConnection([text_update("streamed"), response()])
+    provider = provider_factory(conn)
+    provider.set_subagent_sidecar(False)
+    chunks = []
+
+    worker = threading.Thread(
+        target=lambda: chunks.extend(provider.chat(
+            [{"role": "user", "content": "hello"}])))
+    worker.start()
+    try:
+        assert conn.waiting.wait(2)
+        assert provider.poll_usage() is None
+        assert conn.events.qsize() == 1  # response 未被 GUI 抢走
+    finally:
+        conn.release.set()
+        worker.join(timeout=5)
+
+    assert not worker.is_alive()
+    assert [chunk.text for chunk in chunks if chunk.kind == "text"] == ["streamed"]
+    assert not provider.recovery_pending
 
 
 def test_i4_missing_usage_does_not_change_success(provider_factory):

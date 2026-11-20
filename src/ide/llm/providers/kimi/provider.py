@@ -16,7 +16,6 @@ import queue
 import threading
 import time
 from collections.abc import Mapping
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterator, cast
 
@@ -27,8 +26,6 @@ from ide.llm.base import (
     Chunk,
     LanguageModel,
     Message,
-    TurnConsumption,
-    TurnSpeed,
     UsageStats,
 )
 # 权限与 terminal 类型来自稳定 ACP 协议层；审批处理器接收厂商分类后的
@@ -38,11 +35,11 @@ from ide.llm.providers.acp import (
     PermissionParams,
     PermissionRequestHandler,
     TerminalHandler,
-    TurnAborted,
     TurnCancelled,
     build_client_capabilities,
     build_prompt_blocks,
 )
+from ide.llm.providers.kimi import usage as kimi_usage, wire
 from ide.llm.providers.kimi.catalog import (
     _find_bin,
     context_sizes_from_catalog,
@@ -53,238 +50,12 @@ from ide.llm.providers.kimi.updates import KimiUpdateMapper
 
 logger = logging.getLogger(__name__)
 
-#: wire.jsonl usage.record 异步写盘等待上限（2026-07-31 实测：response 到达
-#: 时 llm.request 已写但 usage.record 尚未落盘，约 1~3s 后异步写入）
-_WIRE_USAGE_WAIT_S = 3.0
-_WIRE_USAGE_POLL_S = 0.2
-
 #: 轮次收尾后继续接收迟到用量帧的宽限（Kimi 轮末 push 可能晚于 response）
 _POST_TURN_USAGE_GRACE_S = 10.0
-
-#: 首次轮询只以 64KB 尾部建立游标，之后仅读新增字节，避免全量扫描 MB 级文件
-_WIRE_TAIL_BYTES = 64 * 1024
-_SESSION_DIR_RETRY_DELAYS_S = (2.0, 5.0, 15.0)
 
 #: Kimi 已在 ACP terminal/* 反向能力实测中通过；无 GUI 终端处理器时仍声明 false
 _TERMINAL_CAPABILITY = True
 _SESSION_RESUME_TIMEOUT_S = 30.0
-
-
-def _session_dir_of(session_id: str) -> Path | None:
-    """session_index.jsonl 按 sessionId 反查会话落盘目录；失败返回 None。
-
-    2026-07-31 实证：ACP `session/new` 返回的 sessionId（`session_<uuid>`）
-    与 `~/.kimi-code/session_index.jsonl` 的 sessionId 字段完全一致，索引行
-    直接给出 sessionDir（wire.jsonl 在其 agents/main/ 下）。倒序扫描取最后
-    匹配（索引按创建追加，同 sessionId 理论上唯一，倒序防御性取新）。
-    """
-    index = Path.home() / ".kimi-code" / "session_index.jsonl"
-    try:
-        lines = index.read_text(encoding="utf-8").strip().splitlines()
-        for line in reversed(lines):
-            entry = json.loads(line)
-            if entry.get("sessionId") == session_id and entry.get("sessionDir"):
-                return Path(entry["sessionDir"])
-    except (OSError, json.JSONDecodeError):
-        logger.exception("session_index.jsonl 反查会话目录失败")
-        return None
-    return None
-
-
-def _read_wire_records(session_dir: Path) -> list[dict] | None:
-    """读 wire.jsonl 全量记录；文件缺失/损坏返回 None（收尾路径一次读法）。"""
-    wire = session_dir / "agents" / "main" / "wire.jsonl"
-    try:
-        return [json.loads(line)
-                for line in wire.read_text(encoding="utf-8").strip().splitlines()
-                if line.strip()]
-    except (OSError, json.JSONDecodeError):
-        logger.exception("wire.jsonl 全量读取失败")
-        return None
-
-
-def _is_turn_request(record: dict) -> bool:
-    turn_step = record.get("turnStep")
-    return (record.get("type") == "llm.request"
-            and isinstance(turn_step, str) and bool(turn_step))
-
-
-def _usage_values(usage: object) -> tuple[int, int, int, int] | None:
-    if not isinstance(usage, dict):
-        return None
-    values: list[int] = []
-    for key in ("inputOther", "inputCacheRead", "inputCacheCreation", "output"):
-        value = usage.get(key)
-        if type(value) is not int or value < 0:
-            return None
-        values.append(value)
-    return values[0], values[1], values[2], values[3]
-
-
-def _context_size(
-    request: dict, context_sizes: dict[str, int], model_alias: str | None
-) -> int | None:
-    alias = request.get("modelAlias") or model_alias
-    if not isinstance(alias, str):
-        return None
-    size = context_sizes.get(alias)
-    return size if type(size) is int and size > 0 else None
-
-
-def _usage_stats(record: dict, size: int | None) -> UsageStats | None:
-    if size is None:
-        return None
-    values = _usage_values(record.get("usage"))
-    if values is None:
-        return None
-    return UsageStats(
-        used=sum(values), size=size, cost=None, source="transcript")
-
-
-def _read_wire_turn_stats(
-    session_dir: Path,
-    context_sizes: dict[str, int] | None = None,
-    model_alias: str | None = None,
-) -> tuple[int, int, UsageStats | None] | None:
-    """一次全量读取 → (turn 用量数, turn 请求数, 末条用量定型)；失败 None。"""
-    records = _read_wire_records(session_dir)
-    if records is None:
-        return None
-    sizes = context_sizes or {}
-    usage_records = [r for r in records
-                     if r.get("type") == "usage.record" and r.get("usageScope") == "turn"]
-    requests = [r for r in records if _is_turn_request(r)]
-    stats: UsageStats | None = None
-    if usage_records and requests:
-        size = _context_size(requests[-1], sizes, model_alias)
-        stats = _usage_stats(usage_records[-1], size)
-    return len(usage_records), len(requests), stats
-
-
-def _read_wire_turn_metrics(
-    session_dir: Path, usage_baseline: int, session_id: str | None = None
-) -> tuple[TurnSpeed | None, TurnConsumption | None]:
-    """轮末一次全量读：输出速度与真实消耗（2026-1114-1452）同 pass 求和。
-
-    `usage.output` 是单次调用值，直取求和，禁止差分。分母仅计请求到
-    用量记录的生成耗时，工具/审批间隙不计。非 turn 请求不得改变配对。
-    消耗口径与速度解耦：速度配对失败（缺时间戳等）不影响四项求和；
-    turn_id 取 `session_id:轮末累计用量条数`，同轮重复收尾幂等去重。
-    """
-    records = _read_wire_records(session_dir)
-    if records is None:
-        return None, None
-    seen = 0
-    pending_req_time: int | None = None
-    output_total = 0
-    gen_ms_total = 0
-    sums = [0, 0, 0, 0]
-    new_usage = 0
-    for r in records:
-        rtype = r.get("type")
-        if _is_turn_request(r):
-            req_time = r.get("time")
-            pending_req_time = req_time if isinstance(req_time, int) else None
-        elif rtype == "usage.record" and r.get("usageScope") == "turn":
-            seen += 1
-            if seen <= usage_baseline:
-                continue
-            values = _usage_values(r.get("usage"))
-            if values is not None:
-                new_usage += 1
-                for i, value in enumerate(values):
-                    sums[i] += value
-            usage = r.get("usage") or {}
-            output = usage.get("output")
-            rec_time = r.get("time")
-            if (pending_req_time is None
-                    or type(output) is not int or output < 0
-                    or not isinstance(rec_time, int)
-                    or rec_time <= pending_req_time):
-                continue
-            output_total += output
-            gen_ms_total += rec_time - pending_req_time
-    speed = (TurnSpeed(output_tokens=output_total, gen_seconds=gen_ms_total / 1000)
-             if output_total > 0 and gen_ms_total > 0 else None)
-    consumption: TurnConsumption | None = None
-    if session_id and new_usage > 0 and any(sums):
-        consumption = TurnConsumption(
-            input_other=sums[0], input_cache_read=sums[1],
-            input_cache_creation=sums[2], output=sums[3],
-            turn_id=f"{session_id}:{usage_baseline + new_usage}")
-    return speed, consumption
-
-
-@dataclass
-class _WireUsageState:
-    path: Path
-    offset: int = 0
-    buffer: bytes = b""
-    model_alias: str | None = None
-    last_stats: UsageStats | None = None
-    measured_seen: bool = False
-
-
-def _read_wire_usage_incremental(
-    state: _WireUsageState,
-    context_sizes: dict[str, int] | None = None,
-    model_alias: str | None = None,
-) -> UsageStats | None:
-    """按游标读取新增 wire 记录，并保留最后一次有效上下文水位。"""
-    wire = state.path / "agents" / "main" / "wire.jsonl"
-    try:
-        file_size = wire.stat().st_size
-        if file_size < state.offset:
-            state.offset = 0
-            state.buffer = b""
-            state.model_alias = None
-            state.last_stats = None
-            state.measured_seen = False
-        if file_size == state.offset:
-            return state.last_stats
-        with wire.open("rb") as f:
-            tail_start = state.offset == 0 and file_size > _WIRE_TAIL_BYTES
-            f.seek(file_size - _WIRE_TAIL_BYTES if tail_start else state.offset)
-            data = f.read()
-            state.offset = f.tell()
-    except OSError:
-        return state.last_stats
-    if tail_start:
-        _partial, separator, data = data.partition(b"\n")
-        if not separator:
-            return state.last_stats
-    state.buffer += data
-    lines = state.buffer.split(b"\n")
-    state.buffer = lines.pop()
-    sizes = context_sizes or {}
-    for raw in lines:
-        if not raw.strip():
-            continue
-        try:
-            record = json.loads(raw)
-        except json.JSONDecodeError:
-            continue
-        if _is_turn_request(record):
-            alias = record.get("modelAlias")
-            if isinstance(alias, str) and alias:
-                state.model_alias = alias
-            continue
-        size = _context_size({}, sizes, state.model_alias or model_alias)
-        if size is None:
-            continue
-        if record.get("type") == "token_counting.measured":
-            tokens = record.get("tokens")
-            if type(tokens) is int and tokens >= 0:
-                state.last_stats = UsageStats(
-                    used=tokens, size=size, cost=None, source="transcript")
-                state.measured_seen = True
-        elif (record.get("type") == "usage.record"
-                and record.get("usageScope") == "turn"
-                and not state.measured_seen):
-            stats = _usage_stats(record, size)
-            if stats is not None:
-                state.last_stats = stats
-    return state.last_stats
 
 
 # ----------------------------------------------------------------------
@@ -557,43 +328,12 @@ class KimiAcpLLM(LanguageModel):
         #: set_subagent_sidecar 注入；False 回退纯 ACP 行为——子代理
         #: 仅起止 + 成果摘要）
         self._sidecar_enabled = True
-        #: 只缓存成功的会话目录定位；失败按短退避重试，避免索引未就绪永久失联
-        self._poll_dir_sid: str | None = None
-        self._poll_dir: Path | None = None
-        self._poll_dir_failures = 0
-        self._poll_dir_retry_at = 0.0
-        self._wire_usage_states: dict[str, _WireUsageState] = {}
-        self._usage_poll_lock = threading.Lock()
-        self._context_sizes: dict[str, int] = {}
-        self._context_sizes_loaded = False
-        self._context_catalog_attempts = 0
-        self._idle_push_stats: UsageStats | None = None
-        self._usage_warning_active = False
+        #: 用量状态按 provider 实例持有：会话目录定位、上下文窗口、增量游标
+        #: 与轮末汇总全在 tracker 内，模块级不共享（跨标签/会话互不污染）。
+        self._usage = kimi_usage.UsageTracker(
+            context_sizes_source=lambda: context_sizes_from_catalog(
+                load_kimi_provider_catalog()))
         atexit.register(self.close)
-
-    def _ensure_context_sizes(self) -> None:
-        if self._context_sizes_loaded:
-            return
-        self._context_catalog_attempts += 1
-        sizes = context_sizes_from_catalog(load_kimi_provider_catalog())
-        self._context_sizes = sizes
-        self._context_sizes_loaded = bool(sizes)
-        if not sizes:
-            logger.warning(
-                "kimi 模型上下文目录为空，下轮重试 attempt=%s",
-                self._context_catalog_attempts)
-        elif self._context_catalog_attempts > 1:
-            logger.info(
-                "kimi 模型上下文目录恢复 attempt=%s", self._context_catalog_attempts)
-
-    def _reset_usage_poll_state(self) -> None:
-        with self._usage_poll_lock:
-            self._poll_dir_sid = None
-            self._poll_dir = None
-            self._poll_dir_failures = 0
-            self._poll_dir_retry_at = 0.0
-            self._wire_usage_states.clear()
-            self._idle_push_stats = None
 
     # ------------------------------------------------------------------
     # 生命周期
@@ -601,9 +341,7 @@ class KimiAcpLLM(LanguageModel):
     def set_model(self, alias: str) -> None:
         """切换模型别名；失败保留原会话，普通协议错误不触发连接恢复。"""
         self._model = alias
-        with self._usage_poll_lock:
-            self._wire_usage_states.clear()
-            self._idle_push_stats = None
+        self._usage.invalidate_model()
         if self._conn and self._conn.is_alive and self._session_id:
             try:
                 self._conn.request("session/set_config_option", {
@@ -638,7 +376,7 @@ class KimiAcpLLM(LanguageModel):
         self._session_mcp_servers = []
         self._needs_recovery = False
         self._updates.reset()
-        self._reset_usage_poll_state()
+        self._usage.reset()
 
     def set_workspace_root(self, root: str) -> None:
         """切换 agent 工作目录：丢弃旧 session（长驻进程保留，下次 session/new 用新 cwd）。
@@ -792,8 +530,8 @@ class KimiAcpLLM(LanguageModel):
             self._updates.reset()
             self._apply_session_config(strict=False)
             self._needs_recovery = False
-            self._reset_usage_poll_state()
-        self._ensure_context_sizes()
+            self._usage.reset()
+        self._usage.ensure_context_sizes()
         return self._conn
 
     def _apply_session_config(self, strict: bool) -> None:
@@ -829,7 +567,7 @@ class KimiAcpLLM(LanguageModel):
         except RuntimeError as e:
             self._raise_recovery_failed(e)
         self._needs_recovery = False
-        self._reset_usage_poll_state()
+        self._usage.reset()
         logger.info(
             "[kimi acp] 恢复成功 sessionId=%s generation=%s",
             self._session_id, conn.generation)
@@ -845,83 +583,14 @@ class KimiAcpLLM(LanguageModel):
             "原会话恢复失败，未发送消息；可重试恢复，或明确新建空会话。"
             f"原因：{error}") from error
 
-    def _poll_session_dir(self, session_id: str) -> Path | None:
-        now = time.monotonic()
-        with self._usage_poll_lock:
-            if session_id != self._poll_dir_sid:
-                self._poll_dir_sid = session_id
-                self._poll_dir = None
-                self._poll_dir_failures = 0
-                self._poll_dir_retry_at = 0.0
-            if self._poll_dir is not None or now < self._poll_dir_retry_at:
-                return self._poll_dir
-        session_dir = _session_dir_of(session_id)
-        with self._usage_poll_lock:
-            if session_id != self._poll_dir_sid:
-                return None
-            if session_dir is not None:
-                recovered = self._poll_dir_failures > 0
-                self._poll_dir = session_dir
-                self._poll_dir_failures = 0
-                self._poll_dir_retry_at = 0.0
-                if recovered:
-                    logger.info("kimi 会话目录定位恢复")
-                return session_dir
-            self._poll_dir_failures += 1
-            delay = _SESSION_DIR_RETRY_DELAYS_S[
-                min(self._poll_dir_failures - 1,
-                    len(_SESSION_DIR_RETRY_DELAYS_S) - 1)]
-            self._poll_dir_retry_at = now + delay
-            logger.warning(
-                "kimi 会话目录暂未定位，退避后重试 attempt=%s delay=%.0fs",
-                self._poll_dir_failures, delay)
-            return None
-
-    def _drain_usage_updates(self, conn: AcpConnection) -> UsageStats | None:
-        """排空空闲队列，仅保留有效 usage；其他迟到帧维持原清理语义。"""
-        latest: UsageStats | None = None
-        while True:
-            try:
-                kind, obj = conn.next_update(timeout=0)
-            except queue.Empty:
-                return latest
-            except TurnAborted:
-                # 轮次锁已证明 worker 退出；残留 abort 只用于解封上一轮等待
-                conn._turn_abort.clear()
-                continue
-            if kind != "update":
-                continue
-            chunk = self._updates.map_session_update(obj)
-            if chunk is not None and chunk.kind == "usage" \
-                    and chunk.usage is not None:
-                latest = chunk.usage
-
     def poll_usage(self) -> UsageStats | None:
         """读取增量 wire；仅空闲时回收迟到 ACP usage，避免与 worker 抢帧。"""
         session_id = self._session_id
         if not session_id:
             return None
-        push_stats: UsageStats | None = None
-        if self._turn_lock.acquire(blocking=False):
-            try:
-                if self._conn is not None:
-                    push_stats = self._drain_usage_updates(self._conn)
-                if push_stats is not None:
-                    self._idle_push_stats = push_stats
-                push_stats = push_stats or self._idle_push_stats
-            finally:
-                self._turn_lock.release()
-        session_dir = self._poll_session_dir(session_id)
-        wire_stats: UsageStats | None = None
-        if session_dir is not None:
-            with self._usage_poll_lock:
-                state = self._wire_usage_states.get(session_id)
-                if state is None or state.path != session_dir:
-                    state = _WireUsageState(session_dir)
-                    self._wire_usage_states[session_id] = state
-                wire_stats = _read_wire_usage_incremental(
-                    state, self._context_sizes, self._model)
-        return push_stats or wire_stats
+        return self._usage.poll(
+            session_id, self._model, self._conn,
+            self._updates.map_session_update, self._turn_lock)
 
     # ------------------------------------------------------------------
     # 对话
@@ -949,11 +618,8 @@ class KimiAcpLLM(LanguageModel):
         request_id: int | None = None,
     ) -> Iterator[Chunk]:
         """消费 ACP 与展示 sidecar，直到 prompt response 或真实断连。"""
-        session_dir = _session_dir_of(self._session_id) if self._session_id else None
-        turn_stats0 = (_read_wire_turn_stats(
-            session_dir, self._context_sizes, self._model) if session_dir else None)
-        usage_baseline = turn_stats0[0] if turn_stats0 else 0
-        request_baseline = turn_stats0[1] if turn_stats0 else 0
+        session_dir = wire.session_dir_of(self._session_id) if self._session_id else None
+        turn_usage = self._usage.begin_turn(session_dir, self._model, self._session_id)
         turn_push_stats: UsageStats | None = None
         sidecar: _WireSidecar | None = None
         sidecar_queue: queue.Queue[dict] = queue.Queue()
@@ -977,8 +643,8 @@ class KimiAcpLLM(LanguageModel):
                         self._raise_on_turn_error(obj)
                         pending_error = self._classify_stop_reason(obj, request_id)
                         yield from self._collect_turn_end_usage(
-                            conn, session_dir, usage_baseline, request_baseline,
-                            sidecar, sidecar_queue, turn_push_stats)
+                            conn, turn_usage, sidecar, sidecar_queue,
+                            turn_push_stats)
                         if pending_error is not None:
                             raise pending_error
                         return
@@ -998,43 +664,28 @@ class KimiAcpLLM(LanguageModel):
     def _collect_turn_end_usage(
         self,
         conn: AcpConnection,
-        session_dir: Path | None,
-        usage_baseline: int,
-        request_baseline: int,
+        turn: kimi_usage.TurnUsage,
         sidecar: _WireSidecar | None,
         sidecar_queue: "queue.Queue[dict]",
         initial_push: UsageStats | None,
     ) -> Iterator[Chunk]:
         """在同一截止时间内收集 ACP 与 wire；ACP 优先，wire 保留部分结果。"""
-        deadline = time.monotonic() + _WIRE_USAGE_WAIT_S
+        turn.start_collection()
+        turn.accept_push(initial_push)
         sidecar_ready_at = (time.monotonic() + _SIDECAR_POLL_S
                             if sidecar is not None else 0.0)
-        push_stats = initial_push
-        wire_stats: UsageStats | None = None
-        wire_complete = session_dir is None
         while True:
-            if session_dir is not None:
-                parsed = _read_wire_turn_stats(
-                    session_dir, self._context_sizes, self._model)
-                if parsed is not None:
-                    usage_count, request_count, stats = parsed
-                    new_usage = usage_count - usage_baseline
-                    new_requests = request_count - request_baseline
-                    if new_usage > 0 and stats is not None:
-                        wire_stats = stats
-                    wire_complete = (new_usage >= new_requests if new_requests > 0
-                                     else new_usage > 0)
+            turn.poll_wire()
             if sidecar is not None:
                 yield from self._drain_sidecar(sidecar_queue)
-            if (push_stats is not None and wire_complete
-                    and time.monotonic() >= sidecar_ready_at):
+            if turn.ready(time.monotonic(), sidecar_ready_at):
                 break
-            remaining = deadline - time.monotonic()
+            remaining = turn.deadline - time.monotonic()
             if remaining <= 0:
                 break
             try:
                 kind, obj = conn.next_update(
-                    timeout=min(_WIRE_USAGE_POLL_S, remaining))
+                    timeout=min(turn.poll_interval, remaining))
             except queue.Empty:
                 continue
             if kind == "dead":
@@ -1048,8 +699,7 @@ class KimiAcpLLM(LanguageModel):
             chunk = self._updates.map_session_update(obj)
             if chunk:
                 if chunk.kind == "usage":
-                    if chunk.usage is not None:
-                        push_stats = chunk.usage
+                    turn.accept_push(chunk.usage)
                 else:
                     if sidecar is not None:
                         _sidecar_observe(sidecar, chunk)
@@ -1058,30 +708,10 @@ class KimiAcpLLM(LanguageModel):
                 yield from self._drain_sidecar(sidecar_queue)
         if sidecar is not None:
             yield from self._drain_sidecar(sidecar_queue)
-        speed: TurnSpeed | None = None
-        consumption: TurnConsumption | None = None
-        if session_dir is not None:
-            speed, consumption = _read_wire_turn_metrics(
-                session_dir, usage_baseline, self._session_id)
-        stats = push_stats or wire_stats
-        if push_stats is not None:
-            self._idle_push_stats = push_stats
-        if stats is not None:
-            self._usage_warning_active = False
-        elif not self._usage_warning_active:
-            reasons = []
-            if session_dir is None:
-                reasons.append("会话目录未定位")
-            if not self._context_sizes:
-                reasons.append("模型窗口目录为空")
-            reasons.append("ACP 未送达")
-            if wire_stats is None:
-                reasons.append("wire 无本轮有效用量")
-            logger.warning("kimi 轮末上下文用量不可用（%s）", "、".join(reasons))
-            self._usage_warning_active = True
-        if stats is not None or speed is not None or consumption is not None:
-            yield Chunk("usage", "", usage=stats, speed=speed,
-                        consumption=consumption)
+        result = turn.finish()
+        if result.has_payload:
+            yield Chunk("usage", "", usage=result.stats, speed=result.speed,
+                        consumption=result.consumption)
 
     def _drain_sidecar(self, sidecar_queue: "queue.Queue[dict]") -> Iterator[Chunk]:
         """排干旁路合成队列：update dict 经本厂商 mapper 真实映射产出
