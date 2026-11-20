@@ -13,6 +13,7 @@ PermissionHandler/_TurnMessage）是 ACP 协议层产物，不属 kimi 专有，
 """
 import base64
 import difflib
+import itertools
 import json
 import logging
 import queue
@@ -20,6 +21,7 @@ import re
 import subprocess
 import threading
 import time
+from collections import deque
 from collections.abc import Callable
 from pathlib import Path
 from typing import Literal, Protocol, TypedDict
@@ -38,6 +40,66 @@ from ide.core.paths import workspace_display_path
 logger = logging.getLogger(__name__)
 
 _ACP_TIMEOUT_S = 30  # initialize / session/new / set_config_option 等控制请求超时
+_STDERR_MAX_LINES = 40
+_STDERR_MAX_BYTES = 8 * 1024
+_STDERR_LINE_MAX = 1000
+
+_SENSITIVE_VALUE_RE = re.compile(
+    r"(?i)\b(authorization|proxy-authorization|cookie|set-cookie|api[_-]?key|"
+    r"access[_-]?token|refresh[_-]?token|id[_-]?token|token|secret|password)"
+    r"\b[\"']?\s*[:=]\s*[\"']?([^\s,;\"'}]+)")
+_AUTH_SCHEME_RE = re.compile(r"(?i)\b(bearer|basic)\s+[a-z0-9._~+/=-]+")
+_JWT_RE = re.compile(r"\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b")
+
+
+def _redact_diagnostic(text: str) -> str:
+    text = _AUTH_SCHEME_RE.sub(lambda match: f"{match.group(1)} <redacted>", text)
+    text = _SENSITIVE_VALUE_RE.sub(lambda match: match.group(0).replace(
+        match.group(2), "<redacted>"), text)
+    return _JWT_RE.sub("<redacted>", text)
+
+
+class _StderrRing:
+    """有界诊断尾部；先入缓冲前脱敏，避免异常路径再泄漏完整凭证。"""
+
+    def __init__(self) -> None:
+        self._lines: deque[str] = deque()
+        self._bytes = 0
+        self._truncated = False
+        self._lock = threading.Lock()
+
+    @staticmethod
+    def _size(line: str) -> int:
+        return len(line.encode("utf-8")) + 1
+
+    def append(self, line: str) -> None:
+        line = _redact_diagnostic(line.rstrip("\r\n"))
+        if len(line) > _STDERR_LINE_MAX:
+            line = line[:_STDERR_LINE_MAX] + "…[单行截断]"
+            self._truncated = True
+        size = self._size(line)
+        with self._lock:
+            if size > _STDERR_MAX_BYTES:
+                self._lines.clear()
+                self._bytes = 0
+                self._truncated = True
+                return
+            self._lines.append(line)
+            self._bytes += size
+            while (len(self._lines) > _STDERR_MAX_LINES
+                   or self._bytes > _STDERR_MAX_BYTES):
+                removed = self._lines.popleft()
+                self._bytes -= self._size(removed)
+                self._truncated = True
+
+    def tail(self) -> str:
+        with self._lock:
+            text = "\n".join(self._lines)
+            truncated = self._truncated
+        if not text:
+            return ""
+        return ("[stderr 已截断]\n" if truncated else "") + text
+
 
 #: next_update 拆拍节拍（秒）：timeout=None 时内部以该粒度轮询队列，
 #: 使阻塞中的轮次消费能响应本地中断（TurnAborted）；对外阻塞语义不变
@@ -1172,6 +1234,9 @@ def map_session_update(obj: dict) -> Chunk | None:
     return None  # available_commands_update / _meta 扩展等
 
 
+_connection_generations = itertools.count(1)
+
+
 class AcpConnection:
     """长驻 `<agent> acp` 子进程：ndjson 帧收发、请求 id 配对、通知与反向请求分发。
 
@@ -1187,13 +1252,14 @@ class AcpConnection:
         :param agent_name: agent 显示名（错误文案用，如 "kimi acp"）
         """
         self._agent_name = agent_name
+        self.generation = next(_connection_generations)
         try:
             self._proc = subprocess.Popen(
                 [bin_path, "acp"],
                 cwd=cwd,
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL,  # ACP 日志走 stderr/agent 自有日志，不属协议
+                stderr=subprocess.PIPE,
                 text=True,
                 encoding="utf-8",
                 errors="replace",
@@ -1203,6 +1269,7 @@ class AcpConnection:
             raise RuntimeError(f"{agent_name} 启动失败：{e}") from e
         self._next = 0
         self._write_lock = threading.Lock()
+        self._state_lock = threading.Lock()
         self._pending: dict[int, queue.Queue[dict]] = {}
         self._updates: queue.Queue[_TurnMessage] = queue.Queue()
         self._turn_id: int | None = None  # 活跃轮次的 prompt 请求 id（其响应改走 _updates）
@@ -1210,7 +1277,12 @@ class AcpConnection:
         #: 协议 cancel 无回包，本信号让阻塞中的 next_update 拆拍逃逸
         self._turn_abort = threading.Event()
         self.is_alive = True
-        self._terminated = False  # 死讯注入幂等标志（reader EOF 与 terminate 谁先谁注入）
+        self._terminated = False
+        self._expected_close = False
+        self._failure_reason: str | None = None
+        self._failure_method: str | None = None
+        self._last_request_id: int | str | None = None
+        self._stderr_ring = _StderrRing()
         #: 审批处理器（GUI 经 set_permission_handler 注入）；None=自动允许（C2 语义）
         self._permission_handler: PermissionHandler | None = None
         #: 终端处理器（GUI 经 set_terminal_handler 注入）；None=terminal/*
@@ -1218,8 +1290,13 @@ class AcpConnection:
         self._terminal_handler: TerminalHandler | None = None
         #: 挂起的 terminal/wait_for_exit 响应 id 集（异步应答簿记；
         #: 访问均持 _write_lock）：进程退出回调到达时补发响应包
-        self._pending_waits: set[int] = set()
+        self._pending_waits: set[int | str] = set()
         threading.Thread(target=self._reader, daemon=True).start()
+        if getattr(self._proc, "stderr", None) is not None:
+            threading.Thread(target=self._stderr_reader, daemon=True).start()
+        logger.info(
+            "[%s] 连接启动 generation=%s pid=%s",
+            self._agent_name, self.generation, getattr(self._proc, "pid", None))
 
     def set_permission_handler(self, handler: PermissionHandler | None) -> None:
         """注入审批处理器（None = 自动允许，C2 语义）。"""
@@ -1243,25 +1320,60 @@ class AcpConnection:
             for line in self._proc.stdout:
                 self._dispatch_line(line)
         finally:
+            self._mark_dead("eof", "stdout_reader")
+
+    def _stderr_reader(self) -> None:
+        try:
+            stream = self._proc.stderr
+            if stream is not None:
+                for line in stream:
+                    self._stderr_ring.append(line)
+        except (OSError, ValueError):
+            if not self._expected_close:
+                logger.exception(
+                    "[%s] stderr 读取失败 generation=%s",
+                    self._agent_name, self.generation)
+
+    @property
+    def failure_reason(self) -> str | None:
+        return self._failure_reason
+
+    def log_diagnostics(self, event: str, method: str | None = None) -> None:
+        tail = self._stderr_ring.tail()
+        logger.warning(
+            "[%s] 诊断 event=%s generation=%s pid=%s method=%s requestId=%s "
+            "reason=%s exitCode=%s",
+            self._agent_name, event, self.generation,
+            getattr(self._proc, "pid", None), method or self._failure_method,
+            self._last_request_id, self._failure_reason, self._proc.poll())
+        if tail:
+            logger.warning(
+                "[%s] stderr 尾部 generation=%s（有界脱敏）\n%s",
+                self._agent_name, self.generation, tail)
+
+    def _mark_dead(
+        self,
+        reason: str,
+        method: str | None = None,
+        request_id: int | str | None = None,
+    ) -> None:
+        """失效单点收口；先释放写锁再调用，所有等待方由同一死讯唤醒。"""
+        with self._state_lock:
+            if self._terminated:
+                return
+            self._terminated = True
             self.is_alive = False
-            self._inject_dead()
-
-    def _inject_dead(self) -> None:
-        """向 `_updates` 注入死讯、向残余 `_pending` 注入错误（幂等）。
-
-        reader 线程 EOF 与 terminate() 两路径共用，先到者注入；
-        check-then-set 竞态下的重复注入无害（多余死讯由 purge_updates
-        清理，已 pop 的 pending 不在表中）。
-        """
-        if self._terminated:
-            return
-        self._terminated = True
-        self._updates.put(("dead", self._proc.poll()))
+            self._failure_reason = reason
+            self._failure_method = method
+            if request_id is not None:
+                self._last_request_id = request_id
+            expected = self._expected_close
+        exit_code = self._proc.poll()
+        self._updates.put(("dead", exit_code))
+        message = (f"{self._agent_name} 连接已关闭" if expected
+                   else f"{self._agent_name} 连接失效（{reason}）")
         for pending_queue in list(self._pending.values()):
-            pending_queue.put({"error": {"code": -32099,
-                                         "message": f"{self._agent_name} 进程意外退出"}})
-        # 挂起的 wait_for_exit：agent 已死无法回包，通知 handler 清理
-        # （bridge 侧以 exitCode=-1 兜底唤醒自身登记处）
+            pending_queue.put({"error": {"code": -32099, "message": message}})
         handler = self._terminal_handler
         if handler is not None:
             try:
@@ -1270,6 +1382,27 @@ class AcpConnection:
                 logger.exception(f"[{self._agent_name}] 终端处理器死讯清理异常: {e}")
         with self._write_lock:
             self._pending_waits.clear()
+        if expected:
+            logger.info(
+                "[%s] 连接关闭 generation=%s reason=%s exitCode=%s",
+                self._agent_name, self.generation, reason, exit_code)
+        else:
+            self.log_diagnostics("connection_dead", method)
+
+    def _write_reverse(self, msg: dict, method: str, request_id: int | str) -> bool:
+        error: OSError | ValueError | None = None
+        with self._write_lock:
+            if not self.is_alive:
+                return False
+            try:
+                self._send(msg)
+            except (OSError, ValueError) as e:
+                error = e
+        if error is not None:
+            self._last_request_id = request_id
+            self._mark_dead("write_error", method, request_id)
+            return False
+        return True
 
     def _dispatch_line(self, line: str) -> None:
         """单帧分发：反向请求 / 轮次内通知与响应（→_updates）/ 控制响应（→_pending）。"""
@@ -1313,19 +1446,20 @@ class AcpConnection:
                     option_id = self._pick_option(options, "reject_once")
             else:
                 option_id = self._pick_option(options, "allow_once")  # C2 语义：等价 -p auto
-            with self._write_lock:
-                if option_id is not None:
-                    self._send({"jsonrpc": "2.0", "id": obj["id"], "result": {
-                        "outcome": {"outcome": "selected", "optionId": option_id}}})
-                else:  # agent 未给任何选项：按协议回 cancelled
-                    self._send({"jsonrpc": "2.0", "id": obj["id"], "result": {
-                        "outcome": {"outcome": "cancelled"}}})
+            if option_id is not None:
+                self._write_reverse({"jsonrpc": "2.0", "id": obj["id"], "result": {
+                    "outcome": {"outcome": "selected", "optionId": option_id}}},
+                    "session/request_permission", obj["id"])
+            else:  # agent 未给任何选项：按协议回 cancelled
+                self._write_reverse({"jsonrpc": "2.0", "id": obj["id"], "result": {
+                    "outcome": {"outcome": "cancelled"}}},
+                    "session/request_permission", obj["id"])
         elif obj["method"] in _TERMINAL_METHODS and self._terminal_handler is not None:
             self._handle_terminal(obj)
         else:
-            with self._write_lock:
-                self._send({"jsonrpc": "2.0", "id": obj["id"],
-                            "error": {"code": -32601, "message": "method not found"}})
+            self._write_reverse({"jsonrpc": "2.0", "id": obj["id"],
+                                 "error": {"code": -32601, "message": "method not found"}},
+                                obj["method"], obj["id"])
 
     # ------------------------------------------------------------------
     # terminal/* 反向请求（T1，2026-0817-1554 计划；无 handler 时维持 -32601 现状）
@@ -1370,8 +1504,8 @@ class AcpConnection:
             logger.exception(f"[{self._agent_name}] {method} 处理器异常: {e}")
             self._reply_error(request_id, -32603, f"{method} 失败：{e}")
             return
-        with self._write_lock:
-            self._send({"jsonrpc": "2.0", "id": request_id, "result": result})
+        self._write_reverse(
+            {"jsonrpc": "2.0", "id": request_id, "result": result}, method, request_id)
 
     def _complete_wait(self, request_id: int, result: dict) -> None:
         """wait_for_exit 异步应答：进程退出回调（GUI 线程）补发响应包。
@@ -1383,21 +1517,16 @@ class AcpConnection:
             if request_id not in self._pending_waits:
                 return
             self._pending_waits.discard(request_id)
-            try:
-                self._send({"jsonrpc": "2.0", "id": request_id, "result": result})
-            except (OSError, ValueError):
-                logger.exception("wait_for_exit 应答写帧失败")
-                pass  # 连接将死：死讯注入路径已兜底
+        self._write_reverse(
+            {"jsonrpc": "2.0", "id": request_id, "result": result},
+            "terminal/wait_for_exit", request_id)
 
     def _reply_error(self, request_id: int, code: int, message: str) -> None:
-        """反向请求错误应答（写锁串行化；连接将死时静默丢弃）。"""
-        with self._write_lock:
-            try:
-                self._send({"jsonrpc": "2.0", "id": request_id,
-                            "error": {"code": code, "message": message}})
-            except (OSError, ValueError):
-                logger.exception("反向请求错误应答写帧失败")
-                pass
+        """反向请求错误应答；写失败与其他路径共享连接失效收口。"""
+        self._write_reverse(
+            {"jsonrpc": "2.0", "id": request_id,
+             "error": {"code": code, "message": message}},
+            "reverse_error", request_id)
 
     @staticmethod
     def _pick_option(options: list[PermissionOption], kind: str) -> str | None:
@@ -1410,19 +1539,25 @@ class AcpConnection:
     # ------------------------------------------------------------------
     def request(self, method: str, params: dict, timeout: float = _ACP_TIMEOUT_S) -> dict:
         """同步请求（轮次外使用）：阻塞至响应/超时/进程死亡。"""
+        error: OSError | ValueError | None = None
         with self._write_lock:
             self._next += 1
             request_id = self._next
+            self._last_request_id = request_id
             pending_queue: queue.Queue[dict] = queue.Queue()
             self._pending[request_id] = pending_queue
             try:
                 self._send({"jsonrpc": "2.0", "id": request_id, "method": method, "params": params})
             except (OSError, ValueError) as e:
+                error = e
                 self._pending.pop(request_id, None)
-                raise RuntimeError(f"{self._agent_name} 写入失败：{e}") from e
+        if error is not None:
+            self._mark_dead("write_error", method, request_id)
+            raise RuntimeError(f"{self._agent_name} 写入失败：{method}：{error}") from error
         try:
             resp = pending_queue.get(timeout=timeout)
         except queue.Empty:
+            self.log_diagnostics("request_timeout", method)
             raise RuntimeError(f"{self._agent_name} 请求超时：{method}") from None
         finally:
             self._pending.pop(request_id, None)
@@ -1433,16 +1568,22 @@ class AcpConnection:
 
     def begin_turn(self, method: str, params: dict) -> int:
         """登记轮次请求：其响应与通知同走 `_updates`，由 chat() 逐条消费。"""
+        error: OSError | ValueError | None = None
         with self._write_lock:
             self._turn_abort.clear()  # 新一轮消费前清中断：上轮 cancel 残留不得误伤
             self._next += 1
             self._turn_id = self._next
+            request_id = self._turn_id
+            self._last_request_id = request_id
             try:
-                self._send({"jsonrpc": "2.0", "id": self._turn_id, "method": method, "params": params})
+                self._send({"jsonrpc": "2.0", "id": request_id, "method": method, "params": params})
             except (OSError, ValueError) as e:
+                error = e
                 self._turn_id = None
-                raise RuntimeError(f"{self._agent_name} 写入失败：{e}") from e
-            return self._turn_id
+        if error is not None:
+            self._mark_dead("write_error", method, request_id)
+            raise RuntimeError(f"{self._agent_name} 写入失败：{method}：{error}") from error
+        return request_id
 
     def abort_turn(self) -> None:
         """本地中断当前轮次：置 _turn_abort，阻塞中的 next_update 拆拍
@@ -1453,6 +1594,9 @@ class AcpConnection:
         秒级醒来。无活跃轮次时置位无害：begin_turn 统一清除。
         """
         self._turn_abort.set()
+        logger.info(
+            "[%s] 轮次本地中断 generation=%s requestId=%s",
+            self._agent_name, self.generation, self._turn_id)
 
     def end_turn(self) -> None:
         self._turn_id = None
@@ -1465,13 +1609,19 @@ class AcpConnection:
         """
         if self._turn_id is None or not self.is_alive:
             return False
-        try:
-            with self._write_lock:
+        error: OSError | ValueError | None = None
+        with self._write_lock:
+            try:
                 self._send({"jsonrpc": "2.0", "method": "session/cancel",
                             "params": {"sessionId": session_id}})
-        except (OSError, ValueError):
-            logger.exception("session/cancel 写入失败")
-            return False  # 写入失败说明连接将死，chat 路径按 dead 收尾
+            except (OSError, ValueError) as e:
+                error = e
+        if error is not None:
+            self._mark_dead("write_error", "session/cancel", self._turn_id)
+            return False
+        logger.info(
+            "[%s] 轮次取消 generation=%s sessionId=%s requestId=%s",
+            self._agent_name, self.generation, session_id, self._turn_id)
         return True
 
     def purge_updates(self) -> None:
@@ -1513,8 +1663,9 @@ class AcpConnection:
 
         标签关闭路径（2026-0722-1117 计划 T5）：阻塞在 next_update()/
         request() 的 worker 依赖死讯/错误帧收尾；主动注入把解封延迟
-        从"reader 反应过来"压到毫秒级（check-then-set 幂等，见 _inject_dead）。
+        从"reader 反应过来"压到毫秒级（幂等失效收口见 _mark_dead）。
         """
+        self._expected_close = True
         if self._proc.poll() is None:
             self._proc.terminate()
             try:
@@ -1522,8 +1673,7 @@ class AcpConnection:
             except subprocess.TimeoutExpired:
                 logger.exception("agent 进程 terminate 超时，强制 kill")
                 self._proc.kill()
-        self.is_alive = False
-        self._inject_dead()
+        self._mark_dead("terminate")
 
 
 __all__ = [

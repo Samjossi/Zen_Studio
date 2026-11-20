@@ -394,3 +394,61 @@ def test_stall_timeout_default_and_roundtrip(isolated_settings):
     assert settings_mod.load_settings()[KEY_TURN_STALL_TIMEOUT_MIN] == 10
     update_settings({KEY_TURN_STALL_TIMEOUT_MIN: 3})
     assert settings_mod.load_settings()[KEY_TURN_STALL_TIMEOUT_MIN] == 3
+
+
+def test_stall_watchdog_marks_provider_and_explains_manual_recovery(
+        fake_registry, isolated_settings):
+    panel = _make_panel(fake_registry, isolated_settings)
+    messages: list[str] = []
+    panel.output.append_message = lambda role, text: messages.append(text)
+
+    class _Provider:
+        stalled = 0
+
+        def mark_stalled(self):
+            self.stalled += 1
+
+    provider = _Provider()
+    panel._providers[panel._llm_name] = provider  # type: ignore[assignment]
+    recorder = _StopRecorder()
+    panel._worker = recorder  # type: ignore[assignment]
+    update_settings({KEY_TURN_STALL_TIMEOUT_MIN: 1})
+    panel._last_chunk_at = time.monotonic() - 120
+    try:
+        panel._stall_watchdog_tick()
+        assert provider.stalled == 1
+        assert recorder.calls == 1
+        assert any("下一次手动发送将尝试恢复原会话" in m for m in messages)
+        assert any("原请求不会自动重发" in m for m in messages)
+    finally:
+        panel.close()
+
+
+def test_recovery_failure_cancels_pending_and_preserves_drafts(
+        fake_registry, isolated_settings):
+    panel = _make_panel(fake_registry, isolated_settings)
+    panel._sent_text = "retry original session"
+    panel._history = [{"role": "user", "content": panel._sent_text}]
+    panel.input.setPlainText("queued draft")
+    panel._pending_send = True
+    try:
+        panel._on_finished("原会话恢复失败，未发送消息；可重试恢复")
+        assert panel.input.toPlainText() == "queued draft"
+        assert not panel._pending_send
+        assert not panel._busy
+        assert panel._history == []
+    finally:
+        panel.close()
+
+
+def test_recovery_failure_restores_sent_text_when_input_is_empty(
+        fake_registry, isolated_settings):
+    panel = _make_panel(fake_registry, isolated_settings)
+    panel._sent_text = "retry original session"
+    panel._history = [{"role": "user", "content": panel._sent_text}]
+    try:
+        panel._on_finished("原会话恢复失败，未发送消息；可重试恢复")
+        assert panel.input.toPlainText() == "retry original session"
+        assert panel._history == []
+    finally:
+        panel.close()

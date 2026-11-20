@@ -2,7 +2,7 @@
 
 > 本文档只保留团队常用后端 CLI 的安装、运行、更新与验证命令。
 > 升级后需重启 Zen Studio，再验证版本与实际会话。
-> 最后更新：2026-11-19
+> 最后更新：2026-11-20
 
 ---
 
@@ -49,6 +49,14 @@ kimi --version
 ```
 
 当前应输出 `2.6.3`。
+
+### ACP 原会话恢复与事故取证
+
+- Zen Studio 要求 CLI 在 `initialize` 的 `agentCapabilities.sessionCapabilities.resume` 中声明恢复能力；2.6.3 实测为 `{}`（支持）。不支持时不会退回 `session/load` 或新建空会话，应升级 CLI 后重试。
+- 恢复仅由下一次手动发送触发，顺序为 `initialize → session/resume → session/set_config_option`；`resume` 参数为原 `sessionId`、创建时 `cwd` 与 `mcpServers`。响应可不返回 `sessionId`，客户端沿用原 ID。
+- 普通手动停止不重建进程；EOF、写断管、进程退出和看门狗停滞才进入下轮恢复。原中断 prompt 永不自动重放，恢复失败时新 prompt 也不发送。
+- 开发态日志位于项目 `config/logs/zen-studio.log`，桌面冻结态位于 `~/.config/zen-studio/logs/zen-studio.log`。检索 `generation`、`sessionId`、`requestId`、`resume`、`connection_dead` 和 `recovery_failed`，先确认连接代次与退出码，再区分 IDE 写失败、CLI EOF 和控制请求超时。
+- ACP stdout 永远是协议帧，完整帧与 prompt 正文不得写入诊断日志。stderr 由 IDE 持续排空，仅保留有界脱敏尾部并在异常时落日志；CLI 自身完整日志仍按官方数据位置另行查看，取证时不得复制凭证或上传完整会话内容。
 
 ---
 

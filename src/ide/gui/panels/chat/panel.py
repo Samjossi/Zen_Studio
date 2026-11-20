@@ -355,6 +355,8 @@ class ChatPanel(QWidget):
         #: 末条消息帧的 monotonic 时刻（_on_chunk 更新；轮次起播点同记）：
         #: 看门狗 idle 口径数据源；非轮次态为 None
         self._last_chunk_at: float | None = None
+        self._stopped_for_stall = False
+        self._sent_text = ""
 
         chat_pack = get_theme_palette(load_settings()[KEY_THEME])["chat"]
         # 双轨并存：cards 卡片折叠轨（默认）/ classic 旧轨 ChatOutput
@@ -1067,6 +1069,8 @@ class ChatPanel(QWidget):
             # 首次发送时补一条如实告知
             self._show_dev_note(self._llm_name)
         self._set_busy(True)
+        self._stopped_for_stall = False
+        self._sent_text = text
         message: Message = {"role": "user", "content": text}
         if images:
             message["images"] = images
@@ -1180,9 +1184,18 @@ class ChatPanel(QWidget):
             return
         minutes = int(idle_s // 60)
         self._last_chunk_at = None  # 防 tick 间隔内重复触发
+        provider = self._providers.get(self._llm_name)
+        mark_stalled = getattr(provider, "mark_stalled", None)
+        recoverable = callable(mark_stalled)
+        if recoverable:
+            mark_stalled()
+            self._stopped_for_stall = True
+            hint = ("原请求不会自动重发；下一次手动发送将尝试恢复原会话，"
+                    "请先核对已发生的工具副作用")
+        else:
+            hint = "可重新发送；反复出现请新建会话"
         self.output.append_message(
-            "系统", f"本轮已 {minutes} 分钟无响应，已自动中断，"
-                    "可重新发送；反复出现请新建会话")
+            "系统", f"本轮已 {minutes} 分钟无响应，已自动中断；{hint}")
         self.request_stop()
 
     def _on_chunk(self, chunk: Chunk) -> None:
@@ -1360,10 +1373,19 @@ class ChatPanel(QWidget):
                 self._has_seen_reasoning = False
             self.output.append_stream_chunk(f"\n[请求失败] {error}")
             self._history.pop()  # 失败的用户消息不入历史
+            recovery_failed = error.startswith("原会话恢复失败")
+            if recovery_failed and not self.input.toPlainText().strip():
+                self.input.setPlainText(self._sent_text)
             self._restore_sent_attachments()  # 附件恢复回附件行
+            provider = self._providers.get(self._llm_name)
+            if not recovery_failed and getattr(provider, "recovery_pending", False):
+                self.output.append_message(
+                    "系统", "ACP 连接已失效；原请求不会自动重发。下一次手动发送将尝试"
+                            "恢复原会话，请先核对已发生的工具副作用")
         else:
             self._history.append({"role": "assistant", "content": self._stream_buffer})
             self._sent_attachments = []
+        self._sent_text = ""
         self.output.reset_activity_anchors()  # todo 锚点轮次收尾作废
         self.timeline.end_turn()  # 色块条段指针轮次收尾作废
         self.output.end_stream()
@@ -1401,7 +1423,7 @@ class ChatPanel(QWidget):
             self._last_turn = {
                 "started": self._turn_started_at,
                 "ended": datetime.now(),
-                "outcome": "手动停止",
+                "outcome": "看门狗停止" if self._stopped_for_stall else "手动停止",
             }
             self._turn_started_at = None
         self._clear_speed_samples()  # 中断轮实时速度样本同清
@@ -1410,7 +1432,11 @@ class ChatPanel(QWidget):
             self._has_seen_reasoning = False
         self._history.pop()  # 回滚用户消息；半截回复随 _stream_buffer 丢弃
         self._restore_sent_attachments()  # 附件恢复回附件行
-        self.output.append_stream_chunk("\n⏹ 已手动停止")
+        self.output.append_stream_chunk(
+            "\n⏹ 已因无响应中断；下一次手动发送将尝试恢复原会话"
+            if self._stopped_for_stall else "\n⏹ 已手动停止")
+        self._sent_text = ""
+        self._stopped_for_stall = False
         self.output.reset_activity_anchors()  # todo 锚点轮次收尾作废
         self.timeline.end_turn()  # 色块条段指针轮次收尾作废
         self.output.end_stream()

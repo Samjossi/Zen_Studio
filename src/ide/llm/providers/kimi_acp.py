@@ -2,8 +2,8 @@
 
 kimi 唯一传输层（CLI `-p` 模式已移除，见 2026-0731-0036 计划）：长驻单进程、
 token 级流式（`agent_message_chunk`）、思维链可见（`agent_thought_chunk`）、
-会话原生管理（`session/new`）；历史由 agent 侧会话管理，仅取末条 user 消息作
-prompt。凭证由 CLI 自管（OAuth），代码库零密钥。
+会话原生管理（`session/new`，断管/停滞后 `session/resume`）；历史由 agent
+侧会话管理，仅取末条 user 消息作 prompt。凭证由 CLI 自管（OAuth），代码库零密钥。
 
 连接层已泛化抽出（计划 2026-0730-0150 §4-D5）：帧收发/反向请求/死讯注入
 见 ide/llm/providers/acp.py 的 AcpConnection（agent_name 参数化）；本文件仅留
@@ -95,6 +95,7 @@ _WIRE_TAIL_BYTES = 64 * 1024
 #: ACP terminal/* 反向能力支持矩阵（2026-0817-1522 五 agent 实测报告）：
 #: kimi/reasonix 支持；本 agent 不支持时保持 terminal: false（行为与现状等价）
 _TERMINAL_CAPABILITY = True
+_SESSION_RESUME_TIMEOUT_S = 30.0
 
 
 def _session_dir_of(session_id: str) -> Path | None:
@@ -560,6 +561,9 @@ class KimiAcpLLM(LanguageModel):
         self._cwd = workspace_root or str(PROJECT_ROOT)
         self._conn: AcpConnection | None = None
         self._session_id: str | None = None
+        self._session_cwd: str | None = None
+        self._session_mcp_servers: list[dict] = []
+        self._needs_recovery = False
         self._turn_lock = threading.Lock()
         #: 关闭标志（标签销毁）：close() 置位后 _ensure_session 拒绝新建连接，
         #: spawn 前后双检——与清理线程 close() 的竞态窗口内迟到的连接即建即杀
@@ -595,15 +599,15 @@ class KimiAcpLLM(LanguageModel):
     # 生命周期
     # ------------------------------------------------------------------
     def set_model(self, alias: str) -> None:
-        """切换模型别名（会话存在则即时生效，失败则降级为下次新会话生效）。"""
+        """切换模型别名；失败保留原会话，并在下轮发送前恢复后重试配置。"""
         self._model = alias
         if self._conn and self._conn.is_alive and self._session_id:
             try:
                 self._conn.request("session/set_config_option", {
                     "sessionId": self._session_id, "configId": "model", "value": alias}, timeout=10)
             except RuntimeError:
-                logger.exception("即时切换模型失败，降级为下次新会话生效")
-                self._session_id = None  # 降级：下轮重建会话并应用模型
+                logger.exception("即时切换模型失败，下轮发送前恢复原会话并应用选择")
+                self._needs_recovery = True
 
     def set_effort(self, value: str) -> None:
         """切换推理强度（2026-0806 计划；会话存在则即时生效）。
@@ -613,8 +617,8 @@ class KimiAcpLLM(LanguageModel):
         2026-0718-1555 实测），强度值原样透传不解析不校验（D6 红线 2 同款
         不透明字符串语义）；值域随模型而异（k3-256k 为 low/high/max，
         2026-0725-0205 实测），当前模型不支持的档位由 agent 侧拒绝。
-        失败不丢弃会话（与 set_model 的差异）：强度是辅助控制轴，拒绝
-        不该陪葬会话上下文——`_effort` 已记，下个新会话生效。
+        失败不丢弃会话：强度是辅助控制轴，拒绝不该陪葬会话上下文；
+        若失败已令连接失效，下轮恢复时会重新应用 `_effort`。
         """
         self._effort = value
         if self._conn and self._conn.is_alive and self._session_id:
@@ -623,12 +627,16 @@ class KimiAcpLLM(LanguageModel):
                     "sessionId": self._session_id, "configId": "thinking",
                     "value": value}, timeout=10)
             except RuntimeError:
-                logger.exception("即时切换推理强度失败，降级为新会话时应用")
-                pass  # 降级：保持会话与当前强度，新会话时应用 _effort
+                logger.exception("即时切换推理强度失败；连接失效时下轮恢复会重试")
 
     def reset_session(self) -> None:
-        """清空会话，下次请求 `session/new` 开新会话（进程保留）。"""
+        """显式清空恢复身份，下次请求 `session/new` 开新会话（进程保留）。"""
         self._session_id = None
+        self._session_cwd = None
+        self._session_mcp_servers = []
+        self._needs_recovery = False
+        self._poll_dir_sid = None
+        self._poll_dir = None
 
     def set_workspace_root(self, root: str) -> None:
         """切换 agent 工作目录：丢弃旧 session（长驻进程保留，下次 session/new 用新 cwd）。
@@ -668,7 +676,21 @@ class KimiAcpLLM(LanguageModel):
         if self._conn:
             self._conn.terminate()
             self._conn = None
-            self._session_id = None
+        self.reset_session()
+
+    @property
+    def recovery_pending(self) -> bool:
+        return bool(self._session_id) and (
+            self._needs_recovery or self._conn is None or not self._conn.is_alive)
+
+    def mark_stalled(self) -> None:
+        """看门狗停滞与普通停止分流：仅前者强制下轮重建并恢复原会话。"""
+        if self._closed:
+            return
+        self._needs_recovery = True
+        logger.info(
+            "[kimi acp] 标记停滞恢复 sessionId=%s generation=%s",
+            self._session_id, self._conn.generation if self._conn else None)
 
     def cancel(self) -> None:
         """取消当前轮次：协议 `session/cancel` + 本地 abort_turn；无轮次时 no-op。
@@ -689,23 +711,41 @@ class KimiAcpLLM(LanguageModel):
         bin_path = _find_bin()
         if not bin_path:
             raise RuntimeError("kimi CLI 不可用：PATH 与 ~/.kimi-code/bin 均未找到 kimi")
-        if self._conn is None or not self._conn.is_alive:
-            if self._conn is not None:
-                self._conn.terminate()
-            self._conn = AcpConnection(bin_path, self._cwd, "kimi acp")
+        if self._conn is not None and (not self._conn.is_alive or self._needs_recovery):
+            self._conn.terminate()
+            self._conn = None
+        if self._conn is None:
+            conn = AcpConnection(bin_path, self._cwd, "kimi acp")
+            self._conn = conn
             if self._closed:  # spawn 与 close 竞态：迟到的连接即建即杀
-                self._conn.terminate()
+                conn.terminate()
                 self._conn = None
                 raise RuntimeError("kimi acp 后端已关闭（标签已销毁）")
-            self._conn.set_permission_handler(self._permission_handler)
-            self._conn.set_terminal_handler(self._terminal_handler)
-            self._session_id = None
-            self._conn.request("initialize", {
-                "protocolVersion": 1,
-                "clientCapabilities": build_client_capabilities(
-                    terminal=_TERMINAL_CAPABILITY and self._terminal_handler is not None),
-                "clientInfo": {"name": "zen-studio", "title": "Zen Studio", "version": APP_VERSION},
-            })
+            conn.set_permission_handler(self._permission_handler)
+            conn.set_terminal_handler(self._terminal_handler)
+            try:
+                init_result = conn.request("initialize", {
+                    "protocolVersion": 1,
+                    "clientCapabilities": build_client_capabilities(
+                        terminal=_TERMINAL_CAPABILITY and self._terminal_handler is not None),
+                    "clientInfo": {
+                        "name": "zen-studio", "title": "Zen Studio", "version": APP_VERSION},
+                })
+            except RuntimeError as e:
+                conn.log_diagnostics("initialize_failed", "initialize")
+                if self._session_id:
+                    self._raise_recovery_failed(e)
+                raise
+            agent = init_result.get("agentInfo") or {}
+            capabilities = init_result.get("agentCapabilities") or {}
+            resume_supported = "resume" in (
+                capabilities.get("sessionCapabilities") or {})
+            logger.info(
+                "[kimi acp] 初始化 agent=%s version=%s generation=%s resume=%s",
+                agent.get("name", "?"), agent.get("version", "?"),
+                conn.generation, resume_supported)
+            if self._session_id:
+                self._resume_session(conn, init_result)
         if self._session_id is None:
             try:
                 result = self._conn.request(
@@ -715,24 +755,64 @@ class KimiAcpLLM(LanguageModel):
                     raise RuntimeError("kimi 未登录或凭证已过期，请在终端执行 `kimi login` 后重试") from None
                 raise
             self._session_id = result["sessionId"]
-            if self._model:  # 新会话应用预选模型
-                try:
-                    self._conn.request("session/set_config_option", {
-                        "sessionId": self._session_id, "configId": "model",
-                        "value": self._model}, timeout=10)
-                except RuntimeError:
-                    logger.exception("新会话应用预选模型失败，保持 agent 默认模型")
-                    pass  # 保持 agent 默认模型，不阻断对话
-            if self._effort:  # 新会话应用预选推理强度（2026-0806 计划）
-                try:
-                    self._conn.request("session/set_config_option", {
-                        "sessionId": self._session_id, "configId": "thinking",
-                        "value": self._effort}, timeout=10)
-                except RuntimeError:
-                    logger.exception("新会话应用预选强度失败，保持 agent 默认强度")
-                    pass  # 保持 agent 默认强度，不阻断对话
+            self._session_cwd = self._cwd
+            self._session_mcp_servers = []
+            self._apply_session_config(strict=False)
+            self._needs_recovery = False
+            self._poll_dir_sid = None
+            self._poll_dir = None
         self._ensure_context_sizes()
         return self._conn
+
+    def _apply_session_config(self, strict: bool) -> None:
+        assert self._conn is not None and self._session_id is not None
+        for config_id, value in (("model", self._model), ("thinking", self._effort)):
+            if not value:
+                continue
+            try:
+                self._conn.request("session/set_config_option", {
+                    "sessionId": self._session_id, "configId": config_id,
+                    "value": value}, timeout=10)
+            except RuntimeError:
+                if strict:
+                    raise
+                logger.exception("新会话应用预选配置失败 configId=%s", config_id)
+
+    def _resume_session(self, conn: AcpConnection, init_result: dict) -> None:
+        assert self._session_id is not None
+        capabilities = init_result.get("agentCapabilities") or {}
+        if "resume" not in (capabilities.get("sessionCapabilities") or {}):
+            self._raise_recovery_failed(RuntimeError(
+                "当前 Kimi CLI 不支持 session/resume，请升级 CLI"))
+        logger.info(
+            "[kimi acp] 恢复开始 sessionId=%s generation=%s",
+            self._session_id, conn.generation)
+        try:
+            conn.request("session/resume", {
+                "sessionId": self._session_id,
+                "cwd": self._session_cwd or self._cwd,
+                "mcpServers": list(self._session_mcp_servers),
+            }, timeout=_SESSION_RESUME_TIMEOUT_S)
+            self._apply_session_config(strict=True)
+        except RuntimeError as e:
+            self._raise_recovery_failed(e)
+        self._needs_recovery = False
+        self._poll_dir_sid = None
+        self._poll_dir = None
+        logger.info(
+            "[kimi acp] 恢复成功 sessionId=%s generation=%s",
+            self._session_id, conn.generation)
+
+    def _raise_recovery_failed(self, error: RuntimeError) -> None:
+        self._needs_recovery = True
+        if self._conn is not None:
+            self._conn.log_diagnostics("recovery_failed", "session/resume")
+        logger.warning(
+            "[kimi acp] 恢复失败 sessionId=%s generation=%s error=%s",
+            self._session_id, self._conn.generation if self._conn else None, error)
+        raise RuntimeError(
+            "原会话恢复失败，未发送消息；可重试恢复，或明确新建空会话。"
+            f"原因：{error}") from error
 
     def poll_usage(self) -> UsageStats | None:
         """轮次内主动取用量快照：读 wire 尾部末条有效 turn 用量。
@@ -792,8 +872,10 @@ class KimiAcpLLM(LanguageModel):
                     pass
                 else:
                     if kind == "dead":
-                        self._session_id = None
-                        raise RuntimeError(f"kimi acp 进程意外退出（退出码 {obj}）")
+                        self._needs_recovery = True
+                        raise RuntimeError(
+                            f"kimi acp 连接已断开（{conn.failure_reason or '未知原因'}，"
+                            f"退出码 {obj}）；原请求不会自动重发")
                     if kind == "response":
                         self._raise_on_turn_error(obj)
                         yield from self._collect_turn_end_usage(
@@ -856,8 +938,10 @@ class KimiAcpLLM(LanguageModel):
             except queue.Empty:
                 continue
             if kind == "dead":
-                self._session_id = None
-                logger.warning("kimi acp 在轮末用量收尾时退出")
+                self._needs_recovery = True
+                logger.warning(
+                    "kimi acp 在轮末用量收尾时退出 generation=%s sessionId=%s",
+                    conn.generation, self._session_id)
                 break
             if kind == "response":
                 continue
