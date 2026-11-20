@@ -169,7 +169,7 @@ local-cli models
 | `src/ide/llm/spec.py` | 中性注册类型：`BackendSpec` 与 `resolve_efforts()`；不含厂商名、私有路径、工具名或设置键 |
 | `src/ide/llm/cache.py` | 进程级三路模型缓存（模型/强度/原始载荷）；按接口名隔离，`clear()` 是唯一失效实现 |
 | `src/ide/llm/registry.py` | 后台组合根：组合三家厂商 `spec.py` 为 `REGISTRY`，保留 `DEFAULT_BACKEND`、查询 API 与 `refresh_models()` 委托；唯一允许 import 具体厂商后台的模块 |
-| `src/ide/llm/providers/acp/` | 稳定 ACP 传输、协议定型、prompt 与标准 content 纯函数；不含厂商工具名、私有配置键或落盘路径 |
+| `src/ide/llm/providers/acp/` | 稳定 ACP 传输（连接/诊断/terminal 分发）、协议定型、prompt 与标准 content 纯函数；不含厂商工具名、私有配置键或落盘路径 |
 | `src/ide/llm/providers/<vendor>/` | 各厂商 `spec.py`（注册声明）、provider、models、updates 与 permissions；厂商之间禁止横向 import |
 | `src/ide/gui/panels/chat/card_base.py` | 无厂商语义的卡片生命周期、折叠/复制/图片等 UI 基础件 |
 | `src/ide/gui/panels/chat/vendors/registry.py` | 卡片组合根：唯一允许 import 具体厂商卡片包的模块 |

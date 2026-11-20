@@ -104,16 +104,6 @@ def build_client_capabilities(terminal: bool) -> dict:
     }
 
 
-def _parse_terminal_env(env: object) -> dict[str, str] | None:
-    """terminal/create 的 env 载荷 → dict（协议为 [{name, value}] 数组，dict 容错直通）。"""
-    if isinstance(env, dict):
-        return {str(k): str(v) for k, v in env.items()}
-    if isinstance(env, list):
-        parsed = {str(item["name"]): str(item.get("value", ""))
-                  for item in env if isinstance(item, dict) and "name" in item}
-        return parsed or None
-    return None
-
 #: 轮次内消息：update/response 载荷为 JSON-RPC 帧，dead 载荷为进程退出码
 _TurnMessage = tuple[Literal["update", "response"], dict] | tuple[Literal["dead"], int | None]
 

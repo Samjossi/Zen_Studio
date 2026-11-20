@@ -9,85 +9,27 @@ import json
 import logging
 import os
 import queue
-import re
 import subprocess
 import threading
 import time
-from collections import deque
 
 from ide.core.child_env import with_non_interactive_pagers
+from ide.llm.providers.acp.diagnostics import (
+    StderrRing,
+    log_connection_diagnostics,
+)
 from ide.llm.providers.acp.protocol import (
     PermissionHandler,
     PermissionOption,
     PermissionParams,
     TerminalHandler,
     _TurnMessage,
-    _parse_terminal_env,
 )
+from ide.llm.providers.acp.terminal import TerminalDispatcher
 
 logger = logging.getLogger(__name__)
 
 _ACP_TIMEOUT_S = 30  # initialize / session/new / set_config_option 等控制请求超时
-_STDERR_MAX_LINES = 40
-_STDERR_MAX_BYTES = 8 * 1024
-_STDERR_LINE_MAX = 1000
-
-_SENSITIVE_VALUE_RE = re.compile(
-    r"(?i)\b(authorization|proxy-authorization|cookie|set-cookie|api[_-]?key|"
-    r"access[_-]?token|refresh[_-]?token|id[_-]?token|token|secret|password)"
-    r"\b[\"']?\s*[:=]\s*[\"']?([^\s,;\"'}]+)")
-_AUTH_SCHEME_RE = re.compile(r"(?i)\b(bearer|basic)\s+[a-z0-9._~+/=-]+")
-_JWT_RE = re.compile(r"\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b")
-
-
-def _redact_diagnostic(text: str) -> str:
-    text = _AUTH_SCHEME_RE.sub(lambda match: f"{match.group(1)} <redacted>", text)
-    text = _SENSITIVE_VALUE_RE.sub(lambda match: match.group(0).replace(
-        match.group(2), "<redacted>"), text)
-    return _JWT_RE.sub("<redacted>", text)
-
-
-class _StderrRing:
-    """有界诊断尾部；先入缓冲前脱敏，避免异常路径再泄漏完整凭证。"""
-
-    def __init__(self) -> None:
-        self._lines: deque[str] = deque()
-        self._bytes = 0
-        self._truncated = False
-        self._lock = threading.Lock()
-
-    @staticmethod
-    def _size(line: str) -> int:
-        return len(line.encode("utf-8")) + 1
-
-    def append(self, line: str) -> None:
-        line = _redact_diagnostic(line.rstrip("\r\n"))
-        if len(line) > _STDERR_LINE_MAX:
-            line = line[:_STDERR_LINE_MAX] + "…[单行截断]"
-            self._truncated = True
-        size = self._size(line)
-        with self._lock:
-            if size > _STDERR_MAX_BYTES:
-                self._lines.clear()
-                self._bytes = 0
-                self._truncated = True
-                return
-            self._lines.append(line)
-            self._bytes += size
-            while (len(self._lines) > _STDERR_MAX_LINES
-                   or self._bytes > _STDERR_MAX_BYTES):
-                removed = self._lines.popleft()
-                self._bytes -= self._size(removed)
-                self._truncated = True
-
-    def tail(self) -> str:
-        with self._lock:
-            text = "\n".join(self._lines)
-            truncated = self._truncated
-        if not text:
-            return ""
-        return ("[stderr 已截断]\n" if truncated else "") + text
-
 
 #: next_update 拆拍节拍（秒）：timeout=None 时内部以该粒度轮询队列，
 #: 使阻塞中的轮次消费能响应本地中断（TurnAborted）；对外阻塞语义不变
@@ -107,11 +49,7 @@ class TurnCancelled(Exception):
     无需 agent 回包；本异常只在收到 prompt 响应且 stopReason 为 cancelled
     时抛出，走停止收尾而非失败通道——两者都不显示 [请求失败]。"""
 
-#: terminal/* 反向请求方法集（无 handler 时分发维持 -32601 兜底语义）
-_TERMINAL_METHODS = frozenset({
-    "terminal/create", "terminal/output", "terminal/wait_for_exit",
-    "terminal/kill", "terminal/release",
-})
+#: terminal/* 反向请求方法集与分发器见 `acp/terminal.py`；连接层只做总入口。
 
 
 _connection_generations = itertools.count(1)
@@ -164,15 +102,12 @@ class AcpConnection:
         self._failure_reason: str | None = None
         self._failure_method: str | None = None
         self._last_request_id: int | str | None = None
-        self._stderr_ring = _StderrRing()
+        self._stderr_ring = StderrRing()
         #: 审批处理器（GUI 经 set_permission_handler 注入）；None=自动允许（C2 语义）
         self._permission_handler: PermissionHandler | None = None
-        #: 终端处理器（GUI 经 set_terminal_handler 注入）；None=terminal/*
-        #: 反向请求维持 -32601 兜底（未声明能力时 agent 本不该发起）
-        self._terminal_handler: TerminalHandler | None = None
-        #: 挂起的 terminal/wait_for_exit 响应 id 集（异步应答簿记；
-        #: 访问均持 _write_lock）：进程退出回调到达时补发响应包
-        self._pending_waits: set[int | str] = set()
+        #: terminal/* 分发器（GUI 经 set_terminal_handler 注入处理器）；
+        #: 无 handler 时反向请求维持 -32601 兜底（未声明能力时 agent 本不该发起）
+        self._terminal = TerminalDispatcher(agent_name, self._write_reverse)
         threading.Thread(target=self._reader, daemon=True).start()
         if getattr(self._proc, "stderr", None) is not None:
             threading.Thread(target=self._stderr_reader, daemon=True).start()
@@ -186,7 +121,7 @@ class AcpConnection:
 
     def set_terminal_handler(self, handler: TerminalHandler | None) -> None:
         """注入终端处理器（None = terminal/* 反向请求回 -32601）。"""
-        self._terminal_handler = handler
+        self._terminal.set_handler(handler)
 
     # ------------------------------------------------------------------
     # 帧收发
@@ -221,17 +156,17 @@ class AcpConnection:
         return self._failure_reason
 
     def log_diagnostics(self, event: str, method: str | None = None) -> None:
-        tail = self._stderr_ring.tail()
-        logger.warning(
-            "[%s] 诊断 event=%s generation=%s pid=%s method=%s requestId=%s "
-            "reason=%s exitCode=%s",
-            self._agent_name, event, self.generation,
-            getattr(self._proc, "pid", None), method or self._failure_method,
-            self._last_request_id, self._failure_reason, self._proc.poll())
-        if tail:
-            logger.warning(
-                "[%s] stderr 尾部 generation=%s（有界脱敏）\n%s",
-                self._agent_name, self.generation, tail)
+        log_connection_diagnostics(
+            agent_name=self._agent_name,
+            event=event,
+            generation=self.generation,
+            pid=getattr(self._proc, "pid", None),
+            method=method or self._failure_method,
+            request_id=self._last_request_id,
+            reason=self._failure_reason,
+            exit_code=self._proc.poll(),
+            stderr_tail=self._stderr_ring.tail(),
+        )
 
     def _mark_dead(
         self,
@@ -256,14 +191,7 @@ class AcpConnection:
                    else f"{self._agent_name} 连接失效（{reason}）")
         for pending_queue in list(self._pending.values()):
             pending_queue.put({"error": {"code": -32099, "message": message}})
-        handler = self._terminal_handler
-        if handler is not None:
-            try:
-                handler.on_connection_dead()
-            except Exception as e:  # noqa: BLE001 — 死讯路径异常不外溢
-                logger.exception(f"[{self._agent_name}] 终端处理器死讯清理异常: {e}")
-        with self._write_lock:
-            self._pending_waits.clear()
+        self._terminal.on_connection_dead()
         if expected:
             logger.info(
                 "[%s] 连接关闭 generation=%s reason=%s exitCode=%s",
@@ -336,80 +264,15 @@ class AcpConnection:
                 self._write_reverse({"jsonrpc": "2.0", "id": obj["id"], "result": {
                     "outcome": {"outcome": "cancelled"}}},
                     "session/request_permission", obj["id"])
-        elif obj["method"] in _TERMINAL_METHODS and self._terminal_handler is not None:
-            self._handle_terminal(obj)
-        else:
+        elif not self._terminal.dispatch(obj):
             self._write_reverse({"jsonrpc": "2.0", "id": obj["id"],
                                  "error": {"code": -32601, "message": "method not found"}},
                                 obj["method"], obj["id"])
 
     # ------------------------------------------------------------------
-    # terminal/* 反向请求（T1，2026-0817-1554 计划；无 handler 时维持 -32601 现状）
+    # terminal/* 反向请求由 `acp/terminal.py` 的 TerminalDispatcher 承接；
+    # 连接层只保留本入口与写帧原语。
     # ------------------------------------------------------------------
-    def _handle_terminal(self, obj: dict) -> None:
-        """terminal/* 分发：create/output/kill/release 同步应答；
-        wait_for_exit 长阻塞语义改异步应答（登记 response id 挂起，进程退出
-        回调到达时 _complete_wait 补发响应包——严禁占 reader 线程等待）。"""
-        method = obj["method"]
-        params = obj.get("params") or {}
-        request_id = obj["id"]
-        handler = self._terminal_handler
-        assert handler is not None  # 分发处已判空
-        if method == "terminal/wait_for_exit":
-            with self._write_lock:
-                self._pending_waits.add(request_id)
-            try:
-                handler.wait_for_exit(
-                    params.get("terminalId") or "",
-                    lambda result, rid=request_id: self._complete_wait(rid, result))
-            except Exception as e:  # noqa: BLE001 — handler 异常不阻塞 agent
-                logger.exception(f"[{self._agent_name}] wait_for_exit 登记异常: {e}")
-                with self._write_lock:
-                    self._pending_waits.discard(request_id)
-                self._reply_error(request_id, -32603, f"wait_for_exit 失败：{e}")
-            return
-        try:
-            if method == "terminal/create":
-                terminal_id = handler.create(
-                    params.get("command") or "", list(params.get("args") or []),
-                    params.get("cwd"), _parse_terminal_env(params.get("env")))
-                result: dict = {"terminalId": terminal_id}
-            elif method == "terminal/output":
-                result = handler.output(params.get("terminalId") or "")
-            elif method == "terminal/kill":
-                handler.kill(params.get("terminalId") or "")
-                result = {}
-            else:  # terminal/release
-                handler.release(params.get("terminalId") or "")
-                result = {}
-        except Exception as e:  # noqa: BLE001 — handler 异常回 -32603，防 agent 永久阻塞
-            logger.exception(f"[{self._agent_name}] {method} 处理器异常: {e}")
-            self._reply_error(request_id, -32603, f"{method} 失败：{e}")
-            return
-        self._write_reverse(
-            {"jsonrpc": "2.0", "id": request_id, "result": result}, method, request_id)
-
-    def _complete_wait(self, request_id: int, result: dict) -> None:
-        """wait_for_exit 异步应答：进程退出回调（GUI 线程）补发响应包。
-
-        回调可能晚于死讯注入（id 已清）——登记处查无此项即丢弃；
-        _write_lock 串行化跨线程写帧（与 reader 线程应答互斥）。
-        """
-        with self._write_lock:
-            if request_id not in self._pending_waits:
-                return
-            self._pending_waits.discard(request_id)
-        self._write_reverse(
-            {"jsonrpc": "2.0", "id": request_id, "result": result},
-            "terminal/wait_for_exit", request_id)
-
-    def _reply_error(self, request_id: int, code: int, message: str) -> None:
-        """反向请求错误应答；写失败与其他路径共享连接失效收口。"""
-        self._write_reverse(
-            {"jsonrpc": "2.0", "id": request_id,
-             "error": {"code": code, "message": message}},
-            "reverse_error", request_id)
-
     @staticmethod
     def _pick_option(options: list[PermissionOption], kind: str) -> str | None:
         """按 kind 选 optionId（回应用 agent 提供的 optionId 原值，不臆造）。"""

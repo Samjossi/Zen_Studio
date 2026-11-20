@@ -2,7 +2,7 @@
 
 > **状态**：已实施
 > **范围**：`ide/llm/` 包 — LLM 调用薄层（本机 agent CLI 后端，代码库零密钥）
-> **时间**：2026-07-18 17:21（UTC+8，创建）/ 2026-11-20（T5 公共出口与依赖守卫修订）
+> **时间**：2026-07-18 17:21（UTC+8，创建）/ 2026-11-20（T5 公共出口与依赖守卫修订）/ 2026-11-21（S6 ACP 诊断与 terminal 再分）
 
 ---
 
@@ -10,7 +10,7 @@
 
 `ide/llm/` 是 Zen Studio 的 LLM 调用层，与 `ide/gui/` 平级。职责单一：把"多轮消息 → 流式文本"抽象为统一接口 `LanguageModel`。多标签改造（2026-07-22，文档/修改记录/2026-0722-0756）后 provider 由每个 `ChatPanel` 自持实例（标签间完全隔离可并行），注册表仍是唯一的装配来源；依赖方向为"前端 → 后端"，包内不 import 任何 GUI 代码。
 
-**注册表装配**（2026-07-30，文档/修改记录/2026-0730-0150）：后端发现/可用性探测/模型枚举/实例工厂收敛为单一注册表（`REGISTRY`），`ChatPanel` 经注册表工厂**懒实例化** provider（首轮对话前创建，切换接口时旧实例关闭丢弃，防多标签×多后台长驻进程膨胀）；新增 CLI 后台只动 `ide/llm/providers/` 与注册表，公共出口 `ide/llm/__init__.py` 不再需要追加具体 provider 类。**S5 收口**（2026-11-21）：`BackendSpec`/`resolve_efforts` 迁入中性 `llm/spec.py`，三路模型缓存迁入 `llm/cache.py`，各厂商静态元数据迁入 `providers/<vendor>/spec.py`；`registry.py` 只剩组合、`DEFAULT_BACKEND`、查询 API 与缓存失效委托。
+**注册表装配**（2026-07-30，文档/修改记录/2026-0730-0150）：后端发现/可用性探测/模型枚举/实例工厂收敛为单一注册表（`REGISTRY`），`ChatPanel` 经注册表工厂**懒实例化** provider（首轮对话前创建，切换接口时旧实例关闭丢弃，防多标签×多后台长驻进程膨胀）；新增 CLI 后台只动 `ide/llm/providers/` 与注册表，公共出口 `ide/llm/__init__.py` 不再需要追加具体 provider 类。**S5 收口**（2026-11-21）：`BackendSpec`/`resolve_efforts` 迁入中性 `llm/spec.py`，三路模型缓存迁入 `llm/cache.py`，各厂商静态元数据迁入 `providers/<vendor>/spec.py`；`registry.py` 只剩组合、`DEFAULT_BACKEND`、查询 API 与缓存失效委托。**S6 收口**（2026-11-21）：ACP 连接的脱敏/stderr ring/诊断日志迁入 `acp/diagnostics.py`，`terminal/*` 分发与异步 wait 簿记迁入 `acp/terminal.py`，`connection.py` 只保留帧收发、请求配对、反向请求总入口与轮次原语。
 
 **统一后端策略**：对话统一经本机 agent CLI（Kimi / DSH / Local）完成，代码库**不存放、不读取、不输入任何 API KEY**——凭证由各 CLI 自行管理（如 kimi 的 OAuth）。DeepSeek API KEY 直连已于 2026-07-18 移除（见 `2026-0718-1455_移除APIKEY直连统一CLI后端实施计划.md`）。
 
@@ -28,7 +28,9 @@
 | `ide/llm/providers/<vendor>/spec.py` | 厂商注册声明：显示名、厂商标签、可用性、目录/强度/显示名工厂、静态能力、默认强度、`dev_note`、`vendor_settings` 与实例工厂；只 import 中性 `llm.spec`/`llm.cache`、`llm.base` 与本厂商模块，不 import registry/GUI/其他厂商 |
 | `ide/llm/providers/__init__.py` | provider 子包标记（稳定 ACP 公共层 + Kimi/DSH/Local 厂商目录）；刻意不 re-export 任何具体 provider |
 | `ide/llm/providers/acp/__init__.py` | 稳定 ACP 公共设施出口：连接、协议定型、prompt 构造、usage 解析；不导出过渡期 update 映射 |
-| `ide/llm/providers/acp/connection.py` | `AcpConnection`：ndjson JSON-RPC 帧收发/id 配对/反向请求分发/统一幂等失效；构造接收**完整 argv**（启动命令由各厂商 provider 组装）；连接代次、请求 ID、预期/意外关闭与有界脱敏 stderr 尾部诊断；terminal/* 反向能力（create/output/kill/release 同步应答、wait_for_exit 异步应答） |
+| `ide/llm/providers/acp/connection.py` | `AcpConnection`：ndjson JSON-RPC 帧收发/id 配对/反向请求总分发/统一幂等失效；构造接收**完整 argv**（启动命令由各厂商 provider 组装）；连接代次、请求 ID、预期/意外关闭与轮次原语；诊断与 terminal 细节委托 `diagnostics.py`/`terminal.py` |
+| `ide/llm/providers/acp/diagnostics.py` | 连接诊断：凭证/JWT/Cookie 脱敏、有界 stderr ring（40 行/8KB 双限、单行 1000 字符截断）与统一诊断日志 helper；ring 按连接实例持有，无全局状态 |
+| `ide/llm/providers/acp/terminal.py` | `terminal/*` 反向请求分发：create/output/wait_for_exit/kill/release、env 解析、异步 wait 应答簿记与连接死讯清理；处理函数接收连接层写帧原语，不反向持有连接对象 |
 | `ide/llm/providers/acp/protocol.py` | ACP 协议定型：`PermissionOption`/`PermissionParams`/`ToolCallInfo`/`PermissionHandler`/`TerminalHandler`/`build_client_capabilities`/`map_usage_update` |
 | `ide/llm/providers/acp/prompt.py` | `build_prompt_blocks`：标准 text/image ContentBlock 构造与附图路径透传 |
 | `ide/llm/providers/acp/content.py` | 标准 ACP content/diff/文本截断纯函数（ANSI 净化、content 块分发、unified diff、行数截断）；不含厂商词表 |
