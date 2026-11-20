@@ -2,7 +2,7 @@
 
 > **状态**：已发布（v1.7）
 > **范围**：项目总览 — 定位、特性、架构、运行与文档体系
-> **时间**：2026-07-29 22:20（UTC+8），2026-11-19 修订
+> **时间**：2026-07-29 22:20（UTC+8），2026-11-20 修订
 
 **AI 驱动的桌面 IDE**：设计哲学为 **Agent 驱动**——本机 agent CLI 是唯一执笔人，代码修改一律经 agent 落盘；IDE 本体只承担「看、问、跑」——只读查看器看代码，AI 聊天面板问问题，真 PTY 终端跑命令。基于 Python 3.12 + PySide6，Linux 桌面优先，可打包为 AppImage 分发。本体刻意轻量，简单易修改、易扩展，可接自有模型，适合作量化交易开发基础与本地模型测试。
 
@@ -46,7 +46,7 @@ Zen Studio 的设计哲学是 **Agent 驱动**：代码修改一律经 AI agent 
 | 特性 | 说明 |
 |:---|:---|
 | AI 聊天面板 | 多标签会话（上限 4，标签间 provider 完全隔离可并行）；对话区双轨渲染——KiloCode 式卡片折叠（默认，工具/思维链/diff/TODO 全族卡，开合状态记忆）与经典流式可切换；token 级流式 + 思维链可见（ACP 后端）；图片附件多模态发送（粘贴/拖入，缩略图 chip 行，能力外后端自动退化 `@路径` 引用）；上下文 token 用量徽章（kimi 轮次内实时刷新）；发送/停止双态按钮；拖入文件插 `@相对路径` 引用；ACP 工具审批模态框（允许一次/始终允许/拒绝）；AskUserQuestion 提问卡片内作答（卡内按钮组串行激活，弹窗兜底） |
-| 统一 CLI 后端 | 对话统一经本机 agent CLI（OAuth 自管凭证），代码库**零 API KEY**；传输层统一为 ACP 长驻协议（Zed/JetBrains 同款集成方式），Kimi / DSH（DeepSeek Harness）/ Reasonix / OpenCode / Kilo Code / Dream / Local 七后台可选 |
+| 统一 CLI 后端 | 对话统一经本机 agent CLI（OAuth 自管凭证），代码库**零 API KEY**；传输层统一为 ACP 长驻协议（Zed/JetBrains 同款集成方式），Kimi / DSH（DeepSeek Harness）/ Local 三后台可选 |
 | 会话标签异构后台 | 每标签独立选择后台 / 接口 / 模型 / 推理强度（ModelBar 四级下拉直显当前值），标签间互不广播、busy 各禁各的，异构后台可真正并行；按接口记忆的模型选择持久化 |
 | 多类型文件预览 | 只读查看器五页分流：文本（Pygments 高亮 + 行号栏）/ 图片（位图 + 矢量 SVG + GIF 动图 + 棋盘格透明底）/ PDF（连续滚动 + 翻页缩放）/ Markdown（GFM 渲染）/ 音视频（就地播放，双击即播） |
 | 真 PTY 终端 | ptyprocess + pyte + 自绘字符网格；多会话 tab；OSC 动态标题；查找浮层；Ctrl+C/V 与文本选择反转适配 |
@@ -98,8 +98,8 @@ Zen Studio 的设计哲学是 **Agent 驱动**：代码修改一律经 AI agent 
 | `main.py` | 入口：参数解析（工作区根 / 自动截图）→ 主题 → 主窗口（顶部含 `src/` 引导段，源码包已迁入 `src/`） |
 | `src/ide/` | IDE 自有代码的统一命名空间；源码边界与增量模块规则详见 `src/README.md` |
 | `src/ide/gui/` | 全部图形界面代码（主窗口 / 菜单 / 五面板 / 主题 / 设置中心），详见 `src/ide/gui/README.md` |
-| `src/ide/llm/` | LLM 调用薄层（`LanguageModel` Protocol + ACP 注册表七后端：Kimi / DSH / Reasonix / OpenCode / Kilo Code / Dream / Local），详见 `src/ide/llm/README.md` |
-| `dream-acp/` | Dream 后台 ACP 协议文件夹：带版本号协议文档 + 最小示例 agent + spike 握手工具（自包含零依赖，将来整体迁出 Dream 项目作底本） |
+| `src/ide/llm/` | LLM 调用薄层（`LanguageModel` Protocol + ACP 注册表三后台：Kimi / DSH / Local），详见 `src/ide/llm/README.md` |
+| `dream-acp/` | ACP 协议资料：带版本号协议文档 + 最小示例 agent + spike 握手工具；不再是 Zen Studio 的 Dream 后台注册入口，Local provider 仍以其协议文档为参考 |
 | `src/ide/core/` | 底层设施：版本单一来源 / 路径解析 / Git 数据层 / 外部应用调起 |
 | `src/markdown_it/` `src/mdurl/` | vendored 运行时依赖（Markdown 渲染内核及其 URL 依赖，ruff 已排除） |
 | `assets/` | 主题 qss、自带字体（OFL）、Logo 成套件与候选池、`readme/` 文档素材（README 引用的截图与 GIF） |
@@ -120,7 +120,7 @@ Zen Studio 的设计哲学是 **Agent 驱动**：代码修改一律经 AI agent 
 uv sync
 ```
 
-前置条件：至少安装七后台之一的 agent CLI 并完成其登录（如 Kimi Code CLI ≥ 0.2.0 执行 `kimi login`，OAuth 凭证由 CLI 自管，IDE 不接触）。
+前置条件：至少安装三后台之一的 agent CLI 并完成其配置（如 Kimi Code CLI ≥ 0.2.0 执行 `kimi login`，OAuth 凭证由 CLI 自管，IDE 不接触；Local 需准备 Local CLI 与 GGUF 模型）。
 
 ### 6.2 运行
 
@@ -202,4 +202,4 @@ Zen Studio 站在巨人的肩膀上。感谢以下开源项目，它们的设计
 
 ---
 
-*Zen Studio v1.7 | 文档撰写：2026-07-29 22:20 (UTC+8)，修订：2026-11-19 20:33 (UTC+8)*
+*Zen Studio v1.7 | 文档撰写：2026-07-29 22:20 (UTC+8)，修订：2026-11-20 (UTC+8)*

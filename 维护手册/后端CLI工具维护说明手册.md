@@ -122,39 +122,36 @@ dsh --version
 
 ---
 
-## 3. Dream ACP（开发中）
+## 3. Local CLI
 
-Zen Studio 自维护的 ACP 协议对接层，协议真值在本仓库 `dream-acp/`；本身不含模型。
-
-| 资源 | 地址 |
-| --- | --- |
-| 协议正式文档 | `dream-acp/protocol/dream-acp-v1.md` |
-| 开发底本说明 | `dream-acp/README.md` |
-| 示例 agent | `dream-acp/example/dream` |
-| 协议断言脚本 | `dream-acp/tools/spike_handshake.py` |
+Local CLI 是独立仓库维护的本地模型 agent，Zen Studio 通过 `local-cli acp` 接入。模型目录由服务端扫描 `~/.local-cli/config.toml` 中 `model_dir` 下的 `*.gguf` 生成；协议参考保留在本仓库 `dream-acp/protocol/dream-acp-v1.md`，该目录不再是 Dream 后台注册入口。
 
 ### 安装
 
-无需安装，仓内自带示例 agent。
+本仓库未记录可核实的 Local CLI 现行安装命令，待独立仓库资料补充；不要套用 Dream 示例 agent 作为安装方式。安装后可放在 `PATH`、`$LOCAL_HOME/bin/local-cli` 或 `~/.local-cli/bin/local-cli`。
 
 ### 运行
 
+模型枚举：
+
 ```bash
-./dream-acp/example/dream acp
+local-cli models
+```
+
+ACP（Zen Studio 使用）：
+
+```bash
+local-cli acp
 ```
 
 ### 更新
 
-随本仓库更新。
+本仓库未记录可核实的 Local CLI 现行更新命令，待独立仓库资料补充。
 
 ### 验证
 
 ```bash
-.venv/bin/python dream-acp/tools/spike_handshake.py
+local-cli models
 ```
 
----
-
-## 4. 已封存工具
-
-OpenCode、Kilo Code、Reasonix、本地模型（Local CLI）已封存：界面保留入口但发送被拦停。历史资料见 git 历史。
+正常输出为每行一个 GGUF 模型别名；空输出、非零退出或二进制缺失时，IDE 模型列表回退为空，不伪造可用模型。未安装时界面标注「未检测到」，这与后台封存无关。完整对话验证还需在 `~/.local-cli/config.toml` 配置有效 `model_dir` 并准备 GGUF 模型。

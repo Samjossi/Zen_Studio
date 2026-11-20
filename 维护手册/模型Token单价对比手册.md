@@ -1,8 +1,8 @@
 # 模型 Token 单价对比手册
 
 > **创建日期**：2026-10-04
-> **最后更新**：2026-10-24
-> **版本**：v1.1
+> **最后更新**：2026-11-20
+> **版本**：v1.2
 > **用途**：汇总 Zen Studio 各后端当前可用模型的官方 Token 单价，供选型与成本估算对比。价格有时效性，引用前请以官方定价页为准。
 
 ---
@@ -21,10 +21,8 @@
 | 后端 | 当前枚举模型（2026-10-24 实测基线） | 计费方式 |
 |:---|:---|:---|
 | kimi-acp | `k3.1-pro`（K3.1 Pro）、`k3.1-pro-highspeed`（K3.1 Pro Highspeed）、`k3`、`k3-256k`、`kimi-for-coding`（K2.8 Preview）、`kimi-for-coding-highspeed` | Kimi Code **会员订阅制**（CLI 走额度，不按 token 计费）；§4 的 API 单价仅供横向参考 |
-| reasonix-acp | `deepseek-v4-pro`、`deepseek-v4-flash`（新模型需自行写入 `~/.reasonix/config.toml`，如 `deepseek-flash`） | DeepSeek 官方 API 按量计费 |
-| opencode-acp | `deepseek-v4-flash`、`deepseek-v4-pro`、`k3`、`k3-256k`、`kimi-for-coding*`（另有两个已停用旧别名 `deepseek-chat`/`deepseek-reasoner`） | 上游官方同价 |
-| kilocode-acp | — | **已封存**（个人维护状态，不再更新） |
-| dream-acp | — | 开发中，无计费 |
+| dsh-acp | `deepseek-flash`、`deepseek-v4-pro` | DeepSeek 官方 API 按量计费 |
+| local-acp | 由 Local CLI 动态枚举本机 GGUF | 本地推理，无 API Token 计费 |
 
 ---
 

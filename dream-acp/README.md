@@ -7,8 +7,12 @@
 ## 这是什么
 
 Dream 是一个本地模型 CLI 后台（本地模型推理 + agent 循环）。它通过 ACP 与
-IDE 类客户端（Zen Studio 等）对接：客户端以 `dream acp` 启动长驻子进程，
-走 stdio ndjson JSON-RPC 完成握手、会话、流式对话、工具审批与取消。
+IDE 类客户端对接：客户端以 `dream acp` 启动长驻子进程，走 stdio ndjson
+JSON-RPC 完成握手、会话、流式对话、工具审批与取消。
+
+本目录现在是独立的协议与示例资料，**不再是 Zen Studio 的 Dream 后台注册入口**。
+Zen Studio 的 Local provider 仍以这里的协议文档为参考，但不会启动本目录的示例
+agent 作为 Local CLI。
 
 本文件夹是 Dream 实现 ACP 接入的**开发底本与协议真值来源**，含三样：
 
@@ -59,6 +63,6 @@ python3 tools/spike_handshake.py --bin ./example/dream   # 显式指定被测 ag
 ## 与客户端的关系
 
 本协议以 ACP `protocolVersion: 1` 为线协议协商值，以 Zen Studio 的
-`src/ide/llm/providers/acp.py` 客户端实现与四个已接入后台（Kimi / Reasonix /
-OpenCode / Kilo Code）的实测教训为真值来源。文档附录 A 逐条记录这些实测
-教训——它们不是建议，是已踩过的坑。
+`src/ide/llm/providers/acp.py` 客户端实现与四个历史接入后台（Kimi / Reasonix /
+OpenCode / Kilo Code）的实测教训为真值来源。文档附录 A 逐条记录这些历史实测
+教训——它们不是建议，是已踩过的坑，不代表这些后台仍是 Zen Studio 的现行选项。

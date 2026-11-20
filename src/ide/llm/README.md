@@ -10,9 +10,9 @@
 
 `ide/llm/` 是 Zen Studio 的 LLM 调用层，与 `ide/gui/` 平级。职责单一：把"多轮消息 → 流式文本"抽象为统一接口 `LanguageModel`。多标签改造（2026-07-22，文档/修改记录/2026-0722-0756）后注册表模式移除：provider 由每个 `ChatPanel` 自持实例（标签间完全隔离可并行），依赖方向为"前端 → 后端"，包内不 import 任何 GUI 代码。
 
-**注册表装配**（2026-07-30，文档/修改记录/2026-0730-0150）：后端发现/可用性探测/模型枚举/实例工厂收敛为 `ide/llm/registry.py` 单一注册表（`BackendSpec` + `REGISTRY`），`ChatPanel` 经注册表工厂**懒实例化** provider（首轮对话前创建，切换接口时旧实例关闭丢弃，防多标签×多后台长驻进程膨胀）；新增 CLI 后台只动 `ide/llm/providers/` 一处。
+**注册表装配**（2026-07-30，文档/修改记录/2026-0730-0150）：后端发现/可用性探测/模型枚举/实例工厂收敛为 `ide/llm/registry.py` 单一注册表（`BackendSpec` + `REGISTRY`），`ChatPanel` 经注册表工厂**懒实例化** provider（首轮对话前创建，切换接口时旧实例关闭丢弃，防多标签×多后台长驻进程膨胀）；新增 CLI 后台只动 `ide/llm/providers/` 与注册表。
 
-**统一后端策略**：对话统一经本机 agent CLI（当前为 Kimi Code CLI）完成，代码库**不存放、不读取、不输入任何 API KEY**——凭证由各 CLI 自行管理（如 kimi 的 OAuth）。DeepSeek API KEY 直连已于 2026-07-18 移除（见 `2026-0718-1455_移除APIKEY直连统一CLI后端实施计划.md`）。
+**统一后端策略**：对话统一经本机 agent CLI（Kimi / DSH / Local）完成，代码库**不存放、不读取、不输入任何 API KEY**——凭证由各 CLI 自行管理（如 kimi 的 OAuth）。DeepSeek API KEY 直连已于 2026-07-18 移除（见 `2026-0718-1455_移除APIKEY直连统一CLI后端实施计划.md`）。
 
 设计蓝本：theia-zen `LanguageModel` Protocol（原注册表模式已随多标签改造移除），选型依据见 `2026-0718-1215_对话栏AI聊天面板选型报告.md`。
 
@@ -22,7 +22,6 @@
 |:---|:---|
 | `ide/llm/__init__.py` | 包初始化：导出统一接口、后端常量（`BACKEND_KIMI_ACP`/`BACKEND_LABELS`，由 REGISTRY 派生 re-export）与 provider 类 |
 | `ide/llm/base.py` | `LanguageModel` Protocol + `Message` 类型别名 + `Chunk` 流式块（kind：text/reasoning/usage/turn_sync；`speed` 可选字段携轮次输出速度，2026-10-23，work plans/2026-1023-1632）+ `UsageStats` 用量定型（source 三级 push/transcript/estimate，2026-07-31，文档/修改记录/2026-0731-1454）+ `TurnSpeed` 输出速度定型（output_tokens/gen_seconds，仅模型生成时间计分母）+ `TurnConsumption` 轮次真实消耗定型（输入缓存读写/输出四项 + turn_id 去重键，随轮末 usage chunk 的 `consumption` 字段携带，仅 kimi / DSH 产出，2026-1114-1452 计划）+ `poll_usage()` 可选轮询方法（默认 None，2026-08-02，文档/修改记录/2026-0802-0117） |
-| `ide/llm/context_limits.py` | 模型上下文窗口上限查询（2026-07-31，文档/修改记录/2026-0731-1454）：`reasonix_context_window()`（config.toml `[[providers]].context_window` 动态解析，缺项 None 不臆造）+ `reasonix_config_path()` 路径主定义（providers 反向复用，无环） |
 | `ide/llm/registry.py` | 后端注册表：`BackendSpec`（name/label/vendor/available/list_models/factory + 可选 `dev_note` 开发中告知文案，2026-08-14，文档/修改记录/2026-0814-0603 计划）+ `REGISTRY` 单点 + 查询 API（`spec_of`/`vendor_of`/`vendor_groups`）；模型列表进程级缓存（`_cached_list_models` 包装，锁覆盖查拉写防并发重复拉取）+ `refresh_models()` 唯一失效口（2026-07-30，文档/修改记录/2026-0730-2338）；import 无副作用，探测均惰性 |
 | `ide/llm/providers/__init__.py` | provider 子包标记（每家厂商一个文件） |
 | `ide/llm/providers/acp.py` | 泛化 ACP 连接层 `AcpConnection`（ndjson JSON-RPC 帧收发/id 配对/反向请求分发/统一幂等失效；agent 名参数化；连接代次、请求 ID、预期/意外关闭与有界脱敏 stderr 尾部诊断）+ 审批协议定型类型（`PermissionParams`/`PermissionHandler`）+ terminal/* 反向能力（2026-0817-1554 计划：`TerminalHandler` 契约 + `set_terminal_handler` 鸭子类型注入 + `build_client_capabilities` 声明收口；create/output/kill/release 同步应答、wait_for_exit 异步应答不占 reader 线程、无 handler 维持 -32601 兜底；GUI 桥实现见 `ide/gui/panels/terminal/agent_bridge.py`）+ session/update 公共映射 `map_session_update`（2026-0731-1602 计划 T2：四 provider 私有 `_map_update` 上收，message/thought/usage 原三分支 + tool_call 结构化/tool_call_update/plan 新三分支；2026-0808-0627 计划 T1：todowrite→todo 首帧特判撤销，rawInput.todos 提取为 `todos` 载荷 + 跨调用 diff changed 标记，kind="todo" 仅余 plan 通道；2026-0813-1919 计划 T1：层级 toolCallId `父/子` 拆出 `parent_tool_call_id` 父指针——reasonix 子代理内部活动帧嵌套显示锚点，无层级 ID 后端零影响）与 `map_usage_update` |
@@ -30,11 +29,7 @@
 | `ide/llm/providers/kimi_acp.py` | `KimiAcpLLM`：Kimi ACP 后端（长驻 `kimi acp` 子进程，复用 `AcpConnection`；token 级流式、思维链可见、审批反向请求路由；轮末 ACP `usage_update` 为主，response 后在同一 ≤3s 窗口继续收集，并由轮后短宽限/下轮开始前回收迟到帧，source="push"；wire 用于轮内增量轮询与 ACP 缺失兜底，source="transcript"，优先 token_counting.measured 水位、旧 usage.record 四项求和兜底，窗口读模型目录而非 llm.request.maxTokens；仅带 turnStep 的请求参与计数与速度配对，超时保留有效子集；轮次输出速度随收尾 usage chunk 携带；子代理 wire 旁路 `_WireSidecar` 格式假设见 `维护手册/后端CLI工具维护说明手册.md`） |
 | `ide/llm/providers/kimi_turn_consistency.py` | Kimi 主 wire 的纯元数据跟踪器：按字节游标与残行缓冲读取用户/通知轮次的 promptId、turnId、origin/trigger、finishReason 和完成边界；response 后区分 `normal` / `draining` / `desynchronized` / `unknown`，不保存或输出正文、工具参数与工具输出；`TurnDesynchronized` 为失配专用失败异常 |
 | `ide/llm/providers/dsh_acp.py` | `DshAcpLLM`：DeepSeek Harness（dsh）ACP 后端（长驻 `dsh acp` 子进程，以 local_acp.py 为底本同构，计划 2026-1018-0732；探测链 PATH → `$DSH_HOME/bin` → `~/.dsh/bin` → npx 缓存兜底；强度 configId 为 `reasoning_effort`；模型值为不透明 JSON 对串，静态表仅列现行 `deepseek-flash` / `deepseek-v4-pro`，旧别名 `deepseek-v4-flash` 不再作为新会话候选、持久化旧值不静默改写；terminals 与图片不支持（spike 实测，帧存档 dsh_spike_20261018_074413.json）；凭据归 dsh 自管 `~/.dsh/`，developer preview 状态经注册表 `dev_note` 如实告知；协议真值来源 `参考代码/deepseek-harness/packages/acp/acp/README.md`） |
-| `ide/llm/providers/reasonix_acp.py` | `ReasonixAcpLLM`：Reasonix ACP 后端（长驻 `reasonix acp`，与 KimiAcpLLM 同构；模型目录解析 `~/.reasonix/config.toml`；未 setup 经 session/new 错误映射引导「请先运行 reasonix setup」；轮次失败 `stopReason=error` 转可读报错；上下文用量走 transcript 快照文本估算，source="estimate"，2026-0731-1454） |
-| `ide/llm/providers/opencode_acp.py` | `OpenCodeAcpLLM`：OpenCode ACP 后端（同构；`opencode models` 纯文本枚举，Zen 官方 `opencode/` 前缀模型菜单层剔除） |
-| `ide/llm/providers/kilocode_acp.py` | `KiloCodeAcpLLM`：Kilo Code ACP 后端（同构；`kilo models` 纯文本枚举，网关聚合 `kilo/` 前缀模型菜单层剔除） |
-| `ide/llm/providers/dream_acp.py` | `DreamAcpLLM`：Dream ACP 后端（开发中接口层；与 ReasonixAcpLLM 逐行同构；模型收敛唯一别名 `dream-creator`、强度唯一档 `auto`，实际模型由 Dream CLI 服务端配置决定，IDE 零感知；协议真值来源 `dream-acp/protocol/dream-acp-v1.md`；开发中状态经注册表 `dev_note` 如实告知，文档/修改记录/2026-0814-0603 计划） |
-| `ide/llm/providers/local_acp.py` | `LocalAcpLLM`：本地模型 ACP 后端（厂商分组「本地模型」；以 dream_acp.py 为底本逐行同构；探测链 PATH → `$LOCAL_HOME/bin/local-cli` → `~/.local-cli/bin/local-cli`；模型枚举走 `local-cli models` 子进程动态扫描 GGUF 目录，无静态表；服务端为独立仓库 Local CLI（llama-server orchestrator，2026-10-05 自本仓库外迁），协议真值来源同 dream-acp-v1.md） |
+| `ide/llm/providers/local_acp.py` | `LocalAcpLLM`：本地模型 ACP 后端（厂商分组 Local；探测链 PATH → `$LOCAL_HOME/bin/local-cli` → `~/.local-cli/bin/local-cli`；模型枚举走 `local-cli models` 子进程动态扫描 GGUF 目录，无静态表；服务端为独立仓库 Local CLI（llama-server orchestrator），协议参考保留在 `dream-acp/protocol/dream-acp-v1.md`，该目录不再是 Dream 后台注册入口） |
 
 ## 3. 接口设计
 
@@ -59,11 +54,7 @@ class LanguageModel(Protocol):
 | `Chunk` | 流式块：`kind="text"` 为正文增量；`kind="reasoning"` 为过程信息（思维链或工具调用摘要），仅当次显示、不回传；`kind="turn_sync"` 为 Kimi 轮次同步提示，同样只上屏、不入历史 |
 | `KimiAcpLLM` | kimi 后台唯一接口（`"kimi-acp"`，出厂默认）：长驻 `kimi acp` 子进程经 ndjson JSON-RPC 对接（[ACP 协议](https://agentclientprotocol.com)，Zed/JetBrains 同款集成方式）；**token 级流式**（`agent_message_chunk`）、思维链可见（`agent_thought_chunk` → reasoning 通道）、`session/new` 原生会话、`session/set_config_option` 会话内切模型；工具审批经 `set_permission_handler()` 注入的回调路由（GUI 模态框），无回调时自动允许，回调返回 None/异常按拒绝兜底；轮次终态按 `stopReason` 分类：`cancelled` → `TurnCancelled` 停止通道，`max_tokens` / `max_turn_requests` / `refusal` → 失败通道（带原始值），缺失/未知 fail-open；断管或看门狗停滞后，下一次手动发送重建连接并以 `session/resume` 恢复原会话，绝不自动重放中断 prompt |
 | `DshAcpLLM` | provider（`"dsh-acp"`，后台 DSH，developer preview）：长驻 `dsh acp` 子进程，同构；模型/强度切换走 `session/set_config_option`（configId `model` / `reasoning_effort`，spike 实测），模型值为不透明 JSON 对串、静态表枚举；凭据类错误映射「配置 ~/.dsh/.credentials.yaml 或 DEEPSEEK_API_KEY」引导；轮次失败 `stopReason=error` 转可读报错 |
-| `ReasonixAcpLLM` | provider（`"reasonix-acp"`，后台 Reasonix）：长驻 `reasonix acp` 子进程，协议层与 `KimiAcpLLM` 同构（ACP v1）；模型目录经 `list_reasonix_models()` 解析 `~/.reasonix/config.toml`（`$REASONIX_HOME` 可覆盖）`[[providers]]` 段，别名为 `provider/model` 全名（DeepSeek 系）；未 setup（`session/new` 报 `not configured` 类错误）时映射为「请先运行 reasonix setup」友好提示；轮次失败 `stopReason=error` 转可读报错 |
-| `OpenCodeAcpLLM` | provider（`"opencode-acp"`，后台 OpenCode）：长驻 `opencode acp` 子进程，同构；模型目录经 `opencode models` 纯文本枚举，Zen 官方 `opencode/` 前缀模型在菜单层剔除 |
-| `KiloCodeAcpLLM` | provider（`"kilocode-acp"`，后台 Kilo Code）：长驻 `kilo acp` 子进程，同构；模型目录经 `kilo models` 纯文本枚举，网关聚合 `kilo/` 前缀模型在菜单层剔除 |
-| `DreamAcpLLM` | provider（`"dream-acp"`，后台 Dream，**开发中**）：长驻 `dream acp` 子进程，同构；纯接口层，模型/强度收敛为 `dream-creator`/`auto` 单值（服务端白名单硬校验，实际模型由 Dream CLI 服务端 `~/.dream/` 配置决定）；菜单标注「Dream ACP（开发中）」，切换/首发时经 `BackendSpec.dev_note` 在对话流输出如实告知（纯本地 UI，不进 ACP 帧） |
-| `LocalAcpLLM` | provider（`"local-acp"`，后台「本地模型」）：长驻 `local-cli acp` 子进程，同构；模型目录经 `local-cli models` 纯文本枚举（Local CLI 扫描配置 `model_dir` 下的 `*.gguf`）；思维链由 llama-server SSE 的 `reasoning_content` 字段经服务端映射进 thought 通道；模型加载/配置类错误映射「检查 ~/.local-cli/config.toml」引导 |
+| `LocalAcpLLM` | provider（`"local-acp"`，后台 Local）：长驻 `local-cli acp` 子进程，同构；模型目录经 `local-cli models` 纯文本枚举（Local CLI 扫描配置 `model_dir` 下的 `*.gguf`）；思维链由 llama-server SSE 的 `reasoning_content` 字段经服务端映射进 thought 通道；模型加载/配置类错误映射「检查 ~/.local-cli/config.toml」引导 |
 
 ### 3.1 上下文用量徽章：数据时机与各后端限制
 
@@ -76,11 +67,11 @@ class LanguageModel(Protocol):
 
 限制与红线：
 
-- **推送型后端轮次内不刷新**（kilocode/opencode/reasonix/dsh）：数据在 agent 进程内，IDE 无中间数据可挖；不插值、不估算、不按文本长度臆造百分比。
+- **推送型后端轮次内不刷新**（DSH / Local）：数据在 agent 进程内，IDE 无中间数据可挖；不插值、不估算、不按文本长度臆造百分比。
 - `poll_usage()` 实现约束：廉价（增量读与只读缓存，禁反复全量读 MB 级 wire.jsonl、禁 GUI 线程起目录子进程）、幂等、线程安全，失败静默 `None`，不得臆造数值。空闲回收必须非阻塞取得轮次锁，只提取 usage，其他帧维持原清理语义。
 - Kimi wire 优先以 `token_counting.measured.tokens` 为实测上下文水位；缺失时旧 `usage.record` 的 used 为 `inputOther + inputCacheRead + inputCacheCreation + output`。上下文窗口取模型目录 `maxContextSize`，`llm.request.maxTokens` 是输出预算，禁止用作窗口。只有带 `turnStep` 的请求参与轮次计数与速度配对，超时保留有效子集。
 - 会话目录仅缓存成功定位，失败按 2/5/15 秒有界退避；空模型目录不置 loaded，下一轮 worker 准备阶段重试。文件截断、会话/模型切换会重置对应游标，空轮询与无效帧不清除最后有效值。
-- ACP `used` 是 agent 对外报告的上下文占用，可含官方策略的估算尾部，与会员额度分开理解；reasonix 维持 transcript 文本估算（`source="estimate"`）。
+- ACP `used` 是 agent 对外报告的上下文占用，可含官方策略的估算尾部，与会员额度分开理解；未收到真实用量时不做文本长度估算。
 - 未发送时徽章空白；发送后无真值显示 `—` 并在 tooltip 说明等待/不可用，绝不伪造 `0%`。已有有效值不被空轮询清除，轮末官方 push 在空闲期保持最终优先级。
 
 ## 4. 使用方式
@@ -126,7 +117,7 @@ for chunk in llm.chat([{"role": "user", "content": "你好"}]):
 
 ## 6. 新增 provider
 
-1. 在 `ide/llm/providers/` 下新建 `<名称>.py`，实现 `LanguageModel` 协议（`chat()` 为流式 generator；历史策略由各实现自决，CLI 类推荐"末条 user 消息 + CLI 侧会话"）；ACP 系后端直接复用 `ide/llm/providers/acp.py` 的 `AcpConnection`（参照 `reasonix_acp.py` 与 `kimi_acp.py` 同构范式）
+1. 在 `ide/llm/providers/` 下新建 `<名称>.py`，实现 `LanguageModel` 协议（`chat()` 为流式 generator；历史策略由各实现自决，CLI 类推荐"末条 user 消息 + CLI 侧会话"）；ACP 系后端直接复用 `ide/llm/providers/acp.py` 的 `AcpConnection`（参照 `local_acp.py` 与 `kimi_acp.py` 同构范式）
 2. 在 `ide/llm/registry.py` 的 `REGISTRY` 注册 `BackendSpec`（`available`/`list_models`/`factory` 均惰性可调用，import 无副作用）——注册即全链路生效（ModelBar 三级下拉、设置中心、ChatPanel 懒实例化工厂），**无需改任何 GUI 代码**
 3. 模型范围按接口级隔离（D6 红线）：模型目录挂各 `BackendSpec.list_models()`，别名是各后台私有语义的不透明字符串，禁止跨后台共享模型表、禁止在公共代码解析别名
 4. 凭证管理：CLI 类凭证由 CLI 自管，代码库不出现密钥；API key 类凭证放项目根 `api_key/<名称>`（已 gitignore）
