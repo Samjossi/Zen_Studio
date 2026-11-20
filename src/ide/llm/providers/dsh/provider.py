@@ -43,7 +43,13 @@ from typing import Iterator
 
 from ide.core.paths import PROJECT_ROOT  # agent 工作目录限定于项目根
 from ide.core.version import APP_VERSION
-from ide.llm.base import Chunk, LanguageModel, Message, TurnConsumption
+from ide.llm.base import (
+    BackendCapabilities,
+    Chunk,
+    LanguageModel,
+    Message,
+    TurnConsumption,
+)
 from ide.llm.providers.acp import (
     AcpConnection,
     PermissionParams,
@@ -382,6 +388,19 @@ class DshAcpLLM(LanguageModel):
         if conn is not None and self._session_id:
             conn.cancel_turn(self._session_id)
             conn.abort_turn()
+
+    def capabilities(self) -> BackendCapabilities:
+        """当前能力快照：initialize 前图片能力未实测（None）、无恢复态。
+
+        图片真值只在 initialize 的 promptCapabilities.image 到达后确定；
+        快照按实例现状即时构造，GUI 轮末刷新即可看到跃迁。
+        """
+        return BackendCapabilities(
+            image_input=self.supports_images_override,
+            post_turn_usage_grace_s=0.0,
+            stall_watchdog=True,
+            recovery_pending=False,
+        )
 
     def _ensure_session(self) -> AcpConnection:
         if self._closed:  # 标签已销毁：拒绝新建连接

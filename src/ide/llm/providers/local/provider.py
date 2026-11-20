@@ -27,7 +27,7 @@ from typing import Iterator
 
 from ide.core.paths import PROJECT_ROOT  # agent 工作目录限定于项目根
 from ide.core.version import APP_VERSION
-from ide.llm.base import Chunk, LanguageModel, Message
+from ide.llm.base import BackendCapabilities, Chunk, LanguageModel, Message
 from ide.llm.providers.acp import (
     AcpConnection,
     PermissionParams,
@@ -230,6 +230,15 @@ class LocalAcpLLM(LanguageModel):
         if conn is not None and self._session_id:
             conn.cancel_turn(self._session_id)
             conn.abort_turn()
+
+    def capabilities(self) -> BackendCapabilities:
+        """当前能力快照：现行 GGUF 均为纯文本，图片不可用、无恢复态。"""
+        return BackendCapabilities(
+            image_input=False,
+            post_turn_usage_grace_s=0.0,
+            stall_watchdog=True,
+            recovery_pending=False,
+        )
 
     def _ensure_session(self) -> AcpConnection:
         if self._closed:  # 标签已销毁：拒绝新建连接

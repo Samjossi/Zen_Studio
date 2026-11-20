@@ -1,4 +1,5 @@
 """LLM 统一接口（仿 theia-zen LanguageModel Protocol）。"""
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Iterator, Literal, NotRequired, Protocol, TypedDict
 
@@ -90,6 +91,57 @@ class TurnConsumption:
 
 
 @dataclass(frozen=True)
+class BackendCapabilities:
+    """后端能力快照：通用 GUI 的唯一能力读取面。
+
+    快照只是**当前时刻**的只读状态，不承担事件通知，也不替代动作接口
+    （set_model/set_permission_handler 等归各 provider 自持）。provider
+    每次调用都按现状重建，不缓存跨轮次/跨会话结果——DSH 图片能力要等
+    initialize 实测、Kimi 恢复态随连接变化，缓存即显示滞后。
+
+    image_input 用三态而非 bool：None = 尚未实测，GUI 回退
+    `BackendSpec.supports_images` 静态位；True/False = 运行时实测真值。
+    """
+
+    #: 图片输入能力；None = 未实测（回退注册表静态位）
+    image_input: bool | None = None
+    #: 轮次收尾后继续接收迟到用量帧的宽限秒数（0 = 收尾即停轮询）
+    post_turn_usage_grace_s: float = 0.0
+    #: 本后台是否适用轮次停滞看门狗
+    stall_watchdog: bool = True
+    #: 当前是否处于待恢复态（GUI 据此决定是否取消自动待发等）
+    recovery_pending: bool = False
+
+
+#: 未覆写 capabilities() 的对象（含不继承 Protocol 的测试桩）统一回退值
+DEFAULT_CAPABILITIES = BackendCapabilities()
+
+
+def capabilities_of(model: object) -> BackendCapabilities:
+    """中立能力读取：`model.capabilities()`；未实现时返回默认快照。
+
+    通用 GUI 必须经本 helper 读取能力，不得 `getattr` provider 的私有
+    能力属性——测试桩、旧 provider 与未来实现都不保证继承 Protocol。
+    """
+    getter = getattr(model, "capabilities", None)
+    if callable(getter):
+        return getter()
+    return DEFAULT_CAPABILITIES
+
+
+def apply_vendor_settings_to(
+        model: object, settings: Mapping[str, object]) -> None:
+    """中立厂商设置注入：`model.apply_vendor_settings(settings)`；未实现即 no-op。
+
+    settings 已由调用方按 `BackendSpec.vendor_settings` 过滤，provider 只
+    解释本厂商声明过的键；通用层不出现任何厂商键名。
+    """
+    applier = getattr(model, "apply_vendor_settings", None)
+    if callable(applier):
+        applier(settings)
+
+
+@dataclass(frozen=True)
 class Chunk:
     """流式块：kind 区分正文、思维链、上下文用量通知与 AI 活动信息。
 
@@ -161,17 +213,18 @@ class LanguageModel(Protocol):
         """
         return None
 
-    def post_turn_usage_grace_s(self) -> float:
-        """轮次收尾后继续接收迟到用量帧的宽限秒数（可选能力，默认 0）。
+    def capabilities(self) -> BackendCapabilities:
+        """返回当前能力快照（可选能力，默认值见 BackendCapabilities）。
 
-        只有确实存在轮末迟到 push 的后台才需要覆盖；GUI 不按后台 ID 特判。
+        实现须按当前实例状态即时构造，不得缓存到跨轮次失效；GUI 只在
+        provider 创建后、initialize 完成后、轮次收尾后与切换后台后刷新。
         """
-        return 0.0
+        return DEFAULT_CAPABILITIES
 
-    def stall_watchdog_enabled(self) -> bool:
-        """轮次挂起看门狗是否适用于本后台（可选能力，默认启用）。
+    def apply_vendor_settings(self, settings: Mapping[str, object]) -> None:
+        """接收本后台声明的厂商设置（可选能力，默认 no-op）。
 
-        后台若由自有生命周期保证轮次必然收尾（如协议响应/断连即可收口），
-        可返回 False 明确退出看门狗。
+        settings 已由调用方按 `BackendSpec.vendor_settings` 过滤；provider
+        自行解释值的含义，未知键静默忽略。厂商设置不进入能力快照。
         """
-        return True
+        return None

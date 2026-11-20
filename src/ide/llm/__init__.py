@@ -9,12 +9,15 @@
 import 无副作用：CLI 探测与 provider 实例化不发生在模块级。
 """
 from ide.llm.base import (
+    BackendCapabilities,
     Chunk,
     LanguageModel,
     Message,
     TurnConsumption,
     TurnSpeed,
     UsageStats,
+    apply_vendor_settings_to,
+    capabilities_of,
 )
 from ide.llm.providers.acp import (
     PermissionHandler,
@@ -37,12 +40,15 @@ from ide.llm.registry import (
 
 __all__ = [
     # 稳定契约
+    "BackendCapabilities",
     "Chunk",
     "LanguageModel",
     "Message",
     "TurnSpeed",
     "TurnConsumption",
     "UsageStats",
+    "capabilities_of",
+    "apply_vendor_settings_to",
     # 注册表 API（组合根与查询；具体实现由 REGISTRY 工厂装配）
     "DEFAULT_BACKEND",
     "BACKEND_LABELS",

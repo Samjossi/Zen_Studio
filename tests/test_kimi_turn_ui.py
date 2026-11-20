@@ -1,6 +1,7 @@
 import pytest
 
 from ide.gui.panels.chat.panel import ChatPanel
+from ide.llm.base import BackendCapabilities
 
 
 class SignalStub:
@@ -32,10 +33,8 @@ class InputStub:
 
 
 class ProviderStub:
-    recovery_pending = False
-
-    def stall_watchdog_enabled(self):
-        return False
+    def capabilities(self):
+        return BackendCapabilities(stall_watchdog=False, recovery_pending=False)
 
 
 class PanelHarness:
@@ -77,14 +76,14 @@ class PanelHarness:
     def _start_usage_grace(self):
         pass
 
-    def _stall_watchdog_enabled(self, provider=None):
-        return False
-
     def _refresh_usage_label(self):
         pass
 
     def _apply_image_capability(self):
         pass
+
+    def _stall_watchdog_enabled(self, provider=None):
+        return ChatPanel._stall_watchdog_enabled(self, provider)
 
     def _set_busy(self, busy):
         self.busy = busy

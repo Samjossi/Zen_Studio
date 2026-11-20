@@ -89,6 +89,11 @@ class BackendSpec:
     #: 消息（panel 侧消费；纯本地 UI，不进 ACP 帧）。None = 成熟接口，
     #: 零行为变化
     dev_note: str | None = None
+    #: 本后台读取的厂商设置键（只声明键名，不解释值）：面板按此过滤
+    #: 公共设置后经 `apply_vendor_settings` 整体交给 provider。空 = 该后台
+    #: 无厂商设置。键名以本组合根持有的字面量为准，测试锁定其存在于
+    #: `DEFAULT_SETTINGS`，通用 GUI 不复制任何键名
+    vendor_settings: tuple[str, ...] = ()
     #: 封存标记：True = 接口保留注册与菜单入口但禁止使用——切换时经
     #: dev_note 告知封存口径，发送路径拦停（panel 侧消费）。封存不删
     #: provider 本体：解封即回本注册项撤标记重新编译
@@ -246,6 +251,9 @@ REGISTRY: dict[str, BackendSpec] = {
             # 服务端目录下发或 config.toml overrides 固定（K2.8 Preview
             # 元数据即走 overrides），纯 UI 呈现，别名仍恒为协议/持久化值
             list_display_names=lambda: display_names_from_catalog(_kimi_catalog()),
+            # 子代理 wire 旁路开关：键名归本组合根，值与默认值仍由
+            # `DEFAULT_SETTINGS` 持有（持久化名不可改；GUI 不复制该字面量）
+            vendor_settings=("kimi_wire_sidecar",),
         ),
         BackendSpec(
             name="dsh-acp",
@@ -261,7 +269,7 @@ REGISTRY: dict[str, BackendSpec] = {
             factory=DshAcpLLM,
             # 兜底初值 False（spike 实测 acp profile 默认未挂附件存储）；
             # 运行时真值以 initialize 的 promptCapabilities.image 实测为准
-            # （provider.supports_images_override，GUI 侧优先消费）
+            # （provider.capabilities().image_input，GUI 只消费能力快照）
             supports_images=False,
             # 接口级静态档位（ACP 2026-11-05 实测 reasoning_effort 值域
             # off/low/high/max、默认 high；configId 拼写归 provider 的

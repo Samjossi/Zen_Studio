@@ -15,13 +15,15 @@ import logging
 import queue
 import threading
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterator
+from typing import Iterator, cast
 
 from ide.core.paths import PROJECT_ROOT  # agent 工作目录限定于项目根
 from ide.core.version import APP_VERSION
 from ide.llm.base import (
+    BackendCapabilities,
     Chunk,
     LanguageModel,
     Message,
@@ -695,13 +697,28 @@ class KimiAcpLLM(LanguageModel):
         return bool(self._session_id) and (
             self._needs_recovery or self._conn is None or not self._conn.is_alive)
 
-    def post_turn_usage_grace_s(self) -> float:
-        """正常轮末给迟到用量 10s 宽限；连接待恢复时不再空转轮询。"""
-        return 0.0 if self.recovery_pending else _POST_TURN_USAGE_GRACE_S
+    def capabilities(self) -> BackendCapabilities:
+        """当前能力快照：图片可用、无看门狗；正常轮末 10s 宽限，待恢复态 0。
 
-    def stall_watchdog_enabled(self) -> bool:
-        """Kimi 的响应/断连收口保证轮次必然结束，退出通用挂起看门狗。"""
-        return False
+        每次按现状重建：恢复态随连接/会话变化，缓存会在 GUI 上显示滞后。
+        """
+        recovery_pending = self.recovery_pending
+        return BackendCapabilities(
+            image_input=True,
+            post_turn_usage_grace_s=(
+                0.0 if recovery_pending else _POST_TURN_USAGE_GRACE_S),
+            stall_watchdog=False,
+            recovery_pending=recovery_pending,
+        )
+
+    def apply_vendor_settings(self, settings: Mapping[str, object]) -> None:
+        """解释本后台声明的厂商设置；未声明键静默忽略。
+
+        子代理旁路开关沿用 set_subagent_sidecar 的既有语义（原值直传，
+        不做类型归一——持久化值的历史读取口径不变）。
+        """
+        if "kimi_wire_sidecar" in settings:
+            self.set_subagent_sidecar(cast(bool, settings["kimi_wire_sidecar"]))
 
     def cancel(self) -> None:
         """取消当前轮次：协议 `session/cancel` + 本地 abort_turn；无轮次时 no-op。

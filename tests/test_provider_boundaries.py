@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import ast
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -43,6 +44,22 @@ LEGACY_IMPORT_PREFIXES = (
     "ide.llm.providers.kimi_turn_consistency",
     "ide.llm.cards",
     "ide.llm.tool_cards",
+)
+
+#: 通用聊天 GUI 不得探的能力私有接口：统一走 capabilities_of() 快照
+CAPABILITY_PROBE_ATTRS = (
+    "supports_images_override",
+    "post_turn_usage_grace_s",
+    "stall_watchdog_enabled",
+    "recovery_pending",
+    "set_subagent_sidecar",
+)
+
+#: 三处公共厂商文案：审批框标题 / 图片降级提示 / 用量来源
+FORBIDDEN_GENERIC_CHAT_TEXTS = (
+    "Kimi ACP 请求执行工具",
+    "切换至 Kimi 后端",
+    "kimi 会话记录",
 )
 
 #: 厂商私有工具名/分派表/载荷字段/配置键/落盘路径：不得留在公共层
@@ -370,6 +387,30 @@ def _check_public_vocabulary(modules: tuple[ModuleInfo, ...]) -> list[str]:
     return problems
 
 
+def _check_generic_capability_contract(
+        modules: tuple[ModuleInfo, ...]) -> list[str]:
+    """通用聊天 GUI 只消费能力快照与厂商设置声明，不探私有接口与键名。"""
+    problems: list[str] = []
+    for m in modules:
+        if not _is_public_gui(m):
+            continue
+        for attr in CAPABILITY_PROBE_ATTRS:
+            pattern = rf"getattr\(\s*[^,\n]+,\s*['\"]{re.escape(attr)}['\"]"
+            if re.search(pattern, m.source):
+                problems.append(
+                    f"{m.rel_path}: 通用 GUI 不得用 getattr 探能力私有接口"
+                    f"（{attr}），应走 capabilities_of()")
+        if "KEY_KIMI_" in m.source or "kimi_wire_sidecar" in m.source:
+            problems.append(
+                f"{m.rel_path}: 通用 GUI 不得出现厂商设置键名"
+                "（应经 BackendSpec.vendor_settings 过滤注入）")
+        for text in FORBIDDEN_GENERIC_CHAT_TEXTS:
+            if text in m.source:
+                problems.append(
+                    f"{m.rel_path}: 通用 GUI 出现厂商专属文案（{text}）")
+    return problems
+
+
 def _all_violations(modules: tuple[ModuleInfo, ...]) -> list[str]:
     return (
         _check_vendor_isolation(modules)
@@ -378,6 +419,7 @@ def _all_violations(modules: tuple[ModuleInfo, ...]) -> list[str]:
         + _check_gui_vendor_imports(modules)
         + _check_legacy_paths(modules)
         + _check_public_vocabulary(modules)
+        + _check_generic_capability_contract(modules)
     )
 
 
@@ -579,3 +621,34 @@ def test_guard_does_not_scan_tests_or_script_fixtures():
     assert all(not m.rel_path.startswith(("tests/", "scripts/"))
                for m in modules)
     assert all("参考代码" not in m.rel_path for m in modules)
+
+
+def test_guard_rejects_generic_capability_probe():
+    module = _synthetic(
+        f"{GUI_CHAT_ROOT}/panel.py",
+        "grace = getattr(provider, 'post_turn_usage_grace_s', None)\n")
+    problems = _check_generic_capability_contract((module,))
+    assert any("能力私有接口" in problem for problem in problems), problems
+
+
+def test_guard_rejects_generic_vendor_setting_key():
+    module = _synthetic(
+        f"{GUI_CHAT_ROOT}/panel.py",
+        "value = load_settings()['kimi_wire_sidecar']\n")
+    problems = _check_generic_capability_contract((module,))
+    assert any("厂商设置键名" in problem for problem in problems), problems
+
+
+def test_guard_rejects_generic_vendor_copy():
+    module = _synthetic(
+        f"{GUI_CHAT_ROOT}/permission_dialog.py",
+        "header = 'Kimi ACP 请求执行工具'\n")
+    problems = _check_generic_capability_contract((module,))
+    assert any("厂商专属文案" in problem for problem in problems), problems
+
+
+def test_guard_allows_capability_snapshot_field_read():
+    module = _synthetic(
+        f"{GUI_CHAT_ROOT}/panel.py",
+        "pending = capabilities_of(provider).recovery_pending\n")
+    assert _check_generic_capability_contract((module,)) == []

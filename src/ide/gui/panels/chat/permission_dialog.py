@@ -64,7 +64,7 @@ class PermissionDialog(QDialog):
         title = tool_call.get("title") or "未知工具"
         kind = tool_call.get("kind") or "other"
 
-        header = QLabel(f"Kimi ACP 请求执行工具：<b>{title}</b>（{kind}）", self)
+        header = QLabel(f"工具审批请求：<b>{title}</b>（{kind}）", self)
         header.setWordWrap(True)
 
         warning: QLabel | None = None

@@ -94,7 +94,6 @@ from ide.gui.panels.chat.worker import ChatWorker
 from ide.gui.settings import (
     CHAT_RENDERER_CARDS,
     KEY_CHAT_RENDERER,
-    KEY_KIMI_WIRE_SIDECAR,
     KEY_PERMISSION_MODE,
     KEY_THEME,
     KEY_TURN_STALL_TIMEOUT_MIN,
@@ -111,6 +110,8 @@ from ide.llm import (
     TurnConsumption,
     TurnSpeed,
     UsageStats,
+    apply_vendor_settings_to,
+    capabilities_of,
     resolve_efforts,
     spec_of,
     vendor_of,
@@ -124,7 +125,7 @@ from ide.llm.permission_policy import (
 
 _USAGE_SOURCE_NOTE = {
     "push": "数据来源：agent 实时推送",
-    "transcript": "数据来源：kimi 会话记录（agent 落盘的接口真值）",
+    "transcript": "数据来源：agent 会话记录",
     "estimate": "数据来源：IDE 估算（会话文本 ÷4，非精确计量，仅量级参考）",
 }
 
@@ -444,11 +445,17 @@ class ChatPanel(QWidget):
         if self._effort_explicit \
                 and (set_effort := getattr(provider, "set_effort", None)) is not None:
             set_effort(self._effort_explicit)
-        # 子代理 wire 旁路开关：鸭子类型注入，无 set_subagent_sidecar
-        # 的 provider 静默跳过（设置键为历史持久化值，跨后台共用读取口）
-        if (set_sidecar := getattr(provider, "set_subagent_sidecar", None)) is not None:
-            set_sidecar(load_settings()[KEY_KIMI_WIRE_SIDECAR])
+        # 厂商设置：按本接口 spec 声明过滤公共设置后整体交给 provider；
+        # 无声明（DSH/Local）不调用，保持零行为变化。通用面板不出现键名
+        if spec.vendor_settings:
+            settings = load_settings()
+            apply_vendor_settings_to(provider, {
+                key: settings[key] for key in spec.vendor_settings
+                if key in settings
+            })
         self._providers[name] = provider
+        # provider 创建后即刷新能力位（initialize 前的快照可能仍是未实测态）
+        self._apply_image_capability()
         return provider
 
     def set_terminal_bridge(self, bridge: object | None) -> None:
@@ -833,12 +840,12 @@ class ChatPanel(QWidget):
     # 图片附件（能力位注入 / 附件行变化）
     # ------------------------------------------------------------------
     def _supports_images(self) -> bool:
-        """当前后端图片附件能力：provider 运行时实测覆盖位优先
-        （dsh initialize 的 promptCapabilities.image），无覆盖位回退
-        注册表 BackendSpec.supports_images 静态值。"""
+        """当前后端图片附件能力：能力快照的实测位优先（dsh initialize 的
+        promptCapabilities.image），None = 未实测时回退注册表静态值。"""
         provider = self._providers.get(self._llm_name)
-        if getattr(provider, "supports_images_override", None) is not None:
-            return bool(provider.supports_images_override)
+        image_input = capabilities_of(provider).image_input
+        if image_input is not None:
+            return bool(image_input)
         spec = spec_of(self._llm_name)
         return bool(spec and spec.supports_images)
 
@@ -878,7 +885,7 @@ class ChatPanel(QWidget):
         self.output.append_message(
             "系统",
             f"当前后端（{label}）不支持图片附件，已按 @路径 引用发送；"
-            f"切换至 Kimi 后端可使用图片缩略图附件")
+            f"切换到支持图片的后端可使用缩略图附件")
 
     def _on_attachments_changed(self) -> None:
         """附件行变化 → 空文本发送开关与发送键使能。"""
@@ -1168,14 +1175,10 @@ class ChatPanel(QWidget):
         self.input.setPlaceholderText(text)
 
     def _start_usage_grace(self) -> None:
-        """轮后用量宽限：provider 可选能力，0 表示收尾即停轮询。"""
+        """轮后用量宽限：由能力快照给出，0 表示收尾即停轮询。"""
         self._usage_grace_deadline = None
         provider = self._providers.get(self._llm_name)
-        grace_s = 0.0
-        if provider is not None:
-            grace = getattr(provider, "post_turn_usage_grace_s", None)
-            if callable(grace):
-                grace_s = grace()
+        grace_s = capabilities_of(provider).post_turn_usage_grace_s
         if grace_s <= 0:
             self._usage_timer.stop()
             return
@@ -1199,12 +1202,9 @@ class ChatPanel(QWidget):
             self._usage_grace_deadline = None
 
     def _stall_watchdog_enabled(self, provider=None) -> bool:
-        """看门狗是否适用于当前 provider（可选能力，缺省启用）。"""
+        """看门狗是否适用于当前 provider（能力快照，缺省启用）。"""
         provider = provider or self._providers.get(self._llm_name)
-        if provider is None:
-            return True
-        enabled = getattr(provider, "stall_watchdog_enabled", None)
-        return bool(enabled()) if callable(enabled) else True
+        return capabilities_of(provider).stall_watchdog
 
     def _stall_watchdog_tick(self) -> None:
         """轮次挂起看门狗 tick：距末条消息帧超阈值 → 自动中断 + 明确提示。
@@ -1344,7 +1344,8 @@ class ChatPanel(QWidget):
                 self.input.setPlainText(self._sent_text)
             self._restore_sent_attachments()  # 附件恢复回附件行
             provider = self._providers.get(self._llm_name)
-            if (not recovery_failed and getattr(provider, "recovery_pending", False)):
+            if (not recovery_failed
+                    and capabilities_of(provider).recovery_pending):
                 self.output.append_message(
                     "系统", "ACP 连接已失效；原请求不会自动重发。下一次手动发送将尝试"
                             "恢复原会话，请先核对已发生的工具副作用")
