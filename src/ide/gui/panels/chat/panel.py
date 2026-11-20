@@ -144,9 +144,6 @@ def _format_duration(seconds: float) -> str:
 #: 实时输出速度滚动窗口（秒）：tooltip「实时输出速度」行的取均跨度
 _LIVE_SPEED_WINDOW_S = 10.0
 
-#: 窗口首末样本最小跨度（秒）：低于此速率抖动无意义，该行暂不显示
-_LIVE_SPEED_MIN_SPAN_S = 2.0
-
 
 def _windowed_speed(
     samples: deque[tuple[float, int]],
@@ -156,18 +153,32 @@ def _windowed_speed(
     """近 window 秒滚动窗口的输出速度（tok/s，流式字符 ÷4 估算）。
 
     samples 为 (time.monotonic(), 累计字符数) 采样点队列；剪窗后不足
-    2 点或首末跨度不足 _LIVE_SPEED_MIN_SPAN_S → None（轮初样本太少，
-    速率抖动无意义，调用方不显示该行）。分母为墙钟跨度、含工具/审批
-    间隙——「当前吞吐」口径，与 TurnSpeed 的纯生成时间口径刻意区分。
+    2 点或首末跨度 ≤ 0 → None，由调用方回退本轮均值。分母为墙钟跨度、
+    含工具/审批间隙——「当前吞吐」口径，与 TurnSpeed 的纯生成时间口径
+    刻意区分。
     """
     cutoff = now - window
     pts = [p for p in samples if p[0] >= cutoff]
     if len(pts) < 2:
         return None
     span = pts[-1][0] - pts[0][0]
-    if span < _LIVE_SPEED_MIN_SPAN_S:
+    if span <= 0:
         return None
     return (pts[-1][1] - pts[0][1]) / 4.0 / span
+
+
+def _live_or_average_speed(
+    samples: deque[tuple[float, int]],
+    cumulative_chars: int,
+    turn_elapsed: float,
+    now: float,
+) -> tuple[float, str]:
+    """窗口速度优先；窗口不可用时以本轮全程墙钟均值保证行常驻。"""
+    windowed = _windowed_speed(samples, now)
+    if windowed is not None:
+        return windowed, "近 10 秒均值"
+    average = cumulative_chars / 4.0 / turn_elapsed if turn_elapsed > 0 else 0.0
+    return average, "本轮均值"
 
 
 def _compose_usage_tooltip(
@@ -175,7 +186,7 @@ def _compose_usage_tooltip(
     session_start: datetime | None,
     last_turn: dict | None,
     turn_started_at: datetime | None,
-    live_speed: float | None,
+    live_speed: tuple[float, str] | None,
     speed: "TurnSpeed | None",
     now: datetime,
 ) -> str:
@@ -208,8 +219,9 @@ def _compose_usage_tooltip(
             "本轮进行中：已用 "
             f"{_format_duration((now - turn_started_at).total_seconds())}")
     if live_speed is not None:
+        live_rate, live_note = live_speed
         lines.append(
-            f"实时输出速度：~{live_speed:.1f} tok/s（近 10 秒均值，字符估算）")
+            f"实时输出速度：~{live_rate:.1f} tok/s（{live_note}，字符估算）")
     if last_turn is not None:
         elapsed = _format_duration(
             (last_turn["ended"] - last_turn["started"]).total_seconds())
@@ -343,7 +355,7 @@ class ChatPanel(QWidget):
         self._turn_consumption: TurnConsumption | None = None
         #: 实时输出速度采样（内存态与 _usage 同寿命，轮收尾/切后端清空）：
         #: (time.monotonic(), 累计流式字符数) 采样点滚动队列 + 累计计数；
-        #: text/reasoning chunk 到达即采样，速率由 _windowed_speed 剪窗计算
+        #: text/reasoning chunk 到达即采样，速率按窗口优先、本轮均值兜底计算
         self._speed_samples: deque[tuple[float, int]] = deque()
         self._speed_cum_chars: int = 0
         #: 轮内 2 秒轮询；Kimi 轮后另有短宽限接收迟到 push，其他后端收尾即停
@@ -947,11 +959,14 @@ class ChatPanel(QWidget):
         """tooltip 按当前时刻重组：用量段 + 计时段（会话开始/本轮进行中/
         实时输出速度/上轮任务/上轮输出速度），各段有数据才出现，全空即
         空串——首轮发送后轮次计时即可见，不必等用量帧。"""
-        live = (_windowed_speed(self._speed_samples, time.monotonic())
+        now = datetime.now()
+        live = (_live_or_average_speed(
+                    self._speed_samples, self._speed_cum_chars,
+                    (now - self._turn_started_at).total_seconds(), time.monotonic())
                 if self._turn_started_at is not None else None)
         self._usage_label.setToolTip(_compose_usage_tooltip(
             self._usage, self._session_started_at, self._last_turn,
-            self._turn_started_at, live, self._turn_speed, datetime.now()))
+            self._turn_started_at, live, self._turn_speed, now))
 
     def eventFilter(self, watched, event) -> bool:
         """徽章悬停（ToolTip 事件）按当前时刻重算 tooltip——setToolTip

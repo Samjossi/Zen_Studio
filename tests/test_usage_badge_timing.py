@@ -153,11 +153,26 @@ def test_compose_tooltip_speed_zero_duration_no_line():
 
 def test_compose_tooltip_live_speed_line():
     turn_start = datetime(2026, 10, 22, 15, 29, 15)
-    text = _compose_usage_tooltip(None, None, None, turn_start, 14.24, None, NOW)
+    text = _compose_usage_tooltip(
+        None, None, None, turn_start, (14.24, "近 10 秒均值"), None, NOW)
     lines = text.split("\n")
     assert lines[0] == "上下文用量：等待首轮模型计量"
     assert lines[1] == "本轮进行中：已用 45 秒"
     assert lines[2] == "实时输出速度：~14.2 tok/s（近 10 秒均值，字符估算）"
+
+
+def test_compose_tooltip_live_speed_turn_average_line():
+    turn_start = datetime(2026, 10, 22, 15, 29, 15)
+    text = _compose_usage_tooltip(
+        None, None, None, turn_start, (6.34, "本轮均值"), None, NOW)
+    assert "实时输出速度：~6.3 tok/s（本轮均值，字符估算）" in text
+
+
+def test_compose_tooltip_live_speed_zero_output_line():
+    turn_start = datetime(2026, 10, 22, 15, 29, 15)
+    text = _compose_usage_tooltip(
+        None, None, None, turn_start, (0.0, "本轮均值"), None, NOW)
+    assert "实时输出速度：~0.0 tok/s（本轮均值，字符估算）" in text
 
 
 def test_compose_tooltip_live_speed_before_last_turn():
@@ -168,7 +183,8 @@ def test_compose_tooltip_live_speed_before_last_turn():
         "outcome": "完成",
     }
     speed = TurnSpeed(output_tokens=500, gen_seconds=25.0)
-    text = _compose_usage_tooltip(None, None, last, turn_start, 8.0, speed, NOW)
+    text = _compose_usage_tooltip(
+        None, None, last, turn_start, (8.0, "本轮均值"), speed, NOW)
     lines = text.split("\n")
     assert lines[0] == "上下文用量：等待首轮模型计量"
     assert lines[1].startswith("本轮进行中：")
@@ -290,12 +306,15 @@ def test_panel_badge_empty_state_persistence_and_grace_expiry(kimi_panel):
     assert panel._usage_timer.isActive()
     assert panel._usage_label.text() == "—"
     assert "等待首轮模型计量" in panel._usage_label.toolTip()
+    assert "实时输出速度：~0.0 tok/s（本轮均值，字符估算）" \
+        in panel._usage_label.toolTip()
 
     panel._on_finished("")
     assert not panel._busy
     assert panel._usage_timer.isActive()
     assert panel._usage_grace_deadline is not None
     assert "暂不可用" in panel._usage_label.toolTip()
+    assert "实时输出速度" not in panel._usage_label.toolTip()
 
     panel._send_turn("next", [], provider)
     assert panel._usage_grace_deadline is None
