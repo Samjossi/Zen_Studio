@@ -27,7 +27,7 @@
 | `ide/llm/providers/__init__.py` | provider 子包标记（每家厂商一个文件） |
 | `ide/llm/providers/acp.py` | 泛化 ACP 连接层 `AcpConnection`（ndjson JSON-RPC 帧收发/id 配对/反向请求分发/统一幂等失效；agent 名参数化；连接代次、请求 ID、预期/意外关闭与有界脱敏 stderr 尾部诊断）+ 审批协议定型类型（`PermissionParams`/`PermissionHandler`）+ terminal/* 反向能力（2026-0817-1554 计划：`TerminalHandler` 契约 + `set_terminal_handler` 鸭子类型注入 + `build_client_capabilities` 声明收口；create/output/kill/release 同步应答、wait_for_exit 异步应答不占 reader 线程、无 handler 维持 -32601 兜底；GUI 桥实现见 `ide/gui/panels/terminal/agent_bridge.py`）+ session/update 公共映射 `map_session_update`（2026-0731-1602 计划 T2：四 provider 私有 `_map_update` 上收，message/thought/usage 原三分支 + tool_call 结构化/tool_call_update/plan 新三分支；2026-0808-0627 计划 T1：todowrite→todo 首帧特判撤销，rawInput.todos 提取为 `todos` 载荷 + 跨调用 diff changed 标记，kind="todo" 仅余 plan 通道；2026-0813-1919 计划 T1：层级 toolCallId `父/子` 拆出 `parent_tool_call_id` 父指针——reasonix 子代理内部活动帧嵌套显示锚点，无层级 ID 后端零影响）与 `map_usage_update` |
 | `ide/llm/providers/kimi_common.py` | kimi 二进制公共探测与模型目录：`kimi provider list --json` 同源派生模型别名、强度档位、显示名及 `maxContextSize` 上下文窗口（`context_sizes_from_catalog`），目录失败不臆造静态上限 |
-| `ide/llm/providers/kimi_acp.py` | `KimiAcpLLM`：Kimi ACP 后端（长驻 `kimi acp` 子进程，复用 `AcpConnection`；token 级流式、思维链可见、审批反向请求路由；轮末 ACP `usage_update` 为主，response 后在同一 ≤3s 窗口继续收集，source="push"；wire 用于轮内尾部轮询与 ACP 缺失兜底，source="transcript"，used 为 inputOther+inputCacheRead+inputCacheCreation+output，窗口读模型目录而非 llm.request.maxTokens；仅带 turnStep 的请求参与计数与速度配对，超时保留有效子集；轮次输出速度随收尾 usage chunk 携带；子代理 wire 旁路 `_WireSidecar` 格式假设见 `维护手册/后端CLI工具维护说明手册.md`） |
+| `ide/llm/providers/kimi_acp.py` | `KimiAcpLLM`：Kimi ACP 后端（长驻 `kimi acp` 子进程，复用 `AcpConnection`；token 级流式、思维链可见、审批反向请求路由；轮末 ACP `usage_update` 为主，response 后在同一 ≤3s 窗口继续收集，并由轮后短宽限/下轮开始前回收迟到帧，source="push"；wire 用于轮内增量轮询与 ACP 缺失兜底，source="transcript"，优先 token_counting.measured 水位、旧 usage.record 四项求和兜底，窗口读模型目录而非 llm.request.maxTokens；仅带 turnStep 的请求参与计数与速度配对，超时保留有效子集；轮次输出速度随收尾 usage chunk 携带；子代理 wire 旁路 `_WireSidecar` 格式假设见 `维护手册/后端CLI工具维护说明手册.md`） |
 | `ide/llm/providers/dsh_acp.py` | `DshAcpLLM`：DeepSeek Harness（dsh）ACP 后端（长驻 `dsh acp` 子进程，以 local_acp.py 为底本同构，计划 2026-1018-0732；探测链 PATH → `$DSH_HOME/bin` → `~/.dsh/bin` → npx 缓存兜底；强度 configId 为 `reasoning_effort`；模型值为不透明 JSON 对串，静态表仅列现行 `deepseek-flash` / `deepseek-v4-pro`，旧别名 `deepseek-v4-flash` 不再作为新会话候选、持久化旧值不静默改写；terminals 与图片不支持（spike 实测，帧存档 dsh_spike_20261018_074413.json）；凭据归 dsh 自管 `~/.dsh/`，developer preview 状态经注册表 `dev_note` 如实告知；协议真值来源 `参考代码/deepseek-harness/packages/acp/acp/README.md`） |
 | `ide/llm/providers/reasonix_acp.py` | `ReasonixAcpLLM`：Reasonix ACP 后端（长驻 `reasonix acp`，与 KimiAcpLLM 同构；模型目录解析 `~/.reasonix/config.toml`；未 setup 经 session/new 错误映射引导「请先运行 reasonix setup」；轮次失败 `stopReason=error` 转可读报错；上下文用量走 transcript 快照文本估算，source="estimate"，2026-0731-1454） |
 | `ide/llm/providers/opencode_acp.py` | `OpenCodeAcpLLM`：OpenCode ACP 后端（同构；`opencode models` 纯文本枚举，Zen 官方 `opencode/` 前缀模型菜单层剔除） |
@@ -70,15 +70,17 @@ class LanguageModel(Protocol):
 
 | 通道 | 机制 | 覆盖后端 |
 |:---|:---|:---|
-| 轮末推送/收尾读盘 | agent 推 `usage_update`；kimi 在 response 后异步发送，provider 于同一 ≤3s 窗口继续消费并优先采用（`source="push"`），ACP 缺失才回退 wire（`source="transcript"`） | 全部 |
-| 轮次内轮询 | GUI 侧 QTimer（2s）调 `provider.poll_usage()`；kimi 实现为 wire.jsonl 尾部读法，其余后端默认 `None` 空转 | **仅 kimi-acp** |
+| 轮末推送/收尾读盘 | agent 推 `usage_update`；kimi 在 response 后异步发送，provider 于同一 ≤3s 窗口继续消费并优先采用（`source="push"`），ACP 缺失才回退 wire（`source="transcript"`）；Kimi 另有最长 10 秒非 busy 宽限，并在下轮 purge 前回收迟到 usage | 全部 |
+| 轮次内轮询 | GUI 侧 QTimer（2s）调 `provider.poll_usage()`；kimi 首次以 64KB 尾部建立 wire.jsonl 游标，之后仅读新增字节并保留最后有效采样，其余后端默认 `None` 空转 | **仅 kimi-acp** |
 
 限制与红线：
 
 - **推送型后端轮次内不刷新**（kilocode/opencode/reasonix/dsh）：数据在 agent 进程内，IDE 无中间数据可挖；不插值、不估算、不按文本长度臆造百分比。
-- `poll_usage()` 实现约束：廉价（只读文件尾部与只读缓存，禁全量读 MB 级 wire.jsonl、禁 GUI 线程起目录子进程）、幂等、线程安全，失败静默 `None`，不得臆造数值。
-- Kimi wire 的 used 为 `inputOther + inputCacheRead + inputCacheCreation + output`；上下文窗口取模型目录 `maxContextSize`，`llm.request.maxTokens` 是输出预算，禁止用作窗口。只有带 `turnStep` 的请求参与轮次计数与速度配对，超时保留有效子集。
+- `poll_usage()` 实现约束：廉价（增量读与只读缓存，禁反复全量读 MB 级 wire.jsonl、禁 GUI 线程起目录子进程）、幂等、线程安全，失败静默 `None`，不得臆造数值。空闲回收必须非阻塞取得轮次锁，只提取 usage，其他帧维持原清理语义。
+- Kimi wire 优先以 `token_counting.measured.tokens` 为实测上下文水位；缺失时旧 `usage.record` 的 used 为 `inputOther + inputCacheRead + inputCacheCreation + output`。上下文窗口取模型目录 `maxContextSize`，`llm.request.maxTokens` 是输出预算，禁止用作窗口。只有带 `turnStep` 的请求参与轮次计数与速度配对，超时保留有效子集。
+- 会话目录仅缓存成功定位，失败按 2/5/15 秒有界退避；空模型目录不置 loaded，下一轮 worker 准备阶段重试。文件截断、会话/模型切换会重置对应游标，空轮询与无效帧不清除最后有效值。
 - ACP `used` 是 agent 对外报告的上下文占用，可含官方策略的估算尾部，与会员额度分开理解；reasonix 维持 transcript 文本估算（`source="estimate"`）。
+- 未发送时徽章空白；发送后无真值显示 `—` 并在 tooltip 说明等待/不可用，绝不伪造 `0%`。已有有效值不被空轮询清除，轮末官方 push 在空闲期保持最终优先级。
 
 ## 4. 使用方式
 

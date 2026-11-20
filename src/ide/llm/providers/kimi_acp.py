@@ -13,10 +13,11 @@ kimi 专有装配（initialize 载荷、-32000 authRequired 文案映射），�
 
 上下文用量以轮末 ACP `usage_update` 为主（source="push"）：该通知在
 prompt response 后异步到达，故收尾在同一 ≤3s 窗口内继续消费 ACP 与
-wire，避免把两路等待串行叠加。wire 负责轮内尾部轮询及 ACP 缺失兜底
-（source="transcript"）；上下文窗口读模型目录 maxContextSize，不使用
-llm.request.maxTokens（该字段是输出预算）。wire used 为
-inputOther+inputCacheRead+inputCacheCreation+output 四项总和；只有带
+wire，之后由 GUI 的短宽限和下一轮开始前回收迟到 usage。wire 负责轮内
+增量轮询及 ACP 缺失兜底（source="transcript"）：优先采用
+`token_counting.measured.tokens` 实测水位，旧版以 usage.record 四项求和；
+上下文窗口读模型目录 maxContextSize，不使用 llm.request.maxTokens（输出预算）。
+会话目录仅缓存成功结果，空模型目录在下轮 worker 准备时重试。只有带
 turnStep 的请求参与轮次计数与速度配对，超时保留已落盘的有效子集。
 
 轮次输出速度随收尾 usage chunk 携带 TurnSpeed：基线后逐次配对
@@ -48,6 +49,7 @@ import logging
 import queue
 import threading
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterator
 
@@ -70,6 +72,7 @@ from ide.llm.providers.acp import (
     PermissionParams as PermissionParams,
     TerminalHandler,
     ToolCallInfo as ToolCallInfo,
+    TurnAborted,
     TurnCancelled,
     build_client_capabilities,
     build_prompt_blocks,
@@ -88,10 +91,9 @@ logger = logging.getLogger(__name__)
 _WIRE_USAGE_WAIT_S = 3.0
 _WIRE_USAGE_POLL_S = 0.2
 
-#: 轮次内轮询（0117 计划 T2）只读文件尾部的字节窗口：wire.jsonl 随会话增长
-#: 可达 MB 级，每 2s 全量 read_text 不可接受；64KB 足够覆盖末多条
-#: llm.request / usage.record（单行实测数百字节至数千字节）
+#: 首次轮询只以 64KB 尾部建立游标，之后仅读新增字节，避免全量扫描 MB 级文件
 _WIRE_TAIL_BYTES = 64 * 1024
+_SESSION_DIR_RETRY_DELAYS_S = (2.0, 5.0, 15.0)
 
 #: ACP terminal/* 反向能力支持矩阵（2026-0817-1522 五 agent 实测报告）：
 #: kimi/reasonix 支持；本 agent 不支持时保持 terminal: false（行为与现状等价）
@@ -263,51 +265,76 @@ def _read_wire_turn_speed(
     return _read_wire_turn_metrics(session_dir, usage_baseline)[0]
 
 
-def _read_wire_usage_tail(
-    session_dir: Path,
+@dataclass
+class _WireUsageState:
+    path: Path
+    offset: int = 0
+    buffer: bytes = b""
+    model_alias: str | None = None
+    last_stats: UsageStats | None = None
+    measured_seen: bool = False
+
+
+def _read_wire_usage_incremental(
+    state: _WireUsageState,
     context_sizes: dict[str, int] | None = None,
     model_alias: str | None = None,
 ) -> UsageStats | None:
-    """轮次内只读 wire 尾部，取末条有效 turn 用量与对应目录窗口。
-
-    seek 回溯 `_WIRE_TAIL_BYTES`，避免 GUI 每 2 秒全量读取 MB 级文件；
-    文件缺失、半行、字段残缺或目录窗口未知均返回 None。
-    """
-    wire = session_dir / "agents" / "main" / "wire.jsonl"
+    """按游标读取新增 wire 记录，并保留最后一次有效上下文水位。"""
+    wire = state.path / "agents" / "main" / "wire.jsonl"
     try:
+        file_size = wire.stat().st_size
+        if file_size < state.offset:
+            state.offset = 0
+            state.buffer = b""
+            state.model_alias = None
+            state.last_stats = None
+            state.measured_seen = False
+        if file_size == state.offset:
+            return state.last_stats
         with wire.open("rb") as f:
-            f.seek(0, 2)
-            size = f.tell()
-            f.seek(max(0, size - _WIRE_TAIL_BYTES))
-            tail = f.read()
+            tail_start = state.offset == 0 and file_size > _WIRE_TAIL_BYTES
+            f.seek(file_size - _WIRE_TAIL_BYTES if tail_start else state.offset)
+            data = f.read()
+            state.offset = f.tell()
     except OSError:
-        logger.exception("wire.jsonl 尾部窗口读取失败")
-        return None
-    lines = tail.split(b"\n")
-    if size > _WIRE_TAIL_BYTES and lines:
-        lines = lines[1:]
+        return state.last_stats
+    if tail_start:
+        _partial, separator, data = data.partition(b"\n")
+        if not separator:
+            return state.last_stats
+    state.buffer += data
+    lines = state.buffer.split(b"\n")
+    state.buffer = lines.pop()
     sizes = context_sizes or {}
-    usage_record: dict | None = None
-    request: dict | None = None
-    for raw in reversed(lines):
+    for raw in lines:
         if not raw.strip():
             continue
         try:
             record = json.loads(raw)
         except json.JSONDecodeError:
             continue
-        if (usage_record is None and record.get("type") == "usage.record"
+        if _is_turn_request(record):
+            alias = record.get("modelAlias")
+            if isinstance(alias, str) and alias:
+                state.model_alias = alias
+            continue
+        size = _context_size({}, sizes, state.model_alias or model_alias)
+        if size is None:
+            continue
+        if record.get("type") == "token_counting.measured":
+            tokens = record.get("tokens")
+            if type(tokens) is int and tokens >= 0:
+                state.last_stats = UsageStats(
+                    used=tokens, size=size, cost=None, source="transcript")
+                state.measured_seen = True
+        elif (record.get("type") == "usage.record"
                 and record.get("usageScope") == "turn"
-                and _usage_values(record.get("usage")) is not None):
-            usage_record = record
-        elif request is None and _is_turn_request(record):
-            request = record
-        if usage_record is not None and request is not None:
-            break
-    if usage_record is None or request is None:
-        return None
-    size = _context_size(request, sizes, model_alias)
-    return _usage_stats(usage_record, size)
+                and not state.measured_seen):
+            stats = _usage_stats(record, size)
+            if stats is not None:
+                state.last_stats = stats
+    return state.last_stats
 
 
 # ----------------------------------------------------------------------
@@ -578,23 +605,43 @@ class KimiAcpLLM(LanguageModel):
         #: set_subagent_sidecar 注入；False 回退纯 ACP 行为——子代理
         #: 仅起止 + 成果摘要）
         self._sidecar_enabled = True
-        #: poll_usage 的会话目录缓存（0117 计划 T2）：session_index.jsonl 随会话
-        #: 增长，每 2s 轮询重读全索引不可接受；按 session_id 缓存反查结果，
-        #: 会话切换（reset/重建）时随 _session_id 变化失效重查
+        #: 只缓存成功的会话目录定位；失败按短退避重试，避免索引未就绪永久失联
         self._poll_dir_sid: str | None = None
         self._poll_dir: Path | None = None
+        self._poll_dir_failures = 0
+        self._poll_dir_retry_at = 0.0
+        self._wire_usage_states: dict[str, _WireUsageState] = {}
+        self._usage_poll_lock = threading.Lock()
         self._context_sizes: dict[str, int] = {}
         self._context_sizes_loaded = False
+        self._context_catalog_attempts = 0
+        self._idle_push_stats: UsageStats | None = None
         self._usage_warning_active = False
         atexit.register(self.close)
 
     def _ensure_context_sizes(self) -> None:
         if self._context_sizes_loaded:
             return
-        self._context_sizes = context_sizes_from_catalog(load_kimi_provider_catalog())
-        self._context_sizes_loaded = True
-        if not self._context_sizes:
-            logger.warning("kimi 模型上下文目录为空，wire 用量兜底不可用")
+        self._context_catalog_attempts += 1
+        sizes = context_sizes_from_catalog(load_kimi_provider_catalog())
+        self._context_sizes = sizes
+        self._context_sizes_loaded = bool(sizes)
+        if not sizes:
+            logger.warning(
+                "kimi 模型上下文目录为空，下轮重试 attempt=%s",
+                self._context_catalog_attempts)
+        elif self._context_catalog_attempts > 1:
+            logger.info(
+                "kimi 模型上下文目录恢复 attempt=%s", self._context_catalog_attempts)
+
+    def _reset_usage_poll_state(self) -> None:
+        with self._usage_poll_lock:
+            self._poll_dir_sid = None
+            self._poll_dir = None
+            self._poll_dir_failures = 0
+            self._poll_dir_retry_at = 0.0
+            self._wire_usage_states.clear()
+            self._idle_push_stats = None
 
     # ------------------------------------------------------------------
     # 生命周期
@@ -602,6 +649,9 @@ class KimiAcpLLM(LanguageModel):
     def set_model(self, alias: str) -> None:
         """切换模型别名；失败保留原会话，并在下轮发送前恢复后重试配置。"""
         self._model = alias
+        with self._usage_poll_lock:
+            self._wire_usage_states.clear()
+            self._idle_push_stats = None
         if self._conn and self._conn.is_alive and self._session_id:
             try:
                 self._conn.request("session/set_config_option", {
@@ -636,8 +686,7 @@ class KimiAcpLLM(LanguageModel):
         self._session_cwd = None
         self._session_mcp_servers = []
         self._needs_recovery = False
-        self._poll_dir_sid = None
-        self._poll_dir = None
+        self._reset_usage_poll_state()
 
     def set_workspace_root(self, root: str) -> None:
         """切换 agent 工作目录：丢弃旧 session（长驻进程保留，下次 session/new 用新 cwd）。
@@ -760,8 +809,7 @@ class KimiAcpLLM(LanguageModel):
             self._session_mcp_servers = []
             self._apply_session_config(strict=False)
             self._needs_recovery = False
-            self._poll_dir_sid = None
-            self._poll_dir = None
+            self._reset_usage_poll_state()
         self._ensure_context_sizes()
         return self._conn
 
@@ -798,8 +846,7 @@ class KimiAcpLLM(LanguageModel):
         except RuntimeError as e:
             self._raise_recovery_failed(e)
         self._needs_recovery = False
-        self._poll_dir_sid = None
-        self._poll_dir = None
+        self._reset_usage_poll_state()
         logger.info(
             "[kimi acp] 恢复成功 sessionId=%s generation=%s",
             self._session_id, conn.generation)
@@ -815,20 +862,84 @@ class KimiAcpLLM(LanguageModel):
             "原会话恢复失败，未发送消息；可重试恢复，或明确新建空会话。"
             f"原因：{error}") from error
 
-    def poll_usage(self) -> UsageStats | None:
-        """轮次内主动取用量快照：读 wire 尾部末条有效 turn 用量。
+    def _poll_session_dir(self, session_id: str) -> Path | None:
+        now = time.monotonic()
+        with self._usage_poll_lock:
+            if session_id != self._poll_dir_sid:
+                self._poll_dir_sid = session_id
+                self._poll_dir = None
+                self._poll_dir_failures = 0
+                self._poll_dir_retry_at = 0.0
+            if self._poll_dir is not None or now < self._poll_dir_retry_at:
+                return self._poll_dir
+        session_dir = _session_dir_of(session_id)
+        with self._usage_poll_lock:
+            if session_id != self._poll_dir_sid:
+                return None
+            if session_dir is not None:
+                recovered = self._poll_dir_failures > 0
+                self._poll_dir = session_dir
+                self._poll_dir_failures = 0
+                self._poll_dir_retry_at = 0.0
+                if recovered:
+                    logger.info("kimi 会话目录定位恢复")
+                return session_dir
+            self._poll_dir_failures += 1
+            delay = _SESSION_DIR_RETRY_DELAYS_S[
+                min(self._poll_dir_failures - 1,
+                    len(_SESSION_DIR_RETRY_DELAYS_S) - 1)]
+            self._poll_dir_retry_at = now + delay
+            logger.warning(
+                "kimi 会话目录暂未定位，退避后重试 attempt=%s delay=%.0fs",
+                self._poll_dir_failures, delay)
+            return None
 
-        只读单值缓存，不在 GUI 轮询中拉取模型目录或全量 wire；失败返回 None。
-        """
+    @staticmethod
+    def _drain_usage_updates(conn: AcpConnection) -> UsageStats | None:
+        """排空空闲队列，仅保留有效 usage；其他迟到帧维持原清理语义。"""
+        latest: UsageStats | None = None
+        while True:
+            try:
+                kind, obj = conn.next_update(timeout=0)
+            except queue.Empty:
+                return latest
+            except TurnAborted:
+                # 轮次锁已证明 worker 退出；残留 abort 只用于解封上一轮等待
+                conn._turn_abort.clear()
+                continue
+            if kind != "update":
+                continue
+            chunk = map_session_update(obj)
+            if chunk is not None and chunk.kind == "usage" \
+                    and chunk.usage is not None:
+                latest = chunk.usage
+
+    def poll_usage(self) -> UsageStats | None:
+        """读取增量 wire；仅空闲时回收迟到 ACP usage，避免与 worker 抢帧。"""
         session_id = self._session_id
         if not session_id:
             return None
-        if session_id != self._poll_dir_sid:
-            self._poll_dir = _session_dir_of(session_id)
-            self._poll_dir_sid = session_id
-        if self._poll_dir is None:
-            return None
-        return _read_wire_usage_tail(self._poll_dir, self._context_sizes, self._model)
+        push_stats: UsageStats | None = None
+        if self._turn_lock.acquire(blocking=False):
+            try:
+                if self._conn is not None:
+                    push_stats = self._drain_usage_updates(self._conn)
+                if push_stats is not None:
+                    self._idle_push_stats = push_stats
+                push_stats = push_stats or self._idle_push_stats
+            finally:
+                self._turn_lock.release()
+        session_dir = self._poll_session_dir(session_id)
+        wire_stats: UsageStats | None = None
+        if session_dir is not None:
+            with self._usage_poll_lock:
+                state = self._wire_usage_states.get(session_id)
+                if state is None or state.path != session_dir:
+                    state = _WireUsageState(session_dir)
+                    self._wire_usage_states[session_id] = state
+                wire_stats = _read_wire_usage_incremental(
+                    state, self._context_sizes, self._model)
+        return push_stats or wire_stats
 
     # ------------------------------------------------------------------
     # 对话
@@ -841,7 +952,11 @@ class KimiAcpLLM(LanguageModel):
             return
         with self._turn_lock:  # 串行化轮次，防 inbox 串抢
             conn = self._ensure_session()
+            late_usage = self._drain_usage_updates(conn)
             conn.purge_updates()
+            if late_usage is not None:
+                yield Chunk("usage", "", usage=late_usage)
+            self._idle_push_stats = None
             conn.begin_turn("session/prompt", {
                 "sessionId": self._session_id,
                 "prompt": build_prompt_blocks(message, workspace_root=self._cwd),
@@ -970,6 +1085,8 @@ class KimiAcpLLM(LanguageModel):
             speed, consumption = _read_wire_turn_metrics(
                 session_dir, usage_baseline, self._session_id)
         stats = push_stats or wire_stats
+        if push_stats is not None:
+            self._idle_push_stats = push_stats
         if stats is not None:
             self._usage_warning_active = False
         elif not self._usage_warning_active:

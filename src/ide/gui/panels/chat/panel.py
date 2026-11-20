@@ -127,6 +127,7 @@ _USAGE_SOURCE_NOTE = {
     "transcript": "数据来源：kimi 会话记录（agent 落盘的接口真值）",
     "estimate": "数据来源：IDE 估算（会话文本 ÷4，非精确计量，仅量级参考）",
 }
+_KIMI_USAGE_GRACE_S = 10.0
 
 
 def _format_duration(seconds: float) -> str:
@@ -190,6 +191,10 @@ def _compose_usage_tooltip(
         lines.append(
             f"上下文已用 {usage.used:,} / 上限 {usage.size:,} tokens（{percent}%）")
         lines.append(_USAGE_SOURCE_NOTE[usage.source])
+    elif session_start is not None or turn_started_at is not None or last_turn is not None:
+        lines.append(
+            "上下文用量：等待首轮模型计量" if turn_started_at is not None
+            else "上下文用量：暂不可用（未收到有效 agent 数据）")
     if session_start is not None:
         started = (session_start.strftime("%H:%M")
                    if session_start.date() == now.date()
@@ -340,12 +345,11 @@ class ChatPanel(QWidget):
         #: text/reasoning chunk 到达即采样，速率由 _windowed_speed 剪窗计算
         self._speed_samples: deque[tuple[float, int]] = deque()
         self._speed_cum_chars: int = 0
-        #: 轮次内用量轮询计时器：_on_send 启动、_on_finished/_on_stopped/
-        #: 切后端停止；tick 调 provider.poll_usage()，非 kimi 后端默认返回
-        #: None 空转成本可忽略（红线：不臆造数值）
+        #: 轮内 2 秒轮询；Kimi 轮后另有短宽限接收迟到 push，其他后端收尾即停
         self._usage_timer = QTimer(self)
-        self._usage_timer.setInterval(2000)  # 对齐 usage.record 1~3s 写盘节奏
+        self._usage_timer.setInterval(2000)
         self._usage_timer.timeout.connect(self._poll_usage_tick)
+        self._usage_grace_deadline: float | None = None
         #: 轮次挂起看门狗（2026-1118-1115 计划 D2）：轮次内距末条消息帧超
         #: 阈值（设置 turn_stall_timeout_min，0=关）自动中断并提示——agent
         #: 丢失任务完成事件时轮次永久挂起，busy/排队待发永不解除且无提示，
@@ -515,6 +519,7 @@ class ChatPanel(QWidget):
         if backend != self._llm_name:
             old = self._providers.pop(self._llm_name, None)
             self._usage_timer.stop()  # 切后端停轮询，不残留空转
+            self._usage_grace_deadline = None
             self._stall_timer.stop()  # 看门狗同停（轮次簿记随后端切换作废）
             # 旧后端会话用量不得残留到新后端：清零徽章（reset_session 语义点）
             self._usage = None
@@ -602,6 +607,7 @@ class ChatPanel(QWidget):
         """
         self.request_stop()
         self._usage_timer.stop()  # 标签销毁前停轮询（随 tab 生命周期）
+        self._usage_grace_deadline = None
         self._stall_timer.stop()  # 看门狗同停（随 tab 生命周期）
         worker = self._worker
         providers = list(self._providers.values())
@@ -912,15 +918,10 @@ class ChatPanel(QWidget):
     # 上下文用量徽章（usage_update → 百分比徽章；位于状态行右侧）
     # ------------------------------------------------------------------
     def _refresh_usage_label(self) -> None:
-        """按 _usage 簿记刷新徽章：无数据空文本（常驻占位不撤）；≥80% 热态变色。
-
-        口径标注：estimate 来源加 `~` 前缀；tooltip 由
-        `_refresh_usage_tooltip` 经纯函数 `_compose_usage_tooltip` 组装
-        （用量段 + 计时段），数据来源分级诚实呈现精度。
-        """
+        """未发送保持空白；已发送无真值显示 `—`，有效值持续保留并标热态。"""
         stats = self._usage
         if stats is None:
-            self._usage_label.setText("")
+            self._usage_label.setText("—" if self._session_started_at is not None else "")
             self._usage_label.setProperty("hot", False)
         else:
             percent = round(stats.used / stats.size * 100)
@@ -1101,13 +1102,15 @@ class ChatPanel(QWidget):
         self._worker.finished_with_error.connect(self._on_finished)
         self._worker.stopped_by_user.connect(self._on_stopped)
         self._worker.start()
-        self._usage_timer.start()  # 轮次内用量轮询（kimi 尾部读 wire.jsonl）
+        self._usage_grace_deadline = None
+        self._usage_timer.start()
         self._last_chunk_at = time.monotonic()  # 看门狗起播点（首轮帧前口径）
         self._stall_timer.start()  # 轮次挂起看门狗（D2）
         turn_start = datetime.now()
         self._turn_started_at = turn_start
         if self._session_started_at is None:  # 首轮发送 = 会话开始
             self._session_started_at = turn_start
+        self._refresh_usage_label()
 
     # ------------------------------------------------------------------
     # 排队发送：单条待发，文本驻留输入框不上屏
@@ -1161,19 +1164,32 @@ class ChatPanel(QWidget):
             text = "输入消息，Enter 发送 / Shift+Enter 换行"
         self.input.setPlaceholderText(text)
 
+    def _start_usage_grace(self) -> None:
+        """Kimi 轮后短宽限只延长用量接收，不延长 busy 或阻塞接续轮。"""
+        self._usage_grace_deadline = None
+        provider = self._providers.get(self._llm_name)
+        if self._llm_name != "kimi-acp" or provider is None \
+                or getattr(provider, "recovery_pending", False):
+            self._usage_timer.stop()
+            return
+        self._usage_grace_deadline = time.monotonic() + _KIMI_USAGE_GRACE_S
+        self._usage_timer.start()
+
     def _poll_usage_tick(self) -> None:
-        """轮次内用量轮询：GUI 侧 QTimer 直调 provider.poll_usage()，
-        只读文件、与 ACP 连接零交互；非 None 即更新徽章簿记。
-        无数据（不支持的 backend/写盘延迟/文件残缺）→ 保持现状不刷新，
-        绝不臆造估值（红线）。
-        """
+        """轮内及 Kimi 轮后宽限采样；空结果绝不清除最后一次有效值。"""
         provider = self._providers.get(self._llm_name)
         if provider is None:
+            self._usage_timer.stop()
+            self._usage_grace_deadline = None
             return
         stats = provider.poll_usage()
         if stats is not None:
             self._usage = stats
             self._refresh_usage_label()
+        deadline = self._usage_grace_deadline
+        if not self._busy and deadline is not None and time.monotonic() >= deadline:
+            self._usage_timer.stop()
+            self._usage_grace_deadline = None
 
     def _stall_watchdog_tick(self) -> None:
         """轮次挂起看门狗 tick：距末条消息帧超阈值 → 自动中断 + 明确提示。
@@ -1400,7 +1416,7 @@ class ChatPanel(QWidget):
         self.timeline.end_turn()  # 色块条段指针轮次收尾作废
         self.output.end_stream()
         self._worker = None
-        self._usage_timer.stop()  # 轮次收尾停轮询（收尾真值已由 chunk 兜底）
+        self._start_usage_grace()
         self._stall_timer.stop()  # 看门狗同停（_last_chunk_at 随轮次作废）
         self.turn_finished.emit()
         # 三态收尾：正常完成自动发输入框待发内容（接续轮 busy 不间断）；
@@ -1452,7 +1468,7 @@ class ChatPanel(QWidget):
         outcome = {"stall": "看门狗停止", "cancelled": "已取消"}.get(
             effective, "手动停止")
         self._flush_turn_consumption()  # 中断轮已发生的调用消耗照记
-        self._usage_timer.stop()  # 中断即停轮询，不残留空转
+        self._start_usage_grace()
         self._stall_timer.stop()  # 看门狗同停
         if self._turn_started_at is not None:  # 中断轮同记上轮任务
             self._last_turn = {

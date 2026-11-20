@@ -36,8 +36,9 @@ class UsageStats:
     source 区分数据来源而非计费方式：
     - "push"：ACP `usage_update`，agent 对外报告的当前上下文占用与窗口；
       可包含 agent 自己的未实测尾部估算，不代表会员额度或纯 API 实测值；
-    - "transcript"：agent 落盘记录中的实测上下文；kimi wire 以
-      inputOther+inputCacheRead+inputCacheCreation+output 四项求和，
+    - "transcript"：agent 落盘记录中的实测上下文；kimi wire 优先以
+      token_counting.measured.tokens 为水位，旧记录以
+      inputOther+inputCacheRead+inputCacheCreation+output 四项求和兜底，
       用于轮内刷新与 ACP 缺失兜底，窗口另取模型目录 maxContextSize；
     - "estimate"：IDE 对 transcript 消息文本的 chars/4 粗估，仅作量级参考。
 
@@ -265,8 +266,10 @@ class LanguageModel(Protocol):
         （0117 T0 实证），可由 provider 主动读取。GUI 侧 QTimer 在轮次进行
         中周期调用本方法，非 None 即刷新徽章。
 
-        约束：实现须廉价（只读小数据/文件尾部）、幂等、线程安全（从 GUI
-        线程调用，与 chat 所在 worker 并发），任何失败静默返回 None，
-        不得抛出、不得阻塞、不得臆造估算值。
+        约束：实现须廉价（首次有界尾部建立游标，之后只读新增字节与缓存）、
+        幂等、线程安全（从 GUI 线程调用，与 chat 所在 worker 并发），任何
+        失败静默返回 None，不得抛出、不得阻塞、不得臆造估算值。若支持空闲
+        队列回收，只能非阻塞取得轮次锁后提取 usage，不得与 worker 抢正文、
+        工具或响应帧，也不得在持轮询锁时执行目录子进程或等待 ACP。
         """
         return None
