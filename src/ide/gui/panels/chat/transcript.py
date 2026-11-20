@@ -1,13 +1,8 @@
 """对话区卡片轨道视图（0645 融合计划期二 T3/T5/T10）：ChatTranscriptView。
 
 载体（0640-D1-B 拍板）：QScrollArea + 块级 QWidget + QVBoxLayout +
-底部 stretch——块序列取代旧轨「行文本流」，折叠是 QWidget.setVisible
-真显隐，状态流转是属性更新。与旧轨 ChatOutput 鸭式同接口
-（append_message / append_user_message / begin_stream / append_stream_chunk /
-append_reasoning_chunk / end_reasoning / end_stream / append_tool_call /
-append_tool_update / upsert_todo_block / reset_activity_anchors /
-set_workspace_root / anchorClicked / set_*_colors），
-panel 路由层按设置项选轨后零分支复用同一代码路径。
+底部 stretch——块序列取代行文本流，折叠是 QWidget.setVisible
+真显隐，状态流转是属性更新。面板路由层只走本视图，无选轨分支。
 （0634 计划 D4 排队气泡三方法已随 0807-2305 计划 c1 拍板整轨拆除——
 排队发送改为单条待发驻留输入框，不再上屏排队气泡）
 
@@ -19,7 +14,7 @@ panel 路由层按设置项选轨后零分支复用同一代码路径。
 - 通用折叠/正文/思维链见 card_base.py；工具卡与 TODO 卡由 vendors/registry.py 按厂商装配
 
 跨块文本选择丢失（widget 路线固有代价，0640 §9）以块内选择 + 卡片
-复制按钮（T11）补偿；旧轨双轨开关为回退通道。
+复制按钮（T11）补偿，不再保留第二轨回退。
 
 横向滚动根治（2026-08-06，文档/修改记录/2026-0806-0401 计划 T3）：
 横向滚动条 ScrollBarAlwaysOff 硬关闭——治本在 card_base.py _ElidedLabel
@@ -29,7 +24,7 @@ WidgetWidth 换行，本策略兜底任何未来块类型异常撑宽只裁边�
 流式跟随智能锁定（2026-08-16，文档/修改记录/2026-0816-2317 计划）：
 _pinned 跟随锁——用户手势上翻（滚轮/拖拽/键盘翻页，经 valueChanged
 方向判定）解除自动滚底并浮现「回到底部」悬浮钮，滚回底部阈值或点钮
-恢复跟随；程序滚底带标志位防误判，与旧轨 output.py 同构。
+恢复跟随；程序滚底带标志位防误判。
 """
 from html import escape as _html_escape
 from pathlib import Path
@@ -90,7 +85,7 @@ class TextStreamBlock(BodyHtml):
     """正文流式块：30ms 合帧节流 + 冲刷区间文件引用就地锚点化（L2-5 平移）。
 
     主内容块不限高（max_height=None）、无内滚动，自身高度贴内容；
-    跨帧被截断的路径片段不链接化（同旧轨已知取舍）。
+    跨帧被截断的路径片段不链接化（已知取舍）。
     """
 
     def __init__(self, role: str, link_color, mention_exists, parent=None) -> None:
@@ -106,7 +101,7 @@ class TextStreamBlock(BodyHtml):
             cursor = self.textCursor()
             fmt = QTextCharFormat()
             fmt.setFontWeight(600)
-            # 前缀与正文同行（2000 计划 D3-A）：去换行对齐旧轨
+            # 前缀与正文同行（2000 计划 D3-A）：去换行对齐
             # <b>AI：</b> 与用户气泡 <b>我：</b> 形态，块内无空段落
             cursor.insertText(f"{role}：", fmt)
 
@@ -198,14 +193,13 @@ class SystemBlock(BodyHtml):
 
 
 class ChatTranscriptView(QScrollArea):
-    """卡片轨道对话区视图（旧轨 ChatOutput 鸭式同接口，见模块 docstring）。
+    """卡片轨道对话区视图（唯一输出区实现，见模块 docstring）。
 
     开合状态 Map 存于本实例（多标签天然隔离，0640 §9 落实例方案）；
-    主题色经 CardColors 袋共享引用注入，主题切换仅影响此后新建的块
-    （与旧轨同语义）。
+    主题色经 CardColors 袋共享引用注入，主题切换仅影响此后新建的块。
     """
 
-    #: 正文文件路径链接点击（与旧轨 anchorClicked 同签名 QUrl；
+    #: 正文文件路径链接点击（与正文链接通道同签名 QUrl；
     #: panel._on_output_link 零改动复用）
     anchorClicked = Signal(QUrl)
 
@@ -325,7 +319,7 @@ class ChatTranscriptView(QScrollArea):
     # 消息块（鸭式接口：append_message / append_user_message / 流式三件套）
     # ------------------------------------------------------------------
     def append_message(self, role: str, content: str) -> None:
-        """系统消息块上屏（先冲刷正文防次序颠倒，与旧轨 _flush_stream 同律）。"""
+        """系统消息块上屏（先冲刷正文防次序颠倒）。"""
         self._flush_stream()
         self._add_block(SystemBlock(role, content, self._container))
 
@@ -341,7 +335,7 @@ class ChatTranscriptView(QScrollArea):
         self._add_turn_gap()  # 用户消息后回合间距（2000 计划 Part 2）
 
     # （0634 计划 D4 排队气泡三方法已随 0807-2305 计划 c1 拍板整轨
-    #  拆除——与旧轨 output.py 同步）
+    #  拆除——文本轨时期同步）
 
     def begin_stream(self, role: str) -> None:
         """开始一条流式消息：懒建——只簿记角色，首个正文帧才建块写前缀。

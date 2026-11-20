@@ -45,7 +45,7 @@ Zen Studio 的设计哲学是 **Agent 驱动**：代码修改一律经 AI agent 
 
 | 特性 | 说明 |
 |:---|:---|
-| AI 聊天面板 | 多标签会话（上限 4，标签间 provider 完全隔离可并行）；对话区双轨渲染——KiloCode 式卡片折叠（默认，工具/思维链/diff/TODO 全族卡，开合状态记忆）与经典流式可切换；token 级流式 + 思维链可见（ACP 后端）；图片附件多模态发送（粘贴/拖入，缩略图 chip 行，能力外后端自动退化 `@路径` 引用）；上下文 token 用量徽章（kimi 轮次内实时刷新）；发送/停止双态按钮；拖入文件插 `@相对路径` 引用；ACP 工具审批模态框（允许一次/始终允许/拒绝）；AskUserQuestion 提问卡片内作答（卡内按钮组串行激活，弹窗兜底） |
+| AI 聊天面板 | 多标签会话（上限 4，标签间 provider 完全隔离可并行）；对话区 KiloCode 式卡片折叠（工具/思维链/diff/TODO 全族卡，开合状态记忆）；token 级流式 + 思维链可见（ACP 后端）；图片附件多模态发送（粘贴/拖入，缩略图 chip 行，能力外后端自动退化 `@路径` 引用）；上下文 token 用量徽章（kimi 轮次内实时刷新）；发送/停止双态按钮；拖入文件插 `@相对路径` 引用；ACP 工具审批模态框（允许一次/始终允许/拒绝）；AskUserQuestion 提问卡片内作答（卡内按钮组串行激活，弹窗兜底） |
 | 统一 CLI 后端 | 对话统一经本机 agent CLI（OAuth 自管凭证），代码库**零 API KEY**；传输层统一为 ACP 长驻协议（Zed/JetBrains 同款集成方式），Kimi / DSH（DeepSeek Harness）/ Local 三后台可选 |
 | 会话标签异构后台 | 每标签独立选择后台 / 接口 / 模型 / 推理强度（ModelBar 四级下拉直显当前值），标签间互不广播、busy 各禁各的，异构后台可真正并行；按接口记忆的模型选择持久化 |
 | 多类型文件预览 | 只读查看器五页分流：文本（Pygments 高亮 + 行号栏）/ 图片（位图 + 矢量 SVG + GIF 动图 + 棋盘格透明底）/ PDF（连续滚动 + 翻页缩放）/ Markdown（GFM 渲染）/ 音视频（就地播放，双击即播） |
@@ -154,7 +154,7 @@ building/dist/zen-studio/zen-studio
 
 | 配置 | 位置 | 说明 |
 |:---|:---|:---|
-| 应用偏好 | `config/settings.json` | 主题 / 字号 / 对话区渲染（cards 默认 / classic）/ 模型选择（按接口记忆的 `model_versions` 表）；多进程并发经 flock 文件锁 + 原子写治理 |
+| 应用偏好 | `config/settings.json` | 主题 / 字号 / 模型选择（按接口记忆的 `model_versions` 表）；多进程并发经 flock 文件锁 + 原子写治理 |
 | 窗口状态 | `config/window_state/` | 按工作区哈希分文件持久化几何与分隔栏；`default.json` 供新工作区首开继承 |
 | 最近项目 | `config/recent_projects.json` | 最近打开的工作区列表 |
 | 模型目录 | 动态解析 | 可用模型别名由各后台 CLI 实时枚举（registry 进程级缓存 + `refresh_models()` 唯一失效口），IDE 侧零硬编码 |

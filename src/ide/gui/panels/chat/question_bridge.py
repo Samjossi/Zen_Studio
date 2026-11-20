@@ -8,7 +8,7 @@ GUI 线程经 QTimer.singleShot 定位 tool_call_id 对应的厂商提问卡
 reader 并推进队列。同窗口多个 question 请求串行激活（防多卡同时待答
 的认知混乱与结果错配）。
 
-降级链：卡片缺失（旧会话重放、双轨旧轨行文本渲染无卡可激活）或卡片
+降级链：卡片缺失（旧会话纯文本重放无卡可激活）或卡片
 已终态 → QuestionDialog 弹窗兜底 → 关闭/超时按拒绝兜底（None）。
 """
 import threading
@@ -88,7 +88,7 @@ class QuestionBridge:
         QuestionDialog 模态弹窗（嵌套事件流，与 PERMISSION_QUEUE 同手法）。
 
         id 定位 miss 时按问题文本匹配兜底（0812-0952 计划 ⚠️3 E6 修订）：
-        历史双轨后端的 request_permission 与 update 帧 toolCallId 不一致，
+        历史后端的 request_permission 与 update 帧 toolCallId 不一致，
         id 定位必然 miss——决策帧与渲染帧的问题文本同文，可精确匹配
         待答卡，避免无意义降级为巨大弹窗。"""
         params, tool_call_id, parent = entry[0].params, entry[1], entry[2]

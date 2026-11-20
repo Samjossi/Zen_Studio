@@ -93,7 +93,7 @@ class ChatInput(QTextEdit):
     选区带自绘（2055 计划方案 A 再推广，2145 计划增补）：原生选区带 =
     QTextLine 整行高，Qt 排版 leading 全部垫底，思源黑体下视觉偏下
     （实测带上缘 1px/下缘 7px，中心偏差 +3px）；抑原生带后 paintEvent
-    叠绘墨盒对称带，带色与 ChatOutput 同源（timeline_read_fg 复用，
+    叠绘墨盒对称带，带色与输出区同源（timeline_read_fg 复用，
     不新增主题键）。
     """
 

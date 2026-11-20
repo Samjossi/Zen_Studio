@@ -1,7 +1,7 @@
 """Local 工具卡具体实现：本厂商载荷格式、工具卡类与问题卡注册表。
 
 具体卡片由 `ide.gui.panels.chat.vendors.local.factory.make_tool_card` 分派；跨帧账本、迟到帧
-闸门与旧轨输出裁剪由 `ide.gui.panels.chat.vendors.local.presenter` 持有。本模块只 import 本厂商
+闸门与命令头回填由 `ide.gui.panels.chat.vendors.local.presenter` 持有。本模块只 import 本厂商
 models 的纯数据类型与无厂商语义的 card_base 基础件。
 """
 import json
@@ -605,7 +605,7 @@ class QuestionCard(ToolCard):
 
 #: 待答 QuestionCard 注册表（0807-0148 计划 T4）：tool_call_id → 卡片；
 #: 卡片构造时登记、销毁时注销。QUESTION_BRIDGE 按 tool_call_id 定位
-#: 待答卡激活选项按钮组；未命中（旧轨渲染/重放）由桥降级弹窗兜底。
+#: 待答卡激活选项按钮组；未命中（纯文本重放）由桥降级弹窗兜底。
 _QUESTION_CARD_REGISTRY: dict[str, "QuestionCard"] = {}
 
 
@@ -626,7 +626,7 @@ def find_pending_question_card(questions: list[str]) -> "QuestionCard | None":
     """按问题文本匹配待答 QuestionCard（0812-0952 计划 ⚠️3 E6 修订）。
 
     背景：历史 ask 协议的 request_permission 与 session/update 帧 toolCallId
-    **双轨不一致**（`ask-1-q1` vs `call_00_…`，实证
+    **两路帧不一致**（`ask-1-q1` vs `call_00_…`，实证
     文档/帧存档/ask_reasonix_*.json），id 定位必然 miss 降级弹窗。
     改按问题文本精确匹配兜底：决策帧 rawInput.question 与渲染帧
     rawInput.questions[].question 同文（同一次提问的两条帧路），

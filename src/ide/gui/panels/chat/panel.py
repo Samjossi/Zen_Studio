@@ -15,13 +15,11 @@ AI 活动信息路由：
   厂商 presenter 持有 toolCallId→title/command 账本与迟到帧闸门；轮次收尾
   reset_activity_anchors 作废 todo 锚点（防跨轮串位）
 
-对话区双轨渲染：
-- 构造时按 chat_renderer 设置选轨：cards = ChatTranscriptView 卡片折叠轨
-  （默认；QScrollArea + 块级 QWidget，KiloCode 式卡片）；classic =
-  ChatOutput 旧轨（冻结保留即回退通道）；存量标签不热切换
-- 新轨路由差异：取消非 execute 工具的 output 剥除（全工具卡 body 承接）；
-  in_progress 尾滚帧仅 execute + 200ms 节流；旧轨维持剥除纪律且 execute
-  输出钳回末 20 行（协议层软上限 1000 行）。上述厂商载荷纪律归各厂商
+对话区单轨渲染：
+- 恒定使用 ChatTranscriptView 卡片折叠轨（QScrollArea + 块级 QWidget，
+  KiloCode 式卡片）；chat_renderer 设置键只为旧存档兼容保留
+- 路由纪律：取消非 execute 工具的 output 剥除（全工具卡 body 承接）；
+  in_progress 尾滚帧仅 execute + 200ms 节流。上述厂商载荷纪律归各厂商
   `vendors/<vendor>/presenter.py`，面板只转发不透明载荷
 
 会话活动时间线色块条：
@@ -83,7 +81,6 @@ from shiboken6 import isValid
 from ide.gui.panels.chat.attachments import AttachmentStrip
 from ide.gui.panels.chat.input import ChatInput
 from ide.gui.panels.chat.model_bar import ModelBar
-from ide.gui.panels.chat.output import ChatOutput
 from ide.gui.panels.chat.permission_queue import PERMISSION_QUEUE
 from ide.gui.panels.chat.question_bridge import QUESTION_BRIDGE
 from ide.gui.panels.chat.session_store import SessionRecord
@@ -92,8 +89,6 @@ from ide.gui.panels.chat.transcript import ChatTranscriptView
 from ide.gui.panels.chat.vendors.registry import make_presenter
 from ide.gui.panels.chat.worker import ChatWorker
 from ide.gui.settings import (
-    CHAT_RENDERER_CARDS,
-    KEY_CHAT_RENDERER,
     KEY_PERMISSION_MODE,
     KEY_THEME,
     KEY_TURN_STALL_TIMEOUT_MIN,
@@ -358,23 +353,11 @@ class ChatPanel(QWidget):
 
         settings = load_settings()
         chat_pack = get_theme_palette(settings[KEY_THEME])["chat"]
-        # 双轨并存：cards 卡片折叠轨（默认）/ classic 旧轨 ChatOutput
-        # （冻结保留，即回退通道）；构造时选轨，存量标签不热切换
-        # （设置项 hint 已注明新建标签生效）
-        self._cards_track = settings[KEY_CHAT_RENDERER] == CHAT_RENDERER_CARDS
-        if self._cards_track:
-            self.output = ChatTranscriptView(chat_pack, self)
-        else:
-            self.output = ChatOutput(
-                chat_pack["reasoning_fg"], chat_pack["tool_fg"],
-                chat_pack["tool_error_fg"], chat_pack["user_bubble_bg"],
-                chat_pack["tool_output_bg"],
-                # 链接色复用 timeline_read_fg（VS Code textLink-foreground
-                # 同源值，单一来源纪律不新增键）
-                chat_pack["timeline_read_fg"], self)
+        # 单一卡片轨：chat_renderer 旧值已在 load_settings 归一，构造不再选轨
+        self.output = ChatTranscriptView(chat_pack, self)
         self.timeline = ActivityTimeline(_timeline_colors(chat_pack), self)
         self.input = ChatInput(
-            # 选区带色与 ChatOutput 同源（timeline_read_fg 复用，不新增主题键）
+            # 选区带色与输出区同源（timeline_read_fg 复用，不新增主题键）
             chat_pack["timeline_read_fg"], self)
         self.input.set_workspace_root(workspace_root)
         # 输出区 @路径 引用存在性校验的工作区基准
@@ -392,8 +375,7 @@ class ChatPanel(QWidget):
         #: 厂商工具名或载荷字段）
         self._chat_vendor = vendor_of(self._llm_name) or "local"
         self._presenter = make_presenter(self._chat_vendor)
-        if self._cards_track:
-            self.output.set_vendor(self._chat_vendor)
+        self.output.set_vendor(self._chat_vendor)
         #: 用户显式选定的推理强度（None = 未定制，不下发
         #: set_config_option）——_get_provider 懒实例化时的预选数据源
         self._effort_explicit: str | None = None
@@ -546,8 +528,7 @@ class ChatPanel(QWidget):
         self._llm_name = backend
         self._chat_vendor = vendor_of(backend) or "local"
         self._presenter = make_presenter(self._chat_vendor)
-        if self._cards_track:
-            self.output.set_vendor(self._chat_vendor)
+        self.output.set_vendor(self._chat_vendor)
         self._apply_image_capability()  # 能力位随后端切换刷新
         # 封存后端不实例化 provider（不起 agent 子进程）；发送由
         # _blocked_by_archive 拦停，实例留着也无消费者
@@ -647,7 +628,7 @@ class ChatPanel(QWidget):
         """布局装配：PanelCard 单卡片整合（输出侧容器 + 输入区含状态行）。
 
         卡片内保留垂直 splitter（输出/输入比例可调、状态持久化不变）；
-        ChatOutput 透明融入卡片白底，输入框保留自身 6px 圆角嵌于卡内。
+        输出区透明融入卡片白底，输入框保留自身 6px 圆角嵌于卡内。
         输入区状态行只保留时间线条与用量徽章。
         """
         self._splitter = QSplitter(Qt.Orientation.Vertical)
@@ -911,9 +892,8 @@ class ChatPanel(QWidget):
         self.output.set_card_colors(
             chat_pack["user_bubble_bg"], chat_pack["tool_output_bg"],
             chat_pack["timeline_read_fg"])
-        if self._cards_track:  # diff 红绿（仅新轨消费）
-            self.output.set_diff_colors(
-                chat_pack["diff_add_fg"], chat_pack["diff_del_fg"])
+        self.output.set_diff_colors(
+            chat_pack["diff_add_fg"], chat_pack["diff_del_fg"])
         self.timeline.set_colors(_timeline_colors(chat_pack))
         self.attachments.set_chip_color(chat_pack["user_bubble_bg"])
         self._apply_usage_label_style(theme)
@@ -1283,8 +1263,8 @@ class ChatPanel(QWidget):
     def _on_activity_chunk(self, chunk: Chunk) -> None:
         """AI 活动信息路由：只把不透明载荷转交厂商 presenter 与输出区。
 
-        厂商标题/命令账本、迟到帧放行、旧轨输出裁剪与 todo 字段读取均在
-        presenter 内；本方法不读取任何载荷字段。
+        厂商标题/命令账本、迟到帧放行与 todo 字段读取均在 presenter 内；
+        本方法不读取任何载荷字段。
         """
         if self._has_seen_reasoning:
             self.output.end_reasoning()
@@ -1293,7 +1273,7 @@ class ChatPanel(QWidget):
         if chunk.kind == "tool_call":
             self.output.append_tool_call(self._presenter.prepare_call(payload))
         elif chunk.kind == "tool_call_update":
-            payload = self._presenter.prepare_update(payload, self._cards_track)
+            payload = self._presenter.prepare_update(payload)
             if payload is None:
                 return
             self.output.append_tool_update(payload)

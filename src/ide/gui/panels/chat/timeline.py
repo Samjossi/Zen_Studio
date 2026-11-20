@@ -20,7 +20,7 @@ utils/timeline/{colors,sizes,geometry}.ts，只读参考）：
    两者等价；键盘导航未移植（一级无点击跳转，1824 计划 §7）。
 
 一级范围（1824 计划 D4）：仅 tooltip + 横滚/自动跟随；点击跳转与
-悬停联动高亮不做（需 ChatOutput 工具锚点基础设施，二级再议）。
+悬停联动高亮不做（需输出区工具锚点基础设施，二级再议）。
 """
 from dataclasses import dataclass
 

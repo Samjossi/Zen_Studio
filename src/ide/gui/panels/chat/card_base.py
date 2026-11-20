@@ -68,7 +68,7 @@ class CardColors:
     """卡片族主题色袋（ChatPack 键 + 链接色，构造时注入，可随主题切换更新）。
 
     各卡构造时按引用共享同一实例：apply_theme 改本实例字段即对「此后新建
-    的卡」生效（与旧轨 set_*_color 系列「仅影响此后追加的块」同语义）。
+    的卡」生效（与 set_*_color 系列「仅影响此后追加的块」同语义）。
     """
 
     def __init__(
@@ -457,7 +457,7 @@ class CollapsibleCard(QFrame):
         self._refresh_style()
 
     def _refresh_style(self) -> None:
-        """卡片底色（tool_output_bg 复用：工具卡外壳与旧轨输出卡同源色）。"""
+        """卡片底色（tool_output_bg 复用：工具卡外壳与工具输出卡同源色）。"""
         self.setStyleSheet(
             f"#ChatToolCard {{ background-color: {self._colors.tool_output_bg};"
             f" border-radius: 6px; }}")

@@ -65,10 +65,7 @@ from ide.gui.popups import (
 )
 from ide.gui.selection_band import BandLabel
 from ide.gui.settings import (
-    CHAT_RENDERER_CARDS,
-    CHAT_RENDERER_CLASSIC,
     CONFIG_DIR,
-    KEY_CHAT_RENDERER,
     KEY_FONT_SIZE,
     KEY_MODEL_BACKEND,
     KEY_NOTIFY_BANNER_ENABLED,
@@ -461,7 +458,7 @@ class SettingsDialog(QDialog):
         self._model_combo.setEnabled(on)
 
     # ------------------------------------------------------------------
-    # 外观页（主题 / 字号 / 渲染轨 / 主窗色边）
+    # 外观页（主题 / 字号 / 主窗色边）
     # ------------------------------------------------------------------
     def _build_appearance_page(self) -> QWidget:
         page = QWidget(self)
@@ -474,19 +471,8 @@ class SettingsDialog(QDialog):
         self._font_spin = QSpinBox(page)
         self._font_spin.setRange(self._ctx.FONT_SIZE_MIN, self._ctx.FONT_SIZE_MAX)
         self._font_spin.setSuffix(" pt")
-        # 对话区渲染轨（0645 融合计划 D2-A 双轨并存）：卡片（新，默认）/
-        # 经典（旧轨冻结保留，即回退通道）；新建会话标签生效不热切换
-        self._renderer_combo = QComboBox(page)
-        self._renderer_combo.addItem("卡片（折叠卡，推荐）", CHAT_RENDERER_CARDS)
-        self._renderer_combo.addItem("经典（行文本流）", CHAT_RENDERER_CLASSIC)
-        make_translucent_combo_popup(self._renderer_combo)
-        renderer_field = QHBoxLayout()
-        renderer_field.addWidget(self._renderer_combo, 1)
-        renderer_field.addWidget(self._make_hint_icon(
-            "对话区渲染切换对新建会话标签生效。", page))
         layout.addRow("主题", self._theme_combo)
         layout.addRow("字号", self._font_spin)
-        layout.addRow("对话区渲染", renderer_field)
         self._border_check = QCheckBox("主窗口 1px 主题色描边", page)
         border_row = QHBoxLayout()
         border_row.addWidget(self._border_check)
@@ -496,7 +482,6 @@ class SettingsDialog(QDialog):
         layout.addRow("主窗色边", border_row)
         self._theme_combo.activated.connect(self._on_theme_activated)
         self._font_spin.valueChanged.connect(self._on_font_changed)
-        self._renderer_combo.activated.connect(self._on_renderer_activated)
         self._border_check.toggled.connect(self._on_border_toggled)
         return page
 
@@ -504,14 +489,6 @@ class SettingsDialog(QDialog):
         if not self._reloading:
             # 持久化 + 热应用由 MainWindow.set_window_border 统一发，不重复
             self._ctx.set_window_border(checked)
-
-    def _on_renderer_activated(self, index: int) -> None:
-        if not self._reloading:
-            renderer = self._renderer_combo.itemData(index)
-            update_settings({KEY_CHAT_RENDERER: renderer})
-            self._ctx.statusBar().showMessage(
-                f"对话区渲染：{self._renderer_combo.itemText(index)}（新建标签生效）",
-                self._ctx.STATUS_MSG_TIMEOUT_MS)
 
     def _on_theme_activated(self, index: int) -> None:
         # 反馈由 MainWindow.switch_theme 统一发（重启生效提示弹窗，1642 计划），不重复
@@ -719,12 +696,10 @@ class SettingsDialog(QDialog):
         radio.setChecked(True)
 
     def _reload_appearance(self, settings) -> None:
-        """外观页：主题 / 字号 / 渲染轨 / 色边回读。"""
+        """外观页：主题 / 字号 / 色边回读。"""
         theme_index = self._theme_combo.findData(settings[KEY_THEME])
         self._theme_combo.setCurrentIndex(max(theme_index, 0))
         self._font_spin.setValue(settings[KEY_FONT_SIZE])
-        renderer_index = self._renderer_combo.findData(settings[KEY_CHAT_RENDERER])
-        self._renderer_combo.setCurrentIndex(max(renderer_index, 0))
         self._border_check.setChecked(settings[KEY_WINDOW_BORDER])
 
     def _reload_terminal(self, settings) -> None:

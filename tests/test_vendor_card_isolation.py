@@ -116,8 +116,7 @@ def test_presenter_ledgers_are_per_instance(qapp):
     kimi.prepare_call({
         "tool_call_id": "same-tid", "title": "Bash", "command": "ls"})
     payload = dsh.prepare_update(
-        {"tool_call_id": "same-tid", "status": "completed", "output": "out"},
-        cards_track=True)
+        {"tool_call_id": "same-tid", "status": "completed", "output": "out"})
     assert "command" not in payload
     assert payload["title"] == "same-tid"  # DSH 自己的账本为空 → id 短串兜底
     # Kimi 账本仍只属于 Kimi 实例
@@ -130,33 +129,27 @@ def test_presenter_gates_late_frames_and_throttles_tail(qapp):
         "tool_call_id": "tail", "title": "Bash", "command": "ls"})
     assert presenter.prepare_update(
         {"tool_call_id": "tail", "status": "in_progress",
-         "output": "one"}, cards_track=True) is not None
+         "output": "one"}) is not None
     assert presenter.prepare_update(
         {"tool_call_id": "tail", "status": "in_progress",
-         "output": "two"}, cards_track=True) is None
+         "output": "two"}) is None
     # 迟到入参/图片/清单帧不受 200ms 尾滚节流限制
     late = presenter.prepare_update(
         {"tool_call_id": "tail", "status": "in_progress",
-         "input_detail": "command: ls"}, cards_track=True)
+         "input_detail": "command: ls"})
     assert late is not None and late["input_detail"] == "command: ls"
 
 
-def test_presenter_legacy_track_clips_command_output(qapp):
+def test_presenter_keeps_full_output_for_any_tool(qapp):
+    """单轨后不再有旧轨裁剪：非 execute 输出也原样交给卡片 body。"""
     presenter = KimiCardPresenter()
     presenter.prepare_call({
-        "tool_call_id": "legacy", "title": "Bash", "command": "ls"})
+        "tool_call_id": "read-only", "title": "Read", "command": "cat a"})
     output = "\n".join(str(i) for i in range(25))
     payload = presenter.prepare_update(
-        {"tool_call_id": "legacy", "status": "completed", "output": output},
-        cards_track=False)
-    assert payload["command"] == "ls"
-    assert payload["output"] == "\n".join(str(i) for i in range(5, 25))
-
-    # 非 execute 工具的长输出在旧轨按既有纪律丢弃
-    dropped = presenter.prepare_update(
-        {"tool_call_id": "read-only", "status": "completed", "output": "x"},
-        cards_track=False)
-    assert "output" not in dropped
+        {"tool_call_id": "read-only", "status": "completed", "output": output})
+    assert payload["command"] == "cat a"
+    assert payload["output"] == output
 
 
 def test_presenter_fs_mutation_and_todo_dispatch(qapp):

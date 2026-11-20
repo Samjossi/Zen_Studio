@@ -152,14 +152,6 @@ QTextEdit:focus {
     border: 1px solid $accent;
 }
 
-/* 聊天输出区：透明融入侧栏
- * （双层 ID 提升特异性：QTextBrowser 是 QTextEdit 子类，
- *   会被上方 QTextEdit 实底描边规则命中，需压过它） */
-#SidePanel #ChatOutput {
-    background-color: transparent;
-    border: none;
-}
-
 /* ---- 树/列表：卡片化（描边 + 圆角 + 内留白），去焦点虚线 ---- */
 
 QTreeView,

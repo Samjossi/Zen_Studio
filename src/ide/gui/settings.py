@@ -79,11 +79,11 @@ KEY_NOTIFY_SOUND_DONE = "notify_sound_done"
 KEY_NOTIFY_SOUND_ERROR = "notify_sound_error"
 KEY_NOTIFY_SOUND_QUESTION = "notify_sound_question"
 
-#: 对话区渲染轨值域（0645 融合计划 D2-A 双轨并存：cards 卡片轨默认 /
-#: classic 旧轨经典——旧轨冻结保留即回退通道，新轨稳定一个版本后再议下线）
+#: 对话区渲染轨值域：只剩卡片轨。键保留仅为旧存档读取兼容（历史
+#: `classic` 由 load_settings 静默归一为 `cards`），不存在第二轨，
+#: 也不得借此键恢复旧轨。
 CHAT_RENDERER_CARDS = "cards"
-CHAT_RENDERER_CLASSIC = "classic"
-CHAT_RENDERERS = (CHAT_RENDERER_CARDS, CHAT_RENDERER_CLASSIC)
+CHAT_RENDERERS = (CHAT_RENDERER_CARDS,)
 DEFAULT_CHAT_RENDERER = CHAT_RENDERER_CARDS
 
 #: 旧权限键（2026-0722-1240 计划前）：仅用于 load_settings 一次性迁移读取，
@@ -141,8 +141,8 @@ class AppSettings(TypedDict):
     #: confirm_all 逐次确认 / confirm_execute 仅命令确认 / auto_guarded 智能
     #: 放行+黑名单兜底（默认）/ auto_all 全部放行）
     permission_mode: str
-    #: 对话区渲染轨（0645 融合计划：cards 卡片折叠轨（默认）/ classic
-    #: 经典行文本轨；新建会话标签生效，存量标签不热切换）
+    #: 对话区渲染轨；只为旧存档兼容保留，值恒为 cards（历史 classic
+    #: 在加载时归一，不迁移也不回写配置文件）
     chat_renderer: str
     #: kimi 子代理 wire 旁路开关（0813-1919 计划 T4：True 默认——
     #: 子代理内部活动经 wire.jsonl 旁路嵌套显示；False 回退纯 ACP）
@@ -248,7 +248,8 @@ def load_settings() -> AppSettings:
                                            if isinstance(k, str) and isinstance(v, str)}
     except (OSError, json.JSONDecodeError):
         pass
-    # 值域防御：渲染轨非法值（手改配置/旧版残留）回退默认轨
+    # 值域防御：渲染轨非法值（含历史 classic、手改配置）统一回退 cards；
+    # 键仅剩一个合法值，故任何非 cards 值都在此静默归一
     if settings[KEY_CHAT_RENDERER] not in CHAT_RENDERERS:
         settings[KEY_CHAT_RENDERER] = DEFAULT_CHAT_RENDERER
     # 值域防御：结束后停留时长非 int（bool 亦拒）回默认；越界钳制到值域

@@ -312,7 +312,7 @@ def _render_case(vendor: str, frames: list[dict], session_id: str,
                 card_map[tid] = card
             cards.append(card)
         elif chunk.kind == "tool_call_update":
-            payload = router.prepare_update(dict(chunk.payload), cards_track=True)
+            payload = router.prepare_update(dict(chunk.payload))
             if payload is None:
                 continue
             tid = payload.get("tool_call_id") or ""

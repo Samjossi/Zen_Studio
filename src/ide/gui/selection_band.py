@@ -12,8 +12,8 @@
 - text_range_rects()——以同一几何计算任意文档区间，供行内代码带复用；
 - paint_selection_band()——基类绘制后叠绘半透明直角带。
 
-挂载点：Markdown 预览 `ide/gui/panels/viewer/markdown_view.py`、旧轨聊天
-`ide/gui/panels/chat/output.py` 与 `ide/gui/panels/chat/input.py`、卡片轨正文块
+挂载点：Markdown 预览 `ide/gui/panels/viewer/markdown_view.py`、
+`ide/gui/panels/chat/input.py`、卡片轨正文块
 `ide/gui/panels/chat/card_base.py`（BodyHtml/BodyText，TextStreamBlock/
 SystemBlock/用户气泡体及各工具卡正文随之继承）、QLabel 家族
 `BandLabel`（卡片标题/节标签/问答行/todo 条目与设置中心路径标签，

@@ -817,7 +817,7 @@ def _run_nested_scenario(frames: list[dict], session_id: str = "mock",
         if chunk.kind == "tool_call":
             view.append_tool_call(router.prepare_call(chunk.payload))
         elif chunk.kind == "tool_call_update":
-            payload = router.prepare_update(dict(chunk.payload), cards_track=True)
+            payload = router.prepare_update(dict(chunk.payload))
             if payload is None:
                 continue  # 200ms 尾滚节流丢弃
             view.append_tool_update(payload)
@@ -884,7 +884,7 @@ def _run_scenario(frames: list[dict],
             if tid := payload.get("tool_call_id"):
                 card_map[tid] = card
         elif chunk.kind == "tool_call_update":
-            payload = router.prepare_update(dict(chunk.payload), cards_track=True)
+            payload = router.prepare_update(dict(chunk.payload))
             if payload is None:
                 continue  # 200ms 尾滚节流丢弃
             tid = payload.get("tool_call_id") or ""
