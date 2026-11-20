@@ -5,9 +5,9 @@
 `session/resume`；原 prompt 不自动重放。历史由 agent 会话管理，凭证由 CLI 自管。
 
 wire.jsonl 仅提供用量、输出速度、真实消耗和子代理展示数据。轮末用量在
-有界窗口内尽力收集，缺失、迟到或格式异常均不改变 ACP 终态。连接帧收发、
-反向请求与 update 映射分别复用 AcpConnection 和
-acp.updates.map_session_update（T1 过渡期公共实现）。
+有界窗口内尽力收集，缺失、迟到或格式异常均不改变 ACP 终态。连接帧收发
+与反向请求复用 AcpConnection；session/update 由本厂商私有
+KimiUpdateMapper 解释。
 """
 import atexit
 import json
@@ -43,13 +43,12 @@ from ide.llm.providers.acp import (
     build_client_capabilities,
     build_prompt_blocks,
 )
-from ide.llm.providers.acp.updates import map_session_update
-
 from ide.llm.providers.kimi.catalog import (
     _find_bin,
     context_sizes_from_catalog,
     load_kimi_provider_catalog,
 )
+from ide.llm.providers.kimi.updates import KimiUpdateMapper
 
 logger = logging.getLogger(__name__)
 
@@ -536,6 +535,8 @@ class KimiAcpLLM(LanguageModel):
         self._cwd = workspace_root or str(PROJECT_ROOT)
         self._conn: AcpConnection | None = None
         self._session_id: str | None = None
+        #: 本 provider 实例私有的 update 映射器；账本不跨标签/会话共享。
+        self._updates = KimiUpdateMapper()
         self._session_cwd: str | None = None
         self._session_mcp_servers: list[dict] = []
         self._needs_recovery = False
@@ -632,6 +633,7 @@ class KimiAcpLLM(LanguageModel):
         self._session_cwd = None
         self._session_mcp_servers = []
         self._needs_recovery = False
+        self._updates.reset()
         self._reset_usage_poll_state()
 
     def set_workspace_root(self, root: str) -> None:
@@ -744,6 +746,9 @@ class KimiAcpLLM(LanguageModel):
             self._session_id = result["sessionId"]
             self._session_cwd = self._cwd
             self._session_mcp_servers = []
+            # 新会话没有旧会话的调用账本可承接；清空可防止无界增长，并让
+            # 相同 toolCallId 在新会话中重新开始。
+            self._updates.reset()
             self._apply_session_config(strict=False)
             self._needs_recovery = False
             self._reset_usage_poll_state()
@@ -831,8 +836,7 @@ class KimiAcpLLM(LanguageModel):
                 self._poll_dir_failures, delay)
             return None
 
-    @staticmethod
-    def _drain_usage_updates(conn: AcpConnection) -> UsageStats | None:
+    def _drain_usage_updates(self, conn: AcpConnection) -> UsageStats | None:
         """排空空闲队列，仅保留有效 usage；其他迟到帧维持原清理语义。"""
         latest: UsageStats | None = None
         while True:
@@ -846,7 +850,7 @@ class KimiAcpLLM(LanguageModel):
                 continue
             if kind != "update":
                 continue
-            chunk = map_session_update(obj)
+            chunk = self._updates.map_session_update(obj)
             if chunk is not None and chunk.kind == "usage" \
                     and chunk.usage is not None:
                 latest = chunk.usage
@@ -937,7 +941,7 @@ class KimiAcpLLM(LanguageModel):
                         if pending_error is not None:
                             raise pending_error
                         return
-                    chunk = map_session_update(obj)
+                    chunk = self._updates.map_session_update(obj)
                     if chunk:
                         if chunk.kind == "usage" and chunk.usage is not None:
                             turn_push_stats = chunk.usage
@@ -1000,7 +1004,7 @@ class KimiAcpLLM(LanguageModel):
                 break
             if kind == "response":
                 continue
-            chunk = map_session_update(obj)
+            chunk = self._updates.map_session_update(obj)
             if chunk:
                 if chunk.kind == "usage":
                     if chunk.usage is not None:
@@ -1039,14 +1043,14 @@ class KimiAcpLLM(LanguageModel):
                         consumption=consumption)
 
     def _drain_sidecar(self, sidecar_queue: "queue.Queue[dict]") -> Iterator[Chunk]:
-        """排干旁路合成队列：update dict 经 map_session_update 真实映射
-        产出 Chunk（层级 tid 由公共映射拆出父指针，0813-1919 计划 T1）。"""
+        """排干旁路合成队列：update dict 经本厂商 mapper 真实映射产出
+        Chunk，层级 toolCallId 由 Kimi mapper 拆出父指针。"""
         while True:
             try:
                 update = sidecar_queue.get_nowait()
             except queue.Empty:
                 return
-            chunk = map_session_update({
+            chunk = self._updates.map_session_update({
                 "params": {"update": update, "sessionId": self._session_id or ""}})
             if chunk:
                 yield chunk

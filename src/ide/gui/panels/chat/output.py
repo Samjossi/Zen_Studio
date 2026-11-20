@@ -14,8 +14,8 @@ AI 活动块（1602 计划 T4/T5：对话区 AI 活动信息充分展示）：
 
 渲染纪律与 append_reasoning_chunk 同构：显式 QTextCharFormat 上屏
 （防格式经光标位置继承）+ 光标 End 插入 + 滚底。三类活动块的文本
-格式与 ide/llm/providers/acp/updates.py 的兜底文本（_tool_call_fallback 等）
-保持一致——改一处须同步另一处。
+格式与各厂商 updates.py 的兜底文本（_tool_call_fallback 等）保持一致；
+厂商各自维护，修改本文件时须同步对应厂商的格式。
 
 1836 计划 L1 三项：
 - T1 推理标题提取：reasoning 块先缓冲至标题行闭合（含 "\n" 或

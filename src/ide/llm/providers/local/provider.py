@@ -12,10 +12,10 @@ Local 自有适配点：
    服务端扫描配置的 GGUF 目录输出别名，IDE 不持静态表。
 3. 错误文案指向 Local CLI 自有配置体系（~/.local-cli/）。
 4. 思维链通道：llama-server 的 SSE 流携带独立 reasoning_content 字段，
-   由 Local CLI 服务端映射为 agent_thought_chunk，客户端经公共
-   map_session_update 直接上屏，本文件零特殊处理。
+   由 Local CLI 服务端映射为 agent_thought_chunk，客户端经本厂商 mapper
+   直接上屏，本文件零特殊处理。
 
-session/update 映射统一走公共实现 map_session_update。
+session/update 映射由 LocalUpdateMapper 解释，不借用 Kimi/DSH 的规则。
 """
 import atexit
 import logging
@@ -35,7 +35,7 @@ from ide.llm.providers.acp import (
     build_client_capabilities,
     build_prompt_blocks,
 )
-from ide.llm.providers.acp.updates import map_session_update
+from ide.llm.providers.local.updates import LocalUpdateMapper
 
 
 logger = logging.getLogger(__name__)
@@ -114,6 +114,8 @@ class LocalAcpLLM(LanguageModel):
         self._cwd = os.path.abspath(workspace_root or str(PROJECT_ROOT))
         self._conn: AcpConnection | None = None
         self._session_id: str | None = None
+        #: 本 provider 实例私有的 update 映射器；账本不跨标签/会话共享。
+        self._updates = LocalUpdateMapper()
         self._turn_lock = threading.Lock()
         #: 关闭标志（标签销毁）：close() 置位后 _ensure_session 拒绝新建连接，
         #: spawn 前后双检——与清理线程 close() 的竞态窗口内迟到的连接即建即杀
@@ -165,6 +167,7 @@ class LocalAcpLLM(LanguageModel):
     def reset_session(self) -> None:
         """清空会话，下次请求 `session/new` 开新会话（进程保留）。"""
         self._session_id = None
+        self._updates.reset()
 
     def set_workspace_root(self, root: str) -> None:
         """切换 agent 工作目录：丢弃旧 session（长驻进程保留，下次 session/new 用新 cwd）。
@@ -199,6 +202,7 @@ class LocalAcpLLM(LanguageModel):
             self._conn.terminate()
             self._conn = None
             self._session_id = None
+        self._updates.reset()
 
     def cancel(self) -> None:
         """取消当前轮次：协议 `session/cancel` + 本地 abort_turn；无轮次时 no-op。
@@ -246,6 +250,9 @@ class LocalAcpLLM(LanguageModel):
                 self._raise_config_hint_if_auth(e)
                 raise
             self._session_id = result["sessionId"]
+            # 新会话没有旧会话的调用账本可承接；清空可防止无界增长，并让
+            # 相同 toolCallId 在新会话中重新开始。
+            self._updates.reset()
             if self._model:  # 新会话应用预选模型
                 try:
                     self._conn.request("session/set_config_option", {
@@ -320,9 +327,9 @@ class LocalAcpLLM(LanguageModel):
     def _iter_turn_chunks(self, conn: AcpConnection) -> Iterator[Chunk]:
         """轮次内消息消费循环：update → Chunk；response/dead 收尾本轮。
 
-        usage_update 是协议正式通道，经 map_session_update 直接产出 usage
-        Chunk 上屏；轮次收尾不做 transcript 估算。Local CLI 侧暂无真实
-        用量数据时不发帧，徽章保持隐藏（不臆造上限）。
+        usage_update 是协议正式通道，经本厂商 mapper 直接产出 usage Chunk
+        上屏；轮次收尾不做 transcript 估算。Local CLI 侧暂无真实用量数据
+        时不发帧，徽章保持隐藏（不臆造上限）。
         """
         while True:
             kind, obj = conn.next_update()
@@ -332,7 +339,7 @@ class LocalAcpLLM(LanguageModel):
             if kind == "response":
                 self._raise_on_turn_error(obj)
                 return
-            chunk = map_session_update(obj)
+            chunk = self._updates.map_session_update(obj)
             if chunk:
                 yield chunk
 

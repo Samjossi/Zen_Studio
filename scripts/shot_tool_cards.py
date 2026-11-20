@@ -1,7 +1,7 @@
 """工具调用卡片 mock 截图脚本（0806 计划 §5：可视化验证闭环）。
 
 不依赖真实后端：构造覆盖全部症状场景的 mock ACP 帧 → 走真实链路
-（协议层 map_session_update → 路由层 _allow_progress_frame → 渲染层
+（Kimi update mapper → 路由层 _allow_progress_frame → 渲染层
 make_tool_card + apply_update）→ 逐场景 QWidget.grab() 截图落盘 →
 输出 manifest.md（场景 → PNG → 预期看点），供读图工具逐张核对。
 
@@ -43,11 +43,11 @@ from ide.gui.panels.chat.permission_dialog import QuestionDialog  # noqa: E402
 from ide.gui.panels.chat.panel import ChatPanel  # noqa: E402
 from ide.gui.panels.chat.transcript import ChatTranscriptView  # noqa: E402
 from ide.gui.theme import DEFAULT_THEME, get_theme_palette  # noqa: E402
-from ide.llm.providers.acp.updates import map_session_update  # noqa: E402
 from ide.llm.providers.kimi.provider import (  # noqa: E402
     _synthesize_wire_call,
     _synthesize_wire_result,
 )
+from ide.llm.providers.kimi.updates import KimiUpdateMapper  # noqa: E402
 
 SHOT_DIR = PROJECT_ROOT / ".temp" / "card_shots"
 ASSET_DIR = SHOT_DIR / "_assets"
@@ -276,7 +276,7 @@ def _scenarios() -> list[tuple[str, list[dict], str, object]]:
         ], "dismissed（answers 空 + note）completed 渲染为 ⏭ + note 原文，"
            "不再裸露裸 JSON", None),
         # 0158 计划 T3：MediaReadCard 入参略缩图四场景（media_path 载荷
-        # 经真实 map_session_update 协议链路产出；相对路径形态验证
+        # 经真实 Kimi update mapper 链路产出；相对路径形态验证
         # 渲染层工作区根解析——mock 未注入 workspace_root，走 PROJECT_ROOT
         # 降级，与真机 agent 工作目录≈IDE 项目根的常态同构）
         ("12_readmedia_入参略缩图", [
@@ -311,7 +311,7 @@ def _scenarios() -> list[tuple[str, list[dict], str, object]]:
         ], "media_path 装填但文件不存在：静默降级无破图占位，path 文本"
            "仍在", None),
         # 0808-0627 计划 T3：TodoListCard 场景组（todos 载荷经真实
-        # map_session_update 协议链路产出，含跨调用 diff changed 标记）；
+        # Kimi update mapper 链路产出，含跨调用 diff changed 标记）；
         # 0812-0336 计划 T2：16/18/20 为 kimi title 形态，04/17/19 保留
         # kilocode/opencode content 形态与 plan 通道回归
         ("16_todolist_首帧空壳迟到清单", [
@@ -525,7 +525,7 @@ def _scenarios() -> list[tuple[str, list[dict], str, object]]:
                         "path": "src/ide/llm/providers"}),
             _tool_update("tc-search", "completed", kind="search",
                          raw_output={"output":
-                                     "src/ide/llm/providers/acp/updates.py:"
+                                     "src/ide/llm/providers/kimi/updates.py:"
                                      "def _tool_call_summary(update: dict)"}),
             _tool_call("tc-fetch", "FetchURL", "fetch",
                        {"url": "https://example.com/acp-spec"}),
@@ -797,13 +797,14 @@ def _nested_scenarios() -> list[tuple[str, list[dict], str, frozenset]]:
 def _run_nested_scenario(frames: list[dict], session_id: str = "mock",
                          open_children: frozenset = frozenset()) -> QWidget:
     """嵌套场景全链路回放（0813-1919 计划 T5）：真实 ChatTranscriptView
-    路由——帧 → map_session_update → panel 同语义路由（title 回填/
+    路由——帧 → Kimi update mapper → panel 同语义路由（title 回填/
     command 簿记/闸门）→ append_tool_call/append_tool_update（T3 嵌套
     委派走真实代码，不绕过分派直建卡）。返回展开态容器供截图。"""
     router = _MiniRouter()
     view = ChatTranscriptView(CHAT_PACK)
+    mapper = KimiUpdateMapper()
     for frame in frames:
-        chunk = map_session_update(
+        chunk = mapper.map_session_update(
             {"params": {"update": frame, "sessionId": session_id}})
         if chunk is None:
             continue
@@ -897,16 +898,16 @@ def _run_scenario(frames: list[dict],
                   session_id: str = "mock") -> tuple[QWidget, dict]:
     """单场景全链路回放：帧 → Chunk → 路由 → 建卡/更新 → (容器 widget, 卡表)。
 
-    session_id 按场景注入（0808-0627 计划 T3：todo 跨调用 diff 簿记
-    _last_todo_snapshots 为协议层模块级状态、sessionId 键控——场景间
-    隔离防快照串联误标，同场景内多次调用共享一键以实证跨调用 diff）。
+    每个场景使用独立的 KimiUpdateMapper；session_id 仍按场景注入，保证
+    todo 跨调用 diff 只在同场景内推进，场景间不串联。
     """
     router = _MiniRouter()
     open_state = OpenStateMap()
     card_map: dict[str, ToolCard] = {}
     cards: list[QWidget] = []
+    mapper = KimiUpdateMapper()
     for frame in frames:
-        chunk = map_session_update(
+        chunk = mapper.map_session_update(
             {"params": {"update": frame, "sessionId": session_id}})
         if chunk is None:
             continue

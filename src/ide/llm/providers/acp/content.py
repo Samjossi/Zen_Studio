@@ -1,7 +1,7 @@
 """标准 ACP content/diff/文本截断纯函数。
 
-本模块只放无厂商词表、无卡片格式假设的技术设施；具体工具名、入参键表和
-厂商回执模板归各厂商 update mapper（T2 起），不得回流。
+本模块只放无厂商词表、无卡片格式假设的技术设施；具体工具名、入参键表、
+厂商回执模板与厂商私有图片标记归各厂商 update mapper，不得回流。
 """
 import difflib
 import json
@@ -60,28 +60,17 @@ _BODY_SOFT_LIMIT_LINES = 1000  # 卡 body 正文软上限（0645 计划 D2；折
                                # 唯一保留的截断——性能护栏而非版面妥协）
 
 
-_IMAGE_PATH_RE = re.compile(r"<image\s+path=[\"']?([^\"'>\s]+)[\"']?\s*/?>")
-
-
 def _collect_content_block(block: dict, texts: list[str], images: list[str]) -> None:
-    """单个 MCP/ACP content 块按 type 分发（0806 计划 T2 识别矩阵）：
+    """单个标准 ACP/MCP content 块按 type 分发（0806 计划 T2 识别矩阵）：
 
-    text 拼入 texts（`<image path>` 标签提取为 file:// 图片并剔除标签）；
-    image / image_url / resource 图片形态入 images（data-URI 或 file://）；
-    http(s) 图片链接不联网拉取，留一行占位文本。
+    text 原样拼入 texts；image / image_url / resource 图片形态入 images
+    （data-URI 或 file://）；http(s) 图片链接不联网拉取，留一行占位文本。
+    厂商私有文本标记（如 Kimi 的 `<image path>`）不得在此解析。
     """
     btype = block.get("type")
     if btype == "text" or btype is None:
         text = block.get("text")
-        if not isinstance(text, str):
-            return
-
-        def _pick_image(match: re.Match) -> str:
-            images.append(f"file://{match.group(1)}")
-            return ""
-
-        text = _IMAGE_PATH_RE.sub(_pick_image, text).strip()
-        if text:
+        if isinstance(text, str) and text:
             texts.append(text)
         return
     if btype == "image":  # ACP 原生：data + mimeType

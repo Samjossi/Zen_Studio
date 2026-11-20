@@ -97,10 +97,10 @@ class Chunk:
     kind="usage" 时 text 为空串、载荷经 usage 字段携带（用量不上屏进
     输出区文本流，由 GUI 路由到徽章控件）。
 
-    kind="tool_call" / "tool_call_update" / "todo"（1602 计划 T1：
-    对话区 AI 活动信息充分展示）时载荷经 payload 字段携带，schema
-    见下方三个 TypedDict；text 字段为协议层预填的兜底显示单行——
-    GUI 对未识别 kind 按 text 渲染，新协议层配旧 GUI 不崩
+    kind="tool_call" / "tool_call_update" / "todo" 时载荷经 payload
+    字段携带，对通用层不透明——只按事件类型与调用 ID 路由，不读取卡片
+    字段；具体 schema 由各厂商 `models.py` 定义。text 字段为协议层预填的
+    兜底显示单行：GUI 对未识别 kind 按 text 渲染，新协议层配旧 GUI 不崩
     （多标签/多开版本错配防御）。新三 kind 与 reasoning 同约束：
     仅上屏，不入历史、不回传。
     """
@@ -110,6 +110,8 @@ class Chunk:
     ]
     text: str
     usage: UsageStats | None = None
+    #: 工具/计划活动的厂商私有载荷：通用层只按 kind 路由并原样转交，不读取
+    #: 其中字段；具体 schema 归各厂商 `models.py`，卡片与 presenter 自行解释。
     payload: dict | None = None
     #: 轮次输出速度（kind="usage" 时可同帧携带；仅 kimi 后端产出，
     #: 其余后端恒 None，GUI 无数据不显示对应行）
@@ -117,121 +119,6 @@ class Chunk:
     #: 轮次真实 token 消耗（kind="usage" 时可同帧携带；仅 kimi / DSH
     #: 后端产出，2026-1114-1452 计划；GUI 轮末落盘进按日统计与滚动汇总）
     consumption: "TurnConsumption | None" = None
-
-
-class TodoEntry(TypedDict, total=False):
-    """todo 清单条目（plan 快照与 todowrite rawInput 两通道同构，1425 封存款 F1）。"""
-    content: str
-    status: str         # pending / in_progress / completed / cancelled
-    priority: str       # high / medium / low（渲染层本期不消费，载荷留存）
-    #: 相对上次快照的变更标记（0808-0627 计划 T1：协议层跨调用 diff 产物，
-    #: 渲染层高亮数据源；仅供人类查看，不回传 AI、不改协议语义）
-    changed: bool
-
-
-class TodoPayload(TypedDict):
-    """kind="todo" 的载荷：entries 为全量快照。"""
-    entries: list[TodoEntry]
-
-
-class ToolCallPayload(TypedDict, total=False):
-    """tool_call Chunk 的结构化载荷（路由层直递 output.append_tool_call）。"""
-    tool_call_id: str   # 状态更新的锚点键（1425 封存款 F3）
-    title: str          # 工具标题（shell 工具 title 即命令本身）
-    tool_kind: str      # execute/edit/read/search/fetch/think/other
-    summary: str        # 参数摘要（协议层预格式化单行，GUI 不解析 rawInput）
-    is_subagent: bool   # tool_kind="think"（task 子代理）时 True（D5 标记）
-    command: str        # execute 工具的完整命令（1836 计划 L2-3 输出卡 `$ ` 头）
-    #: edit 类 diff 预格式化计数 `+N −M`（0645 融合计划 T1，difflib 生成）
-    diff_stat: str
-    #: edit 类预解析 hunk 列表 [{head, lines:[(前缀 +/-//空格, 文本)]}]，
-    #: 只留 hunk 不留全文，软上限 1000 行 + truncated 标记（0645 计划 D4）
-    diff_hunks: list[dict]
-    #: diff_hunks 被软上限截断时 True（卡 body 尾注用）
-    diff_truncated: bool
-    #: 通用入参区（0645 计划 D3）：rawInput 关键字段按 kind 预格式化多行
-    #: 文本（已知键 + JSON pretty 兜底），GUI 直渲不解析 rawInput
-    input_detail: str
-    #: AskUserQuestion 结构化问题列表（0806 计划 T5：QuestionCard 问答对
-    #: 渲染数据源；rawInput.questions 提取，GUI 不解析 rawInput）
-    questions: list[str]
-    #: AskUserQuestion 选项结构载荷（0807-0148 计划 T3：QuestionCard 卡片
-    #: 内交互数据源；每问 {question, header?, options: [{label, description?}],
-    #: multi_select}，rawInput.questions 原样提取——多选字段名实证为
-    #: multi_select 蛇形，见 文档/帧存档/askuser_*.json）
-    question_options: list[dict]
-    #: 入参图片本地路径（0158 计划 T1：MediaReadCard 略缩图数据源，
-    #: 仅供人类查看，不回传 AI；rawInput.path/filePath 原值，
-    #: 扩展名白名单过滤，相对路径由渲染层按工作区根解析）
-    media_path: str
-    #: todowrite/TodoList 清单快照（0808-0627 计划 T1：rawInput.todos
-    #: 提取 + 跨调用 diff changed 标记，TodoListCard 清单区数据源；
-    #: 仅供人类查看，不回传 AI、不改协议语义）
-    todos: list[TodoEntry]
-    #: 父指针（0813-1919 计划 T1：本帧属某子代理内部活动，渲染进
-    #: parent_tool_call_id 对应 SubagentCard 的内嵌区而非主流平铺；
-    #: 来源二选一——reasonix 层级 toolCallId 解析 / kimi wire 旁路合成，
-    #: GUI 只认本键不关心来源）
-    parent_tool_call_id: str
-
-
-class ToolUpdatePayload(TypedDict, total=False):
-    """tool_call_update Chunk 的结构化载荷（路由层补 title 后递 append_tool_update）。"""
-    tool_call_id: str
-    status: str         # in_progress / completed / failed
-    title: str          # 路由层自簿记补入（协议层不携带，total=False）
-    error: str          # failed 时的错误首行（预截断 80；旧轨行内尾注保留）
-    #: failed 完整错误文本（0645 计划 §2.3-5：净化 + 软上限 1000 行保尾；
-    #: 新轨 failed 卡 body 数据源，旧轨不消费）
-    error_detail: str
-    output: str         # 输出正文（0645 计划 §2.3-1 升级：净化 + 软上限
-                        # 1000 行，方向按 kind——execute 保尾、其余保头；
-                        # in_progress 帧为尾窗规格截尾末 5 行；
-                        # 旧轨路由层仅 execute 工具放行上屏，其余丢弃；
-                        # 新轨全工具卡 body 承接）
-    output_total_lines: int  # 输出原始行数（截断前；GUI 超限行尾注用）
-    command: str        # 路由层自簿记补入（execute 命令，输出卡 `$ ` 头）
-    #: think（task 子代理）completed 帧成果摘要（0645 计划 D5：`<task_result>`
-    #: 提取、无标记取全文、全量不截 10 行——软上限 1000 行保头由协议层执行）
-    result_summary: str
-    #: edit 类 diff 预格式化计数 `+N −M`（0919 计划 T2：kimi 系在
-    #: in_progress update 帧才发 diff content——首帧空壳、completed 帧
-    #: 只剩结果文本；与 ToolCallPayload 三键同源同构，difflib 生成）
-    diff_stat: str
-    #: edit 类预解析 hunk 列表 [{head, lines:[(前缀 +/-//空格, 文本)]}]，
-    #: 软上限 1000 行保头截断（同源 _extract_diff，零新增截断逻辑）
-    diff_hunks: list[dict]
-    #: diff_hunks 被软上限截断时 True（卡 body 尾注用）
-    diff_truncated: bool
-    #: 参数摘要迟到刷新（0919 计划 T2：edit/read 首帧无 locations/rawInput
-    #: 的后端——kimi 系——在 in_progress update 帧补齐 rawInput.path，
-    #: 协议层复用 _tool_call_summary 预格式化，GUI 不碰 rawInput）
-    summary: str
-    #: update 帧迟到入参回填（0806 计划 T1：kimi 系首帧空壳、rawInput 在
-    #: in_progress 帧才补发；与 ToolCallPayload.input_detail 同源同构，
-    #: 协议层簿记去重，渲染层「首帧优先」不覆盖既有入参区）
-    input_detail: str
-    #: 出参图片通道（0806 计划 T2：content 数组中 image/image_url/resource
-    #: 块独立下传，元素为 data-URI 或 file:// 路径；渲染层内嵌 <img>）
-    images: list[str]
-    #: AskUserQuestion 结构化问题列表迟到回填（0806 计划 T5；与
-    #: ToolCallPayload.questions 同源，首帧空壳时随 update 帧补发）
-    questions: list[str]
-    #: AskUserQuestion 选项结构载荷迟到回填（0807-0148 计划 T3；与
-    #: ToolCallPayload.question_options 同源同构）
-    question_options: list[dict]
-    #: 入参图片本地路径迟到回填（0158 计划 T1：kimi 系首帧空壳时随
-    #: update 帧与 input_detail 同频补发，同一 _input_detail_seen 账本；
-    #: 与 ToolCallPayload.media_path 同源同构）
-    media_path: str
-    #: todowrite/TodoList 清单快照迟到回填（0808-0627 计划 T1：kimi 系
-    #: 首帧空壳时随 update 帧补发；每帧都提不设去重账本——todo 语义是
-    #: 快照推进，与 input_detail/media_path「首帧优先」语义不同；
-    #: 与 ToolCallPayload.todos 同源同构，同走跨调用 diff 管线）
-    todos: list[TodoEntry]
-    #: 父指针（0813-1919 计划 T1：与 ToolCallPayload.parent_tool_call_id
-    #: 同源同语义——层级 toolCallId 解析或 kimi wire 旁路合成）
-    parent_tool_call_id: str
 
 
 class LanguageModel(Protocol):
