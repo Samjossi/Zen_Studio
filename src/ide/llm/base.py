@@ -102,13 +102,11 @@ class Chunk:
     见下方三个 TypedDict；text 字段为协议层预填的兜底显示单行——
     GUI 对未识别 kind 按 text 渲染，新协议层配旧 GUI 不崩
     （多标签/多开版本错配防御）。新三 kind 与 reasoning 同约束：
-    仅上屏，不入历史、不回传。kind="turn_sync" 为 Kimi 轮次同步提示，
-    同样只上屏、不入历史、不回传。
+    仅上屏，不入历史、不回传。
     """
 
     kind: Literal[
         "text", "reasoning", "usage", "tool_call", "tool_call_update", "todo",
-        "turn_sync",
     ]
     text: str
     usage: UsageStats | None = None

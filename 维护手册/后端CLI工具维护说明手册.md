@@ -48,29 +48,28 @@ kimi upgrade -y
 kimi --version
 ```
 
-当前应输出 `2.6.3`。
+本次真实验收环境输出 `2.7.1`。
 
 ### ACP 原会话恢复与事故取证
 
 - Zen Studio 要求 CLI 在 `initialize` 的 `agentCapabilities.sessionCapabilities.resume` 中声明恢复能力；2.6.3 实测为 `{}`（支持）。不支持时不会退回 `session/load` 或新建空会话，应升级 CLI 后重试。
 - 恢复仅由下一次手动发送触发，顺序为 `initialize → session/resume → session/set_config_option`；`resume` 参数为原 `sessionId`、创建时 `cwd` 与 `mcpServers`。响应可不返回 `sessionId`，客户端沿用原 ID。
-- 普通手动停止不重建进程；EOF、写断管、进程退出和看门狗停滞才进入下轮恢复。原中断 prompt 永不自动重放，恢复失败时新 prompt 也不发送。
+- 普通手动停止不重建进程；仅 stdout EOF、进程意外退出和真实写帧失败进入下轮恢复。Kimi 不使用停滞看门狗。原中断 prompt 永不自动重放，恢复失败时新 prompt 也不发送。
 - 开发态日志位于项目 `config/logs/zen-studio.log`，桌面冻结态位于 `~/.config/zen-studio/logs/zen-studio.log`。检索 `generation`、`sessionId`、`requestId`、`resume`、`connection_dead` 和 `recovery_failed`，先确认连接代次与退出码，再区分 IDE 写失败、CLI EOF 和控制请求超时。
 - ACP stdout 永远是协议帧，完整帧与 prompt 正文不得写入诊断日志。stderr 由 IDE 持续排空，仅保留有界脱敏尾部并在异常时落日志；CLI 自身完整日志仍按官方数据位置另行查看，取证时不得复制凭证或上传完整会话内容。
 
-### 后台通知轮次一致性
+### 后台通知轮次边界
 
-- Kimi `session/prompt` 的 `end_turn` 仍是主信号，但 IDE 会增量核对主 agent wire 的用户 `turn.prompt`、最后 `step.end.finishReason`、`turn.ended`、`prompt.completed` 和 task/notify 轮次。用户轮次缺失、未完成、在 `tool_use` 后提前完成，均不得按成功收尾。
-- 通知轮次仍活跃时，原 worker 保持 busy 并继续消费 ACP/sidecar 工具帧，完成提醒与自动待发暂停；下一轮 `session/prompt` 前还会再次检查并排干已登记通知。不得以固定等待代替状态判定，也不得另起 worker 或 provider。
-- 失配必须先等已知 agent 活动安全结束，再标记下轮手动恢复；活跃时禁止 kill/resume。恢复只接受用户新的手动发送，原 prompt 和排队追问均不自动重放，失败时不得退回 `session/new`。
-- 取证检索 `轮次一致性`、`drain_start`、`drain_end`、`requestId`、`promptId`、`turnId`、`notifications` 与 `finishReason`。这些日志只含元数据；上游复现材料同样不得包含 prompt 正文、完整工具参数/输出、diff 或凭证。
+- Kimi 轮次只以对应 `session/prompt` response 的 `stopReason` 收尾。IDE 不读取私有 wire 判断 busy、成功、失配、恢复或待发，也没有轮前/轮后 drain。
+- 后台通知期间提前 `end_turn`、追问未形成真实执行轮或工具副作用重复，应按上游 ACP 契约问题独立取证；不得重新引入本地私有状态机掩盖。
+- 取证保留 CLI 版本、`requestId`、`sessionId`、`stopReason`、ACP 帧顺序和脱敏 wire 元数据；不得包含 prompt 正文、完整工具参数/输出、diff 或凭证。
 
 ### 上下文用量采集与迟到通知诊断
 
 - 官方 ACP `usage_update` 仍是 prompt response 后的轮末单帧，携带 `used/size`。Zen 的轮内刷新额外读取私有 `agents/main/wire.jsonl`；该文件没有 ACP 公共契约保证，解析失败必须降级，不得影响聊天主流程。
 - 轮内优先读取 `token_counting.measured.tokens` 作为实测上下文水位；旧版本或事件缺失时，以 `usage.record` 的 `inputOther + inputCacheRead + inputCacheCreation + output` 兜底。模型窗口来自模型目录 `maxContextSize`，不得使用 `llm.request.maxTokens`。
 - 轮内读取采用每会话增量游标与残行缓冲，首次仅取 64KB 尾部；大工具输出后沿用最后有效采样。会话目录只缓存成功定位，失败按 2/5/15 秒退避；空模型目录在下一轮 worker 准备时重试，GUI tick 不启动目录子进程。
-- response 后保留原 3 秒 worker 收尾窗口；Kimi 面板另有最长 10 秒非 busy 宽限，下一轮清理队列前也会回收旧 usage。空闲回收必须非阻塞取得轮次锁，正文、工具、响应和 Token 消耗账本不得走该通道。
+- response 后保留 3 秒有界用量收尾窗口；Kimi 面板另有最长 10 秒非 busy 宽限，由 `poll_usage()` 回收迟到 usage。空闲回收必须非阻塞取得轮次锁，正文、工具、响应和 Token 消耗账本不得走该通道；用量缺失或迟到不改变轮次终态。
 - 排查时只记录事件类型、脱敏数值、时间差、失败类别与重试次数。若轮内长期为 `—`，依次检查目录定位/模型窗口重试日志、wire 是否出现有效 measured 或 usage.record、轮后宽限是否仍在运行；不得复制完整 wire、prompt、工具参数或凭证。
 
 ---

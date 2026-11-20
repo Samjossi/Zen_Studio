@@ -446,19 +446,6 @@ class ChatTabs(QWidget):
         return [self._tabs.widget(i) for i in range(self._tabs.count())
                 if isinstance(self._tabs.widget(i), ChatPanel)]
 
-    def set_temporary_notice_panel_enabled(self, enabled: bool) -> None:
-        """向存量标签下发开关；新建标签从持久化设置读取。"""
-        for panel in self._panels():
-            panel.set_temporary_notice_panel_enabled(enabled)
-
-    def preview_temporary_notice_panel(self) -> bool:
-        """在当前活动标签预览；零标签时返回 False。"""
-        current = self._tabs.currentWidget()
-        if not isinstance(current, ChatPanel):
-            return False
-        current.preview_temporary_notice_panel()
-        return True
-
     def apply_theme(self, theme: str) -> None:
         """主题切换转发全部标签（思维链前景色）。"""
         for panel in self._panels():

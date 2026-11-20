@@ -1,47 +1,12 @@
-"""Kimi ACP provider：长驻 `kimi acp` 子进程 + JSON-RPC（ndjson 帧）对接。
+"""Kimi ACP provider：长驻 `kimi acp` 子进程与 JSON-RPC ndjson 帧对接。
 
-kimi 唯一传输层（CLI `-p` 模式已移除，见 2026-0731-0036 计划）：长驻单进程、
-token 级流式（`agent_message_chunk`）、思维链可见（`agent_thought_chunk`）、
-会话原生管理（`session/new`，断管/停滞后 `session/resume`）；历史由 agent
-侧会话管理，仅取末条 user 消息作 prompt。凭证由 CLI 自管（OAuth），代码库零密钥。
+轮次生命周期只遵循 ACP：发送一次 `session/prompt`，转发 `session/update`，
+按对应 response 的 `stopReason` 收尾。真实断连保留下一次手动发送时的
+`session/resume`；原 prompt 不自动重放。历史由 agent 会话管理，凭证由 CLI 自管。
 
-连接层已泛化抽出（计划 2026-0730-0150 §4-D5）：帧收发/反向请求/死讯注入
-见 ide/llm/providers/acp.py 的 AcpConnection（agent_name 参数化）；本文件仅留
-kimi 专有装配（initialize 载荷、-32000 authRequired 文案映射），二进制路径
-解析复用 ide/llm/providers/kimi_common.py 的 _find_bin。
-行为与抽离前逐行等价。
-
-上下文用量以轮末 ACP `usage_update` 为主（source="push"）：该通知在
-prompt response 后异步到达，故收尾在同一 ≤3s 窗口内继续消费 ACP 与
-wire，之后由 GUI 的短宽限和下一轮开始前回收迟到 usage。wire 负责轮内
-增量轮询及 ACP 缺失兜底（source="transcript"）：优先采用
-`token_counting.measured.tokens` 实测水位，旧版以 usage.record 四项求和；
-上下文窗口读模型目录 maxContextSize，不使用 llm.request.maxTokens（输出预算）。
-会话目录仅缓存成功结果，空模型目录在下轮 worker 准备时重试。只有带
-turnStep 的请求参与轮次计数与速度配对，超时保留已落盘的有效子集。
-
-轮次输出速度随收尾 usage chunk 携带 TurnSpeed：基线后逐次配对
-`llm.request → usage.record`，分子 Σ usage.output（单次调用值，直取
-不差分），分母 Σ(record.time − request.time)，仅含模型生成时间，
-工具/审批间隙不计。私有 wire 格式假设登记于维护手册 §8。
-
-轮次真实 token 消耗（2026-1114-1452 计划）：与速度同一次 wire 读取
-求和四项（inputOther/inputCacheRead/inputCacheCreation/output），随
-收尾 usage chunk 的 `consumption` 字段携带 TurnConsumption；速度配对
-失败不影响消耗求和，GUI 轮末落盘进按日统计与滚动汇总（仅主代理 main 口径）。
-
-session/update 映射（1602 计划 T3）：私有 _map_update 已删除，统一改调
-ide/llm/providers/acp.py 的公共实现 map_session_update（D4 上收——原四份
-逐行一致副本同一改动改四处必然漂移）。
-
-子代理 wire 旁路（0813-1919 计划 T4，客户端私有行为，无协议契约）：
-kimi ACP 通道对子代理（Agent 工具）仅报起止，但会话落盘
-`agents/agent-N/wire.jsonl` 完整记录子代理 tool.call/tool.result 且
-轮次内增量写盘（与 0117 轮次内用量轮询同机制实证）。旁路线程在轮次内
-发现新增 agent-N 目录、按字节偏移增量解析 wire，合成与 reasonix 层级
-ID 帧同构的 update dict（tid 拼 `父/子` 全串），经队列注入轮次消费
-循环与 conn 双源汇合——GUI 只认 parent_tool_call_id 一种形态，来源
-差异封闭在本文件。目录发现失败/格式漂移 → 静默关闭旁路回退纯 ACP。
+wire.jsonl 仅提供用量、输出速度、真实消耗和子代理展示数据。轮末用量在
+有界窗口内尽力收集，缺失、迟到或格式异常均不改变 ACP 终态。连接帧收发、
+反向请求与 update 映射分别复用 AcpConnection 和 map_session_update。
 """
 import atexit
 import json
@@ -83,11 +48,6 @@ from ide.llm.providers.kimi_common import (
     context_sizes_from_catalog,
     load_kimi_provider_catalog,
 )
-from ide.llm.providers.kimi_turn_consistency import (
-    KimiTurnTracker,
-    TurnConsistencySnapshot,
-    TurnDesynchronized,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -103,7 +63,6 @@ _SESSION_DIR_RETRY_DELAYS_S = (2.0, 5.0, 15.0)
 #: Kimi 已在 ACP terminal/* 反向能力实测中通过；无 GUI 终端处理器时仍声明 false
 _TERMINAL_CAPABILITY = True
 _SESSION_RESUME_TIMEOUT_S = 30.0
-_TURN_CONSISTENCY_WAIT_S = 3.0
 
 
 def _session_dir_of(session_id: str) -> Path | None:
@@ -197,18 +156,6 @@ def _read_wire_turn_stats(
     return len(usage_records), len(requests), stats
 
 
-def _read_wire_usage(
-    session_dir: Path,
-    context_sizes: dict[str, int] | None = None,
-    model_alias: str | None = None,
-) -> tuple[int, UsageStats | None]:
-    """读 wire.jsonl → (turn 用量数, 末条用量定型)；失败返回 (0, None)。"""
-    parsed = _read_wire_turn_stats(session_dir, context_sizes, model_alias)
-    if parsed is None:
-        return 0, None
-    return parsed[0], parsed[2]
-
-
 def _read_wire_turn_metrics(
     session_dir: Path, usage_baseline: int, session_id: str | None = None
 ) -> tuple[TurnSpeed | None, TurnConsumption | None]:
@@ -261,13 +208,6 @@ def _read_wire_turn_metrics(
             input_cache_creation=sums[2], output=sums[3],
             turn_id=f"{session_id}:{usage_baseline + new_usage}")
     return speed, consumption
-
-
-def _read_wire_turn_speed(
-    session_dir: Path, usage_baseline: int
-) -> TurnSpeed | None:
-    """轮次输出速度（薄封装；消耗求和见 _read_wire_turn_metrics）。"""
-    return _read_wire_turn_metrics(session_dir, usage_baseline)[0]
 
 
 @dataclass
@@ -622,7 +562,6 @@ class KimiAcpLLM(LanguageModel):
         self._context_catalog_attempts = 0
         self._idle_push_stats: UsageStats | None = None
         self._usage_warning_active = False
-        self._turn_tracker: KimiTurnTracker | None = None
         atexit.register(self.close)
 
     def _ensure_context_sizes(self) -> None:
@@ -648,13 +587,12 @@ class KimiAcpLLM(LanguageModel):
             self._poll_dir_retry_at = 0.0
             self._wire_usage_states.clear()
             self._idle_push_stats = None
-        self._turn_tracker = None
 
     # ------------------------------------------------------------------
     # 生命周期
     # ------------------------------------------------------------------
     def set_model(self, alias: str) -> None:
-        """切换模型别名；失败保留原会话，并在下轮发送前恢复后重试配置。"""
+        """切换模型别名；失败保留原会话，普通协议错误不触发连接恢复。"""
         self._model = alias
         with self._usage_poll_lock:
             self._wire_usage_states.clear()
@@ -664,8 +602,7 @@ class KimiAcpLLM(LanguageModel):
                 self._conn.request("session/set_config_option", {
                     "sessionId": self._session_id, "configId": "model", "value": alias}, timeout=10)
             except RuntimeError:
-                logger.exception("即时切换模型失败，下轮发送前恢复原会话并应用选择")
-                self._needs_recovery = True
+                logger.exception("即时切换模型失败")
 
     def set_effort(self, value: str) -> None:
         """切换推理强度（2026-0806 计划；会话存在则即时生效）。
@@ -739,15 +676,6 @@ class KimiAcpLLM(LanguageModel):
     def recovery_pending(self) -> bool:
         return bool(self._session_id) and (
             self._needs_recovery or self._conn is None or not self._conn.is_alive)
-
-    def mark_stalled(self) -> None:
-        """看门狗停滞与普通停止分流：仅前者强制下轮重建并恢复原会话。"""
-        if self._closed:
-            return
-        self._needs_recovery = True
-        logger.info(
-            "[kimi acp] 标记停滞恢复 sessionId=%s generation=%s",
-            self._session_id, self._conn.generation if self._conn else None)
 
     def cancel(self) -> None:
         """取消当前轮次：协议 `session/cancel` + 本地 abort_turn；无轮次时 no-op。
@@ -901,16 +829,6 @@ class KimiAcpLLM(LanguageModel):
                 self._poll_dir_failures, delay)
             return None
 
-    def _turn_tracker_for_session(self) -> KimiTurnTracker | None:
-        session_id = self._session_id
-        session_dir = _session_dir_of(session_id) if session_id else None
-        if session_dir is None:
-            return None
-        wire_path = session_dir / "agents" / "main" / "wire.jsonl"
-        if self._turn_tracker is None or self._turn_tracker.path != wire_path:
-            self._turn_tracker = KimiTurnTracker(session_dir)
-        return self._turn_tracker
-
     @staticmethod
     def _drain_usage_updates(conn: AcpConnection) -> UsageStats | None:
         """排空空闲队列，仅保留有效 usage；其他迟到帧维持原清理语义。"""
@@ -969,26 +887,12 @@ class KimiAcpLLM(LanguageModel):
             return
         with self._turn_lock:  # 串行化轮次，防 inbox 串抢
             conn = self._ensure_session()
-            tracker = self._turn_tracker_for_session()
-            if tracker is not None:
-                tracker.poll()
-                before = tracker.snapshot(response_received=False)
-                if before.state == "draining":
-                    yield self._turn_sync_chunk(before)
-                    yield from self._drain_turn_consistency(
-                        conn, tracker, None, None,
-                        response_received=False, request_id=None)
-            late_usage = self._drain_usage_updates(conn)
-            conn.purge_updates()
-            if late_usage is not None:
-                yield Chunk("usage", "", usage=late_usage)
-            self._idle_push_stats = None
             request_id = conn.begin_turn("session/prompt", {
                 "sessionId": self._session_id,
                 "prompt": build_prompt_blocks(message, workspace_root=self._cwd),
             })
             try:
-                yield from self._iter_turn_chunks(conn, request_id, tracker)
+                yield from self._iter_turn_chunks(conn, request_id)
             finally:
                 conn.end_turn()
 
@@ -996,14 +900,9 @@ class KimiAcpLLM(LanguageModel):
         self,
         conn: AcpConnection,
         request_id: int | None = None,
-        tracker: KimiTurnTracker | None = None,
     ) -> Iterator[Chunk]:
-        """轮次内消费 ACP 与 sidecar；正常响应先核对私有轮次再收尾。"""
+        """消费 ACP 与展示 sidecar，直到 prompt response 或真实断连。"""
         session_dir = _session_dir_of(self._session_id) if self._session_id else None
-        if tracker is None and session_dir is not None:
-            tracker = KimiTurnTracker(session_dir, start_at_end=False)
-        if tracker is not None:
-            self._turn_tracker = tracker
         turn_stats0 = (_read_wire_turn_stats(
             session_dir, self._context_sizes, self._model) if session_dir else None)
         usage_baseline = turn_stats0[0] if turn_stats0 else 0
@@ -1029,43 +928,12 @@ class KimiAcpLLM(LanguageModel):
                             f"退出码 {obj}）；原请求不会自动重发")
                     if kind == "response":
                         self._raise_on_turn_error(obj)
-                        # 先分类、后收尾、收尾完成再抛：非 end_turn 终态
-                        # 同样需要本轮用量/速度/消耗（D5）
                         pending_error = self._classify_stop_reason(obj, request_id)
-                        sync_notified = False
-                        if pending_error is None and tracker is not None:
-                            tracker.poll()
-                            snapshot = tracker.snapshot(response_received=True)
-                            self._log_turn_consistency("response", snapshot, request_id)
-                            if snapshot.state != "normal":
-                                yield self._turn_sync_chunk(snapshot)
-                                sync_notified = True
-                                yield from self._drain_turn_consistency(
-                                    conn, tracker, sidecar, sidecar_queue,
-                                    response_received=True, request_id=request_id)
                         yield from self._collect_turn_end_usage(
                             conn, session_dir, usage_baseline, request_baseline,
-                            sidecar, sidecar_queue, turn_push_stats,
-                            tracker=tracker if pending_error is None else None,
-                            request_id=request_id, sync_notified=sync_notified)
+                            sidecar, sidecar_queue, turn_push_stats)
                         if pending_error is not None:
                             raise pending_error
-                        if tracker is not None:
-                            tracker.poll()
-                            snapshot = tracker.snapshot(response_received=True)
-                            # 收尾检查与用量窗口之间仍可能有新通知落盘；
-                            # 活跃时继续排空，确认空闲后才允许失配收尾和恢复标记
-                            while snapshot.state != "normal" and snapshot.agent_active:
-                                yield self._turn_sync_chunk(snapshot)
-                                yield from self._drain_turn_consistency(
-                                    conn, tracker, sidecar, sidecar_queue,
-                                    response_received=True, request_id=request_id)
-                                tracker.poll()
-                                snapshot = tracker.snapshot(response_received=True)
-                            self._log_turn_consistency("settled", snapshot, request_id)
-                            if snapshot.state != "normal":
-                                self._needs_recovery = True
-                                raise TurnDesynchronized(snapshot.reason)
                         return
                     chunk = map_session_update(obj)
                     if chunk:
@@ -1080,75 +948,6 @@ class KimiAcpLLM(LanguageModel):
             if sidecar is not None:
                 sidecar.stop()
 
-    @staticmethod
-    def _turn_sync_chunk(snapshot: TurnConsistencySnapshot) -> Chunk:
-        text = ("正在同步 Kimi 后台通知轮次；完成与待发已暂停"
-                if snapshot.notification_ids else
-                "正在核对 Kimi 轮次状态；完成与待发已暂停")
-        return Chunk("turn_sync", text)
-
-    def _log_turn_consistency(
-        self,
-        event: str,
-        snapshot: TurnConsistencySnapshot,
-        request_id: int | None,
-    ) -> None:
-        logger.info(
-            "[kimi acp] 轮次一致性 event=%s state=%s reason=%s "
-            "requestId=%s sessionId=%s generation=%s promptId=%s turnId=%s "
-            "notifications=%s finishReason=%s active=%s",
-            event, snapshot.state, snapshot.reason, request_id, self._session_id,
-            self._conn.generation if self._conn is not None else None,
-            snapshot.user_prompt_id, snapshot.user_turn_id,
-            ",".join(snapshot.notification_ids) or "-",
-            snapshot.last_finish_reason, snapshot.agent_active)
-
-    def _drain_turn_consistency(
-        self,
-        conn: AcpConnection,
-        tracker: KimiTurnTracker,
-        sidecar: _WireSidecar | None,
-        sidecar_queue: "queue.Queue[dict] | None",
-        *,
-        response_received: bool,
-        request_id: int | None,
-    ) -> Iterator[Chunk]:
-        """保持原 worker 消费通道，直到内部活动落定或出现明确失配。"""
-        started = time.monotonic()
-        tracker.poll()
-        initial = tracker.snapshot(response_received=response_received)
-        self._log_turn_consistency("drain_start", initial, request_id)
-        while True:
-            tracker.poll()
-            snapshot = tracker.snapshot(
-                response_received=response_received,
-                missing_prompt_expired=(
-                    time.monotonic() - started >= _TURN_CONSISTENCY_WAIT_S),
-            )
-            if snapshot.state != "draining" and not snapshot.agent_active:
-                self._log_turn_consistency("drain_end", snapshot, request_id)
-                return
-            try:
-                kind, obj = conn.next_update(timeout=_WIRE_USAGE_POLL_S)
-            except queue.Empty:
-                if sidecar is not None and sidecar_queue is not None:
-                    yield from self._drain_sidecar(sidecar_queue)
-                continue
-            if kind == "dead":
-                self._needs_recovery = True
-                raise RuntimeError(
-                    f"kimi acp 连接已断开（{conn.failure_reason or '未知原因'}，"
-                    f"退出码 {obj}）；原请求不会自动重发")
-            if kind == "response":
-                continue
-            chunk = map_session_update(obj)
-            if chunk:
-                if sidecar is not None:
-                    _sidecar_observe(sidecar, chunk)
-                yield chunk
-            if sidecar is not None and sidecar_queue is not None:
-                yield from self._drain_sidecar(sidecar_queue)
-
     def _collect_turn_end_usage(
         self,
         conn: AcpConnection,
@@ -1158,9 +957,6 @@ class KimiAcpLLM(LanguageModel):
         sidecar: _WireSidecar | None,
         sidecar_queue: "queue.Queue[dict]",
         initial_push: UsageStats | None,
-        tracker: KimiTurnTracker | None = None,
-        request_id: int | None = None,
-        sync_notified: bool = False,
     ) -> Iterator[Chunk]:
         """在同一截止时间内收集 ACP 与 wire；ACP 优先，wire 保留部分结果。"""
         deadline = time.monotonic() + _WIRE_USAGE_WAIT_S
@@ -1215,16 +1011,6 @@ class KimiAcpLLM(LanguageModel):
                 yield from self._drain_sidecar(sidecar_queue)
         if sidecar is not None:
             yield from self._drain_sidecar(sidecar_queue)
-        if tracker is not None:
-            tracker.poll()
-            snapshot = tracker.snapshot(response_received=True)
-            if snapshot.state != "normal":
-                if not sync_notified:
-                    yield self._turn_sync_chunk(snapshot)
-                if snapshot.state == "draining" or snapshot.agent_active:
-                    yield from self._drain_turn_consistency(
-                        conn, tracker, sidecar, sidecar_queue,
-                        response_received=True, request_id=request_id)
         speed: TurnSpeed | None = None
         consumption: TurnConsumption | None = None
         if session_dir is not None:
@@ -1262,35 +1048,6 @@ class KimiAcpLLM(LanguageModel):
                 "params": {"update": update, "sessionId": self._session_id or ""}})
             if chunk:
                 yield chunk
-
-    @staticmethod
-    def _poll_wire_usage(
-        session_dir: Path | None,
-        usage_baseline: int,
-        request_baseline: int,
-        context_sizes: dict[str, int] | None = None,
-        model_alias: str | None = None,
-    ) -> UsageStats | None:
-        """等待本轮 turn 用量凑齐；超时仍返回已落盘的有效子集。"""
-        if session_dir is None:
-            return None
-        deadline = time.monotonic() + _WIRE_USAGE_WAIT_S
-        latest_stats: UsageStats | None = None
-        while True:
-            parsed = _read_wire_turn_stats(session_dir, context_sizes, model_alias)
-            if parsed is not None:
-                usage_count, request_count, stats = parsed
-                new_usage = usage_count - usage_baseline
-                new_requests = request_count - request_baseline
-                if new_usage > 0 and stats is not None:
-                    latest_stats = stats
-                complete = (new_usage >= new_requests if new_requests > 0
-                            else new_usage > 0)
-                if complete:
-                    return stats if stats is not None else latest_stats
-            if time.monotonic() >= deadline:
-                return latest_stats
-            time.sleep(_WIRE_USAGE_POLL_S)
 
     def _classify_stop_reason(
         self, response: dict, request_id: int | None = None
