@@ -107,7 +107,7 @@ from ide.llm import (
     Chunk,
     LanguageModel,
     Message,
-    PermissionParams,
+    PermissionRequest,
     TurnConsumption,
     TurnSpeed,
     UsageStats,
@@ -118,7 +118,6 @@ from ide.llm import (
 from ide.llm.permission_policy import (
     DECISION_ALLOW,
     decide_permission,
-    is_question_request,
     select_option_id,
 )
 
@@ -1024,31 +1023,34 @@ class ChatPanel(QWidget):
     # ------------------------------------------------------------------
     # ACP 审批回环（权限四态：纯逻辑前置决策，弹窗面由档位决定）
     # ------------------------------------------------------------------
-    def _ask_permission(self, params: PermissionParams) -> str | None:
+    def _ask_permission(self, request: PermissionRequest) -> str | None:
         """ACP 审批处理器：在 agent reader 线程被调用。
 
-        decide_permission 按当前 permission_mode 四态前置决策——allow 直接
-        同步返回 optionId（零 GUI、零阻塞，不触碰队列/QTimer）；ask 提交
-        全局审批队列弹窗（黑名单命中附原因）。返回 None 由上层按拒绝兜底。
+        provider 已按本厂商规则把原始参数分类为中性 `PermissionRequest`；
+        这里只按 kind 与权限四态决策。decide_permission allow 时同步返回
+        optionId（零 GUI、零阻塞，不触碰队列/QTimer）；ask 提交全局审批
+        队列弹窗（黑名单命中附原因）。返回 None 由上层按拒绝兜底。
 
-        question 特判：AskUserQuestion 类交互请求走 QUESTION_BRIDGE 卡片内
-        交互（按钮组激活）；decide_permission 对 question 恒返回 ask，
-        select_option_id 自动选答路径对 question 请求不可达。
+        question 分支走 QUESTION_BRIDGE 卡片内交互（按钮组激活），原因：
+        提问选项是答案不是审批动作；decide_permission 对 question 恒返回
+        ask，select_option_id 自动选答路径对 question 请求不可达。
         """
-        decision, reason = decide_permission(params, load_settings()[KEY_PERMISSION_MODE])
+        decision, reason = decide_permission(
+            request, load_settings()[KEY_PERMISSION_MODE])
         if decision == DECISION_ALLOW:
-            option_id = select_option_id(params.get("options") or [])
+            options = request.params.get("options") or []
+            option_id = select_option_id(options)
             if option_id is not None:
                 return option_id
             # 决策为 allow 但 agent 未提供 allow 类选项：不静默拒绝
             # （None 会被上层兜底为 reject），降级普通弹窗交还用户裁决
-            return PERMISSION_QUEUE.ask(params, self)
-        if is_question_request(params):
-            tool_call_id = (params.get("toolCall") or {}).get("toolCallId") or ""
+            return PERMISSION_QUEUE.ask(request, self)
+        if request.kind == "question":
+            tool_call_id = (request.params.get("toolCall") or {}).get("toolCallId") or ""
             self.question_asked.emit()
             return QUESTION_BRIDGE.ask(
-                params, tool_call_id, self, vendor=self._chat_vendor)
-        return PERMISSION_QUEUE.ask(params, self, danger_reason=reason)
+                request, tool_call_id, self, vendor=self._chat_vendor)
+        return PERMISSION_QUEUE.ask(request, self, danger_reason=reason)
 
     # ------------------------------------------------------------------
     # 发送与流式接收（含排队发送待发路由）

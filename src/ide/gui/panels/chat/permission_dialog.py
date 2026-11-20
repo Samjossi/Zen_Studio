@@ -1,7 +1,7 @@
 """ACP 工具审批对话框：工具名/参数摘要 + 选项按钮（允许一次/始终允许/拒绝）。
 
-QuestionDialog（0807-0148 计划 T2）：AskUserQuestion 类交互请求的专用
-对话框——「提问-选项」语义（选项是答案不是审批动作），与 PermissionDialog
+QuestionDialog（0807-0148 计划 T2）：提问类交互请求的专用对话框——
+「提问-选项」语义（选项是答案不是审批动作），与 PermissionDialog
 的工具审批语义分野：选项文案用 agent 提供的 name 原文，不走 KIND_LABELS
 审批语义映射。
 """
@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (
 from ide.gui.popups import TranslucentMenuPlainTextEdit
 from ide.gui.settings import KEY_THEME
 from ide.gui.theme import WARNING_COLOR, get_theme_palette, load_settings
-from ide.llm import PermissionParams
+from ide.llm import PermissionRequest
 
 #: 选项 kind → 中文按钮文案（agent 提供英文 name 时兜底）
 KIND_LABELS = {
@@ -45,11 +45,12 @@ class PermissionDialog(QDialog):
 
     def __init__(
         self,
-        params: PermissionParams,
+        request: PermissionRequest,
         parent: QWidget | None = None,
         danger_reason: str | None = None,
     ) -> None:
         """
+        :param request: 厂商分类后的中性审批请求（params 保留 agent 原始载荷）
         :param danger_reason: 危险命令黑名单命中原因（方案 F）；非 None 时
             标题改警示并展示原因行（危险场景三态按钮保留，用户可拒）
         """
@@ -58,6 +59,7 @@ class PermissionDialog(QDialog):
         self.setModal(True)
         self._option_id: str | None = None
 
+        params = request.params
         tool_call = params.get("toolCall") or {}
         title = tool_call.get("title") or "未知工具"
         kind = tool_call.get("kind") or "other"
@@ -128,11 +130,13 @@ class PermissionDialog(QDialog):
 
 
 class QuestionDialog(QDialog):
-    """AskUserQuestion 类交互请求对话框（0807-0148 计划 T2，止血交互载体）。
+    """提问类交互请求的兜底对话框（0807-0148 计划 T2，止血交互载体）。
 
-    语义：agent 提问 → 用户勾选 → optionId 原样回传。选项按钮文案用 agent
-    提供的 name 原文（答案选项，禁走 KIND_LABELS 审批语义映射）；agent 附
-    带的 Skip（reject_once）选项照常展示，用户显式跳过。
+    语义：agent 提问 → 用户勾选 → optionId 原样回传。问题文本来自厂商
+    分类器产出的中性 `PermissionRequest.questions`，本模块不解析任何厂商
+    rawInput 结构。选项按钮文案用 agent 提供的 name 原文（答案选项，禁走
+    KIND_LABELS 审批语义映射）；agent 附带的 Skip（reject_once）选项照常
+    展示，用户显式跳过。
 
     multi_select 说明（实证结论，文档/帧存档/askuser_20260807_023820.json）：
     kimi 多选题（rawInput.questions[].multi_select=true）经 ACP 降级为单选
@@ -146,14 +150,15 @@ class QuestionDialog(QDialog):
     Skip 后在聊天输入框正文作答。
     """
 
-    def __init__(self, params: PermissionParams, parent: QWidget | None = None) -> None:
+    def __init__(self, request: PermissionRequest,
+                 parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setWindowTitle("AI 提问")
         self.setModal(True)
         self._option_id: str | None = None
 
         layout = QVBoxLayout(self)
-        questions = self._extract_questions(params)
+        questions = request.questions
         if questions:
             for question in questions:
                 q_label = QLabel(f"❓ {question}", self)
@@ -168,7 +173,7 @@ class QuestionDialog(QDialog):
             layout.addWidget(hint)
 
         buttons = QDialogButtonBox(self)
-        for opt in params.get("options") or []:
+        for opt in request.params.get("options") or []:
             # 选项是答案不是审批动作：文案用 agent 提供 name 原文（不映射
             # KIND_LABELS——「允许一次」贴在「牛肉面」上是语义错乱）
             label = opt.get("name") or opt.get("optionId", "?")
@@ -191,29 +196,3 @@ class QuestionDialog(QDialog):
     def selected_option_id(self) -> str | None:
         """用户选中的 optionId（agent 提供原值）；关闭/ESC 返回 None（上层按拒绝兜底）。"""
         return self._option_id
-
-    @staticmethod
-    def _extract_questions(params: PermissionParams) -> list[str]:
-        """问题文本提取：rawInput.questions 优先（结构化路径）；
-        rawInput.question 单问题字符串次之（reasonix 实证：
-        request_permission 的 rawInput 为 `{question, options, multi}`
-        单问题形态——文档/帧存档/ask_reasonix_*.json）；
-        toolCall.content 文本块兜底（kimi 实证：request_permission 的
-        toolCall 不带 rawInput，问题文本在 content 块——
-        文档/帧存档/askuser_*.json）。"""
-        tool_call = params.get("toolCall") or {}
-        raw = tool_call.get("rawInput")
-        if isinstance(raw, dict) and isinstance(raw.get("questions"), list):
-            questions = [q["question"] for q in raw["questions"]
-                         if isinstance(q, dict) and isinstance(q.get("question"), str)]
-            if questions:
-                return questions
-        if isinstance(raw, dict) and isinstance(raw.get("question"), str) \
-                and raw["question"].strip():
-            return [raw["question"].strip()]
-        texts: list[str] = []
-        for block in tool_call.get("content") or []:
-            text = ((block or {}).get("content") or {}).get("text")
-            if isinstance(text, str) and text.strip():
-                texts.append(text.strip())
-        return texts

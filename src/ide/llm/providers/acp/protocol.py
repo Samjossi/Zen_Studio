@@ -3,6 +3,7 @@
 权限、terminal 反向请求与 usage 通知都是 ACP 标准面；本模块不含厂商判断，
 也不认识具体工具名。
 """
+from dataclasses import dataclass
 from typing import Callable, Literal, Protocol, TypedDict
 
 from ide.llm.base import UsageStats
@@ -30,8 +31,29 @@ class PermissionParams(TypedDict, total=False):
     options: list[PermissionOption]
 
 
-#: 审批处理器签名：session/request_permission params → optionId（None 视为拒绝）
+#: 权限请求的中性分类：普通工具审批 / agent 提问，由各厂商自行判定
+PermissionKind = Literal["permission", "question"]
+
+
+@dataclass(frozen=True)
+class PermissionRequest:
+    """中性审批请求：原始 ACP params 原样保留，厂商分类结果只增不改。
+
+    `params` 是卡片回填、选项回传和诊断的唯一原始真相源；`kind` 与
+    `questions` 由各厂商 `permissions.py` 从自身结构提取，公共策略和
+    GUI 宿主不再解析厂商工具名或 rawInput 字段。
+    """
+    params: PermissionParams
+    kind: PermissionKind = "permission"
+    questions: tuple[str, ...] = ()
+
+
+#: 连接层处理器签名：session/request_permission 原始 params → optionId
+#: （None 视为拒绝）。连接层不分类、不认识厂商工具名。
 PermissionHandler = Callable[[PermissionParams], str | None]
+
+#: provider/GUI 层处理器签名：接收厂商分类后的中性请求 → optionId
+PermissionRequestHandler = Callable[[PermissionRequest], str | None]
 
 
 class TerminalHandler(Protocol):

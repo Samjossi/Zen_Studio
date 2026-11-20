@@ -14,13 +14,12 @@ from PySide6.QtWidgets import QWidget
 from shiboken6 import isValid
 
 from ide.gui.panels.chat.permission_dialog import PermissionDialog, QuestionDialog
-from ide.llm import PermissionParams
-from ide.llm.permission_policy import is_question_request
+from ide.llm import PermissionRequest
 
 #: 审批等待超时（秒）；超时按拒绝兜底，防 agent 永久阻塞
 PERMISSION_TIMEOUT_S = 180
 
-#: 队列条目：[params, parent, choice, done, is_stale, is_claimed, danger_reason]
+#: 队列条目：[request, parent, choice, done, is_stale, is_claimed, danger_reason]
 _Entry = list
 
 
@@ -34,19 +33,20 @@ class PermissionQueue:
 
     def ask(
         self,
-        params: PermissionParams,
+        request: PermissionRequest,
         parent: QWidget,
         danger_reason: str | None = None,
     ) -> str | None:
         """agent reader 线程调用：排队等弹窗，返回 optionId（None = 拒绝兜底）。
 
+        :param request: 厂商分类后的中性审批请求（本模块不解析厂商载荷）
         :param danger_reason: 危险命令黑名单命中原因（方案 F）；非 None 时
             对话框加警示标题与原因行
         超时条目仅当未被 pump 认领时才标记作废（is_stale），消除"已按拒绝
         兜底、僵尸弹框仍弹出占队"的 TOCTOU 窗口；已认领（弹窗中）则结果
         自然丢弃。
         """
-        entry: _Entry = [params, parent, None, threading.Event(), False, False, danger_reason]
+        entry: _Entry = [request, parent, None, threading.Event(), False, False, danger_reason]
         with self._lock:
             self._pending.append(entry)
         # QTimer.singleShot(receiver, callable)：callable 在 receiver 所在
@@ -87,14 +87,15 @@ class PermissionQueue:
     def _ask_one(entry: _Entry) -> None:
         """单条弹框：父对象失效/弹框异常均不阻断后续 drain，done 必置位。
 
-        对话框二选一分派（0807-0148 计划 T2）：question 类交互请求弹
-        QuestionDialog（提问-选项语义），其余弹 PermissionDialog（工具审批
-        语义）；队列串行化机制（防互冻/超时兜底/stale 标记）原样复用。
+        对话框二选一分派（0807-0148 计划 T2）：中性请求 `kind=question`
+        弹 QuestionDialog（提问-选项语义），其余弹 PermissionDialog（工具
+        审批语义）；分类已由厂商完成，队列不认识工具名。队列串行化机制
+        （防互冻/超时兜底/stale 标记）原样复用。
         """
         try:
             if not isValid(entry[1]):  # parent 标签排队期间被关闭销毁
                 return
-            if is_question_request(entry[0]):
+            if entry[0].kind == "question":
                 dialog = QuestionDialog(entry[0], entry[1])
             else:
                 dialog = PermissionDialog(entry[0], entry[1], danger_reason=entry[6])

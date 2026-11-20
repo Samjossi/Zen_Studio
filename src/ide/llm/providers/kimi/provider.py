@@ -29,15 +29,13 @@ from ide.llm.base import (
     TurnSpeed,
     UsageStats,
 )
-# PermissionOption/PermissionParams/ToolCallInfo 仅 re-export（ide/llm/permission_policy 从此处取型），
-# 冗余名别名是 ruff 约定的显式 re-export 写法，勿当未用导入删除
+# 权限与 terminal 类型来自稳定 ACP 协议层；审批处理器接收厂商分类后的
+# 中性 PermissionRequest，连接层只传原始 params（无厂商语义）。
 from ide.llm.providers.acp import (
     AcpConnection,
-    PermissionHandler,
-    PermissionOption as PermissionOption,
-    PermissionParams as PermissionParams,
+    PermissionParams,
+    PermissionRequestHandler,
     TerminalHandler,
-    ToolCallInfo as ToolCallInfo,
     TurnAborted,
     TurnCancelled,
     build_client_capabilities,
@@ -48,6 +46,7 @@ from ide.llm.providers.kimi.catalog import (
     context_sizes_from_catalog,
     load_kimi_provider_catalog,
 )
+from ide.llm.providers.kimi.permissions import build_permission_request
 from ide.llm.providers.kimi.updates import KimiUpdateMapper
 
 logger = logging.getLogger(__name__)
@@ -547,8 +546,8 @@ class KimiAcpLLM(LanguageModel):
         #: 关闭标志（标签销毁）：close() 置位后 _ensure_session 拒绝新建连接，
         #: spawn 前后双检——与清理线程 close() 的竞态窗口内迟到的连接即建即杀
         self._closed = False
-        #: 审批处理器（由 GUI 注入）：session/request_permission params → optionId | None
-        self._permission_handler: PermissionHandler | None = None
+        #: 审批处理器（由 GUI 注入）：中性 PermissionRequest → optionId | None
+        self._permission_handler: PermissionRequestHandler | None = None
         #: 终端处理器（GUI 桥经 set_terminal_handler 注入）；None = 不声明
         #: terminal 能力（无 GUI 的 headless 场景自动退化 false）
         self._terminal_handler: TerminalHandler | None = None
@@ -647,11 +646,23 @@ class KimiAcpLLM(LanguageModel):
         self._cwd = root
         self.reset_session()
 
-    def set_permission_handler(self, handler: PermissionHandler | None) -> None:
-        """注入审批处理器：params → optionId（None 视为拒绝）；None 恢复自动允许。"""
+    def set_permission_handler(self, handler: PermissionRequestHandler | None) -> None:
+        """注入审批处理器：中性 PermissionRequest → optionId（None 视为拒绝）。
+
+        连接层只认原始 params；本厂商先把参数分类成 permission/question，
+        再交给 GUI，公共策略与连接层都不解析 Kimi 工具名。None 恢复自动允许。
+        """
         self._permission_handler = handler
         if self._conn:
-            self._conn.set_permission_handler(handler)
+            self._conn.set_permission_handler(
+                self._handle_permission_request if handler is not None else None)
+
+    def _handle_permission_request(self, params: PermissionParams) -> str | None:
+        """连接层回调：按 Kimi 规则分类后转交中性处理器。"""
+        handler = self._permission_handler
+        if handler is None:
+            return None
+        return handler(build_permission_request(params))
 
     def set_terminal_handler(self, handler: TerminalHandler | None) -> None:
         """注入终端处理器（terminal/* 反向请求路由）；None 恢复 terminal: false。"""
@@ -721,7 +732,9 @@ class KimiAcpLLM(LanguageModel):
                 conn.terminate()
                 self._conn = None
                 raise RuntimeError("kimi acp 后端已关闭（标签已销毁）")
-            conn.set_permission_handler(self._permission_handler)
+            conn.set_permission_handler(
+                self._handle_permission_request
+                if self._permission_handler is not None else None)
             conn.set_terminal_handler(self._terminal_handler)
             try:
                 init_result = conn.request("initialize", {

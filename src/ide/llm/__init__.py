@@ -19,6 +19,7 @@ from ide.llm.base import (
 from ide.llm.providers.acp import (
     PermissionHandler,
     PermissionParams,
+    PermissionRequest,
     TurnCancelled,
 )
 from ide.llm.providers.dsh import DshAcpLLM, dsh_available, list_dsh_models
@@ -75,5 +76,6 @@ __all__ = [
     # ACP 协议层定型（审批回环共用；现居 llm.providers.acp，此处 re-export）
     "PermissionHandler",
     "PermissionParams",
+    "PermissionRequest",
     "TurnCancelled",
 ]

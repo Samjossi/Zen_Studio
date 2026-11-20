@@ -11,8 +11,11 @@ from ide.llm.providers.acp.connection import (
 from ide.llm.providers.acp.prompt import build_prompt_blocks
 from ide.llm.providers.acp.protocol import (
     PermissionHandler,
+    PermissionKind,
     PermissionOption,
     PermissionParams,
+    PermissionRequest,
+    PermissionRequestHandler,
     TerminalHandler,
     ToolCallInfo,
     build_client_capabilities,
@@ -25,8 +28,11 @@ __all__ = [
     "TurnCancelled",
     "build_prompt_blocks",
     "PermissionHandler",
+    "PermissionKind",
     "PermissionOption",
     "PermissionParams",
+    "PermissionRequest",
+    "PermissionRequestHandler",
     "TerminalHandler",
     "ToolCallInfo",
     "build_client_capabilities",

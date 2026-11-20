@@ -46,11 +46,13 @@ from ide.core.version import APP_VERSION
 from ide.llm.base import Chunk, LanguageModel, Message, TurnConsumption
 from ide.llm.providers.acp import (
     AcpConnection,
-    PermissionHandler,
+    PermissionParams,
+    PermissionRequestHandler,
     TerminalHandler,
     build_client_capabilities,
     build_prompt_blocks,
 )
+from ide.llm.providers.dsh.permissions import build_permission_request
 from ide.llm.providers.dsh.updates import DshUpdateMapper
 
 
@@ -273,8 +275,8 @@ class DshAcpLLM(LanguageModel):
         #: 关闭标志（标签销毁）：close() 置位后 _ensure_session 拒绝新建连接，
         #: spawn 前后双检——与清理线程 close() 的竞态窗口内迟到的连接即建即杀
         self._closed = False
-        #: 审批处理器（由 GUI 注入）：session/request_permission params → optionId | None
-        self._permission_handler: PermissionHandler | None = None
+        #: 审批处理器（由 GUI 注入）：中性 PermissionRequest → optionId | None
+        self._permission_handler: PermissionRequestHandler | None = None
         #: 终端处理器（GUI 桥经 set_terminal_handler 注入）；dsh 不支持
         #: terminals，恒不声明 terminal 能力（参数保留仅为鸭子类型对齐）
         self._terminal_handler: TerminalHandler | None = None
@@ -329,11 +331,23 @@ class DshAcpLLM(LanguageModel):
         self._cwd = os.path.abspath(root)  # session/new 硬校验绝对路径（-32602 实测）
         self.reset_session()
 
-    def set_permission_handler(self, handler: PermissionHandler | None) -> None:
-        """注入审批处理器：params → optionId（None 视为拒绝）；None 恢复自动允许。"""
+    def set_permission_handler(self, handler: PermissionRequestHandler | None) -> None:
+        """注入审批处理器：中性 PermissionRequest → optionId（None 视为拒绝）。
+
+        连接层只传原始 params；本厂商分类器只按 DSH 已实证结构判定为普通
+        权限，不激活未实证的提问能力。None 恢复自动允许。
+        """
         self._permission_handler = handler
         if self._conn:
-            self._conn.set_permission_handler(handler)
+            self._conn.set_permission_handler(
+                self._handle_permission_request if handler is not None else None)
+
+    def _handle_permission_request(self, params: PermissionParams) -> str | None:
+        """连接层回调：按 DSH 规则分类后转交中性处理器。"""
+        handler = self._permission_handler
+        if handler is None:
+            return None
+        return handler(build_permission_request(params))
 
     def set_terminal_handler(self, handler: TerminalHandler | None) -> None:
         """注入终端处理器（鸭子类型对齐；dsh 不支持 terminals，始终不声明能力）。"""
@@ -385,7 +399,9 @@ class DshAcpLLM(LanguageModel):
                 self._conn.terminate()
                 self._conn = None
                 raise RuntimeError("dsh acp 后端已关闭（标签已销毁）")
-            self._conn.set_permission_handler(self._permission_handler)
+            self._conn.set_permission_handler(
+                self._handle_permission_request
+                if self._permission_handler is not None else None)
             self._conn.set_terminal_handler(self._terminal_handler)
             self._session_id = None
             init_result = self._conn.request("initialize", {

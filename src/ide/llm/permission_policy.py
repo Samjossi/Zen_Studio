@@ -1,9 +1,14 @@
 """ACP 工具审批决策纯逻辑（权限四态；危险命令黑名单为智能放行档兜底）。
 
-决策链：`decide_permission(params, mode)` 判定 allow/ask → allow 时
+决策链：`decide_permission(request, mode)` 判定 allow/ask → allow 时
 `select_option_id()` 按 kind 优先序挑 optionId 原样回传（不臆造，optionId
 纪律同 1555 计划 C1）。模块零 Qt、零 IO、零阻塞——agent reader 线程直接
 调用安全（纯逻辑分层同 SelectionController 先例，可脱离 GUI 单测）。
+
+输入是稳定 ACP 包的中性 `PermissionRequest`：`params` 保留 agent 原始
+载荷，`kind` 由各厂商 `permissions.py` 分类。本模块不认识任何厂商工具名
+或 rawInput 结构；提问语义只表现为 `kind == "question"`，危险命令提取仍
+只读 ACP 标准的 toolCall 字段。
 
 权限四态（2026-07-22，文档/修改记录/2026-0722-1240 计划，二态开关升级）：
 confirm_all 逐次确认 / confirm_execute 仅命令确认 / auto_guarded 智能放行
@@ -18,7 +23,7 @@ import re
 from collections.abc import Sequence
 from typing import Literal
 
-from ide.llm.providers.acp import PermissionOption, PermissionParams, ToolCallInfo
+from ide.llm.providers.acp import PermissionOption, PermissionRequest, ToolCallInfo
 
 #: 决策结果常量
 DECISION_ALLOW = "allow"
@@ -52,43 +57,43 @@ PERMISSION_MODE_LABELS: dict[str, tuple[str, str]] = {
 #: allow_always 优于 allow_once——等价"始终允许"语义，避免每轮重复决策）
 ALLOW_KIND_PREFERENCE = ("allow_always", "allow_once")
 
-#: question 类交互工具名归一化小写名集（白名单通道，辅助防线）：
-#: AskUserQuestion 的 ACP 语义是"agent 提问 → 用户作答"，答案选项以
-#: allow_once kind 编码（实证：文档/帧存档/askuser_*.json），
-#: 无特判会被决策链当普通工具审批自动放行并秒选第一个选项。
-#: 白名单服务于"request_permission 的 toolCall.title 恰为工具名且
-#: rawInput 不带问题载荷"的异构形态；reasonix 决策帧 title 是问题原文
-#: （实证：文档/帧存档/ask_reasonix_*.json），白名单管不到，
-#: 由结构通道覆盖。其他后端同类工具名按实证补入，集中维护。
-_QUESTION_TOOL_NAMES = frozenset({"askuserquestion", "ask"})
 
+def decide_permission(
+    request: PermissionRequest,
+    mode: str = DEFAULT_PERMISSION_MODE,
+) -> Decision:
+    """审批决策：(DECISION_ALLOW, None) 自动放行 / (DECISION_ASK, 原因) 走弹窗。
 
-def is_question_request(params: PermissionParams) -> bool:
-    """question 类交互请求识别（0807-0148 计划 T1；0812-0952 计划 T1 双通道化）。
+    四态语义（未知 mode 回退 auto_guarded）：
+    - confirm_all：全部弹窗（逃生舱；Bash 命中黑名单时附原因）
+    - confirm_execute：非 Bash 放行，Bash 一律弹窗（命中黑名单附原因）
+    - auto_guarded：非 Bash 放行；Bash 仅黑名单命中弹窗（附原因）；
+      提取不到命令文本按放手语义放行（风险已记录在案，见 0757 计划 §6）
+    - auto_all：一律放行（护栏关闭，高危档）
 
-    结构通道（主防线——ACP v1 无提问语义标识、工具名各自为政的现实下
-    与工具名解耦）：rawInput 携带提问载荷签名任一即命中——
-    - `questions` 列表（kimi 系 / reasonix session/update 帧形态）；
-    - `question` 字符串 + `options` 列表（reasonix request_permission
-      决策帧形态，实证 文档/帧存档/ask_reasonix_*.json：该帧
-      title 是问题原文而非工具名，白名单永远命中不了）。
-    只看字段存在性，不解析内容（误伤面收敛：普通工具 rawInput 无此二签名）。
-
-    白名单通道（辅助）：title 归一化（去 `mcp__server__` 前缀取末段、
-    小写化，与 cards.py `_normalize_tool_name` 同纪律）命中已知工具名，
-    兜底"rawInput 不带问题载荷"的异构形态。
+    提问特判（厂商已在中性请求上分类，置于四态分支之前）：question
+    四态一律 DECISION_ASK——权限模式管的是"危险操作放不放行"，管不到
+    "替用户回答问题"；即使 auto_all（护栏关闭档）也不自动选答。
+    这是语义边界，不是配置项。
     """
-    tool_call = params.get("toolCall") or {}
-    raw = tool_call.get("rawInput")
-    if isinstance(raw, dict):
-        if isinstance(raw.get("questions"), list):
-            return True
-        if isinstance(raw.get("question"), str) and isinstance(raw.get("options"), list):
-            return True
-    title = (tool_call.get("title") or "").strip()
-    if "__" in title:
-        title = title.split("__")[-1]
-    return title.lower() in _QUESTION_TOOL_NAMES
+    if request.kind == "question":
+        return DECISION_ASK, None
+    if mode not in PERMISSION_MODES:
+        mode = DEFAULT_PERMISSION_MODE
+    if mode == MODE_AUTO_ALL:
+        return DECISION_ALLOW, None
+    tool_call = request.params.get("toolCall") or {}
+    if mode == MODE_CONFIRM_ALL:
+        return DECISION_ASK, _danger_reason(tool_call)
+    if (tool_call.get("kind") or "") != "execute":
+        return DECISION_ALLOW, None
+    if mode == MODE_CONFIRM_EXECUTE:
+        return DECISION_ASK, _danger_reason(tool_call)
+    reason = _danger_reason(tool_call)
+    if reason is not None:
+        return DECISION_ASK, reason
+    return DECISION_ALLOW, None
+
 
 #: 危险命令黑名单（编译后正则, 命中原因）；命令文本归一化（压缩空白 + 小写）后粗匹配。
 #: 每条注明"为什么危险"（AFCP 3.4 常量化；条目按使用反馈增补，见计划 §7 备案 4）
@@ -136,40 +141,6 @@ DANGEROUS_COMMAND_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = tuple(
 )
 
 
-def decide_permission(params: PermissionParams, mode: str = DEFAULT_PERMISSION_MODE) -> Decision:
-    """审批决策：(DECISION_ALLOW, None) 自动放行 / (DECISION_ASK, 原因) 走弹窗。
-
-    四态语义（未知 mode 回退 auto_guarded）：
-    - confirm_all：全部弹窗（逃生舱；Bash 命中黑名单时附原因）
-    - confirm_execute：非 Bash 放行，Bash 一律弹窗（命中黑名单附原因）
-    - auto_guarded：非 Bash 放行；Bash 仅黑名单命中弹窗（附原因）；
-      提取不到命令文本按放手语义放行（风险已记录在案，见 0757 计划 §6）
-    - auto_all：一律放行（护栏关闭，高危档）
-
-    question 特判（0807-0148 计划 T1，置于四态分支之前）：AskUserQuestion
-    类交互请求四态一律 DECISION_ASK——权限模式管的是"危险操作放不放行"，
-    管不到"替用户回答问题"；即使 auto_all（护栏关闭档）也不自动选答。
-    这是语义边界，不是配置项。
-    """
-    if is_question_request(params):
-        return DECISION_ASK, None
-    if mode not in PERMISSION_MODES:
-        mode = DEFAULT_PERMISSION_MODE
-    if mode == MODE_AUTO_ALL:
-        return DECISION_ALLOW, None
-    tool_call = params.get("toolCall") or {}
-    if mode == MODE_CONFIRM_ALL:
-        return DECISION_ASK, _danger_reason(tool_call)
-    if (tool_call.get("kind") or "") != "execute":
-        return DECISION_ALLOW, None
-    if mode == MODE_CONFIRM_EXECUTE:
-        return DECISION_ASK, _danger_reason(tool_call)
-    reason = _danger_reason(tool_call)
-    if reason is not None:
-        return DECISION_ASK, reason
-    return DECISION_ALLOW, None
-
-
 def _danger_reason(tool_call: ToolCallInfo) -> str | None:
     """Bash 类工具的黑名单命中原因；非危险/提取不到文本返回 None。"""
     command_text = extract_command_text(tool_call)
@@ -193,8 +164,8 @@ def select_option_id(
 def extract_command_text(tool_call: ToolCallInfo) -> str | None:
     """从审批载荷提取命令文本：rawInput 结构化字段优先，content 描述文本兜底。
 
-    kimi 当前 toolCall.content 携带可读描述（如 "Requesting approval to
-    Running: ls *.md"），rawInput 通常未携带；kimi 未来携带 rawInput 后
+    ACP 审批帧的 toolCall.content 携带可读描述（如 "Requesting approval to
+    Running: ls *.md"），rawInput 可能未携带；agent 未来携带 rawInput 后
     本提取自动升级为结构化路径（计划 §7 备案 1）。
     """
     raw = tool_call.get("rawInput")
