@@ -40,6 +40,7 @@ from ide.core.version import APP_VERSION
 from ide.gui import MainWindow
 from ide.gui.root_ownership import EXIT_ROOT_OCCUPIED, acquire_root_ownership
 from ide.gui.theme import apply_theme
+from ide.llm import REGISTRY
 
 #: 截图输出目录：开发态项目内 .tmp/；打包态落用户数据根（AppImage 只读
 #: 挂载下写解包目录必抛 OSError，见 文档/修改记录/2026-0725-1234 计划 T3）
@@ -191,6 +192,12 @@ def main() -> None:
     setup_logging()
     # 启动首行落版本：日志须能反查运行的是哪一版（完整版本含 git 构建号）
     logging.getLogger("main").info("Zen Studio %s 启动（PID %d）", APP_VERSION, os.getpid())
+    # 注册表是后台装配单点；启动即落一条清单，冻结态排障可直接确认三家
+    # 后台是否全部被收集（导入失败会在日志前抛错，不会留下半份清单）。
+    logging.getLogger("main").info(
+        "已注册后台：%s",
+        "、".join(f"{name}（{spec.vendor}）"
+                  for name, spec in REGISTRY.items()))
     # 收尾完成标记：atexit 后进先出，本钩最先注册故最后执行——
     # 它出现即代表 PTY/ACP 等全部收尾钩都跑完，进程是真的死透了
     atexit.register(

@@ -50,6 +50,9 @@ from ide.llm.providers.kimi.provider import (  # noqa: E402
     _synthesize_wire_call,
     _synthesize_wire_result,
 )
+from ide.llm.providers.kimi.permissions import (  # noqa: E402
+    build_permission_request,
+)
 from ide.llm.providers.kimi.updates import KimiUpdateMapper  # noqa: E402
 
 SHOT_DIR = PROJECT_ROOT / ".temp" / "card_shots"
@@ -953,7 +956,7 @@ def main() -> int:
         print(f"[shot_tool_cards] 归档 {archive_png.relative_to(PROJECT_ROOT)}")
     # QuestionDialog 弹窗截图（0807-0148 计划 T2 止血载体；蓝本为真实
     # request_permission 载荷——含 reject_once 的 Skip 项）
-    dialog = QuestionDialog({
+    dialog = QuestionDialog(build_permission_request({
         "sessionId": "session-mock",
         "toolCall": {"toolCallId": "0:tool_mock", "title": "AskUserQuestion",
                      "content": [{"type": "content", "content": {
@@ -963,7 +966,7 @@ def main() -> int:
                     {"optionId": "q0_opt_1", "name": "蓝色", "kind": "allow_once"},
                     {"optionId": "q0_opt_2", "name": "绿色", "kind": "allow_once"},
                     {"optionId": "q0_skip", "name": "Skip", "kind": "reject_once"}],
-    })
+    }))
     dialog.adjustSize()
     png = SHOT_DIR / "10_questiondialog_弹窗.png"
     if not dialog.grab().save(str(png)):

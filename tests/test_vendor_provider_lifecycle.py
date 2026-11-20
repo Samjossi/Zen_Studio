@@ -226,3 +226,97 @@ def test_kimi_provider_text_usage_and_cancelled_stop(monkeypatch):
     with pytest.raises(TurnCancelled):
         list(cancelled.chat([{"role": "user", "content": "hello"}]))
     cancelled.close()
+
+
+def _tool_call_frame(tid: str, title: str, kind: str, raw_input: dict) -> dict:
+    return frame({
+        "sessionUpdate": "tool_call", "toolCallId": tid, "title": title,
+        "kind": kind, "status": "pending", "rawInput": raw_input,
+    })
+
+
+def _tool_update_frame(tid: str, output: str) -> dict:
+    return frame({
+        "sessionUpdate": "tool_call_update", "toolCallId": tid,
+        "status": "completed", "rawOutput": {"output": output},
+    })
+
+
+_TOOL_LIFECYCLE_CASES = [
+    # (标签, provider 模块, 类名, 工具名, 首帧 kind, rawInput, 期望 tool_kind)
+    ("kimi", kimi_acp, "KimiAcpLLM", "ReadMediaFile", "other",
+     {"path": "shot.png"}, "other"),
+    ("dsh", dsh_acp, "DshAcpLLM", "read_image", "other",
+     {"file_path": "shot.png"}, "read"),
+    ("local", local_acp, "LocalAcpLLM", "Bash", "execute",
+     {"command": "printf hi"}, "execute"),
+]
+
+
+@pytest.mark.parametrize(
+    "label,module,class_name,title,kind,raw_input,want_kind",
+    _TOOL_LIFECYCLE_CASES, ids=[case[0] for case in _TOOL_LIFECYCLE_CASES])
+def test_vendor_tool_turn_stop_and_close(
+        monkeypatch, label, module, class_name, title, kind, raw_input,
+        want_kind):
+    """三家「建立会话 → 工具帧 → 正文 → 自然停止 → 关闭」全链路。
+
+    连接是内存假 agent，不产生真实子进程；这里锁定终止只发生一次、连接
+    引用与实例账本随 close 清空，并用同一 toolCallId 的第二个实例确认
+    账本没有跨实例串联。
+    """
+    tid = f"{label}-tool-tid"
+
+    def _events():
+        return [
+            update_event(_tool_call_frame(tid, title, kind, raw_input)),
+            update_event(_tool_update_frame(tid, "工具输出")),
+            update_event(text_frame(f"{label} 正文")),
+            _response(),
+        ]
+
+    if label == "kimi":
+        monkeypatch.setattr(kimi_acp.KimiAcpLLM, "_ensure_context_sizes",
+                            lambda self: None)
+        monkeypatch.setattr(kimi_acp, "_session_dir_of",
+                            lambda session_id: None)
+        monkeypatch.setattr(kimi_acp, "_WIRE_USAGE_WAIT_S", 0.0)
+    elif label == "dsh":
+        monkeypatch.setattr(dsh_acp, "_turn_consumption",
+                            lambda *args: (None, 0))
+
+    conn = FakeConnection(_events())
+    _install_connection(monkeypatch, module, conn)
+    provider = getattr(module, class_name)(workspace_root=".")
+    chunks = list(provider.chat([{"role": "user", "content": "hello"}]))
+
+    assert [chunk.kind for chunk in chunks] == [
+        "tool_call", "tool_call_update", "text"]
+    assert chunks[0].payload["tool_call_id"] == tid
+    assert chunks[0].payload["title"] == title
+    assert chunks[0].payload["tool_kind"] == want_kind
+    assert chunks[1].payload["status"] == "completed"
+    assert chunks[2].text == f"{label} 正文"
+    assert conn.session_error is None
+    assert ("session/new", {"cwd": provider._cwd, "mcpServers": []}) in conn.requests
+    assert provider._session_id == SESSION_ID
+
+    provider.close()
+    assert conn.terminate_calls == 1
+    assert conn.is_alive is False
+    assert provider._conn is None
+    assert provider._session_id is None
+    provider.close()  # 幂等：不得二次 terminate
+    assert conn.terminate_calls == 1
+
+    # 同一 toolCallId 的另一个实例必须重新建立自己的入参账本；若账本
+    # 跨实例共享，第二张卡会缺失 input_detail。
+    second_conn = FakeConnection(_events())
+    _install_connection(monkeypatch, module, second_conn)
+    second = getattr(module, class_name)(workspace_root=".")
+    second_chunks = list(second.chat([{"role": "user", "content": "hello"}]))
+    assert provider._updates is not second._updates
+    assert second_chunks[0].payload["input_detail"] == \
+        chunks[0].payload["input_detail"]
+    second.close()
+    assert second_conn.terminate_calls == 1
