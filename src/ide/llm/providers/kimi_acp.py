@@ -100,8 +100,7 @@ _WIRE_USAGE_POLL_S = 0.2
 _WIRE_TAIL_BYTES = 64 * 1024
 _SESSION_DIR_RETRY_DELAYS_S = (2.0, 5.0, 15.0)
 
-#: ACP terminal/* 反向能力支持矩阵（2026-0817-1522 五 agent 实测报告）：
-#: kimi/reasonix 支持；本 agent 不支持时保持 terminal: false（行为与现状等价）
+#: Kimi 已在 ACP terminal/* 反向能力实测中通过；无 GUI 终端处理器时仍声明 false
 _TERMINAL_CAPABILITY = True
 _SESSION_RESUME_TIMEOUT_S = 30.0
 _TURN_CONSISTENCY_WAIT_S = 3.0

@@ -264,8 +264,8 @@ class LanguageModel(Protocol):
     def poll_usage(self) -> "UsageStats | None":
         """轮次内主动取用量快照（可选能力，默认 None 表示不支持）。
 
-        背景（0117 计划）：推送型后端（kilocode/opencode/reasonix）的
-        `usage_update` 由 agent 决定时机（轮末一条），IDE 无中间数据可挖；
+        背景（0117 计划）：推送型后端（DSH / Local）的
+        `usage_update` 由 agent 决定时机，IDE 无中间数据可挖；
         kimi 的用量落在本地 wire.jsonl 且轮次内每次 API 调用后增量写盘
         （0117 T0 实证），可由 provider 主动读取。GUI 侧 QTimer 在轮次进行
         中周期调用本方法，非 None 即刷新徽章。

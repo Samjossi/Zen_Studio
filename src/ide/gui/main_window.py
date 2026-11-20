@@ -267,7 +267,7 @@ class MainWindow(QMainWindow):
         self._splitter_main = QSplitter(Qt.Orientation.Horizontal)
         workspace_root = self._workspace_root
         # ACP terminal/* GUI 桥（2026-0817-1554 计划 T5）：支持 terminal/*
-        # 的 agent（kimi/reasonix）Bash 命令落终端面板 AI tab 执行，用户
+        # 的 agent（当前 Kimi）Bash 命令落终端面板 AI tab 执行，用户
         # 实时看输出可干预；不支持的 provider 声明恒 false（行为不变）
         # 自持引用：设置中心「结束后停留时长」变更需即时推送到桥（2026-08-18 §6）
         self._agent_terminal_bridge = AgentTerminalBridge(self.terminal_panel)

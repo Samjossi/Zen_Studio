@@ -15,25 +15,18 @@
   模型目录变化以天计，进程生命周期内一次拉取即可。refresh_models() 为
   唯一失效口（设置中心等显式刷新场景用），无 TTL、无文件监听。
 - 依赖方向：本模块 → providers → llm.base；providers 不得反向 import
-  本模块（防循环 import）。providers 两模块 import 无副作用，模块级安全。
+  本模块（防循环 import）。providers 各模块 import 无副作用，模块级安全。
 """
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
 
 from ide.llm.base import LanguageModel
-from ide.llm.providers.dream_acp import DreamAcpLLM, dream_available, list_dream_models
 from ide.llm.providers.dsh_acp import (
     DshAcpLLM,
     dsh_available,
     list_dsh_display_names,
     list_dsh_models,
-)
-from ide.llm.providers.kilocode_acp import (
-    KiloCodeAcpLLM,
-    kilocode_available,
-    list_kilocode_efforts,
-    list_kilocode_models,
 )
 from ide.llm.providers.kimi_acp import KimiAcpLLM
 from ide.llm.providers.kimi_common import (
@@ -44,8 +37,6 @@ from ide.llm.providers.kimi_common import (
     models_from_catalog,
 )
 from ide.llm.providers.local_acp import LocalAcpLLM, list_local_models, local_available
-from ide.llm.providers.opencode_acp import OpenCodeAcpLLM, list_opencode_models, opencode_available
-from ide.llm.providers.reasonix_acp import ReasonixAcpLLM, list_reasonix_models, reasonix_available
 
 
 @dataclass(frozen=True)
@@ -81,7 +72,7 @@ class BackendSpec:
     #: 未定制时的 UI 勾选默认项（须为 efforts 成员；None = efforts 首项）。
     #: 仅 UI 呈现勾选——用户未显式选择时不下发 set_config_option，
     #: agent 默认强度生效；填值应与 agent 默认一致（防显示与实况背离）。
-    #: 0455 计划 D2：模型级默认档缺失（如 kilo 目录无默认字段）时的兜底
+    #: 0455 计划 D2：模型级目录未下发默认档时的兜底
     default_effort: str | None = None
     #: 模型级强度档位枚举（0455 动态化计划 D2，惰性）：模型别名 →
     #: (档位列表, 默认档|None)。空 dict = 无模型级数据（UI 回退接口级
@@ -197,7 +188,7 @@ def resolve_efforts(
        (spec.efforts, spec.default_effort)；
     3. 再空 = 该接口不支持强度轴（空 tuple）。
 
-    返回 (档位列表, 默认档)；默认档可能为 None（kilo 目录无默认字段时
+    返回 (档位列表, 默认档)；默认档可能为 None（目录未下发默认字段时
     UI 再落 spec.default_effort → 首项，见 ModelBar）。
     """
     if spec.list_efforts is not None:
@@ -284,128 +275,20 @@ REGISTRY: dict[str, BackendSpec] = {
                 "验证版本 0.2.2-rc.1）与凭据配置（~/.dsh/.credentials.yaml）。"),
         ),
         BackendSpec(
-            name="reasonix-acp",
-            label="Reasonix ACP",
-            vendor="reasonix",
-            vendor_label="Reasonix（已封存）",
-            available=reasonix_available,
-            list_models=_cached_list_models("reasonix-acp", list_reasonix_models),
-            factory=ReasonixAcpLLM,
-            # T0 spike：协议层接受 image 块但默认模型回报「没有看到任何图片」
-            # （疑静默丢弃或非视觉模型）——保守置 False，维持方案 D @路径
-            # 退化（D4）；后续换视觉模型实测后可翻案
-            supports_images=False,
-            # configOptions effort 轴（category=thought_level，configId
-            # "effort"）：值域 auto/disabled/high/max、默认 auto，两模型
-            # （deepseek-pro/deepseek-v4-pro、deepseek-flash/deepseek-v4-flash）
-            # 实测值域相同（0455 计划 T5 spike：.temp/spike_effort_axes.py /
-            # spike_reasonix_effort_models.py，2026-08-06）；无模型级动态
-            # 数据源（configOptions 需先起会话，R4 后续候选），静态声明
-            efforts=("auto", "disabled", "high", "max"),
-            default_effort="auto",
-            # 封存保留菜单入口（同 kilocode：available=False 会隐藏入口，
-            # 用户需能切到本接口看到封存口径），发送由 panel 按 archived 拦停
-            dev_note=(
-                "Reasonix 后端已封存，不再随项目更新与验证。如需使用，请自行"
-                "修改 ide/llm/registry.py 的 reasonix-acp 注册项（撤除 archived "
-                "标记）并重新编译。"),
-            archived=True,
-        ),
-        BackendSpec(
-            name="opencode-acp",
-            label="OpenCode ACP",
-            vendor="opencode",
-            vendor_label="OpenCode（已封存）",
-            available=opencode_available,
-            list_models=_cached_list_models("opencode-acp", list_opencode_models),
-            factory=OpenCodeAcpLLM,
-            # T0 spike：image 块确认透传（模型明确回报「当前模型不支持图片
-            # 输入」——图已送达，模型级不支持）；接口级置 True（D9），用户
-            # 切换视觉模型即生效；空 text 块接受
-            supports_images=True,
-            # 0455 计划 T5 spike 实测（.temp/spike_effort_axes.py，
-            # 2026-08-06）：opencode 原版 configOptions 仅 model + mode
-            # 两项，**无 effort 轴**（kilo fork 的 effort 是 kilo 自加）——
-            # 维持留空不暴露
-            # 封存保留菜单入口（同 kilocode：available=False 会隐藏入口，
-            # 用户需能切到本接口看到封存口径），发送由 panel 按 archived 拦停
-            dev_note=(
-                "OpenCode 后端已封存，不再随项目更新与验证。如需使用，请自行"
-                "修改 ide/llm/registry.py 的 opencode-acp 注册项（撤除 archived "
-                "标记）并重新编译。"),
-            archived=True,
-        ),
-        BackendSpec(
-            name="kilocode-acp",
-            label="Kilo Code ACP",
-            vendor="kilocode",
-            vendor_label="Kilo Code（已封存）",
-            available=kilocode_available,
-            list_models=_cached_list_models("kilocode-acp", list_kilocode_models),
-            factory=KiloCodeAcpLLM,
-            # T0 spike：默认模型正确识图（回「红」），空 text 块接受
-            supports_images=True,
-            # 接口级兜底值（0455 计划 D2 语义）：`models --verbose` 解析
-            # 失败/超时时回退——configOptions effort 选项 high/max、默认
-            # high（2026-0730-2240 计划 §2.4 实测）
-            efforts=("high", "max"),
-            default_effort="high",
-            # 模型级档位（0455 计划 G2）：`kilo models --verbose` variants
-            # keys 全量枚举；解析失败返回空 dict → 回退上方静态声明（D1）
-            list_efforts=_cached_list_efforts("kilocode-acp", list_kilocode_efforts),
-            # 封存保留菜单入口（不用 available=False 隐藏——用户需能切到
-            # 本接口看到封存口径），发送由 panel 按 archived 拦停
-            dev_note=(
-                "Kilo Code 后端已封存：转为个人维护状态，不再随项目更新与"
-                "验证。如需使用，请自行修改 ide/llm/registry.py 的 kilocode-acp "
-                "注册项（撤除 archived 标记）并重新编译。"),
-            archived=True,
-        ),
-        BackendSpec(
-            name="dream-acp",
-            label="Dream ACP（开发中）",
-            vendor="dream",
-            vendor_label="Dream",
-            available=dream_available,
-            list_models=_cached_list_models("dream-acp", list_dream_models),
-            factory=DreamAcpLLM,
-            # 示例 agent 无视觉能力（计划 2026-0803-0041 D6）；Dream 真实
-            # 视觉模型接入后按 T0 spike 方法学实测翻案置 True，GUI 侧零改动
-            supports_images=False,
-            # 服务端白名单唯一合法档（2026-0812-1752 计划 / 对接文档 §2/§4：
-            # configId="effort" 仅接受 auto，实际档位由 Dream CLI 服务端
-            # 配置决定，IDE 不提供选择；单档菜单仅作状态呈现）
-            efforts=("auto",),
-            default_effort="auto",
-            # 如实告知（2026-0814-0603 计划 T1）：纯接口层、模型由服务端
-            # 配置决定，dream-creator 别名不代表具体模型
-            dev_note=(
-                "Dream ACP 为开发中的接口层，本身不含模型。当前回复由本机 "
-                "Dream CLI 服务端配置的模型生成（可能为 DeepSeek），界面所示 "
-                "dream-creator 不代表具体模型。"),
-        ),
-        BackendSpec(
             name="local-acp",
             label="Local ACP",
             vendor="local",
-            vendor_label="Local（已封存）",
+            vendor_label="Local",
             available=local_available,
-            # 枚举走 `local models` 子进程（Local CLI 服务端扫描 model_dir
+            # 枚举走 `local-cli models` 子进程（Local CLI 服务端扫描 model_dir
             # 的 *.gguf 产出），无静态表；兜底空列表纪律同各后台
             list_models=_cached_list_models("local-acp", list_local_models),
             factory=LocalAcpLLM,
             # 当前接入的 GGUF 均为纯文本模型；日后接视觉 GGUF 实测后翻案
             supports_images=False,
-            # 本地模型无强度目录，单档 auto 仅作状态呈现（同 dream 收敛语义）
+            # 本地模型无强度目录，单档 auto 仅作状态呈现
             efforts=("auto",),
             default_effort="auto",
-            # 封存保留菜单入口（同 kilocode：available=False 会隐藏入口，
-            # 用户需能切到本接口看到封存口径），发送由 panel 按 archived 拦停
-            dev_note=(
-                "本地模型（Local CLI）后端已封存，不再随项目更新与验证。如需"
-                "使用，请自行修改 ide/llm/registry.py 的 local-acp 注册项"
-                "（撤除 archived 标记）并重新编译。"),
-            archived=True,
         ),
     )
 }

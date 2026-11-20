@@ -1,21 +1,18 @@
 #!/usr/bin/env python3
-"""子代理内部事件探针：实测各 ACP 后端是否下发子代理内部活动事件。
+"""Kimi 子代理内部事件探针：实测 ACP 是否下发子代理内部活动事件。
 
-背景：GUI 上调用子代理（Agent/task 工具）只显示一张卡片，看不到子代理
-内部在干什么。已知 kilocode 侧子会话事件在 ACP 出口被静默丢弃（F2 协议
-永久边界），本脚本对 kimi / reasonix / kilocode 逐个实测验证：
+背景：GUI 上调用子代理（Agent 工具）只显示一张卡片，看不到子代理内部
+在干什么。本脚本复用现行 Kimi 接入验证：
 
 1. 以真实 ACP 客户端身份（复用 llm/providers/acp.py 的 AcpConnection）
    建立会话，发送「强制使用子代理」的 prompt；
-2. 全程录制双向原始帧（ndjson），落盘 .temp/subagent_acp_test/<agent>.jsonl；
+2. 全程录制双向原始帧（ndjson），落盘 .temp/subagent_acp_test/kimi.jsonl；
 3. 轮次结束后分析：子代理工具调用存活期间，是否收到任何属于其他
    toolCallId 的嵌套 tool_call / tool_call_update / 思考流帧；
-4. 产出浓缩证据到 文档/帧存档/subagent_probe_<agent>_<时间戳>.json。
+4. 产出浓缩证据到 文档/帧存档/subagent_probe_kimi_<时间戳>.json。
 
 用法（项目根目录下，强制 .venv）：
     .venv/bin/python scripts/probe_subagent_frames.py kimi
-    .venv/bin/python scripts/probe_subagent_frames.py reasonix
-    .venv/bin/python scripts/probe_subagent_frames.py kilocode
 """
 import argparse
 import json
@@ -42,21 +39,6 @@ AGENTS = {
             "请使用 Agent 工具委派一个子代理完成这个小任务："
             "列出当前目录下的文件名，并用一句话总结。你自己不要直接列目录，"
             "必须通过子代理完成，完成后汇报子代理的结果。"
-        ),
-    },
-    "reasonix": {
-        "bin": "reasonix",
-        "prompt": (
-            "如果你有子代理委派工具（例如 Agent 或 task 工具），请用它委派一个"
-            "子代理完成：列出当前目录下的文件名并用一句话总结。"
-            "如果你没有这类工具，请直接回答「无子代理工具」，不要调用其他工具。"
-        ),
-    },
-    "kilocode": {
-        "bin": "kilocode",
-        "prompt": (
-            "请使用 task 工具委派一个子任务给子代理：列出当前目录下的文件名，"
-            "并用一句话总结。你自己不要直接执行，必须通过 task 子代理完成。"
         ),
     },
 }

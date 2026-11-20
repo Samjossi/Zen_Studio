@@ -2,9 +2,10 @@
 0813-1919 计划 T1/T4 验证）。
 
 覆盖：
-- T1 层级 toolCallId 解析：reasonix 实测帧（tests/fixtures/reasonix_frames.jsonl
+- T1 层级 toolCallId 解析：历史实测帧（tests/fixtures/reasonix_frames.jsonl
   蓝本，帧存档 subagent_probe_reasonix_20260813_190102.json 同源）驱动
   map_session_update，断言 parent_tool_call_id 拆出与无层级 ID 后端的零影响；
+  该样本仅作公共协议兼容输入，不代表对应后台仍可注册；
 - T4 kimi wire 旁路合成：实测 wire 裁剪样本（tests/fixtures/
   subagent_wire_sample.jsonl）驱动 _synthesize_wire_call/_synthesize_wire_result
   + _WireSidecar 增量解析（目录发现/残行缓冲/熔断），断言合成 Chunk 序列形态。
@@ -25,7 +26,7 @@ from ide.llm.providers.kimi_acp import (
 )
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
-REASONIX_FRAMES = FIXTURES / "reasonix_frames.jsonl"
+LEGACY_SUBAGENT_FRAMES = FIXTURES / "reasonix_frames.jsonl"
 WIRE_SAMPLE = FIXTURES / "subagent_wire_sample.jsonl"
 
 PARENT_TID = "call_00_P14w9pZLRhdaZCaoAny63153"
@@ -72,10 +73,10 @@ def test_parent_child_frames():
     assert "parent_tool_call_id" not in (kimi_agent.payload or {}), "kimi Agent 帧无父指针"
 
 
-def test_reasonix_frames_replay():
-    """reasonix 实测原始帧整流回归：全量 session/update 帧过映射不抛异常。"""
+def test_historical_nested_frames_replay():
+    """历史实测原始帧整流回归：全量 session/update 帧过映射不抛异常。"""
     nested = 0
-    for line in REASONIX_FRAMES.read_text(encoding="utf-8").strip().splitlines():
+    for line in LEGACY_SUBAGENT_FRAMES.read_text(encoding="utf-8").strip().splitlines():
         frame = (json.loads(line).get("frame") or {})
         if frame.get("method") != "session/update":
             continue

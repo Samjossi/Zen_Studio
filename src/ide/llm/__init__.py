@@ -21,14 +21,10 @@ from ide.llm.providers.acp import (
     PermissionParams,
     TurnCancelled,
 )
-from ide.llm.providers.dream_acp import DreamAcpLLM, dream_available, list_dream_models
 from ide.llm.providers.dsh_acp import DshAcpLLM, dsh_available, list_dsh_models
-from ide.llm.providers.kilocode_acp import KiloCodeAcpLLM, kilocode_available, list_kilocode_models
 from ide.llm.providers.kimi_acp import KimiAcpLLM
 from ide.llm.providers.kimi_common import kimi_available, list_kimi_models
 from ide.llm.providers.local_acp import LocalAcpLLM, list_local_models, local_available
-from ide.llm.providers.opencode_acp import OpenCodeAcpLLM, list_opencode_models, opencode_available
-from ide.llm.providers.reasonix_acp import ReasonixAcpLLM, list_reasonix_models, reasonix_available
 from ide.llm.registry import (
     BACKEND_LABELS,
     REGISTRY,
@@ -69,22 +65,6 @@ __all__ = [
     "KimiAcpLLM",
     "kimi_available",
     "list_kimi_models",
-    # Reasonix CLI 专有符号（非 Protocol 成员）
-    "ReasonixAcpLLM",
-    "reasonix_available",
-    "list_reasonix_models",
-    # OpenCode CLI 专有符号（非 Protocol 成员）
-    "OpenCodeAcpLLM",
-    "opencode_available",
-    "list_opencode_models",
-    # Kilo Code CLI 专有符号（非 Protocol 成员）
-    "KiloCodeAcpLLM",
-    "kilocode_available",
-    "list_kilocode_models",
-    # Dream CLI 专有符号（非 Protocol 成员）
-    "DreamAcpLLM",
-    "dream_available",
-    "list_dream_models",
     # DeepSeek Harness（dsh）专有符号（非 Protocol 成员）
     "DshAcpLLM",
     "dsh_available",

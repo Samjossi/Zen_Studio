@@ -1,16 +1,15 @@
 """Local ACP provider：长驻 `local-cli acp` 子进程 + JSON-RPC（ndjson 帧）对接。
 
-以 dream_acp.py 为底本逐行同构改写：会话生命周期、审批回环、流式映射
-全部复用泛化连接层 AcpConnection（ide/llm/providers/acp.py）。协议面以
-dream-acp/protocol/dream-acp-v1.md 为真值来源（Local CLI 与 Dream CLI
-共用同一套线协议；Local CLI 为独立仓库，由 Dream_Cli 复制改名而来）。
+会话生命周期、审批回环、流式映射全部复用泛化连接层 AcpConnection
+（ide/llm/providers/acp.py）。协议面以 dream-acp/protocol/dream-acp-v1.md
+为真值来源（Local CLI 与 Dream CLI 共用同一套线协议；Local CLI 为独立仓库，
+由 Dream_Cli 复制改名而来）。该协议资料目录不是 Dream 后台注册入口。
 
-与 dream_acp 的差异（均写在本文件 docstring，逐条可核对）：
+Local 自有适配点：
 1. `_find_bin()` 三级范式：PATH → `$LOCAL_HOME/bin/local-cli` →
-   `~/.local-cli/bin/local-cli`（同 dream 的 DREAM_HOME 范式换名）。
-2. `list_local_models()` 走 `local-cli models` 子进程动态枚举（opencode
-   同款范式）：Local CLI 服务端扫描配置的 GGUF 目录输出别名，IDE 不持
-   静态表。dream 的静态表 `dream-creator` 是收敛期产物，不适用。
+   `~/.local-cli/bin/local-cli`。
+2. `list_local_models()` 走 `local-cli models` 子进程动态枚举：Local CLI
+   服务端扫描配置的 GGUF 目录输出别名，IDE 不持静态表。
 3. 错误文案指向 Local CLI 自有配置体系（~/.local-cli/）。
 4. 思维链通道：llama-server 的 SSE 流携带独立 reasoning_content 字段，
    由 Local CLI 服务端映射为 agent_thought_chunk，客户端经公共
@@ -44,8 +43,7 @@ logger = logging.getLogger(__name__)
 #: 用户在终端敲 `local models` 会被 shell 拦下（只能在函数中使用）
 LOCAL_BIN = "local-cli"
 
-#: ACP terminal/* 反向能力支持矩阵（2026-0817-1522 五 agent 实测报告）：
-#: kimi/reasonix 支持；本 agent 不支持时保持 terminal: false（行为与现状等价）
+#: Local 未声明 ACP terminal/* 反向能力，保持 terminal: false
 _TERMINAL_CAPABILITY = False
 
 
@@ -53,8 +51,8 @@ def _find_bin() -> str | None:
     """解析 local-cli 二进制路径：PATH → $LOCAL_HOME/bin/local-cli → ~/.local-cli/bin/local-cli。
 
     桌面启动 Zen Studio 时 PATH 可能不含 local-cli 安装目录（如 ~/.local/bin
-    未入桌面会话 PATH），fallback 避免误判未安装——对齐 dream/reasonix
-    _find_bin 三级范式，安装根目录环境变量为 LOCAL_HOME。
+    未入桌面会话 PATH），fallback 避免误判未安装；安装根目录环境变量为
+    LOCAL_HOME。
     """
     if path := shutil.which(LOCAL_BIN):
         return path
@@ -77,9 +75,9 @@ def list_local_models() -> list[str]:
     """spawn `local-cli models` 枚举本地 GGUF 模型别名；失败返回空列表。
 
     输出契约：纯文本、每行一个模型别名（Local CLI 服务端扫描 model_dir
-    下的 *.gguf 产出）。解析策略与 opencode 同款：逐行 strip、跳过空行；
-    15s timeout 与 kimi/opencode 枚举同值。失败/超时/空输出 → 空列表
-    （R2 兜底纪律：空列表 = 用 agent 默认模型，不崩 UI）。
+    下的 *.gguf 产出）。逐行 strip、跳过空行，子进程 15s timeout；
+    失败/超时/空输出 → 空列表（R2 兜底纪律：空列表 = 用 agent 默认模型，
+    不崩 UI）。
     """
     bin_path = _find_bin()
     if not bin_path:
@@ -192,7 +190,7 @@ class LocalAcpLLM(LanguageModel):
         不注销则绑定方法把已死实例钉在 atexit 注册表至进程退出）。
 
         `_closed` 先置位：`_ensure_session` 在 spawn 前后双检该标志，
-        "close 之后新建的连接"语义上不可能存活（与 ReasonixAcpLLM 同一竞态防护）。
+        "close 之后新建的连接"语义上不可能存活（ACP provider 共用竞态防护）。
         """
         self._closed = True
         atexit.unregister(self.close)

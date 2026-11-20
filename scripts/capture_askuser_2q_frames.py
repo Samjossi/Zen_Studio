@@ -1,6 +1,6 @@
 """抓真实 kimi AskUserQuestion 两问场景全序列帧（一次性诊断取证）。
 
-蓝本：capture_reasonix_ask_frames.py。场景：诱导 kimi 用 AskUserQuestion
+蓝本：历史 Reasonix 提问帧采集流程。场景：诱导 kimi 用 AskUserQuestion
 在一张卡内连问两个问题，逐条记录 request_permission 载荷——
 实证「答完第一问后第二问是否还有独立 request_permission 到达」：
 

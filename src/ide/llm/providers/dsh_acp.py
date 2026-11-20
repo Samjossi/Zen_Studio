@@ -14,7 +14,7 @@
    dsh 自管（`~/.dsh/.credentials.yaml` / `DEEPSEEK_API_KEY`），宿主
    代码库零密钥。
 2. 强度 configId 为 `reasoning_effort`（snake_case，spike 实测；
-   kimi 为 thinking、dream/local 为 effort，各家拼写互不相同）。
+   Kimi 为 thinking、Local 为 effort，各家拼写互不相同）。
 3. 模型选项值是**不透明 JSON 对串**（`["deepseek-official","deepseek-flash"]`
    = 路由 + 型号），原样透传不解析不拼接（D6 红线 2 同款语义）；
    dsh 无 `dsh models` 枚举命令，模型清单只有 session/new 配置项与

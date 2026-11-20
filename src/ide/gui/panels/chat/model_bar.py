@@ -61,9 +61,9 @@
 四级「推理强度」（2026-08-06 一期静态声明；0455 动态化计划翻案为
 **模型级云端动态化**）：
 - 三按钮扩为四按钮：「后台 → 接口 → 模型 → 推理强度」；第四级数据源
-  = resolve_efforts(spec, 当前模型别名)——模型级 list_efforts（kimi
-  provider list --json 的 supportEfforts / kilo models --verbose 的
-  variants keys）优先，空 dict 回退接口级静态兜底 BackendSpec.efforts；
+  = resolve_efforts(spec, 当前模型别名)——模型级 list_efforts（如 Kimi
+  provider list --json 的 supportEfforts）优先，空 dict 回退接口级静态兜底
+  BackendSpec.efforts；
   非空 dict 查无该模型 = 该模型无强度轴（按钮禁用标注、回退层级标签
   「推理强度」）；强度值协议原样透传（不透明字符串红线同款语义），
   configId 归各 provider 的 set_effort 自持
@@ -539,7 +539,7 @@ class ModelBar(QWidget):
         self._effort_button.setEnabled(self._effort_supported)
         if efforts:
             if default not in efforts:
-                # 模型级默认缺失（kilo 目录无默认字段）→ 接口级兜底 → 首项
+                # 模型级目录未下发默认档 → 接口级兜底 → 首项
                 default = spec.default_effort if spec is not None else None
             target = self._find_action(self._effort_group, default)
             if target is None:
