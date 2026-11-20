@@ -1,15 +1,73 @@
-"""ide/core/child_env.py 环境净化单元测试（收编自 scripts/test_child_env.py）。
+"""ide/core/child_env.py 环境策略单元测试（收编自 scripts/test_child_env.py）。
 
-覆盖 文档/修改记录/2026-0811-0909 计划 T3 验证清单。
-不触真实子进程：直接对注入的假 env 字典调用 sanitize_environ() 断言。
+覆盖私有库路径净化、AI 子进程非交互分页环境副本与真实 PTY Git 自然退出。
 """
 from __future__ import annotations
 
-from ide.core.child_env import _is_private_lib_dir, sanitize_environ
+import os
+import re
+import select
+import time
+
+from ptyprocess import PtyProcess
+
+from ide.core.child_env import _is_private_lib_dir, sanitize_environ, with_non_interactive_pagers
 from ide.core.paths import PROJECT_ROOT
 
 MOUNT_A = "/tmp/.mount_zen_stekLeAF/usr/bin/_internal"
 MOUNT_B = "/tmp/.mount_zen_stLFnhJj/usr/bin/_internal"
+
+
+def test_non_interactive_pagers_added_and_unrelated_values_kept():
+    env = with_non_interactive_pagers({"PATH": "/usr/bin", "CUSTOM": "kept"})
+    assert env == {
+        "PATH": "/usr/bin",
+        "CUSTOM": "kept",
+        "GIT_PAGER": "cat",
+        "PAGER": "cat",
+    }
+
+
+def test_non_interactive_pagers_override_without_mutating_inputs():
+    source = {"GIT_PAGER": "less", "PAGER": "more", "CUSTOM": "kept"}
+    original = dict(source)
+    parent_before = dict(os.environ)
+
+    env = with_non_interactive_pagers(source)
+
+    assert env["GIT_PAGER"] == "cat"
+    assert env["PAGER"] == "cat"
+    assert env["CUSTOM"] == "kept"
+    assert source == original
+    assert dict(os.environ) == parent_before
+
+
+def test_git_log_exits_in_short_real_pty_with_non_interactive_env():
+    env = with_non_interactive_pagers(dict(os.environ, TERM="xterm-256color"))
+    proc = PtyProcess.spawn(
+        ["git", "-c", "core.pager=less", "-c", "color.ui=false", "log", "-5", "--oneline"],
+        cwd=str(PROJECT_ROOT), env=env, dimensions=(2, 80))
+    output = bytearray()
+    deadline = time.monotonic() + 5
+    try:
+        while proc.isalive() and time.monotonic() < deadline:
+            readable, _, _ = select.select([proc.fd], [], [], 0.1)
+            if readable:
+                try:
+                    output.extend(proc.read(4096))
+                except (EOFError, OSError):
+                    pass
+        while select.select([proc.fd], [], [], 0)[0]:
+            try:
+                output.extend(proc.read(4096))
+            except (EOFError, OSError):
+                break
+        assert not proc.isalive(), "普通 git log 不应等待交互翻页"
+        assert proc.exitstatus == 0
+        assert re.search(rb"[0-9a-f]{7,40} .+", output), "应读到真实提交输出"
+    finally:
+        if proc.isalive():
+            proc.terminate(force=True)
 
 
 def test_mount_entries_removed_user_kept():

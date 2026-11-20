@@ -25,6 +25,7 @@ main.py 启动早期对 os.environ 本身调用 sanitize_environ()，此后一�
   PySide6（见 pyi_rth_pyside6.py 注释）。
 """
 import os
+from collections.abc import Mapping
 from pathlib import Path
 
 from ide.core.paths import PROJECT_ROOT
@@ -35,6 +36,13 @@ _APPIMAGE_MOUNT_MARK = "/.mount_"
 
 #: 需净化的「路径列表型」环境变量（冒号分隔，逐条过滤 IDE 私有条目）
 _TARGET_VARS = ("LD_LIBRARY_PATH", "QT_PLUGIN_PATH", "QML2_IMPORT_PATH")
+
+AI_NON_INTERACTIVE_ENV = {"GIT_PAGER": "cat", "PAGER": "cat"}
+
+
+def with_non_interactive_pagers(env: Mapping[str, str]) -> dict[str, str]:
+    """返回 AI 子进程环境副本，避免自动工具在无人值守 PTY 中等待翻页。"""
+    return {**env, **AI_NON_INTERACTIVE_ENV}
 
 
 def _is_private_lib_dir(entry: str) -> bool:

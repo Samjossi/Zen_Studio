@@ -16,6 +16,7 @@ import difflib
 import itertools
 import json
 import logging
+import os
 import queue
 import re
 import subprocess
@@ -26,6 +27,8 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Literal, Protocol, TypedDict
 
+from ide.core.child_env import with_non_interactive_pagers
+from ide.core.paths import workspace_display_path
 from ide.llm.base import (
     Chunk,
     Message,
@@ -35,7 +38,6 @@ from ide.llm.base import (
     ToolUpdatePayload,
     UsageStats,
 )
-from ide.core.paths import workspace_display_path
 
 logger = logging.getLogger(__name__)
 
@@ -1272,6 +1274,7 @@ class AcpConnection:
                 encoding="utf-8",
                 errors="replace",
                 bufsize=1,
+                env=with_non_interactive_pagers(os.environ),
             )
         except OSError as e:
             raise RuntimeError(f"{agent_name} 启动失败：{e}") from e

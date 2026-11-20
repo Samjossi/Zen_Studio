@@ -24,6 +24,7 @@ from dataclasses import dataclass, field
 
 from PySide6.QtCore import QThread, QTimer
 
+from ide.core.child_env import with_non_interactive_pagers
 from ide.gui.panels.terminal.panel import TerminalPanel, _Session
 from ide.gui.settings import KEY_TERMINAL_AI_TAB_CLOSE_DELAY_S, load_settings
 
@@ -169,7 +170,8 @@ class AgentTerminalBridge:
         entry = self._panel.spawn_agent_session(
             argv, cwd, f"🤖 {title_word}",
             on_data=lambda data, rec=rec: self._on_data(rec, data),
-            on_exited=lambda code, rec=rec: self._on_exited(rec, code))
+            on_exited=lambda code, rec=rec: self._on_exited(rec, code),
+            env_extra=with_non_interactive_pagers(env or {}))
         rec.entry = entry
         with self._lock:
             self._terms[terminal_id] = rec

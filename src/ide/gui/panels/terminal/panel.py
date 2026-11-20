@@ -230,7 +230,8 @@ class TerminalPanel(QWidget):
 
     def spawn_agent_session(self, argv: list[str], cwd: str | None, title: str,
                             on_data: Callable[[bytes], None] | None = None,
-                            on_exited: Callable[[int], None] | None = None) -> _Session:
+                            on_exited: Callable[[int], None] | None = None,
+                            env_extra: dict[str, str] | None = None) -> _Session:
         """新建 AI 会话（ACP terminal/* 桥接入口，2026-0817-1554 计划 T4）：
         复用用户会话同一套 _Session/tab 栈/信号接线；不占「终端N」序号。
 
@@ -243,11 +244,12 @@ class TerminalPanel(QWidget):
         if self._tab_bar.count() >= self.MAX_TABS:
             raise RuntimeError(f"终端数量已达上限（{self.MAX_TABS}）")
         return self._spawn_entry(argv=argv, cwd=cwd or self._cwd, title=title,
-                                 on_data=on_data, on_exited=on_exited)
+                                 on_data=on_data, on_exited=on_exited, env_extra=env_extra)
 
     def _spawn_entry(self, argv: list[str] | None, cwd: str, title: str,
                      on_data: Callable[[bytes], None] | None = None,
-                     on_exited: Callable[[int], None] | None = None) -> _Session:
+                     on_exited: Callable[[int], None] | None = None,
+                     env_extra: dict[str, str] | None = None) -> _Session:
         """spawn 公共实现：建会话 + 入栈 + 切为新 tab（用户/AI 会话同路径）。"""
         row_count, column_count = self.terminal.get_grid_size()
         session = PtySession(self)
@@ -263,7 +265,7 @@ class TerminalPanel(QWidget):
             session.data_received.connect(on_data)
         if on_exited is not None:
             session.process_exited.connect(on_exited)
-        session.start(column_count, row_count, cwd=cwd, argv=argv)
+        session.start(column_count, row_count, cwd=cwd, argv=argv, env_extra=env_extra)
         self._sessions.append(session_entry)
         idx = self._tab_bar.addTab(session_entry.title)
         # 标签被挤压省略后完整标题的唯一可读出口（AI 会话标题为 🤖+命令名，长度不可控）

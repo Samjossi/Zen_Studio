@@ -165,10 +165,12 @@ def fake_agent(monkeypatch):
         def __init__(self) -> None:
             self.scenarios: list[dict] = []
             self.procs: list[_FakeAgentProc] = []
+            self.popen_kwargs: list[dict] = []
 
     ctl = _Ctl()
 
-    def _popen(*_args, **_kwargs):
+    def _popen(*_args, **kwargs):
+        ctl.popen_kwargs.append(kwargs)
         index = len(ctl.procs)
         scenario = dict(ctl.scenarios[min(index, len(ctl.scenarios) - 1)]
                         if ctl.scenarios else {})
@@ -208,6 +210,25 @@ def _chat_async(provider, text: str):
     thread = threading.Thread(target=run, daemon=True)
     thread.start()
     return thread, errors
+
+
+def test_acp_process_gets_non_interactive_pagers_without_mutating_parent(
+        fake_agent, monkeypatch):
+    monkeypatch.setenv("GIT_PAGER", "less")
+    monkeypatch.setenv("PAGER", "more")
+    monkeypatch.setenv("ACP_INHERITED_SENTINEL", "kept")
+    parent_before = dict(os.environ)
+
+    conn = acp_mod.AcpConnection("/fake/kimi", str(_TEMP_DIR), "fake acp")
+    try:
+        env = fake_agent.popen_kwargs[0]["env"]
+        assert env["GIT_PAGER"] == "cat"
+        assert env["PAGER"] == "cat"
+        assert env["ACP_INHERITED_SENTINEL"] == "kept"
+        assert env is not os.environ
+        assert dict(os.environ) == parent_before
+    finally:
+        conn.terminate()
 
 
 def test_eof_recovers_same_session_without_replay(fake_agent, kimi_provider):

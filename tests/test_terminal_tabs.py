@@ -2,7 +2,8 @@
 
 覆盖：① `_spawn` 达 MAX_TABS 后不再新增；② `spawn_agent_session` 满员抛
 RuntimeError（经桥透传 ACP -32603）；③「+」钮 39→40→39 禁用/恢复与 tooltip
-文案；④ ElideRight 与水平 Ignored 尺寸策略配置生效；⑤ 标签 tooltip 承载完整标题。
+文案；④ ElideRight 与水平 Ignored 尺寸策略配置生效；⑤ 标签 tooltip 承载完整标题；
+⑥ ACP 协议 env 到 AI PTY 的透传、分页覆盖与用户手动终端隔离。
 
 PtySession 以 Qt 信号桩替换（offscreen 下不起真实进程）。
 """
@@ -10,6 +11,7 @@ import pytest
 from PySide6.QtCore import QObject, Qt, Signal
 from PySide6.QtWidgets import QApplication, QSizePolicy
 
+from ide.gui.panels.terminal.agent_bridge import AgentTerminalBridge
 from ide.gui.panels.terminal.panel import TerminalPanel
 
 MAX_TABS = TerminalPanel.MAX_TABS
@@ -24,9 +26,11 @@ class _FakePtySession(QObject):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._alive = False
+        self.env_extra = None
 
-    def start(self, columns, rows, cwd=None, argv=None):
+    def start(self, columns, rows, cwd=None, argv=None, env_extra=None):
         self._alive = True
+        self.env_extra = env_extra
 
     def terminate(self):
         self._alive = False
@@ -72,6 +76,36 @@ def test_agent_session_raises_at_max_tabs(panel):
     _fill(panel, MAX_TABS)
     with pytest.raises(RuntimeError, match="终端数量已达上限"):
         panel.spawn_agent_session(["echo"], None, "🤖 echo")
+
+
+def test_agent_bridge_forwards_protocol_env_to_pty(panel):
+    bridge = AgentTerminalBridge(panel)
+    bridge._create_gui("git", ["log"], None, {
+        "CUSTOM_FROM_ACP": "kept",
+        "GIT_PAGER": "less",
+        "PAGER": "less",
+    })
+
+    env = panel._sessions[-1].session.env_extra
+    assert env == {
+        "CUSTOM_FROM_ACP": "kept",
+        "GIT_PAGER": "cat",
+        "PAGER": "cat",
+    }
+
+
+def test_agent_bridge_without_env_still_disables_pagers(panel):
+    bridge = AgentTerminalBridge(panel)
+    bridge._create_gui("git", ["log"], None, None)
+
+    env = panel._sessions[-1].session.env_extra
+    assert env["GIT_PAGER"] == "cat"
+    assert env["PAGER"] == "cat"
+
+
+def test_manual_spawn_does_not_inject_agent_env(panel):
+    panel._spawn()
+    assert panel._sessions[-1].session.env_extra is None
 
 
 def test_new_button_cap_cycle(panel):
