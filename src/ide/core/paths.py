@@ -87,7 +87,7 @@ def workspace_display_path(path: str | Path, workspace_root: str | Path | None) 
 
     单一换算来源（2026-0806-1908 计划 T1 改动点 2）：输入框 @mention
     （ide/gui/panels/chat/input.py _mention_text）与 ACP 图片附件路径透传
-    （ide/llm/providers/acp.py build_prompt_blocks）共用，防两处漂移。
+    （ide/llm/providers/acp/prompt.py build_prompt_blocks）共用，防两处漂移。
     root 为 None（未知工作区）时退化为绝对路径。
     """
     p = Path(path).resolve()

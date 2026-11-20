@@ -22,21 +22,21 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from ide.llm.base import LanguageModel
-from ide.llm.providers.dsh_acp import (
+from ide.llm.providers.dsh import (
     DshAcpLLM,
     dsh_available,
     list_dsh_display_names,
     list_dsh_models,
 )
-from ide.llm.providers.kimi_acp import KimiAcpLLM
-from ide.llm.providers.kimi_common import (
+from ide.llm.providers.kimi import (
+    KimiAcpLLM,
     display_names_from_catalog,
     efforts_from_catalog,
     kimi_available,
     load_kimi_provider_catalog,
     models_from_catalog,
 )
-from ide.llm.providers.local_acp import LocalAcpLLM, list_local_models, local_available
+from ide.llm.providers.local import LocalAcpLLM, list_local_models, local_available
 
 
 @dataclass(frozen=True)
@@ -268,7 +268,7 @@ REGISTRY: dict[str, BackendSpec] = {
             # 协议/持久化恒用对串）
             list_display_names=list_dsh_display_names,
             # 如实告知：dsh 处于 developer preview，官方明示会有兼容性
-            # 破坏变更（计划 §2 ⚠️）；接入面集中在 dsh_acp.py 单文件
+            # 破坏变更（计划 §2 ⚠️）；接入面集中在 dsh/provider.py
             dev_note=(
                 "DeepSeek Harness 后台处于 developer preview 阶段，官方明示"
                 "可能有兼容性破坏变更。如遇异常，请核对本机 dsh 版本（接入"

@@ -18,7 +18,7 @@ import re
 from collections.abc import Sequence
 from typing import Literal
 
-from ide.llm.providers.kimi_acp import PermissionOption, PermissionParams, ToolCallInfo
+from ide.llm.providers.acp import PermissionOption, PermissionParams, ToolCallInfo
 
 #: 决策结果常量
 DECISION_ALLOW = "allow"

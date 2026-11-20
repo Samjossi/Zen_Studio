@@ -1,7 +1,7 @@
 """Local ACP provider：长驻 `local-cli acp` 子进程 + JSON-RPC（ndjson 帧）对接。
 
 会话生命周期、审批回环、流式映射全部复用泛化连接层 AcpConnection
-（ide/llm/providers/acp.py）。协议面以 dream-acp/protocol/dream-acp-v1.md
+（ide/llm/providers/acp/ 包）。协议面以 dream-acp/protocol/dream-acp-v1.md
 为真值来源（Local CLI 与 Dream CLI 共用同一套线协议；Local CLI 为独立仓库，
 由 Dream_Cli 复制改名而来）。该协议资料目录不是 Dream 后台注册入口。
 
@@ -34,8 +34,9 @@ from ide.llm.providers.acp import (
     TerminalHandler,
     build_client_capabilities,
     build_prompt_blocks,
-    map_session_update,
 )
+from ide.llm.providers.acp.updates import map_session_update
+
 
 logger = logging.getLogger(__name__)
 
@@ -222,7 +223,7 @@ class LocalAcpLLM(LanguageModel):
         if self._conn is None or not self._conn.is_alive:
             if self._conn is not None:
                 self._conn.terminate()
-            self._conn = AcpConnection(bin_path, self._cwd, "local acp")
+            self._conn = AcpConnection([bin_path, "acp"], self._cwd, "local acp")
             if self._closed:  # spawn 与 close 竞态：迟到的连接即建即杀
                 self._conn.terminate()
                 self._conn = None

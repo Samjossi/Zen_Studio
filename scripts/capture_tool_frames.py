@@ -29,7 +29,7 @@ sys.path.insert(0, "src")
 
 from ide.core.paths import PROJECT_ROOT
 from ide.llm.providers.acp import AcpConnection
-from ide.llm.providers.kimi_common import _find_bin
+from ide.llm.providers.kimi.catalog import _find_bin
 
 ARCHIVE_DIR = PROJECT_ROOT / "文档" / "帧存档"
 WRITE_PROBE = PROJECT_ROOT / ".temp" / "capture_write_probe.txt"
@@ -93,7 +93,7 @@ def capture(scenario: str, prompt: str, bin_path, stamp: str) -> int:
                     return option.get("optionId")
         return None
 
-    conn = AcpConnection(bin_path, str(PROJECT_ROOT), "kimi acp")
+    conn = AcpConnection([bin_path, "acp"], str(PROJECT_ROOT), "kimi acp")
     stop_reason = None
     try:
         conn.request("initialize", {

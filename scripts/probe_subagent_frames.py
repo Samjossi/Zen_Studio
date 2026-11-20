@@ -4,7 +4,7 @@
 背景：GUI 上调用子代理（Agent 工具）只显示一张卡片，看不到子代理内部
 在干什么。本脚本复用现行 Kimi 接入验证：
 
-1. 以真实 ACP 客户端身份（复用 llm/providers/acp.py 的 AcpConnection）
+1. 以真实 ACP 客户端身份（复用 llm/providers/acp/ 的 AcpConnection）
    建立会话，发送「强制使用子代理」的 prompt；
 2. 全程录制双向原始帧（ndjson），落盘 .temp/subagent_acp_test/kimi.jsonl；
 3. 轮次结束后分析：子代理工具调用存活期间，是否收到任何属于其他
@@ -165,7 +165,7 @@ def run_probe(agent: str) -> int:
     turn_result: dict = {"agent": agent, "bin": bin_path, "prompt": spec["prompt"]}
     conn: AcpConnection | None = None
     try:
-        conn = AcpConnection(bin_path, TEST_CWD, f"{agent} acp")
+        conn = AcpConnection([bin_path, "acp"], TEST_CWD, f"{agent} acp")
         init_result = conn.request("initialize", {
             "protocolVersion": 1,
             "clientCapabilities": {

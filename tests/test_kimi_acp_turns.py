@@ -4,9 +4,9 @@ from pathlib import Path
 import pytest
 
 from ide.llm.base import UsageStats
-from ide.llm.providers import kimi_acp
 from ide.llm.providers.acp import TurnAborted, TurnCancelled
-from ide.llm.providers.kimi_acp import KimiAcpLLM
+from ide.llm.providers.kimi import KimiAcpLLM
+from ide.llm.providers.kimi import provider as kimi_acp
 
 
 SESSION_ID = "session-test"

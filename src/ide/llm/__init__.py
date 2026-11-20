@@ -21,10 +21,9 @@ from ide.llm.providers.acp import (
     PermissionParams,
     TurnCancelled,
 )
-from ide.llm.providers.dsh_acp import DshAcpLLM, dsh_available, list_dsh_models
-from ide.llm.providers.kimi_acp import KimiAcpLLM
-from ide.llm.providers.kimi_common import kimi_available, list_kimi_models
-from ide.llm.providers.local_acp import LocalAcpLLM, list_local_models, local_available
+from ide.llm.providers.dsh import DshAcpLLM, dsh_available, list_dsh_models
+from ide.llm.providers.kimi import KimiAcpLLM, kimi_available, list_kimi_models
+from ide.llm.providers.local import LocalAcpLLM, list_local_models, local_available
 from ide.llm.registry import (
     BACKEND_LABELS,
     REGISTRY,
@@ -61,7 +60,7 @@ __all__ = [
     "refresh_models",
     "resolve_efforts",
     "VENDOR_LABELS",
-    # Kimi 专有符号（非 Protocol 成员；探测/枚举居 kimi_common，CLI 传输层已移除）
+    # Kimi 专有符号（非 Protocol 成员；探测/枚举居 kimi 厂商包）
     "KimiAcpLLM",
     "kimi_available",
     "list_kimi_models",

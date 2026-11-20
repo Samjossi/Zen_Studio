@@ -63,6 +63,6 @@ python3 tools/spike_handshake.py --bin ./example/dream   # 显式指定被测 ag
 ## 与客户端的关系
 
 本协议以 ACP `protocolVersion: 1` 为线协议协商值，以 Zen Studio 的
-`src/ide/llm/providers/acp.py` 客户端实现与四个历史接入后台（Kimi / Reasonix /
+`src/ide/llm/providers/acp/` 客户端实现与四个历史接入后台（Kimi / Reasonix /
 OpenCode / Kilo Code）的实测教训为真值来源。文档附录 A 逐条记录这些历史实测
 教训——它们不是建议，是已踩过的坑，不代表这些后台仍是 Zen Studio 的现行选项。

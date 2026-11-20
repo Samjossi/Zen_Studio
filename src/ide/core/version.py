@@ -16,7 +16,7 @@
 
 消费方一律 import 本模块 APP_VERSION，禁止散落写死、禁止自行读文件：
 - `ide/gui/main_window.py` 关于对话框
-- `ide/llm/providers/*_acp.py` ACP initialize 的 clientInfo
+- `ide/llm/providers/*/provider.py` ACP initialize 的 clientInfo
 """
 import importlib.metadata
 import subprocess

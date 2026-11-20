@@ -1511,7 +1511,7 @@ class ChatPanel(QWidget):
 
 
 #: 旧轨 bash 输出卡截尾行数（协议层软上限 1000 行，旧轨冻结不改由
-#: 路由层钳回——与 acp._OUTPUT_KEEP_LINES 同值同步，改一处须同步）
+#: 路由层钳回；旧轨规格固定 20 行，与协议层软上限独立）
 _LEGACY_OUTPUT_KEEP_LINES = 20
 
 #: bash 运行中尾滚节流间隔（秒）

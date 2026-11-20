@@ -6,7 +6,8 @@
 
 wire.jsonl 仅提供用量、输出速度、真实消耗和子代理展示数据。轮末用量在
 有界窗口内尽力收集，缺失、迟到或格式异常均不改变 ACP 终态。连接帧收发、
-反向请求与 update 映射分别复用 AcpConnection 和 map_session_update。
+反向请求与 update 映射分别复用 AcpConnection 和
+acp.updates.map_session_update（T1 过渡期公共实现）。
 """
 import atexit
 import json
@@ -41,9 +42,10 @@ from ide.llm.providers.acp import (
     TurnCancelled,
     build_client_capabilities,
     build_prompt_blocks,
-    map_session_update,
 )
-from ide.llm.providers.kimi_common import (
+from ide.llm.providers.acp.updates import map_session_update
+
+from ide.llm.providers.kimi.catalog import (
     _find_bin,
     context_sizes_from_catalog,
     load_kimi_provider_catalog,
@@ -700,7 +702,7 @@ class KimiAcpLLM(LanguageModel):
             self._conn.terminate()
             self._conn = None
         if self._conn is None:
-            conn = AcpConnection(bin_path, self._cwd, "kimi acp")
+            conn = AcpConnection([bin_path, "acp"], self._cwd, "kimi acp")
             self._conn = conn
             if self._closed:  # spawn 与 close 竞态：迟到的连接即建即杀
                 conn.terminate()

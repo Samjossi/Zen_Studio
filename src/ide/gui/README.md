@@ -134,7 +134,7 @@
 
 ## 7. 终端面板（中栏下）
 
-`TerminalPanel`：单行头部栏（**tab 区**＋固定操作组）+ `TerminalWidget` 自绘终端。**真 PTY 多会话终端**（ANSI 颜色/交互程序/`kimi login` 全可用）。AI-first 语境下为用户终端 **+ AI tab**（2026-08-17，ACP terminal/* 反向能力落地：支持该能力的 agent（当前 Kimi）Bash 命令落到用户可见的 `🤖 <命令>` tab 执行，实时输出、可 Ctrl+C 干预、手关等价 kill+release；桥接层 `agent_bridge.py` 仅经面板公开方法操作，连接层派发见 `ide/llm/providers/acp.py`）。OOP 五层单向依赖（详见 `2026-0719-0412_中栏下终端面板实施计划.md` §2）：
+`TerminalPanel`：单行头部栏（**tab 区**＋固定操作组）+ `TerminalWidget` 自绘终端。**真 PTY 多会话终端**（ANSI 颜色/交互程序/`kimi login` 全可用）。AI-first 语境下为用户终端 **+ AI tab**（2026-08-17，ACP terminal/* 反向能力落地：支持该能力的 agent（当前 Kimi）Bash 命令落到用户可见的 `🤖 <命令>` tab 执行，实时输出、可 Ctrl+C 干预、手关等价 kill+release；桥接层 `agent_bridge.py` 仅经面板公开方法操作，连接层派发见 `ide/llm/providers/acp/connection.py`）。OOP 五层单向依赖（详见 `2026-0719-0412_中栏下终端面板实施计划.md` §2）：
 
 头部栏（阶段一/二重构，见 `文档/修改记录/2026-0719-0955_*.md`）：左起 tab 区（每会话一 tab：shell 名/OSC 动态标题＋行内 ×；`＋`新建；激活态下划线随主题）＋状态＋「清屏」（写 Ctrl+L，shell 自清）＋「−」隐藏（视图菜单可恢复）；固定高度随字号重算。终端区右键菜单承接重开/终止/关闭（Theia 功能分层）；`Ctrl+F` 查找为右上角浮层（不占布局）。
 

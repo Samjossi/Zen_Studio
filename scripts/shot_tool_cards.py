@@ -43,8 +43,8 @@ from ide.gui.panels.chat.permission_dialog import QuestionDialog  # noqa: E402
 from ide.gui.panels.chat.panel import ChatPanel  # noqa: E402
 from ide.gui.panels.chat.transcript import ChatTranscriptView  # noqa: E402
 from ide.gui.theme import DEFAULT_THEME, get_theme_palette  # noqa: E402
-from ide.llm.providers.acp import map_session_update  # noqa: E402
-from ide.llm.providers.kimi_acp import (  # noqa: E402
+from ide.llm.providers.acp.updates import map_session_update  # noqa: E402
+from ide.llm.providers.kimi.provider import (  # noqa: E402
     _synthesize_wire_call,
     _synthesize_wire_result,
 )
@@ -525,7 +525,7 @@ def _scenarios() -> list[tuple[str, list[dict], str, object]]:
                         "path": "src/ide/llm/providers"}),
             _tool_update("tc-search", "completed", kind="search",
                          raw_output={"output":
-                                     "src/ide/llm/providers/acp.py:737:"
+                                     "src/ide/llm/providers/acp/updates.py:"
                                      "def _tool_call_summary(update: dict)"}),
             _tool_call("tc-fetch", "FetchURL", "fetch",
                        {"url": "https://example.com/acp-spec"}),

@@ -1,12 +1,12 @@
 """DeepSeek Harness（dsh）ACP provider：长驻 `dsh acp` 子进程 + JSON-RPC（ndjson 帧）对接。
 
-以 local_acp.py 为底本同构改写（计划 2026-1018-0732）：会话生命周期、
+以 local/provider.py 为底本同构改写（计划 2026-1018-0732）：会话生命周期、
 审批回环、流式映射全部复用泛化连接层 AcpConnection。协议真值来源：
 `参考代码/deepseek-harness/packages/acp/acp/README.md`（标准 ACP v1，
 自动化专用面）；实测证据：`文档/帧存档/dsh_spike_20261018_074413.json`
 （scripts/spike_dsh_acp.py 产出）。
 
-与 local_acp 的差异（逐条可核对）：
+与 Local provider 的差异（逐条可核对）：
 1. `_find_bin()` 四级范式：PATH → `$DSH_HOME/bin/dsh` → `~/.dsh/bin/dsh`
    → npx 缓存兜底（`~/.npm/_npx/*/node_modules/.bin/dsh` 取最新——开发机
    经 `npx @deepseek-ai/dsh` 运行的实指路径；缓存清理即失效，仅作兜底，
@@ -49,8 +49,9 @@ from ide.llm.providers.acp import (
     TerminalHandler,
     build_client_capabilities,
     build_prompt_blocks,
-    map_session_update,
 )
+from ide.llm.providers.acp.updates import map_session_update
+
 
 logger = logging.getLogger(__name__)
 
@@ -374,7 +375,7 @@ class DshAcpLLM(LanguageModel):
         if self._conn is None or not self._conn.is_alive:
             if self._conn is not None:
                 self._conn.terminate()
-            self._conn = AcpConnection(bin_path, self._cwd, "dsh acp")
+            self._conn = AcpConnection([bin_path, "acp"], self._cwd, "dsh acp")
             if self._closed:  # spawn 与 close 竞态：迟到的连接即建即杀
                 self._conn.terminate()
                 self._conn = None
@@ -503,7 +504,7 @@ class DshAcpLLM(LanguageModel):
 
         轮次失败严禁「正常响应 + end_turn + 零 update」——不拦截则用户看到
         空回复零提示。协议允许 error 帧与 stopReason=error 二选一，客户端
-        两路同识别（local_acp 同款判别）。
+        两路同识别（Local provider 同款判别）。
         """
         if "error" in response:
             err = response["error"]

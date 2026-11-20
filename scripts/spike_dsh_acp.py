@@ -138,7 +138,7 @@ def run_spike(bin_path: str) -> int:
     updates: list[dict] = []
     conn: AcpConnection | None = None
     try:
-        conn = AcpConnection(bin_path, TEST_CWD, "dsh acp")
+        conn = AcpConnection([bin_path, "acp"], TEST_CWD, "dsh acp")
         # 1. 握手（dsh 不支持 terminals → terminal=False）
         init_result = conn.request("initialize", {
             "protocolVersion": 1,

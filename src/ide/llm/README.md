@@ -23,12 +23,20 @@
 | `ide/llm/__init__.py` | 包初始化：导出统一接口、后端常量（`BACKEND_KIMI_ACP`/`BACKEND_LABELS`，由 REGISTRY 派生 re-export）与 provider 类 |
 | `ide/llm/base.py` | `LanguageModel` Protocol + `Message` 类型别名 + `Chunk` 流式块（kind：text/reasoning/usage/tool_call/tool_call_update/todo；`speed` 可选字段携轮次输出速度，2026-10-23，work plans/2026-1023-1632）+ `UsageStats` 用量定型（source 三级 push/transcript/estimate，2026-07-31，文档/修改记录/2026-0731-1454）+ `TurnSpeed` 输出速度定型（output_tokens/gen_seconds，仅模型生成时间计分母）+ `TurnConsumption` 轮次真实消耗定型（输入缓存读写/输出四项 + turn_id 去重键，随轮末 usage chunk 的 `consumption` 字段携带，仅 kimi / DSH 产出，2026-1114-1452 计划）+ `poll_usage()` 可选轮询方法（默认 None，2026-08-02，文档/修改记录/2026-0802-0117） |
 | `ide/llm/registry.py` | 后端注册表：`BackendSpec`（name/label/vendor/available/list_models/factory + 可选 `dev_note` 开发中告知文案，2026-08-14，文档/修改记录/2026-0814-0603 计划）+ `REGISTRY` 单点 + 查询 API（`spec_of`/`vendor_of`/`vendor_groups`）；模型列表进程级缓存（`_cached_list_models` 包装，锁覆盖查拉写防并发重复拉取）+ `refresh_models()` 唯一失效口（2026-07-30，文档/修改记录/2026-0730-2338）；import 无副作用，探测均惰性 |
-| `ide/llm/providers/__init__.py` | provider 子包标记（每家厂商一个文件） |
-| `ide/llm/providers/acp.py` | 泛化 ACP 连接层 `AcpConnection`（ndjson JSON-RPC 帧收发/id 配对/反向请求分发/统一幂等失效；agent 名参数化；连接代次、请求 ID、预期/意外关闭与有界脱敏 stderr 尾部诊断）+ 审批协议定型类型（`PermissionParams`/`PermissionHandler`）+ terminal/* 反向能力（2026-0817-1554 计划：`TerminalHandler` 契约 + `set_terminal_handler` 鸭子类型注入 + `build_client_capabilities` 声明收口；create/output/kill/release 同步应答、wait_for_exit 异步应答不占 reader 线程、无 handler 维持 -32601 兜底；GUI 桥实现见 `ide/gui/panels/terminal/agent_bridge.py`）+ session/update 公共映射 `map_session_update`（2026-0731-1602 计划 T2：四 provider 私有 `_map_update` 上收，message/thought/usage 原三分支 + tool_call 结构化/tool_call_update/plan 新三分支；2026-0808-0627 计划 T1：todowrite→todo 首帧特判撤销，rawInput.todos 提取为 `todos` 载荷 + 跨调用 diff changed 标记，kind="todo" 仅余 plan 通道；2026-0813-1919 计划 T1：层级 toolCallId `父/子` 拆出 `parent_tool_call_id` 父指针——reasonix 子代理内部活动帧嵌套显示锚点，无层级 ID 后端零影响）与 `map_usage_update` |
-| `ide/llm/providers/kimi_common.py` | kimi 二进制公共探测与模型目录：`kimi provider list --json` 同源派生模型别名、强度档位、显示名及 `maxContextSize` 上下文窗口（`context_sizes_from_catalog`），目录失败不臆造静态上限 |
-| `ide/llm/providers/kimi_acp.py` | `KimiAcpLLM`：Kimi ACP 后端（长驻 `kimi acp` 子进程，复用 `AcpConnection`；token 级流式、思维链可见、审批反向请求路由；轮末 ACP `usage_update` 为主，response 后在同一 ≤3s 窗口继续收集，并由轮后短宽限回收迟到帧，source="push"；wire 用于轮内增量轮询与 ACP 缺失兜底，source="transcript"，优先 token_counting.measured 水位、旧 usage.record 四项求和兜底，窗口读模型目录而非 llm.request.maxTokens；仅带 turnStep 的请求参与计数与速度配对，超时保留有效子集；轮次输出速度随收尾 usage chunk 携带；子代理 wire 旁路 `_WireSidecar` 格式假设见 `维护手册/后端CLI工具维护说明手册.md`） |
-| `ide/llm/providers/dsh_acp.py` | `DshAcpLLM`：DeepSeek Harness（dsh）ACP 后端（长驻 `dsh acp` 子进程，以 local_acp.py 为底本同构，计划 2026-1018-0732；探测链 PATH → `$DSH_HOME/bin` → `~/.dsh/bin` → npx 缓存兜底；强度 configId 为 `reasoning_effort`；模型值为不透明 JSON 对串，静态表仅列现行 `deepseek-flash` / `deepseek-v4-pro`，旧别名 `deepseek-v4-flash` 不再作为新会话候选、持久化旧值不静默改写；terminals 与图片不支持（spike 实测，帧存档 dsh_spike_20261018_074413.json）；凭据归 dsh 自管 `~/.dsh/`，developer preview 状态经注册表 `dev_note` 如实告知；协议真值来源 `参考代码/deepseek-harness/packages/acp/acp/README.md`） |
-| `ide/llm/providers/local_acp.py` | `LocalAcpLLM`：本地模型 ACP 后端（厂商分组 Local；探测链 PATH → `$LOCAL_HOME/bin/local-cli` → `~/.local-cli/bin/local-cli`；模型枚举走 `local-cli models` 子进程动态扫描 GGUF 目录，无静态表；服务端为独立仓库 Local CLI（llama-server orchestrator），协议参考保留在 `dream-acp/protocol/dream-acp-v1.md`，该目录不再是 Dream 后台注册入口） |
+| `ide/llm/providers/__init__.py` | provider 子包标记（稳定 ACP 公共层 + Kimi/DSH/Local 厂商目录） |
+| `ide/llm/providers/acp/__init__.py` | 稳定 ACP 公共设施出口：连接、协议定型、prompt 构造、usage 解析；不导出过渡期 update 映射 |
+| `ide/llm/providers/acp/connection.py` | `AcpConnection`：ndjson JSON-RPC 帧收发/id 配对/反向请求分发/统一幂等失效；构造接收**完整 argv**（启动命令由各厂商 provider 组装）；连接代次、请求 ID、预期/意外关闭与有界脱敏 stderr 尾部诊断；terminal/* 反向能力（create/output/kill/release 同步应答、wait_for_exit 异步应答） |
+| `ide/llm/providers/acp/protocol.py` | ACP 协议定型：`PermissionOption`/`PermissionParams`/`ToolCallInfo`/`PermissionHandler`/`TerminalHandler`/`build_client_capabilities`/`map_usage_update` |
+| `ide/llm/providers/acp/prompt.py` | `build_prompt_blocks`：标准 text/image ContentBlock 构造与附图路径透传 |
+| `ide/llm/providers/acp/content.py` | 标准 ACP content/diff/文本截断纯函数（ANSI 净化、content 块分发、unified diff、行数截断）；不含厂商词表 |
+| `ide/llm/providers/acp/updates.py` | **过渡期**公共 session/update 映射 `map_session_update`：T1 只做机械迁移，仍含多厂商键表、kind 兜底与模块级账本；T2 将拆入各厂商 `updates.py`，不得作为稳定公共出口 |
+| `ide/llm/providers/kimi/__init__.py` | Kimi 厂商包公开入口：`KimiAcpLLM`、探测/模型目录函数 |
+| `ide/llm/providers/kimi/provider.py` | `KimiAcpLLM`：Kimi ACP 后端（长驻 `kimi acp` 子进程，provider 组装 `[bin_path, "acp"]`；token 级流式、思维链可见、审批反向请求路由；轮末 ACP `usage_update` 为主，response 后在同一 ≤3s 窗口继续收集，并由轮后短宽限回收迟到帧，source="push"；wire 用于轮内增量轮询与 ACP 缺失兜底，source="transcript"，优先 token_counting.measured 水位、旧 usage.record 四项求和兜底，窗口读模型目录而非 llm.request.maxTokens；仅带 turnStep 的请求参与计数与速度配对，超时保留有效子集；轮次输出速度随收尾 usage chunk 携带；子代理 wire 旁路 `_WireSidecar` 格式假设见 `维护手册/后端CLI工具维护说明手册.md`） |
+| `ide/llm/providers/kimi/catalog.py` | kimi 二进制公共探测与模型目录：`kimi provider list --json` 同源派生模型别名、强度档位、显示名及 `maxContextSize` 上下文窗口（`context_sizes_from_catalog`），目录失败不臆造静态上限 |
+| `ide/llm/providers/dsh/provider.py` | `DshAcpLLM`：DeepSeek Harness（dsh）ACP 后端（长驻 `dsh acp` 子进程，以 local/provider.py 为底本同构，计划 2026-1018-0732；探测链 PATH → `$DSH_HOME/bin` → `~/.dsh/bin` → npx 缓存兜底；强度 configId 为 `reasoning_effort`；模型值为不透明 JSON 对串，静态表仅列现行 `deepseek-flash` / `deepseek-v4-pro`，旧别名 `deepseek-v4-flash` 不再作为新会话候选、持久化旧值不静默改写；terminals 与图片不支持（spike 实测，帧存档 dsh_spike_20261018_074413.json）；凭据归 dsh 自管 `~/.dsh/`，developer preview 状态经注册表 `dev_note` 如实告知；协议真值来源 `参考代码/deepseek-harness/packages/acp/acp/README.md`） |
+| `ide/llm/providers/local/provider.py` | `LocalAcpLLM`：本地模型 ACP 后端（厂商分组 Local；探测链 PATH → `$LOCAL_HOME/bin/local-cli` → `~/.local-cli/bin/local-cli`；模型枚举走 `local-cli models` 子进程动态扫描 GGUF 目录，无静态表；服务端为独立仓库 Local CLI（llama-server orchestrator），协议参考保留在 `dream-acp/protocol/dream-acp-v1.md`，该目录不再是 Dream 后台注册入口） |
+
+> T1 现状：`kimi/models.py`、`dsh/models.py`、`local/models.py` 与各厂商 `updates.py`/`permissions.py` 尚未拆分，厂商 update 语义仍走 `acp/updates.py`；这些目录将在 T2/T4 按子计划落地。
 
 ## 3. 接口设计
 
@@ -102,7 +110,7 @@ for chunk in llm.chat([{"role": "user", "content": "你好"}]):
 
 **Kimi 后台通知边界**：IDE 不读取私有 wire 判断轮次是否完成。后台通知期间是否仍应继续执行，由 Kimi 的 ACP `session/prompt` 响应与后续协议事件决定；上游提前 `end_turn` 属于上游契约问题，本地不再设置 drain 或失配恢复。
 
-**kimi 二进制探测与模型枚举**（`ide/llm/providers/kimi_common.py`）：
+**kimi 二进制探测与模型枚举**（`ide/llm/providers/kimi/catalog.py`）：
 
 - 二进制检测链：`PATH` → `$KIMI_CODE_HOME/bin/kimi` → `~/.kimi-code/bin/kimi`（桌面启动 PATH 不含安装目录时仍可发现）
 - 可用模型别名由 `list_kimi_models()`（`kimi provider list --json`）**动态解析**，随 CLI 重登录刷新的服务端目录自动增减，IDE 侧零硬编码（2026-07-25 起目录含 `kimi-code/k3-256k`：K3 的 256K 版，同模式消耗约为 `k3`（1M）一半，**仅图片输入不支持视频**，effort `low`/`high`/`max`；IDE 持久化默认版本与 CLI `default_model` 均已切换至它，见 文档/修改记录/2026-0725-0205。2026-10-24 起目录含 `kimi-code/k3.1-pro` / `kimi-code/k3.1-pro-highspeed`：K3.1 Pro 系列，3T 级、1M 上下文（高档位会员）、仅 thinking（`always_thinking`）、effort `low`/`high`/`max` 默认 `max`、支持视频输入；目录字段齐全，IDE 零改动接入，见 `work plans/2026-1024-0403_K3.1Pro新模型接入落地计划.md`）
@@ -116,7 +124,7 @@ for chunk in llm.chat([{"role": "user", "content": "你好"}]):
 
 ## 6. 新增 provider
 
-1. 在 `ide/llm/providers/` 下新建 `<名称>.py`，实现 `LanguageModel` 协议（`chat()` 为流式 generator；历史策略由各实现自决，CLI 类推荐"末条 user 消息 + CLI 侧会话"）；ACP 系后端直接复用 `ide/llm/providers/acp.py` 的 `AcpConnection`（参照 `local_acp.py` 与 `kimi_acp.py` 同构范式）
+1. 在 `ide/llm/providers/<名称>/` 建厂商包：`__init__.py` 只导出本厂商公开入口，`provider.py` 实现 `LanguageModel` 协议（`chat()` 为流式 generator；历史策略由各实现自决，CLI 类推荐"末条 user 消息 + CLI 侧会话"）；ACP 系后端直接复用 `ide/llm/providers/acp/` 的 `AcpConnection`，由 provider 组装完整启动 argv（如 `[bin_path, "acp"]`；参照 `local/provider.py` 与 `kimi/provider.py` 同构范式）
 2. 在 `ide/llm/registry.py` 的 `REGISTRY` 注册 `BackendSpec`（`available`/`list_models`/`factory` 均惰性可调用，import 无副作用）——注册即全链路生效（ModelBar 三级下拉、设置中心、ChatPanel 懒实例化工厂），**无需改任何 GUI 代码**
 3. 模型范围按接口级隔离（D6 红线）：模型目录挂各 `BackendSpec.list_models()`，别名是各后台私有语义的不透明字符串，禁止跨后台共享模型表、禁止在公共代码解析别名
 4. 凭证管理：CLI 类凭证由 CLI 自管，代码库不出现密钥；API key 类凭证放项目根 `api_key/<名称>`（已 gitignore）
