@@ -147,7 +147,7 @@ def test_turn_completed_not_on_user_stop(qapp, fake_registry):
     panel._history.append({"role": "user", "content": "hi"})
     emitted: list[bool] = []
     panel.turn_completed.connect(emitted.append)
-    panel._on_stopped()
+    panel._on_stopped("user")
     assert emitted == []
 
 

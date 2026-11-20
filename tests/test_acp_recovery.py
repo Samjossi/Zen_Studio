@@ -109,6 +109,11 @@ class _FakeAgentProc:
                 return
             elif behavior == "stuck_once" and len(self.prompts) == 1:
                 return
+            elif "prompt_error" in self.scenario:
+                self._send({"jsonrpc": "2.0", "id": req_id,
+                            "error": self.scenario["prompt_error"]})
+            elif "prompt_result" in self.scenario:
+                self._reply(req_id, self.scenario["prompt_result"])
             else:
                 self._reply(req_id, {"stopReason": "end_turn"})
         elif method == "session/cancel":
@@ -440,3 +445,75 @@ def test_expected_terminate_wakes_pending_without_unexpected_error(fake_agent):
     assert not thread.is_alive()
     assert errors and "连接已关闭" in str(errors[0])
     assert "意外" not in str(errors[0])
+
+
+# ----------------------------------------------------------------------
+# stopReason 语义（2026-1120-0946 计划 D1/D5）
+# ----------------------------------------------------------------------
+def _install_usage_spy(provider, monkeypatch) -> list[bool]:
+    """替换轮末用量收尾：记录是否执行，并产出一条 usage chunk 作为
+    「收尾先于抛错」的可观察证据（真实 wire 读取在假后端下为空）。"""
+    collected: list[bool] = []
+
+    def spy(*_args, **_kwargs):
+        collected.append(True)
+        yield ka.Chunk("usage", "")
+
+    monkeypatch.setattr(provider, "_collect_turn_end_usage", spy)
+    return collected
+
+
+@pytest.mark.parametrize("prompt_result", [
+    {"stopReason": "end_turn"},
+    {},  # 缺失 stopReason：旧 CLI 兼容，按正常完成
+    {"stopReason": "future_reason"},  # 未知枚举：fail-open 不卡 busy
+])
+def test_non_error_stop_reasons_complete_with_usage(
+        fake_agent, kimi_provider, monkeypatch, prompt_result):
+    fake_agent.scenarios = [{"prompt_result": prompt_result}]
+    collected = _install_usage_spy(kimi_provider, monkeypatch)
+    chunks = _chat(kimi_provider, "hello")
+    assert collected == [True]
+    assert any(chunk.kind == "usage" for chunk in chunks)
+
+
+def test_cancelled_raises_after_usage_is_collected(
+        fake_agent, kimi_provider, monkeypatch):
+    fake_agent.scenarios = [{"prompt_result": {"stopReason": "cancelled"}}]
+    collected = _install_usage_spy(kimi_provider, monkeypatch)
+    generator = kimi_provider.chat([{"role": "user", "content": "hello"}])
+    chunks = []
+    with pytest.raises(acp_mod.TurnCancelled):
+        while True:
+            chunks.append(next(generator))
+    assert collected == [True]
+    assert any(chunk.kind == "usage" for chunk in chunks)
+
+
+@pytest.mark.parametrize(
+    "stop_reason", ["max_tokens", "max_turn_requests", "refusal"])
+def test_non_end_turn_failure_keeps_usage_and_names_reason(
+        fake_agent, kimi_provider, monkeypatch, stop_reason):
+    fake_agent.scenarios = [{"prompt_result": {"stopReason": stop_reason}}]
+    collected = _install_usage_spy(kimi_provider, monkeypatch)
+    generator = kimi_provider.chat([{"role": "user", "content": "hello"}])
+    chunks = []
+    with pytest.raises(RuntimeError) as raised:
+        while True:
+            chunks.append(next(generator))
+    assert stop_reason in str(raised.value)
+    assert collected == [True]
+    assert any(chunk.kind == "usage" for chunk in chunks)
+
+
+def test_error_frame_takes_priority_over_stop_reason(
+        fake_agent, kimi_provider, monkeypatch):
+    fake_agent.scenarios = [{
+        "prompt_error": {"code": -32000, "message": "boom"},
+        "prompt_result": {"stopReason": "cancelled"},
+    }]
+    collected = _install_usage_spy(kimi_provider, monkeypatch)
+    with pytest.raises(RuntimeError, match="对话失败") as raised:
+        _chat(kimi_provider, "hello")
+    assert not isinstance(raised.value, acp_mod.TurnCancelled)
+    assert collected == []  # error 帧先抛，不进入收尾分类

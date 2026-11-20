@@ -111,6 +111,14 @@ class TurnAborted(Exception):
     next_update 拆拍检查发现即抛出。agent 沉默时协议 cancel 无回包，
     本地中断是解封 worker 的唯一路径（2026-1118-1115 计划 D1）。"""
 
+
+class TurnCancelled(Exception):
+    """agent 明确回 `stopReason=cancelled` 的非成功终态。
+
+    与 TurnAborted 分列：TurnAborted 是 IDE 本地中断（用户停止/看门狗），
+    无需 agent 回包；本异常只在收到 prompt 响应且 stopReason 为 cancelled
+    时抛出，走停止收尾而非失败通道——两者都不显示 [请求失败]。"""
+
 #: terminal/* 反向请求方法集（无 handler 时分发维持 -32601 兜底语义）
 _TERMINAL_METHODS = frozenset({
     "terminal/create", "terminal/output", "terminal/wait_for_exit",
@@ -1679,6 +1687,7 @@ class AcpConnection:
 __all__ = [
     "AcpConnection",
     "TurnAborted",
+    "TurnCancelled",
     "PermissionOption",
     "ToolCallInfo",
     "PermissionParams",

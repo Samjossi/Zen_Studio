@@ -18,6 +18,7 @@ import queue
 import subprocess
 import threading
 import time
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -105,6 +106,8 @@ class _FakeAgentProc:
                 self._reply(req_id, {
                     "stopReason": "end_turn",
                     "content": [{"type": "text", "text": "完成"}]})
+            elif self.scenario == "cancelled":
+                self._reply(req_id, {"stopReason": "cancelled"})
             # stuck：不回 prompt 响应——agent 永久沉默的等价模拟
         elif method == "session/cancel":
             self.cancel_seen.set()
@@ -231,7 +234,7 @@ def _make_worker(provider) -> tuple[ChatWorker, list]:
     worker.finished_with_error.connect(
         lambda e: events.append(("finished", e)), direct)
     worker.stopped_by_user.connect(
-        lambda: events.append(("stopped", None)), direct)
+        lambda reason: events.append(("stopped", reason)), direct)
     return worker, events
 
 
@@ -298,7 +301,7 @@ def test_request_stop_escapes_stuck_turn(qapp, fake_agent, kimi_provider):
         worker.request_stop()
         assert _wait_for(lambda: not worker.isRunning(), timeout=5.0), \
             "停止后 worker 仍未收尾（挂起未解封）"
-        assert ("stopped", None) in events
+        assert ("stopped", "user") in events
         assert not any(k == "finished" for k, _ in events)
         assert fake_agent.last is not None
         assert fake_agent.last.cancel_seen.is_set()  # 协议 cancel 照发
@@ -321,15 +324,47 @@ def test_normal_turn_unaffected_by_tick_slice(qapp, fake_agent, kimi_provider):
         worker.wait(5000)
 
 
+def test_agent_cancelled_routes_to_stopped(qapp, fake_agent, kimi_provider):
+    """agent 明确回 cancelled：非失败，走 stopped_by_user("cancelled")。"""
+    fake_agent.scenario = "cancelled"
+    worker, events = _make_worker(kimi_provider)
+    worker.start()
+    try:
+        assert _wait_for(lambda: any(k == "stopped" for k, _ in events), 15.0), \
+            "cancelled 终态未收尾"
+        assert ("stopped", "cancelled") in events
+        assert not any(k == "finished" for k, _ in events)
+    finally:
+        worker.wait(5000)
+
+
+def test_watchdog_stop_reason_reaches_worker_payload(
+        qapp, fake_agent, kimi_provider):
+    """看门狗 request_stop("stall") 的来源随收尾信号回传，不被归为手动停止。"""
+    worker, events = _make_worker(kimi_provider)
+    worker.start()
+    try:
+        assert _wait_for(lambda: any(k == "chunk" for k, _ in events)), \
+            "假后端首帧未到达"
+        worker.request_stop("stall")
+        assert _wait_for(lambda: not worker.isRunning(), timeout=5.0)
+        assert ("stopped", "stall") in events
+        assert ("stopped", "user") not in events
+    finally:
+        worker.wait(5000)
+
+
 # ----------------------------------------------------------------------
 # 看门狗：超阈值自动中断
 # ----------------------------------------------------------------------
 class _StopRecorder:
     def __init__(self) -> None:
         self.calls = 0
+        self.reasons: list[str] = []
 
-    def request_stop(self) -> None:
+    def request_stop(self, reason: str = "user") -> None:
         self.calls += 1
+        self.reasons.append(reason)
 
     def disconnect(self, *_args) -> None:
         pass  # ChatPanel.close() 桩接口
@@ -356,6 +391,8 @@ def test_stall_watchdog_auto_stops_and_hints(fake_registry, isolated_settings):
     try:
         panel._stall_watchdog_tick()
         assert recorder.calls == 1
+        assert recorder.reasons == ["stall"]
+        assert panel._stop_reason == "stall"
         assert any("已自动中断" in m for m in messages)
         # 单次触发后置空计时，紧接着的 tick 不重复触发
         panel._stall_watchdog_tick()
@@ -420,6 +457,99 @@ def test_stall_watchdog_marks_provider_and_explains_manual_recovery(
         assert recorder.calls == 1
         assert any("下一次手动发送将尝试恢复原会话" in m for m in messages)
         assert any("原请求不会自动重发" in m for m in messages)
+    finally:
+        panel.close()
+
+
+def test_cancelled_stop_rolls_back_without_success_notification(
+        fake_registry, isolated_settings):
+    """agent 回 cancelled：不播报成功、取消待发、回滚 history、独立文案。"""
+    panel = _make_panel(fake_registry, isolated_settings)
+    panel._history = [{"role": "user", "content": "跑长任务"}]
+    panel._sent_text = "跑长任务"
+    panel._stream_buffer = "半截回复"
+    panel._turn_started_at = datetime.now()
+    panel._pending_send = True
+    panel._set_busy(True)
+    notes: list[str] = []
+    panel.output.append_stream_chunk = lambda text: notes.append(text)
+    emitted: list[bool] = []
+    panel.turn_completed.connect(emitted.append)
+    try:
+        panel._on_stopped("cancelled")
+        assert emitted == []  # 成功通知 0 次
+        assert not panel._pending_send
+        assert not panel._busy
+        assert panel._history == []
+        assert panel._last_turn is not None
+        assert panel._last_turn["outcome"] == "已取消"
+        assert any("本轮已被 agent 取消" in note for note in notes)
+    finally:
+        panel.close()
+
+
+def test_user_stop_wins_over_agent_cancelled(fake_registry, isolated_settings):
+    """用户按停止后 agent 再回 cancelled：仍按「已手动停止」收尾。"""
+    panel = _make_panel(fake_registry, isolated_settings)
+    panel._history = [{"role": "user", "content": "跑长任务"}]
+    panel._turn_started_at = datetime.now()
+    panel._stop_reason = "user"
+    notes: list[str] = []
+    panel.output.append_stream_chunk = lambda text: notes.append(text)
+    try:
+        panel._on_stopped("cancelled")
+        assert panel._last_turn is not None
+        assert panel._last_turn["outcome"] == "手动停止"
+        assert any("已手动停止" in note for note in notes)
+        assert not any("已被 agent 取消" in note for note in notes)
+    finally:
+        panel.close()
+
+
+def test_stall_stop_uses_watchdog_copy(fake_registry, isolated_settings):
+    """看门狗来源优先于 worker 的 "user" 载荷：仍是「已因无响应中断」。"""
+    panel = _make_panel(fake_registry, isolated_settings)
+
+    class _Provider:
+        def mark_stalled(self):
+            pass
+
+    panel._providers[panel._llm_name] = _Provider()  # type: ignore[assignment]
+    panel._history = [{"role": "user", "content": "跑长任务"}]
+    panel._turn_started_at = datetime.now()
+    panel._stop_reason = "stall"
+    notes: list[str] = []
+    panel.output.append_stream_chunk = lambda text: notes.append(text)
+    try:
+        panel._on_stopped("user")
+        assert panel._last_turn is not None
+        assert panel._last_turn["outcome"] == "看门狗停止"
+        assert any("已因无响应中断" in note for note in notes)
+        assert any("下一次手动发送将尝试恢复原会话" in note for note in notes)
+    finally:
+        panel.close()
+
+
+def test_stall_stop_without_recovery_does_not_promise_resume(
+        fake_registry, isolated_settings):
+    """无 mark_stalled 的后端不得照抄 Kimi 的恢复提示。"""
+    panel = _make_panel(fake_registry, isolated_settings)
+
+    class _Provider:
+        pass
+
+    panel._providers[panel._llm_name] = _Provider()  # type: ignore[assignment]
+    panel._history = [{"role": "user", "content": "跑长任务"}]
+    panel._turn_started_at = datetime.now()
+    panel._stop_reason = "stall"
+    notes: list[str] = []
+    panel.output.append_stream_chunk = lambda text: notes.append(text)
+    try:
+        panel._on_stopped("user")
+        assert panel._last_turn is not None
+        assert panel._last_turn["outcome"] == "看门狗停止"
+        assert any("可重新发送" in note for note in notes)
+        assert not any("恢复原会话" in note for note in notes)
     finally:
         panel.close()
 

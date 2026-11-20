@@ -16,7 +16,11 @@ from ide.llm.base import (
     TurnSpeed,
     UsageStats,
 )
-from ide.llm.providers.acp import PermissionHandler, PermissionParams
+from ide.llm.providers.acp import (
+    PermissionHandler,
+    PermissionParams,
+    TurnCancelled,
+)
 from ide.llm.providers.dream_acp import DreamAcpLLM, dream_available, list_dream_models
 from ide.llm.providers.dsh_acp import DshAcpLLM, dsh_available, list_dsh_models
 from ide.llm.providers.kilocode_acp import KiloCodeAcpLLM, kilocode_available, list_kilocode_models
@@ -92,4 +96,5 @@ __all__ = [
     # ACP 协议层定型（审批回环共用；现居 llm.providers.acp，此处 re-export）
     "PermissionHandler",
     "PermissionParams",
+    "TurnCancelled",
 ]

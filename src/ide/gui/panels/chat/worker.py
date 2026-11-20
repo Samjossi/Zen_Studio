@@ -3,7 +3,7 @@ import logging
 
 from PySide6.QtCore import QThread, Signal
 
-from ide.llm import LanguageModel, Message
+from ide.llm import LanguageModel, Message, TurnCancelled
 
 logger = logging.getLogger(__name__)
 
@@ -25,17 +25,25 @@ class ChatWorker(QThread):
     chunk_received = Signal(object)
     #: 完成（正常或异常均触发，附带错误信息或空串）
     finished_with_error = Signal(str)
-    #: 用户主动停止（与正常/失败分离的第三态）
-    stopped_by_user = Signal()
+    #: 用户主动停止（与正常/失败分离的第三态）；值区分停止来源
+    #: "user"（停止钮）/ "stall"（看门狗）/ "cancelled"（agent 明确取消）
+    stopped_by_user = Signal(str)
 
     def __init__(self, llm: LanguageModel, messages: list[Message], parent=None) -> None:
         super().__init__(parent)
         self._llm = llm
         self._messages = messages
         self._is_stop_requested = False
+        self._stop_reason = "user"
 
-    def request_stop(self) -> None:
-        """请求停止：置标志 + 协议取消。可从任意线程调用，幂等。"""
+    def request_stop(self, reason: str = "user") -> None:
+        """请求停止：记录来源 + 置标志 + 协议取消。可从任意线程调用，幂等。
+
+        reason 只影响收尾信号载荷，不改变 cancel() 的协议行为；重复请求
+        保留首次来源（看门狗触发后用户再按停止，仍按看门狗收尾）。
+        """
+        if not self._is_stop_requested:
+            self._stop_reason = reason
         self._is_stop_requested = True
         try:
             self._llm.cancel()
@@ -46,7 +54,7 @@ class ChatWorker(QThread):
         gen = None
         try:
             if self._is_stop_requested:  # 竞态层：未启动即被取消，不建生成器
-                self.stopped_by_user.emit()
+                self.stopped_by_user.emit(self._stop_reason)
                 return
             gen = self._llm.chat(self._messages)
             for chunk in gen:
@@ -55,7 +63,10 @@ class ChatWorker(QThread):
                 self.chunk_received.emit(chunk)
         except Exception as e:  # noqa: BLE001 — 异常统一上屏，不崩溃
             if self._is_stop_requested:
-                self.stopped_by_user.emit()
+                self.stopped_by_user.emit(self._stop_reason)
+            elif isinstance(e, TurnCancelled):
+                # agent 明确回 cancelled：非失败，走停止收尾
+                self.stopped_by_user.emit("cancelled")
             else:
                 # 走 logging 而非 print_exc：冻结态桌面启动 stderr 是断管，
                 # 打印会再抛 BrokenPipe 把下面的错误信号 emit 吞掉（界面卡 busy 零反馈）
@@ -66,6 +77,6 @@ class ChatWorker(QThread):
             if gen is not None:
                 gen.close()  # GeneratorExit 触发 provider finally 资源兜底
         if self._is_stop_requested:
-            self.stopped_by_user.emit()
+            self.stopped_by_user.emit(self._stop_reason)
         else:
             self.finished_with_error.emit("")

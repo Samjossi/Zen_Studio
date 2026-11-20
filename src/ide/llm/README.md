@@ -56,7 +56,7 @@ class LanguageModel(Protocol):
 |:---|:---|
 | `LanguageModel` | 统一接口，返回 `Iterator[Chunk]` 逐块产出，与 UI 解耦 |
 | `Chunk` | 流式块：`kind="text"` 为正文增量；`kind="reasoning"` 为过程信息（思维链或工具调用摘要），仅当次显示、不回传 |
-| `KimiAcpLLM` | kimi 后台唯一接口（`"kimi-acp"`，出厂默认）：长驻 `kimi acp` 子进程经 ndjson JSON-RPC 对接（[ACP 协议](https://agentclientprotocol.com)，Zed/JetBrains 同款集成方式）；**token 级流式**（`agent_message_chunk`）、思维链可见（`agent_thought_chunk` → reasoning 通道）、`session/new` 原生会话、`session/set_config_option` 会话内切模型；工具审批经 `set_permission_handler()` 注入的回调路由（GUI 模态框），无回调时自动允许，回调返回 None/异常按拒绝兜底；断管或看门狗停滞后，下一次手动发送重建连接并以 `session/resume` 恢复原会话，绝不自动重放中断 prompt |
+| `KimiAcpLLM` | kimi 后台唯一接口（`"kimi-acp"`，出厂默认）：长驻 `kimi acp` 子进程经 ndjson JSON-RPC 对接（[ACP 协议](https://agentclientprotocol.com)，Zed/JetBrains 同款集成方式）；**token 级流式**（`agent_message_chunk`）、思维链可见（`agent_thought_chunk` → reasoning 通道）、`session/new` 原生会话、`session/set_config_option` 会话内切模型；工具审批经 `set_permission_handler()` 注入的回调路由（GUI 模态框），无回调时自动允许，回调返回 None/异常按拒绝兜底；轮次终态按 `stopReason` 分类：`cancelled` → `TurnCancelled` 停止通道，`max_tokens` / `max_turn_requests` / `refusal` → 失败通道（带原始值），缺失/未知 fail-open；断管或看门狗停滞后，下一次手动发送重建连接并以 `session/resume` 恢复原会话，绝不自动重放中断 prompt |
 | `DshAcpLLM` | provider（`"dsh-acp"`，后台 DSH，developer preview）：长驻 `dsh acp` 子进程，同构；模型/强度切换走 `session/set_config_option`（configId `model` / `reasoning_effort`，spike 实测），模型值为不透明 JSON 对串、静态表枚举；凭据类错误映射「配置 ~/.dsh/.credentials.yaml 或 DEEPSEEK_API_KEY」引导；轮次失败 `stopReason=error` 转可读报错 |
 | `ReasonixAcpLLM` | provider（`"reasonix-acp"`，后台 Reasonix）：长驻 `reasonix acp` 子进程，协议层与 `KimiAcpLLM` 同构（ACP v1）；模型目录经 `list_reasonix_models()` 解析 `~/.reasonix/config.toml`（`$REASONIX_HOME` 可覆盖）`[[providers]]` 段，别名为 `provider/model` 全名（DeepSeek 系）；未 setup（`session/new` 报 `not configured` 类错误）时映射为「请先运行 reasonix setup」友好提示；轮次失败 `stopReason=error` 转可读报错 |
 | `OpenCodeAcpLLM` | provider（`"opencode-acp"`，后台 OpenCode）：长驻 `opencode acp` 子进程，同构；模型目录经 `opencode models` 纯文本枚举，Zen 官方 `opencode/` 前缀模型在菜单层剔除 |
@@ -101,6 +101,7 @@ for chunk in llm.chat([{"role": "user", "content": "你好"}]):
 ### Kimi 连接失效与恢复状态机
 
 - 正常手动停止只发送 `session/cancel` 并本地解除等待，连接与原会话保留；看门狗停滞经 `mark_stalled()` 标记下轮必须恢复。
+- 轮次终态以 `session/prompt` 响应的 `stopReason` 为准（Kimi）：`cancelled` 抛 `TurnCancelled` 走停止收尾（保留屏幕输出、回滚 history、不播报成功），`max_tokens` / `max_turn_requests` / `refusal` 抛带原始值的 `RuntimeError` 走失败收尾；两者都在轮末用量收尾之后抛，避免丢 usage/速度/消耗。缺失或未知值 fail-open 并按正常完成收尾，未知值记 warning 保留原始值。
 - EOF、进程退出或任意写路径失败统一标记连接死亡，唤醒控制请求、轮次消费与 terminal wait；会话 ID、创建工作区和 MCP 参数不随连接销毁。
 - 下一次手动发送在同一 `_turn_lock` 内执行 `initialize → session/resume → session/set_config_option`；`resume` 不回放历史，恢复后只发送本次新指令。恢复期间到达的旧连接事件不参与新连接状态。
 - CLI 未声明 `agentCapabilities.sessionCapabilities.resume`，或 initialize/resume/模型/thinking 配置失败时，恢复 fail closed：不发送 prompt、不降级 `session/new`，用户可重试或显式清空会话。

@@ -67,6 +67,7 @@ import time
 from collections import deque
 from datetime import datetime
 from pathlib import Path
+from typing import Literal
 
 from PySide6.QtCore import QEvent, Qt, QThread, QTimer, Signal
 from PySide6.QtWidgets import (
@@ -355,7 +356,9 @@ class ChatPanel(QWidget):
         #: 末条消息帧的 monotonic 时刻（_on_chunk 更新；轮次起播点同记）：
         #: 看门狗 idle 口径数据源；非轮次态为 None
         self._last_chunk_at: float | None = None
-        self._stopped_for_stall = False
+        #: 本轮停止来源（单一字段）：None=未请求停止；"user"=停止钮；
+        #: "stall"=看门狗；"cancelled"=agent 明确取消（仅当本地未请求时）
+        self._stop_reason: Literal["user", "stall", "cancelled"] | None = None
         self._sent_text = ""
 
         chat_pack = get_theme_palette(load_settings()[KEY_THEME])["chat"]
@@ -573,10 +576,17 @@ class ChatPanel(QWidget):
             "系统", spec.dev_note or f"后端已封存：{self._llm_name}")
         return True
 
-    def request_stop(self) -> None:
-        """停止当前轮次（输入区停止按钮触发），幂等。"""
+    def request_stop(self, reason: Literal["user", "stall"] = "user") -> None:
+        """停止当前轮次（停止钮/看门狗共用），幂等。
+
+        reason 只写本轮停止来源并透传给 worker 的收尾信号，不改变协议
+        取消行为；重复请求保留首次来源（看门狗已触发时用户再按停止，
+        界面仍按无响应中断收尾）。
+        """
+        if self._stop_reason is None:
+            self._stop_reason = reason
         if self._worker is not None:
-            self._worker.request_stop()
+            self._worker.request_stop(self._stop_reason or "user")
             self.input.setPlaceholderText("正在停止…")
 
     def close(self) -> None:
@@ -1069,7 +1079,7 @@ class ChatPanel(QWidget):
             # 首次发送时补一条如实告知
             self._show_dev_note(self._llm_name)
         self._set_busy(True)
-        self._stopped_for_stall = False
+        self._stop_reason = None
         self._sent_text = text
         message: Message = {"role": "user", "content": text}
         if images:
@@ -1172,8 +1182,9 @@ class ChatPanel(QWidget):
         生效），0 = 关闭。判定口径是「无任何消息帧」而非「无正文」——
         execute 运行中的 in_progress 帧、思维链、tool 活动均刷新计时；
         只有 agent 彻底沉默（丢失任务完成事件等）才触发。
-        触发走 request_stop()：连接层本地中断保证秒级收尾（D1），随后
-        既有 _on_stopped 路径解除 busy、取消排队待发。
+        触发走 request_stop("stall")：连接层本地中断保证秒级收尾（D1），
+        停止来源随 worker 收尾信号回传，_on_stopped 按看门狗文案收尾并
+        解除 busy、取消排队待发。
         """
         threshold_min = load_settings()[KEY_TURN_STALL_TIMEOUT_MIN]
         if not threshold_min or self._worker is None \
@@ -1189,14 +1200,13 @@ class ChatPanel(QWidget):
         recoverable = callable(mark_stalled)
         if recoverable:
             mark_stalled()
-            self._stopped_for_stall = True
             hint = ("原请求不会自动重发；下一次手动发送将尝试恢复原会话，"
                     "请先核对已发生的工具副作用")
         else:
             hint = "可重新发送；反复出现请新建会话"
         self.output.append_message(
             "系统", f"本轮已 {minutes} 分钟无响应，已自动中断；{hint}")
-        self.request_stop()
+        self.request_stop("stall")
 
     def _on_chunk(self, chunk: Chunk) -> None:
         self._last_chunk_at = time.monotonic()  # 看门狗 idle 口径：任何消息帧均刷新
@@ -1413,9 +1423,34 @@ class ChatPanel(QWidget):
         # 本轮 initialize 后 dsh 图片能力实测位可能刚到位：幂等刷新附件入口
         self._apply_image_capability()
 
-    def _on_stopped(self) -> None:
-        """用户中断收尾（第三态）：整体回滚——中断轮不入历史；
-        屏幕已输出内容不擦除（可复制兜底），追加停止标注。"""
+    def _on_stopped(self, reason: str = "user") -> None:
+        """停止收尾（第三态）：整体回滚——中断轮不入历史；
+        屏幕已输出内容不擦除（可复制兜底），追加停止标注。
+
+        来源优先级：本轮已有本地停止请求（_stop_reason）时一律按其收尾
+        ——用户按停止后 agent 再回 cancelled 必须显示「已手动停止」，不能
+        反客为主；仅本地未请求时，worker 传来的 cancelled 才按 agent
+        取消处理。worker 的 "user" 载荷分不出停止钮与看门狗，故本地来源
+        以面板字段为准。
+        """
+        effective = self._stop_reason or reason
+        if effective not in ("user", "stall", "cancelled"):
+            effective = "user"
+        if effective == "stall":
+            # 恢复提示只在 provider 真支持 mark_stalled 时给出；其他后端
+            # 没有"下一次手动发送恢复原会话"能力，不得照抄 Kimi 文案
+            provider = self._providers.get(self._llm_name)
+            recoverable = callable(getattr(provider, "mark_stalled", None))
+            stop_note = (
+                "\n⏹ 已因无响应中断；下一次手动发送将尝试恢复原会话"
+                if recoverable else
+                "\n⏹ 已因无响应中断；可重新发送，反复出现请新建会话")
+        elif effective == "cancelled":
+            stop_note = "\n⏹ 本轮已被 agent 取消；原会话保留，可直接发送下一条"
+        else:
+            stop_note = "\n⏹ 已手动停止"
+        outcome = {"stall": "看门狗停止", "cancelled": "已取消"}.get(
+            effective, "手动停止")
         self._flush_turn_consumption()  # 中断轮已发生的调用消耗照记
         self._usage_timer.stop()  # 中断即停轮询，不残留空转
         self._stall_timer.stop()  # 看门狗同停
@@ -1423,7 +1458,7 @@ class ChatPanel(QWidget):
             self._last_turn = {
                 "started": self._turn_started_at,
                 "ended": datetime.now(),
-                "outcome": "看门狗停止" if self._stopped_for_stall else "手动停止",
+                "outcome": outcome,
             }
             self._turn_started_at = None
         self._clear_speed_samples()  # 中断轮实时速度样本同清
@@ -1432,11 +1467,9 @@ class ChatPanel(QWidget):
             self._has_seen_reasoning = False
         self._history.pop()  # 回滚用户消息；半截回复随 _stream_buffer 丢弃
         self._restore_sent_attachments()  # 附件恢复回附件行
-        self.output.append_stream_chunk(
-            "\n⏹ 已因无响应中断；下一次手动发送将尝试恢复原会话"
-            if self._stopped_for_stall else "\n⏹ 已手动停止")
+        self.output.append_stream_chunk(stop_note)
         self._sent_text = ""
-        self._stopped_for_stall = False
+        self._stop_reason = None
         self.output.reset_activity_anchors()  # todo 锚点轮次收尾作废
         self.timeline.end_turn()  # 色块条段指针轮次收尾作废
         self.output.end_stream()

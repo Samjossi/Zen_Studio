@@ -70,6 +70,7 @@ from ide.llm.providers.acp import (
     PermissionParams as PermissionParams,
     TerminalHandler,
     ToolCallInfo as ToolCallInfo,
+    TurnCancelled,
     build_client_capabilities,
     build_prompt_blocks,
     map_session_update,
@@ -878,9 +879,14 @@ class KimiAcpLLM(LanguageModel):
                             f"退出码 {obj}）；原请求不会自动重发")
                     if kind == "response":
                         self._raise_on_turn_error(obj)
+                        # 先分类、后收尾、收尾完成再抛：非 end_turn 终态
+                        # 同样需要本轮用量/速度/消耗（D5）
+                        pending_error = self._classify_stop_reason(obj)
                         yield from self._collect_turn_end_usage(
                             conn, session_dir, usage_baseline, request_baseline,
                             sidecar, sidecar_queue, turn_push_stats)
+                        if pending_error is not None:
+                            raise pending_error
                         return
                     chunk = map_session_update(obj)
                     if chunk:
@@ -1023,9 +1029,43 @@ class KimiAcpLLM(LanguageModel):
                 return latest_stats
             time.sleep(_WIRE_USAGE_POLL_S)
 
+    def _classify_stop_reason(self, response: dict) -> Exception | None:
+        """把 prompt 响应的 `stopReason` 映射为待抛异常；正常终态返回 None。
+
+        ACP 只以 `session/prompt` 响应的 StopReason 表示轮次终态，`cancelled`
+        是 agent 对 cancel 的确认、不属于失败，走 TurnCancelled 停止通道；
+        其余非 end_turn 终态走现有失败通道（保留屏幕输出、回滚 history）。
+        未知值 fail-open：StopReason 枚举可能扩展，fail-closed 会让旧 IDE
+        永久卡 busy；原始值必须进日志，便于上游契约变化时定位。
+        """
+        stop_reason = (response.get("result") or {}).get("stopReason")
+        logger.info(
+            "[kimi acp] 轮次响应 stopReason=%r sessionId=%s generation=%s",
+            stop_reason, self._session_id,
+            self._conn.generation if self._conn is not None else None)
+        if stop_reason in (None, "end_turn"):
+            return None
+        if stop_reason == "cancelled":
+            return TurnCancelled("本轮已被取消")
+        if stop_reason == "max_tokens":
+            return RuntimeError(
+                "kimi acp 本轮未正常完成：输出达到模型长度上限"
+                "（stopReason=max_tokens）")
+        if stop_reason == "max_turn_requests":
+            return RuntimeError(
+                "kimi acp 本轮未正常完成：单轮模型请求次数达到上限"
+                "（stopReason=max_turn_requests）")
+        if stop_reason == "refusal":
+            return RuntimeError(
+                "kimi acp agent 拒绝继续本轮（stopReason=refusal）")
+        logger.warning(
+            "[kimi acp] 未知 stopReason=%r sessionId=%s，按正常完成收尾",
+            stop_reason, self._session_id)
+        return None
+
     @staticmethod
     def _raise_on_turn_error(response: dict) -> None:
-        """prompt 响应含 error 时抛错（stopReason 正常结束为静默返回）。"""
+        """prompt 响应含 error 帧时抛错；优先级高于 stopReason 判定。"""
         if "error" in response:
             err = response["error"]
             raise RuntimeError(f"kimi acp 对话失败 {err.get('code')}：{err.get('message')}")
