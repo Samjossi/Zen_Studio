@@ -24,9 +24,10 @@ AI 活动信息路由：
   输出钳回末 20 行（协议层软上限 1000 行，旧轨渲染规格由路由层钳制不变）
 
 会话活动时间线色块条：
-- ActivityTimeline 细条与上下文用量徽章同行组成状态行（左条右徽），
+- ActivityTimeline 细条、临时轮次同步提示与上下文用量徽章同行组成状态行，
   置输入区内输入框上方——随 splitter 拖拽移动，视觉恒在输出/输入分界
   （不进 splitter）；_on_chunk 入口旁路分接 feed（不改动既有分支语义）；
+  turn_sync 只更新临时 label，新轮与所有轮末清除，不追加对话消息；
   _on_finished/_on_stopped 随 reset_activity_anchors 同位置 end_turn
   作废段指针；切后端新会话清条
 
@@ -675,8 +676,8 @@ class ChatPanel(QWidget):
     def _build_input_box(self) -> QWidget:
         """输入区容器：状态行 + 输入框 + 底行（左：模型/版本双下拉；右：发送/排队 + ■ 停止 双常驻钮）。
 
-        状态行：时间线色块条 + 上下文用量徽章同行（左条右徽），置输入框
-        上方——随 splitter 拖拽与输入区整体移动，视觉恒在输出/输入分界；
+        状态行：时间线色块条 + 临时轮次同步提示 + 上下文用量徽章同行，
+        置输入框上方——随 splitter 拖拽与输入区整体移动，视觉恒在输出/输入分界；
         定高不参与拉伸（时间线条不进 splitter，子件会被拖拽均分）。
 
         底行双下拉由原顶部全局模型行下移而来；双常驻恒宽钮替代原
@@ -696,10 +697,19 @@ class ChatPanel(QWidget):
         # 悬停 tooltip 按当前时刻重算（详见 eventFilter）
         self._usage_label.installEventFilter(self)
 
-        # 状态行：左时间线条（横向延展）→ 右用量徽章（恒宽）；
+        # 轮次同步是临时状态而非对话消息；状态行承载可避免正常收尾后残留
+        self._turn_sync_label = QLabel(self)
+        self._turn_sync_label.setObjectName("chatTurnSyncLabel")
+        self._turn_sync_label.setAlignment(
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        self._turn_sync_label.setMinimumWidth(0)
+        self._turn_sync_label.hide()
+
+        # 状态行：左时间线条（横向延展）→ 临时同步提示 → 右用量徽章（恒宽）；
         # 行高由时间线条决定（约 30px），徽章随布局垂直居中
         status_row = QHBoxLayout()
         status_row.addWidget(self.timeline, 1)
+        status_row.addWidget(self._turn_sync_label)
         status_row.addWidget(self._usage_label)
         status_row.setContentsMargins(0, 0, 0, 0)
 
@@ -1079,6 +1089,7 @@ class ChatPanel(QWidget):
             # 启动即落在开发中后端（持久化恢复，无切换事件）：本标签
             # 首次发送时补一条如实告知
             self._show_dev_note(self._llm_name)
+        self._set_turn_sync()
         self._set_busy(True)
         self._stop_reason = None
         self._sent_text = text
@@ -1224,11 +1235,16 @@ class ChatPanel(QWidget):
             "系统", f"本轮已 {minutes} 分钟无响应，已自动中断；{hint}")
         self.request_stop("stall")
 
+    def _set_turn_sync(self, text: str = "") -> None:
+        self._turn_sync_label.setText(text)
+        self._turn_sync_label.setToolTip(text)
+        self._turn_sync_label.setVisible(bool(text))
+
     def _on_chunk(self, chunk: Chunk) -> None:
         self._last_chunk_at = time.monotonic()  # 看门狗 idle 口径：任何消息帧均刷新
         self.timeline.feed(chunk)  # 时间线色块条旁路分接
         if chunk.kind == "turn_sync":
-            self.output.append_message("系统", chunk.text)
+            self._set_turn_sync(chunk.text)
             return
         if chunk.kind == "usage":
             # 上下文用量通知：只更新徽章簿记，不进输出区文本流、不入 _history
@@ -1387,6 +1403,7 @@ class ChatPanel(QWidget):
         )
 
     def _on_finished(self, error: str) -> None:
+        self._set_turn_sync()
         self._flush_turn_consumption()
         if self._turn_started_at is not None:  # 轮次计时收尾（正常/失败同记）
             self._last_turn = {
@@ -1454,6 +1471,7 @@ class ChatPanel(QWidget):
         取消处理。worker 的 "user" 载荷分不出停止钮与看门狗，故本地来源
         以面板字段为准。
         """
+        self._set_turn_sync()
         effective = self._stop_reason or reason
         if effective not in ("user", "stall", "cancelled"):
             effective = "user"

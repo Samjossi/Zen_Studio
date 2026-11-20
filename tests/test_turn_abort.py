@@ -497,7 +497,11 @@ def test_user_stop_wins_over_agent_cancelled(fake_registry, isolated_settings):
     notes: list[str] = []
     panel.output.append_stream_chunk = lambda text: notes.append(text)
     try:
+        panel._on_chunk(ka.Chunk(
+            "turn_sync", "正在同步 Kimi 后台通知轮次；完成与待发已暂停"))
         panel._on_stopped("cancelled")
+        assert panel._turn_sync_label.isHidden()
+        assert panel._turn_sync_label.text() == ""
         assert panel._last_turn is not None
         assert panel._last_turn["outcome"] == "手动停止"
         assert any("已手动停止" in note for note in notes)
@@ -603,12 +607,17 @@ def test_desynchronization_cancels_pending_without_success_history(
     completed: list[bool] = []
     panel.turn_completed.connect(completed.append)
     try:
+        panel._on_chunk(ka.Chunk(
+            "turn_sync", "正在同步 Kimi 后台通知轮次；完成与待发已暂停"))
         panel._on_finished("Kimi 轮次状态失配：用户轮次在 tool_use 后提前完成")
+        assert panel._turn_sync_label.isHidden()
+        assert panel._turn_sync_label.text() == ""
         assert panel._history == []
         assert panel.input.toPlainText() == "queued draft"
         assert not panel._pending_send and not panel._busy
         assert completed == [False]
         assert not any("ACP 连接已失效" in message for message in messages)
+        assert not any("完成与待发已暂停" in message for message in messages)
     finally:
         panel.close()
 
@@ -625,6 +634,35 @@ def test_turn_sync_notice_keeps_busy_and_pending_send(
         panel._on_chunk(ka.Chunk(
             "turn_sync", "正在同步 Kimi 后台通知轮次；完成与待发已暂停"))
         assert panel._busy and panel._pending_send
-        assert messages == ["正在同步 Kimi 后台通知轮次；完成与待发已暂停"]
+        assert not panel._turn_sync_label.isHidden()
+        assert panel._turn_sync_label.text() == \
+            "正在同步 Kimi 后台通知轮次；完成与待发已暂停"
+        panel._on_chunk(ka.Chunk(
+            "turn_sync", "正在核对 Kimi 轮次状态；完成与待发已暂停"))
+        assert panel._turn_sync_label.text() == \
+            "正在核对 Kimi 轮次状态；完成与待发已暂停"
+        assert messages == []
+    finally:
+        panel.close()
+
+
+def test_turn_sync_notice_clears_on_success(
+        fake_registry, isolated_settings):
+    panel = _make_panel(fake_registry, isolated_settings)
+    panel._history = [{"role": "user", "content": "original"}]
+    panel._stream_buffer = "answer"
+    panel._turn_started_at = datetime.now()
+    panel._set_busy(True)
+    messages: list[str] = []
+    panel.output.append_message = lambda _role, text: messages.append(text)
+    try:
+        panel._on_chunk(ka.Chunk(
+            "turn_sync", "正在核对 Kimi 轮次状态；完成与待发已暂停"))
+        panel._on_finished("")
+        assert panel._turn_sync_label.isHidden()
+        assert panel._turn_sync_label.text() == ""
+        assert not panel._busy
+        assert panel._history[-1] == {"role": "assistant", "content": "answer"}
+        assert messages == []
     finally:
         panel.close()
