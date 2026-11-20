@@ -24,12 +24,13 @@ AI 活动信息路由：
   输出钳回末 20 行（协议层软上限 1000 行，旧轨渲染规格由路由层钳制不变）
 
 会话活动时间线色块条：
-- ActivityTimeline 细条、临时轮次同步提示与上下文用量徽章同行组成状态行，
-  置输入区内输入框上方——随 splitter 拖拽移动，视觉恒在输出/输入分界
-  （不进 splitter）；_on_chunk 入口旁路分接 feed（不改动既有分支语义）；
+- ActivityTimeline 细条与上下文用量徽章组成输入区状态行；临时提示面板
+  独占输出区底部一行，位于 splitter 把手上方并与状态行同高同宽，背景
+  复用 PanelCard 的 card_bg；设置中心可关闭或发起 3 秒预览，真实 turn_sync
+  到达时接管预览；_on_chunk 入口旁路分接 feed（不改动既有分支语义）；
   turn_sync 只更新临时 label，新轮与所有轮末清除，不追加对话消息；
-  _on_finished/_on_stopped 随 reset_activity_anchors 同位置 end_turn
-  作废段指针；切后端新会话清条
+  _on_finished/_on_stopped 随 reset_activity_anchors 同位置
+  end_turn 作废段指针；切后端新会话清条
 
 关闭异步化：
 - close() 两段式：GUI 段毫秒级（request_stop + 断信号 + 起 daemon
@@ -97,6 +98,7 @@ from ide.gui.settings import (
     KEY_CHAT_RENDERER,
     KEY_KIMI_WIRE_SIDECAR,
     KEY_PERMISSION_MODE,
+    KEY_TEMPORARY_NOTICE_PANEL_ENABLED,
     KEY_THEME,
     KEY_TURN_STALL_TIMEOUT_MIN,
 )
@@ -129,6 +131,8 @@ _USAGE_SOURCE_NOTE = {
     "estimate": "数据来源：IDE 估算（会话文本 ÷4，非精确计量，仅量级参考）",
 }
 _KIMI_USAGE_GRACE_S = 10.0
+_TEMPORARY_NOTICE_PREVIEW_TEXT = "临时提示面板预览：正在同步后台通知轮次"
+_TEMPORARY_NOTICE_PREVIEW_MS = 3000
 
 
 def _format_duration(seconds: float) -> str:
@@ -370,6 +374,14 @@ class ChatPanel(QWidget):
         self._stall_timer = QTimer(self)
         self._stall_timer.setInterval(30_000)
         self._stall_timer.timeout.connect(self._stall_watchdog_tick)
+        #: 预览与真实 turn_sync 分离；任何真实设置/清理都会取消预览计时，
+        #: 防止预览到期误清后续真实提示
+        self._turn_sync_preview_timer = QTimer(self)
+        self._turn_sync_preview_timer.setSingleShot(True)
+        self._turn_sync_preview_timer.setInterval(_TEMPORARY_NOTICE_PREVIEW_MS)
+        self._turn_sync_preview_timer.timeout.connect(
+            self._clear_temporary_notice_preview)
+        self._turn_sync_preview_active = False
         #: 末条消息帧的 monotonic 时刻（_on_chunk 更新；轮次起播点同记）：
         #: 看门狗 idle 口径数据源；非轮次态为 None
         self._last_chunk_at: float | None = None
@@ -378,11 +390,13 @@ class ChatPanel(QWidget):
         self._stop_reason: Literal["user", "stall", "cancelled"] | None = None
         self._sent_text = ""
 
-        chat_pack = get_theme_palette(load_settings()[KEY_THEME])["chat"]
+        settings = load_settings()
+        chat_pack = get_theme_palette(settings[KEY_THEME])["chat"]
+        self._turn_sync_panel_enabled = settings[KEY_TEMPORARY_NOTICE_PANEL_ENABLED]
         # 双轨并存：cards 卡片折叠轨（默认）/ classic 旧轨 ChatOutput
         # （冻结保留，即回退通道）；构造时选轨，存量标签不热切换
         # （设置项 hint 已注明新建标签生效）
-        self._cards_track = load_settings()[KEY_CHAT_RENDERER] == CHAT_RENDERER_CARDS
+        self._cards_track = settings[KEY_CHAT_RENDERER] == CHAT_RENDERER_CARDS
         if self._cards_track:
             self.output = ChatTranscriptView(chat_pack, self)
         else:
@@ -652,17 +666,15 @@ class ChatPanel(QWidget):
     # UI 构建与接线
     # ------------------------------------------------------------------
     def _build_layout(self) -> None:
-        """布局装配：PanelCard 单卡片整合（输出区 + 输入区含状态行）。
+        """布局装配：PanelCard 单卡片整合（输出侧容器 + 输入区含状态行）。
 
         卡片内保留垂直 splitter（输出/输入比例可调、状态持久化不变）；
         ChatOutput 透明融入卡片白底，输入框保留自身 6px 圆角嵌于卡内。
-        输入区 = 状态行（时间线条 + 用量徽章）+ 输入框 + 底行（左：模型/
-        版本双下拉；右：发送/停止双态按钮）。
-        活动时间线色块条位于输入区状态行——不进 splitter（子件会被拖拽
-        均分），细条定高随输入区拖拽移动，视觉恒在输出/输入分界。
+        输出侧容器依次承载输出区与临时轮次同步提示，使提示紧贴原把手上方，
+        且不增加 splitter 窗格或把手。输入区状态行只保留时间线条与用量徽章。
         """
         self._splitter = QSplitter(Qt.Orientation.Vertical)
-        self._splitter.addWidget(self.output)
+        self._splitter.addWidget(self._build_output_box())
         self._splitter.addWidget(self._build_input_box())
         self._splitter.setSizes(self.DEFAULT_SPLITTER_SIZES)
 
@@ -685,12 +697,30 @@ class ChatPanel(QWidget):
         layout.setContentsMargins(6, 6, 0, 0)
         layout.setSpacing(0)
 
+    def _build_output_box(self) -> QWidget:
+        """输出区 + 分隔把手上方临时提示；提示隐藏时不保留行高。"""
+        self._turn_sync_label = QLabel(self)
+        self._turn_sync_label.setObjectName("chatTurnSyncLabel")
+        self._turn_sync_label.setAlignment(
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        self._turn_sync_label.setMinimumWidth(0)
+        self._turn_sync_label.setFixedHeight(self.timeline.height())
+        self._turn_sync_label.hide()
+        self._apply_turn_sync_label_style(load_settings()[KEY_THEME])
+
+        box = QWidget(self)
+        box_layout = QVBoxLayout(box)
+        box_layout.addWidget(self.output, 1)
+        box_layout.addWidget(self._turn_sync_label)
+        box_layout.setContentsMargins(0, 0, 0, 0)
+        box_layout.setSpacing(0)
+        return box
+
     def _build_input_box(self) -> QWidget:
         """输入区容器：状态行 + 输入框 + 底行（左：模型/版本双下拉；右：发送/排队 + ■ 停止 双常驻钮）。
 
-        状态行：时间线色块条 + 临时轮次同步提示 + 上下文用量徽章同行，
-        置输入框上方——随 splitter 拖拽与输入区整体移动，视觉恒在输出/输入分界；
-        定高不参与拉伸（时间线条不进 splitter，子件会被拖拽均分）。
+        状态行：左侧时间线色块条横向延展，右侧上下文用量徽章恒宽；
+        置输入框上方并随 splitter 拖拽与输入区整体移动，定高不参与拉伸。
 
         底行双下拉由原顶部全局模型行下移而来；双常驻恒宽钮替代原
         「发送/停止」单双态钮（busy 期间停止/排队两动作并存）：宽度各按
@@ -709,19 +739,10 @@ class ChatPanel(QWidget):
         # 悬停 tooltip 按当前时刻重算（详见 eventFilter）
         self._usage_label.installEventFilter(self)
 
-        # 轮次同步是临时状态而非对话消息；状态行承载可避免正常收尾后残留
-        self._turn_sync_label = QLabel(self)
-        self._turn_sync_label.setObjectName("chatTurnSyncLabel")
-        self._turn_sync_label.setAlignment(
-            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-        self._turn_sync_label.setMinimumWidth(0)
-        self._turn_sync_label.hide()
-
-        # 状态行：左时间线条（横向延展）→ 临时同步提示 → 右用量徽章（恒宽）；
+        # 状态行：左时间线条（横向延展）→ 右用量徽章（恒宽）；
         # 行高由时间线条决定（约 30px），徽章随布局垂直居中
         status_row = QHBoxLayout()
         status_row.addWidget(self.timeline, 1)
-        status_row.addWidget(self._turn_sync_label)
         status_row.addWidget(self._usage_label)
         status_row.setContentsMargins(0, 0, 0, 0)
 
@@ -922,7 +943,7 @@ class ChatPanel(QWidget):
     # 主题（思维链/活动块前景色随主题资源包切换；由 ChatTabs 统一转发）
     # ------------------------------------------------------------------
     def apply_theme(self, theme: str) -> None:
-        """主题切换：更新输出区思维链/活动块配色与用量徽章（仅影响此后追加的块）。"""
+        """主题切换：刷新输出区、活动控件、同步提示与用量徽章配色。"""
         chat_pack = get_theme_palette(theme)["chat"]
         self.output.set_reasoning_color(chat_pack["reasoning_fg"])
         self.output.set_activity_colors(chat_pack["tool_fg"], chat_pack["tool_error_fg"])
@@ -934,6 +955,7 @@ class ChatPanel(QWidget):
                 chat_pack["diff_add_fg"], chat_pack["diff_del_fg"])
         self.timeline.set_colors(_timeline_colors(chat_pack))
         self.attachments.set_chip_color(chat_pack["user_bubble_bg"])
+        self._apply_turn_sync_label_style(theme)
         self._apply_usage_label_style(theme)
 
     # ------------------------------------------------------------------
@@ -974,6 +996,12 @@ class ChatPanel(QWidget):
         if watched is self._usage_label and event.type() == QEvent.Type.ToolTip:
             self._refresh_usage_tooltip()
         return super().eventFilter(watched, event)
+
+    def _apply_turn_sync_label_style(self, theme: str) -> None:
+        """同步提示与 PanelCard 共用卡片底色，避免主题切换后残留旧色。"""
+        card_bg = get_theme_palette(theme)["card_bg"]
+        self._turn_sync_label.setStyleSheet(
+            f"#chatTurnSyncLabel {{ background-color: {card_bg}; padding: 0 6px; }}")
 
     def _apply_usage_label_style(self, theme: str) -> None:
         """徽章配色随主题刷新（控件级 qss：常态 muted_text，热态 chat.usage_hot_fg）。"""
@@ -1250,7 +1278,34 @@ class ChatPanel(QWidget):
             "系统", f"本轮已 {minutes} 分钟无响应，已自动中断；{hint}")
         self.request_stop("stall")
 
+    def set_temporary_notice_panel_enabled(self, enabled: bool) -> None:
+        """开关即时生效；关闭时同时清理真实提示与预览。"""
+        self._turn_sync_panel_enabled = enabled
+        if not enabled:
+            self._set_turn_sync()
+
+    def preview_temporary_notice_panel(self) -> None:
+        """在原位置预览 3 秒；真实提示已经可见时无需覆盖它。"""
+        if self._turn_sync_preview_active:
+            self._turn_sync_preview_timer.start()
+            return
+        if not self._turn_sync_label.isHidden():
+            return
+        self._turn_sync_preview_active = True
+        self._turn_sync_label.setText(_TEMPORARY_NOTICE_PREVIEW_TEXT)
+        self._turn_sync_label.setToolTip(_TEMPORARY_NOTICE_PREVIEW_TEXT)
+        self._turn_sync_label.show()
+        self._turn_sync_preview_timer.start()
+
+    def _clear_temporary_notice_preview(self) -> None:
+        if self._turn_sync_preview_active:
+            self._set_turn_sync()
+
     def _set_turn_sync(self, text: str = "") -> None:
+        self._turn_sync_preview_active = False
+        self._turn_sync_preview_timer.stop()
+        if not self._turn_sync_panel_enabled:
+            text = ""
         self._turn_sync_label.setText(text)
         self._turn_sync_label.setToolTip(text)
         self._turn_sync_label.setVisible(bool(text))

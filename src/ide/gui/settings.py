@@ -66,6 +66,8 @@ KEY_TERMINAL_SWAP_COPY_PASTE = "terminal_swap_copy_paste"
 KEY_TERMINAL_AI_TAB_CLOSE_DELAY_S = "terminal_ai_tab_close_delay_s"
 KEY_PERMISSION_MODE = "permission_mode"
 KEY_CHAT_RENDERER = "chat_renderer"
+#: 临时提示面板开关；样式预览独立于此开关，便于关闭后仍能查看外观
+KEY_TEMPORARY_NOTICE_PANEL_ENABLED = "temporary_notice_panel_enabled"
 #: kimi 子代理 wire 旁路开关（0813-1919 计划 T4；默认开，False 回退
 #: 纯 ACP 行为——子代理仅起止 + 成果摘要；格式漂移熔断时的手动回退通道）
 KEY_KIMI_WIRE_SIDECAR = "kimi_wire_sidecar"
@@ -116,7 +118,7 @@ DEFAULT_TURN_STALL_TIMEOUT_MIN = 10
 
 
 class AppSettings(TypedDict):
-    """settings.json 全量结构（18 个固定键，均为用户偏好）。"""
+    """settings.json 全量结构（19 个固定键，均为用户偏好）。"""
 
     theme: str                   # 主题名（ide/gui/theme.py 注册表键）
     font_size: int               # 全局 UI 字号（pt）
@@ -144,6 +146,8 @@ class AppSettings(TypedDict):
     #: 对话区渲染轨（0645 融合计划：cards 卡片折叠轨（默认）/ classic
     #: 经典行文本轨；新建会话标签生效，存量标签不热切换）
     chat_renderer: str
+    #: 是否显示 ACP 轮次同步等临时提示面板（默认开；预览不受此开关限制）
+    temporary_notice_panel_enabled: bool
     #: kimi 子代理 wire 旁路开关（0813-1919 计划 T4：True 默认——
     #: 子代理内部活动经 wire.jsonl 旁路嵌套显示；False 回退纯 ACP）
     kimi_wire_sidecar: bool
@@ -176,6 +180,7 @@ class AppSettingsPatch(TypedDict, total=False):
     terminal_ai_tab_close_delay_s: int
     permission_mode: str
     chat_renderer: str
+    temporary_notice_panel_enabled: bool
     kimi_wire_sidecar: bool
     notify_sound_enabled: bool
     notify_banner_enabled: bool
@@ -198,6 +203,7 @@ DEFAULT_SETTINGS: AppSettings = {
     KEY_TERMINAL_AI_TAB_CLOSE_DELAY_S: DEFAULT_TERMINAL_AI_TAB_CLOSE_DELAY_S,
     KEY_PERMISSION_MODE: DEFAULT_PERMISSION_MODE,
     KEY_CHAT_RENDERER: DEFAULT_CHAT_RENDERER,
+    KEY_TEMPORARY_NOTICE_PANEL_ENABLED: True,
     KEY_KIMI_WIRE_SIDECAR: True,
     KEY_NOTIFY_SOUND_ENABLED: True,
     KEY_NOTIFY_BANNER_ENABLED: True,
@@ -251,6 +257,9 @@ def load_settings() -> AppSettings:
     # 值域防御：渲染轨非法值（手改配置/旧版残留）回退默认轨
     if settings[KEY_CHAT_RENDERER] not in CHAT_RENDERERS:
         settings[KEY_CHAT_RENDERER] = DEFAULT_CHAT_RENDERER
+    if not isinstance(settings[KEY_TEMPORARY_NOTICE_PANEL_ENABLED], bool):
+        settings[KEY_TEMPORARY_NOTICE_PANEL_ENABLED] = DEFAULT_SETTINGS[
+            KEY_TEMPORARY_NOTICE_PANEL_ENABLED]
     # 值域防御：结束后停留时长非 int（bool 亦拒）回默认；越界钳制到值域
     close_delay = settings[KEY_TERMINAL_AI_TAB_CLOSE_DELAY_S]
     if not isinstance(close_delay, int) or isinstance(close_delay, bool):

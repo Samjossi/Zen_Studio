@@ -77,6 +77,7 @@ from ide.gui.settings import (
     KEY_NOTIFY_SOUND_ERROR,
     KEY_NOTIFY_SOUND_QUESTION,
     KEY_PERMISSION_MODE,
+    KEY_TEMPORARY_NOTICE_PANEL_ENABLED,
     KEY_TERMINAL_AI_TAB_CLOSE_DELAY_S,
     KEY_TERMINAL_SWAP_COPY_PASTE,
     KEY_THEME,
@@ -153,7 +154,7 @@ _PAGE_REGISTRY: tuple[tuple[str, str, str, str | None], ...] = (
      "_build_permission_page", "_reload_permission"),
     ("AI 模型", "选择 AI 后台、接口与模型。",
      "_build_model_page", "_reload_model"),
-    ("外观", "主题与字号即时生效。",
+    ("外观", "主题、字号与聊天面板外观。",
      "_build_appearance_page", "_reload_appearance"),
     ("终端", "终端按键与 AI 标签行为。",
      "_build_terminal_page", "_reload_terminal"),
@@ -168,7 +169,8 @@ class SettingsDialog(QDialog):
     """设置中心：非模态单例（MainWindow 持有），页面注册表驱动导航。
 
     :param ctx: MainWindow（鸭子类型：apply_model_selection / switch_theme /
-        set_font_size / set_window_border / set_terminal_swap_copy_paste /
+        set_font_size / set_window_border / set_temporary_notice_panel_enabled /
+        preview_temporary_notice_panel / set_terminal_swap_copy_paste /
         set_terminal_ai_tab_close_delay /
         open_settings_file / reset_settings / chat_tabs / statusBar；
         FONT_SIZE_MIN/MAX/STATUS_MSG_TIMEOUT_MS 类常量）。
@@ -461,7 +463,7 @@ class SettingsDialog(QDialog):
         self._model_combo.setEnabled(on)
 
     # ------------------------------------------------------------------
-    # 外观页（主题下拉 + 字号 SpinBox + 文件树小节）
+    # 外观页（主题 / 字号 / 渲染轨 / 主窗色边 / 临时提示面板）
     # ------------------------------------------------------------------
     def _build_appearance_page(self) -> QWidget:
         page = QWidget(self)
@@ -494,16 +496,39 @@ class SettingsDialog(QDialog):
         border_row.addWidget(self._make_hint_icon(
             "主窗口四周的 1px 主题色轮廓边，切换后立即生效，无需重启。", page))
         layout.addRow("主窗色边", border_row)
+        self._temporary_notice_check = QCheckBox("显示轮次同步等临时状态", page)
+        self._temporary_notice_preview_button = QPushButton("预览样式", page)
+        self._temporary_notice_preview_button.setToolTip(
+            "在当前会话标签的原位置预览 3 秒；关闭临时提示面板时也可预览")
+        temporary_notice_row = QHBoxLayout()
+        temporary_notice_row.addWidget(self._temporary_notice_check)
+        temporary_notice_row.addWidget(self._temporary_notice_preview_button)
+        temporary_notice_row.addStretch(1)
+        temporary_notice_row.addWidget(self._make_hint_icon(
+            "控制是否显示 ACP 轮次同步等临时提示面板。预览不改变开关状态，"
+            "真实提示到达或轮次收尾时会接管预览。", page))
+        layout.addRow("临时提示面板", temporary_notice_row)
         self._theme_combo.activated.connect(self._on_theme_activated)
         self._font_spin.valueChanged.connect(self._on_font_changed)
         self._renderer_combo.activated.connect(self._on_renderer_activated)
         self._border_check.toggled.connect(self._on_border_toggled)
+        self._temporary_notice_check.toggled.connect(
+            self._on_temporary_notice_toggled)
+        self._temporary_notice_preview_button.clicked.connect(
+            self._on_temporary_notice_preview)
         return page
 
     def _on_border_toggled(self, checked: bool) -> None:
         if not self._reloading:
             # 持久化 + 热应用由 MainWindow.set_window_border 统一发，不重复
             self._ctx.set_window_border(checked)
+
+    def _on_temporary_notice_toggled(self, checked: bool) -> None:
+        if not self._reloading:
+            self._ctx.set_temporary_notice_panel_enabled(checked)
+
+    def _on_temporary_notice_preview(self) -> None:
+        self._ctx.preview_temporary_notice_panel()
 
     def _on_renderer_activated(self, index: int) -> None:
         if not self._reloading:
@@ -719,13 +744,15 @@ class SettingsDialog(QDialog):
         radio.setChecked(True)
 
     def _reload_appearance(self, settings) -> None:
-        """外观页：主题 / 字号 / 对话区渲染轨 / 主窗色边回读。"""
+        """外观页：主题 / 字号 / 渲染轨 / 色边 / 临时提示面板回读。"""
         theme_index = self._theme_combo.findData(settings[KEY_THEME])
         self._theme_combo.setCurrentIndex(max(theme_index, 0))
         self._font_spin.setValue(settings[KEY_FONT_SIZE])
         renderer_index = self._renderer_combo.findData(settings[KEY_CHAT_RENDERER])
         self._renderer_combo.setCurrentIndex(max(renderer_index, 0))
         self._border_check.setChecked(settings[KEY_WINDOW_BORDER])
+        self._temporary_notice_check.setChecked(
+            settings[KEY_TEMPORARY_NOTICE_PANEL_ENABLED])
 
     def _reload_terminal(self, settings) -> None:
         self._swap_check.setChecked(settings[KEY_TERMINAL_SWAP_COPY_PASTE])

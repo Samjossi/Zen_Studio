@@ -22,17 +22,24 @@ from datetime import datetime
 from pathlib import Path
 
 import pytest
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QPoint, Qt
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 
 import ide.gui.panels.chat.model_bar as model_bar_mod
+import ide.gui.panels.chat.panel as panel_mod
 import ide.gui.settings as settings_mod
 import ide.llm.providers.acp as acp_mod
 import ide.llm.providers.kimi_acp as ka
 from ide.gui.panels.chat.panel import ChatPanel
 from ide.gui.panels.chat.worker import ChatWorker
 from ide.gui.settings import (
+    CHAT_RENDERER_CARDS,
+    CHAT_RENDERER_CLASSIC,
     DEFAULT_SETTINGS,
+    KEY_CHAT_RENDERER,
+    KEY_TEMPORARY_NOTICE_PANEL_ENABLED,
+    KEY_THEME,
     KEY_TURN_STALL_TIMEOUT_MIN,
     update_settings,
 )
@@ -433,6 +440,16 @@ def test_stall_timeout_default_and_roundtrip(isolated_settings):
     assert settings_mod.load_settings()[KEY_TURN_STALL_TIMEOUT_MIN] == 3
 
 
+def test_temporary_notice_panel_setting_default_and_roundtrip(isolated_settings):
+    assert DEFAULT_SETTINGS[KEY_TEMPORARY_NOTICE_PANEL_ENABLED] is True
+    assert settings_mod.load_settings()[KEY_TEMPORARY_NOTICE_PANEL_ENABLED] is True
+    update_settings({KEY_TEMPORARY_NOTICE_PANEL_ENABLED: False})
+    assert settings_mod.load_settings()[KEY_TEMPORARY_NOTICE_PANEL_ENABLED] is False
+    isolated_settings.write_text(
+        '{"temporary_notice_panel_enabled": 0}', encoding="utf-8")
+    assert settings_mod.load_settings()[KEY_TEMPORARY_NOTICE_PANEL_ENABLED] is True
+
+
 def test_stall_watchdog_marks_provider_and_explains_manual_recovery(
         fake_registry, isolated_settings):
     panel = _make_panel(fake_registry, isolated_settings)
@@ -622,6 +639,133 @@ def test_desynchronization_cancels_pending_without_success_history(
         panel.close()
 
 
+def test_temporary_notice_preview_expires_and_real_notice_preempts(
+        fake_registry, isolated_settings):
+    panel = _make_panel(fake_registry, isolated_settings)
+    actual_text = "正在同步 Kimi 后台通知轮次；完成与待发已暂停"
+    try:
+        panel.preview_temporary_notice_panel()
+        assert not panel._turn_sync_label.isHidden()
+        assert "预览" in panel._turn_sync_label.text()
+        assert panel._turn_sync_preview_timer.isActive()
+        panel._turn_sync_preview_timer.timeout.emit()
+        assert panel._turn_sync_label.isHidden()
+        assert panel._turn_sync_label.text() == ""
+
+        panel.preview_temporary_notice_panel()
+        panel._on_chunk(ka.Chunk("turn_sync", actual_text))
+        assert panel._turn_sync_label.text() == actual_text
+        assert not panel._turn_sync_preview_active
+        assert not panel._turn_sync_preview_timer.isActive()
+        panel.preview_temporary_notice_panel()
+        assert panel._turn_sync_label.text() == actual_text
+        panel._turn_sync_preview_timer.timeout.emit()
+        assert not panel._turn_sync_label.isHidden()
+        assert panel._turn_sync_label.text() == actual_text
+
+        panel.set_temporary_notice_panel_enabled(False)
+        assert panel._turn_sync_label.isHidden()
+        assert panel._turn_sync_label.text() == ""
+    finally:
+        panel.close()
+
+
+def test_temporary_notice_preview_available_while_disabled(
+        fake_registry, isolated_settings):
+    update_settings({KEY_TEMPORARY_NOTICE_PANEL_ENABLED: False})
+    panel = _make_panel(fake_registry, isolated_settings)
+    actual_text = "正在同步 Kimi 后台通知轮次；完成与待发已暂停"
+    try:
+        panel._on_chunk(ka.Chunk("turn_sync", actual_text))
+        assert panel._turn_sync_label.isHidden()
+        assert panel._turn_sync_label.text() == ""
+
+        panel.preview_temporary_notice_panel()
+        assert not panel._turn_sync_label.isHidden()
+        assert "预览" in panel._turn_sync_label.text()
+        panel.set_temporary_notice_panel_enabled(False)
+        assert panel._turn_sync_label.isHidden()
+
+        panel.preview_temporary_notice_panel()
+        panel._on_chunk(ka.Chunk("turn_sync", actual_text))
+        assert panel._turn_sync_label.isHidden()
+        assert panel._turn_sync_label.text() == ""
+        assert not panel._turn_sync_preview_active
+        assert not panel._turn_sync_preview_timer.isActive()
+    finally:
+        panel.close()
+
+
+@pytest.mark.parametrize("renderer", [CHAT_RENDERER_CARDS, CHAT_RENDERER_CLASSIC])
+def test_turn_sync_notice_layout_theme_and_splitter_state(
+        qapp, fake_registry, isolated_settings, monkeypatch, renderer):
+    update_settings({KEY_CHAT_RENDERER: renderer, KEY_THEME: "cloud"})
+    panel = _make_panel(fake_registry, isolated_settings)
+    try:
+        panel.resize(700, 900)
+        panel.show()
+        QTest.qWait(30)
+        label = panel._turn_sync_label
+        handle = panel._splitter.handle(1)
+
+        def top(widget):
+            return widget.mapTo(panel, QPoint(0, 0)).y()
+
+        assert label.isHidden()
+        assert top(panel.output) + panel.output.height() == top(handle)
+        assert panel._splitter.count() == 2
+
+        panel._on_chunk(ka.Chunk(
+            "turn_sync", "正在同步 Kimi 后台通知轮次；完成与待发已暂停"))
+        QTest.qWait(30)
+        label_left = label.mapTo(panel, QPoint(0, 0)).x()
+        timeline_left = panel.timeline.mapTo(panel, QPoint(0, 0)).x()
+        usage_right = panel._usage_label.mapTo(panel, QPoint(0, 0)).x() \
+            + panel._usage_label.width()
+        assert not label.isHidden()
+        assert label.parentWidget() is panel._splitter.widget(0)
+        assert top(label) + label.height() <= top(handle)
+        assert top(handle) + handle.height() <= top(panel.timeline)
+        assert label.height() == panel.timeline.height()
+        assert label_left == timeline_left
+        assert label_left + label.width() == usage_right
+
+        initial_bg = panel_mod.get_theme_palette("cloud")["card_bg"]
+        assert f"background-color: {initial_bg}" in label.styleSheet()
+        sample = label.mapTo(panel, QPoint(2, label.height() // 2))
+        assert panel.grab().toImage().pixelColor(sample).name() == initial_bg
+
+        panel._splitter.setSizes([420, 280])
+        QTest.qWait(20)
+        expected_sizes = panel._splitter.sizes()
+        saved_state = panel.save_state()
+        panel._splitter.setSizes([600, 200])
+        QTest.qWait(20)
+        assert panel._splitter.sizes() != expected_sizes
+        panel.restore_state(saved_state)
+        QTest.qWait(20)
+        assert panel._splitter.sizes() == expected_sizes
+
+        original_palette = panel_mod.get_theme_palette
+        alternate_bg = original_palette("wheat")["window_bg"]
+        assert alternate_bg != initial_bg
+
+        def palette_with_distinct_card(theme):
+            palette = original_palette(theme).copy()
+            if theme == "wheat":
+                palette["card_bg"] = alternate_bg
+            return palette
+
+        monkeypatch.setattr(panel_mod, "get_theme_palette", palette_with_distinct_card)
+        panel.apply_theme("wheat")
+        QTest.qWait(30)
+        assert f"background-color: {alternate_bg}" in label.styleSheet()
+        sample = label.mapTo(panel, QPoint(2, label.height() // 2))
+        assert panel.grab().toImage().pixelColor(sample).name() == alternate_bg
+    finally:
+        panel.close()
+
+
 def test_turn_sync_notice_keeps_busy_and_pending_send(
         fake_registry, isolated_settings):
     panel = _make_panel(fake_registry, isolated_settings)
@@ -631,16 +775,19 @@ def test_turn_sync_notice_keeps_busy_and_pending_send(
     messages: list[str] = []
     panel.output.append_message = lambda _role, text: messages.append(text)
     try:
+        assert panel._turn_sync_label.isHidden()
         panel._on_chunk(ka.Chunk(
             "turn_sync", "正在同步 Kimi 后台通知轮次；完成与待发已暂停"))
         assert panel._busy and panel._pending_send
         assert not panel._turn_sync_label.isHidden()
         assert panel._turn_sync_label.text() == \
             "正在同步 Kimi 后台通知轮次；完成与待发已暂停"
+        assert panel._turn_sync_label.toolTip() == panel._turn_sync_label.text()
         panel._on_chunk(ka.Chunk(
             "turn_sync", "正在核对 Kimi 轮次状态；完成与待发已暂停"))
         assert panel._turn_sync_label.text() == \
             "正在核对 Kimi 轮次状态；完成与待发已暂停"
+        assert panel._turn_sync_label.toolTip() == panel._turn_sync_label.text()
         assert messages == []
     finally:
         panel.close()

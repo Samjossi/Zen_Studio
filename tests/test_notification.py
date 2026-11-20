@@ -30,6 +30,7 @@ from ide.gui.settings import (
     KEY_NOTIFY_SOUND_ENABLED,
     KEY_NOTIFY_SOUND_ERROR,
     KEY_NOTIFY_SOUND_QUESTION,
+    KEY_TEMPORARY_NOTICE_PANEL_ENABLED,
     load_settings,
     update_settings,
 )
@@ -549,3 +550,41 @@ def test_main_window_preview_banner(qapp, monkeypatch):
                         lambda kind: shown.append(kind))
     main_window_mod.MainWindow.preview_notify_banner(SimpleNamespace(), "success")
     assert shown == ["success"]
+
+
+def test_main_window_temporary_notice_setting_and_preview(qapp, isolated_settings):
+    enabled_calls: list[bool] = []
+    preview_calls: list[bool] = []
+    sync_calls: list[bool] = []
+    messages: list[str] = []
+
+    class _Tabs:
+        def set_temporary_notice_panel_enabled(self, enabled):
+            enabled_calls.append(enabled)
+
+        def preview_temporary_notice_panel(self):
+            preview_calls.append(True)
+            return True
+
+    class _Bar:
+        def showMessage(self, message, _timeout):
+            messages.append(message)
+
+    bar = _Bar()
+    ctx = SimpleNamespace(
+        chat_tabs=_Tabs(),
+        _sync_settings_dialog=lambda: sync_calls.append(True),
+        statusBar=lambda: bar,
+        STATUS_MSG_SHORT_MS=2000,
+    )
+    main_window_mod.MainWindow.set_temporary_notice_panel_enabled(ctx, False)
+    assert load_settings()[KEY_TEMPORARY_NOTICE_PANEL_ENABLED] is False
+    assert enabled_calls == [False]
+    assert sync_calls == [True]
+    main_window_mod.MainWindow.preview_temporary_notice_panel(ctx)
+    assert preview_calls == [True]
+    assert "预览 3 秒" in messages[-1]
+
+    ctx.chat_tabs = None
+    main_window_mod.MainWindow.preview_temporary_notice_panel(ctx)
+    assert "暂无可预览" in messages[-1]

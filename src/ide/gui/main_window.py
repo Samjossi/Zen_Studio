@@ -96,6 +96,7 @@ from ide.gui.settings import (
     KEY_MODEL_VERSIONS,
     KEY_NOTIFY_BANNER_ENABLED,
     KEY_NOTIFY_SOUND_ENABLED,
+    KEY_TEMPORARY_NOTICE_PANEL_ENABLED,
     KEY_TERMINAL_AI_TAB_CLOSE_DELAY_S,
     KEY_TERMINAL_SWAP_COPY_PASTE,
     KEY_THEME,
@@ -885,6 +886,23 @@ class MainWindow(QMainWindow):
         state = "开" if enabled else "关"
         self.statusBar().showMessage(f"主窗色边：{state}", self.STATUS_MSG_SHORT_MS)
 
+    def set_temporary_notice_panel_enabled(self, enabled: bool) -> None:
+        """临时提示面板开关：持久化并即时下发全部存量会话标签。"""
+        update_settings({KEY_TEMPORARY_NOTICE_PANEL_ENABLED: enabled})
+        if self.chat_tabs is not None:
+            self.chat_tabs.set_temporary_notice_panel_enabled(enabled)
+        self._sync_settings_dialog()
+        state = "开" if enabled else "关"
+        self.statusBar().showMessage(
+            f"临时提示面板：{state}", self.STATUS_MSG_SHORT_MS)
+
+    def preview_temporary_notice_panel(self) -> None:
+        """在当前活动会话标签原位置预览，不改变开关或真实轮次状态。"""
+        shown = self.chat_tabs is not None \
+            and self.chat_tabs.preview_temporary_notice_panel()
+        message = "临时提示面板：预览 3 秒" if shown else "暂无可预览的会话标签"
+        self.statusBar().showMessage(message, self.STATUS_MSG_SHORT_MS)
+
     def apply_model_selection(self, backend: str, version: str | None) -> None:
         """设置中心驱动的模型切换：收敛到 ChatTabs（只作用当前活动标签，
         2026-0803-0112 计划 D3）后同步设置中心控件态。"""
@@ -971,8 +989,8 @@ class MainWindow(QMainWindow):
             # 阻断同会话 closeEvent 回写当前布局（否则重置被静默撤销）
             self._state_store.disable_save()
 
-        # 即时应用：主题（含四面板配色）→ 字号 → 模型 → 终端快捷键与
-        # AI 标签结束后停留时长。
+        # 即时应用：主题（含四面板配色）→ 字号 → 模型 → 临时提示面板 →
+        # 终端快捷键与 AI 标签结束后停留时长。
         # 挂起对话框 sync：各应用槽内置 _sync_settings_dialog 被抑制（否则 N 槽
         # 连发触发 N+1 次全量 reload，前 N 次读中间态即被覆盖），批末单次终态 reload
         settings = load_settings()
@@ -983,6 +1001,8 @@ class MainWindow(QMainWindow):
             self.apply_model_selection(
                 settings[KEY_MODEL_BACKEND],
                 settings[KEY_MODEL_VERSIONS].get(settings[KEY_MODEL_BACKEND]))
+            self.set_temporary_notice_panel_enabled(
+                settings[KEY_TEMPORARY_NOTICE_PANEL_ENABLED])
             swap = settings[KEY_TERMINAL_SWAP_COPY_PASTE]  # 重置后为默认 False
             self.terminal_panel.set_swap_copy_paste(swap)
             # 结束后停留时长重置后回默认值（直接下发桥，状态栏不逐条刷屏）

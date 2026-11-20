@@ -38,7 +38,10 @@ def isolated_settings(monkeypatch):
     return settings_file
 
 
-def _make_dialog(border_calls: list | None = None) -> SettingsDialog:
+def _make_dialog(
+        border_calls: list | None = None,
+        notice_calls: list | None = None,
+        preview_calls: list | None = None) -> SettingsDialog:
     """桩 ctx 构建设置中心（同 test_notification 范式，chat_tabs=None 走降级守卫）。"""
 
     class _FakeBar:
@@ -48,6 +51,14 @@ def _make_dialog(border_calls: list | None = None) -> SettingsDialog:
     def _record_window_border(checked):
         if border_calls is not None:
             border_calls.append(checked)
+
+    def _record_temporary_notice(checked):
+        if notice_calls is not None:
+            notice_calls.append(checked)
+
+    def _record_temporary_notice_preview():
+        if preview_calls is not None:
+            preview_calls.append(True)
 
     ctx = QWidget()
     ctx.statusBar = lambda: _FakeBar()
@@ -59,6 +70,8 @@ def _make_dialog(border_calls: list | None = None) -> SettingsDialog:
     ctx.switch_theme = lambda *a: None
     ctx.set_font_size = lambda *a: None
     ctx.set_window_border = _record_window_border
+    ctx.set_temporary_notice_panel_enabled = _record_temporary_notice
+    ctx.preview_temporary_notice_panel = _record_temporary_notice_preview
     ctx.set_terminal_swap_copy_paste = lambda *a: None
     ctx.set_chat_renderer = lambda *a: None
     ctx.open_settings_file = lambda: None
@@ -158,6 +171,32 @@ def test_window_border_checkbox_toggles_ctx(qapp, isolated_settings):
     assert calls == [False]
     dialog._border_check.setChecked(True)
     assert calls == [False, True]
+
+
+def test_temporary_notice_checkbox_initial_state_follows_settings(
+        qapp, isolated_settings):
+    dialog = _make_dialog()
+    dialog.reload()
+    assert dialog._temporary_notice_check.isChecked()
+    isolated_settings.write_text(
+        json.dumps({"temporary_notice_panel_enabled": False}), encoding="utf-8")
+    dialog_off = _make_dialog()
+    dialog_off.reload()
+    assert not dialog_off._temporary_notice_check.isChecked()
+
+
+def test_temporary_notice_toggle_and_preview_callbacks(qapp, isolated_settings):
+    notice_calls: list[bool] = []
+    preview_calls: list[bool] = []
+    dialog = _make_dialog(notice_calls=notice_calls, preview_calls=preview_calls)
+    dialog.reload()
+    assert notice_calls == [] and preview_calls == []
+    dialog._temporary_notice_check.setChecked(False)
+    dialog._temporary_notice_check.setChecked(True)
+    dialog._temporary_notice_preview_button.click()
+    assert notice_calls == [False, True]
+    assert preview_calls == [True]
+    assert "3 秒" in dialog._temporary_notice_preview_button.toolTip()
 
 
 def test_retained_texts_simplified(qapp, isolated_settings):
