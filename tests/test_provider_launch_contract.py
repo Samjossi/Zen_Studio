@@ -10,6 +10,7 @@ import pytest
 
 from ide.llm.providers.acp.connection import AcpConnection
 from ide.llm.providers.dsh import provider as dsh_provider
+from ide.llm.providers.dsh import session_log as dsh_session_log
 from ide.llm.providers.kimi import provider as kimi_provider
 from ide.llm.providers.kimi import usage as kimi_usage, wire as kimi_wire
 from ide.llm.providers.local import provider as local_provider
@@ -118,7 +119,7 @@ def test_provider_builds_own_argv_and_keeps_session_params(
         monkeypatch.setattr(kimi_wire, "session_dir_of", lambda session_id: None)
         monkeypatch.setattr(kimi_usage, "WIRE_USAGE_WAIT_S", 0.0)
     elif extra_patch == "dsh":
-        monkeypatch.setattr(module, "_turn_consumption", lambda *args: (None, 0))
+        monkeypatch.setattr(dsh_session_log, "turn_consumption", lambda *args: (None, 0))
 
     provider = getattr(module, cls_name)(workspace_root=WORKSPACE)
     list(provider.chat([{"role": "user", "content": "hello"}]))

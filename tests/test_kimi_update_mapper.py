@@ -16,7 +16,7 @@ from ide.gui.panels.chat.vendors.kimi.cards import (
 )
 from ide.gui.panels.chat.vendors.kimi.factory import make_tool_card
 from ide.llm.base import UsageStats
-from ide.llm.providers.kimi import provider as kimi_acp
+from ide.llm.providers.kimi import subagent as kimi_subagent
 from ide.llm.providers.kimi.updates import KimiUpdateMapper
 
 SESSION_ID = "kimi-mapper-session"
@@ -233,7 +233,7 @@ def test_kimi_agent_sidecar_nests_child_card(qapp, colors, mapper):
     assert isinstance(parent_card, SubagentCard)
     assert parent.payload["is_subagent"] is True
 
-    child = kimi_acp._synthesize_wire_call(
+    child = kimi_subagent.synthesize_wire_call(
         {"name": "Bash", "toolCallId": "wire-1",
          "args": {"command": "ls -la"}},
         parent_tid,
@@ -246,7 +246,7 @@ def test_kimi_agent_sidecar_nests_child_card(qapp, colors, mapper):
     parent_card.append_child_call(child_chunk.payload)
     assert parent_tid + "/wire-1" in parent_card._tool_cards
 
-    result = kimi_acp._synthesize_wire_result(
+    result = kimi_subagent.synthesize_wire_result(
         {"toolCallId": "wire-1", "result": {"output": "README.md"}},
         parent_tid,
         "execute",

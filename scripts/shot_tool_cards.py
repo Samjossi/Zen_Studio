@@ -46,9 +46,9 @@ from ide.gui.panels.chat.vendors.kimi.presenter import (  # noqa: E402
     KimiCardPresenter,
 )
 from ide.gui.theme import DEFAULT_THEME, get_theme_palette  # noqa: E402
-from ide.llm.providers.kimi.provider import (  # noqa: E402
-    _synthesize_wire_call,
-    _synthesize_wire_result,
+from ide.llm.providers.kimi.subagent import (  # noqa: E402
+    synthesize_wire_call,
+    synthesize_wire_result,
 )
 from ide.llm.providers.kimi.permissions import (  # noqa: E402
     build_permission_request,
@@ -722,7 +722,7 @@ def _rx_parent_done() -> dict:
 
 #: kimi 旁路实测蓝本（agents/agent-0/wire.jsonl 裁剪样本
 #: .temp/subagent_wire_sample.jsonl 同源事件；合成走真实
-#: _synthesize_wire_call/_synthesize_wire_result，非手写帧）
+#: synthesize_wire_call/synthesize_wire_result，非手写帧）
 _KIMI_PARENT = "0:tool_sbYPlYDEPKcsL9XI6fidkBfY"
 _KIMI_WIRE_EVENTS = [
     {"type": "tool.call", "toolCallId": "tool_pg4JULExUlNcD7yP8xquyf70",
@@ -752,10 +752,10 @@ def _kimi_sidecar_frames() -> list[dict]:
     kinds: dict[str, str] = {}
     for event in _KIMI_WIRE_EVENTS:
         if event["type"] == "tool.call":
-            update = _synthesize_wire_call(event, _KIMI_PARENT)
+            update = synthesize_wire_call(event, _KIMI_PARENT)
             kinds[event["toolCallId"]] = update["kind"]
         else:
-            update = _synthesize_wire_result(
+            update = synthesize_wire_result(
                 event, _KIMI_PARENT,
                 kinds.get(event.get("toolCallId") or "", "other"))
         frames.append(update)

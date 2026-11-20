@@ -9,6 +9,7 @@ import pytest
 
 from ide.llm.providers.acp import TurnAborted, TurnCancelled
 from ide.llm.providers.dsh import provider as dsh_acp
+from ide.llm.providers.dsh import session_log as dsh_session_log
 from ide.llm.providers.kimi import provider as kimi_acp
 from ide.llm.providers.kimi import usage as kimi_usage, wire as kimi_wire
 from ide.llm.providers.local import provider as local_acp
@@ -120,7 +121,7 @@ def test_dsh_provider_text_usage_stop_reason_and_config_error(monkeypatch):
         _response(),
     ])
     _install_connection(monkeypatch, dsh_acp, conn)
-    monkeypatch.setattr(dsh_acp, "_turn_consumption", lambda *args: (None, 0))
+    monkeypatch.setattr(dsh_session_log, "turn_consumption", lambda *args: (None, 0))
     provider = dsh_acp.DshAcpLLM(workspace_root=".")
     chunks = list(provider.chat([{"role": "user", "content": "hello"}]))
     assert [(chunk.kind, chunk.text) for chunk in chunks] == [
@@ -148,7 +149,7 @@ def test_dsh_provider_text_usage_stop_reason_and_config_error(monkeypatch):
 def test_dsh_provider_cancel_keeps_connection_alive(monkeypatch):
     conn = FakeConnection([update_event(text_frame("片段"))])
     _install_connection(monkeypatch, dsh_acp, conn)
-    monkeypatch.setattr(dsh_acp, "_turn_consumption", lambda *args: (None, 0))
+    monkeypatch.setattr(dsh_session_log, "turn_consumption", lambda *args: (None, 0))
     provider = dsh_acp.DshAcpLLM(workspace_root=".")
     turn = provider.chat([{"role": "user", "content": "hello"}])
     assert next(turn).text == "片段"
@@ -283,7 +284,7 @@ def test_vendor_tool_turn_stop_and_close(
                             lambda session_id: None)
         monkeypatch.setattr(kimi_usage, "WIRE_USAGE_WAIT_S", 0.0)
     elif label == "dsh":
-        monkeypatch.setattr(dsh_acp, "_turn_consumption",
+        monkeypatch.setattr(dsh_session_log, "turn_consumption",
                             lambda *args: (None, 0))
 
     conn = FakeConnection(_events())

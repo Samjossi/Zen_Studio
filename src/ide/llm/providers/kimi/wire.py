@@ -52,6 +52,38 @@ def wire_path(session_dir: Path) -> Path:
     return session_dir / "agents" / "main" / "wire.jsonl"
 
 
+@dataclass
+class WireLineCursor:
+    """wire 尾部增量读取游标：只随调用方（单轮旁路）存活，不跨实例共享。
+
+    `buffer` 保存末段未写完的残行，下一次读取先拼回再切行——写盘半行
+    不能当坏行计入熔断，否则正常轮次也会被误判为格式漂移。
+    """
+
+    path: Path
+    offset: int = 0
+    buffer: bytes = b""
+
+
+def read_new_lines(state: WireLineCursor) -> list[bytes] | None:
+    """按字节游标读取新增完整行；文件尚未创建/瞬逝返回 None（下轮重试）。
+
+    只做字节切行，不解析 JSON：旁路需要自行累计坏行熔断，解析失败不能
+    在这里被吞掉。首读从文件头开始——旁路目录是本轮新建的，文件不会历史
+    累积到 MB 级；用量路径另有 64KB 尾部窗口，不走本入口。
+    """
+    try:
+        with state.path.open("rb") as f:
+            f.seek(state.offset)
+            state.buffer += f.read()
+            state.offset = f.tell()
+    except OSError:
+        return None
+    lines = state.buffer.split(b"\n")
+    state.buffer = lines.pop()
+    return lines
+
+
 def read_records(session_dir: Path) -> list[dict] | None:
     """读 wire.jsonl 全量记录；文件缺失/损坏返回 None（收尾路径一次读法）。"""
     wire = wire_path(session_dir)
