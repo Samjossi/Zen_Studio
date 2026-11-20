@@ -3,7 +3,7 @@
 仿 PERMISSION_QUEUE 的串行化骨架，但激活的是**卡内按钮**（非模态框）——
 GUI 线程绝不能阻塞等用户点击（事件流冻结按钮永远点不动），故采用
 「活动条目 + 点击回调推进」模式：reader 线程阻塞等 threading.Event，
-GUI 线程经 QTimer.singleShot 定位 tool_call_id 对应的 QuestionCard
+GUI 线程经 QTimer.singleShot 定位 tool_call_id 对应的厂商提问卡
 激活选项按钮组后立即返回；用户点击 → 回调置结果 → Event.set() 唤醒
 reader 并推进队列。同窗口多个 question 请求串行激活（防多卡同时待答
 的认知混乱与结果错配）。

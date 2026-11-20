@@ -257,7 +257,7 @@ class ChatPanel(QWidget):
     #: 完成提醒（声音 + 系统桌面通知）
     turn_completed = Signal(bool)
 
-    #: AskUserQuestion 类交互请求到达（_ask_permission question 特判分支
+    #: 提问类交互请求到达（_ask_permission question 特判分支
     #: 发出，reader 线程 emit 经 Qt 队列到 GUI 线程）；主窗口经 ChatTabs
     #: 转发联动提问提醒（声音 + 系统桌面通知）
     question_asked = Signal()

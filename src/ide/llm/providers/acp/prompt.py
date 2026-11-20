@@ -23,9 +23,9 @@ def build_prompt_blocks(message: Message, workspace_root: str | None = None) -> 
     退化绝对路径）。读盘失败的图不拼路径（块未发，避免引用未送达内容）。
 
     空 text 回退占位文案（0340 计划 D5，T0 spike 2026-08-01 实证）：
-    kimi（-32603）与 reasonix（-32602）均拒绝空 text 块——纯图发送时
-    占位「请查看附图。」；opencode/kilocode 虽接受空块，占位文案
-    对二者无害且语义更明确，故统一回退不区分后端。
+    部分 CLI 对空 text 块返回协议错误（如 -32603/-32602）——纯图发送时
+    统一占位「请查看附图。」；接受空块的 CLI 对占位文案无害且语义更
+    明确，故不按后端分支。
     """
     images = message.get("images", [])
     text = message["content"] or ("请查看附图。" if images else "")

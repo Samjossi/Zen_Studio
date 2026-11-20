@@ -20,7 +20,7 @@ class Message(TypedDict):
     """OpenAI 格式对话消息。
 
     images（0340 方案 B 计划 D8）：仅 user 消息可携带的图片附件；
-    四家 ACP provider 历史由 agent 会话自管、只发末条 user 消息，
+    各 ACP provider 的历史由 agent 会话自管、只发末条 user 消息，
     历史图片天然不回传。
     """
 
@@ -36,10 +36,9 @@ class UsageStats:
     source 区分数据来源而非计费方式：
     - "push"：ACP `usage_update`，agent 对外报告的当前上下文占用与窗口；
       可包含 agent 自己的未实测尾部估算，不代表会员额度或纯 API 实测值；
-    - "transcript"：agent 落盘记录中的实测上下文；kimi wire 优先以
-      token_counting.measured.tokens 为水位，旧记录以
-      inputOther+inputCacheRead+inputCacheCreation+output 四项求和兜底，
-      用于轮内刷新与 ACP 缺失兜底，窗口另取模型目录 maxContextSize；
+    - "transcript"：后台自身落盘记录中的实测上下文；具体水位字段与
+      兜底口径归各后台 provider，用于轮内刷新与 ACP 缺失兜底，窗口另取
+      该后台模型目录的上报值；
     - "estimate"：IDE 对 transcript 消息文本的 chars/4 粗估，仅作量级参考。
 
     cost 为会话累计成本（agent 未给则 None），与上下文占用分开理解。
@@ -55,13 +54,13 @@ class UsageStats:
 class TurnSpeed:
     """一轮对话的平均输出速度载荷（2026-1023-1632 计划）。
 
-    口径：output_tokens 为轮内各次 API 调用的输出 token 求和（kimi wire
-    usage.output 是单次调用值，非累计，直取不差分）；gen_seconds 仅计
-    模型生成时间（各次调用配对 usage.record.time − llm.request.time 求
-    和），工具执行与审批等待落在两次请求之间的缝隙里，天然排除在外——
-    分母掺入非生成时间会失真，这是本定型的核心约束。
+    口径：output_tokens 为轮内各次 API 调用的输出 token 求和（transcript
+    源的单次 output 是单次调用值，非累计，直取不差分）；gen_seconds 仅计
+    模型生成时间（各次调用按请求与响应的记录时间配对求和），工具执行与
+    审批等待落在两次请求之间的缝隙里，天然排除在外——分母掺入非生成
+    时间会失真，这是本定型的核心约束。
 
-    目前仅 kimi 后端产出（transcript 源才有逐次 output 真值；push 帧与
+    目前仅支持 transcript 源的后台产出（逐次 output 才有真值；push 帧与
     estimate 均无 output 计量）。
     """
 
@@ -76,7 +75,7 @@ class TurnConsumption:
     口径：轮内各次 API 调用的实测消耗求和，与 UsageStats 的上下文
     窗口占用是两套语义，互不复用数值。四项拆分保留缓存读写（计费
     单价不同）；turn_id 供落盘去重（同轮重复收尾不双记）。
-    目前仅 kimi / DSH 后端产出，其余后端无逐次真值通道恒 None。
+    目前仅具备逐次真值通道的后台产出，其余后端恒 None。
     """
 
     input_other: int          # 非缓存输入 token 合计
@@ -113,11 +112,11 @@ class Chunk:
     #: 工具/计划活动的厂商私有载荷：通用层只按 kind 路由并原样转交，不读取
     #: 其中字段；具体 schema 归各厂商 `models.py`，卡片与 presenter 自行解释。
     payload: dict | None = None
-    #: 轮次输出速度（kind="usage" 时可同帧携带；仅 kimi 后端产出，
+    #: 轮次输出速度（kind="usage" 时可同帧携带；仅部分后台产出，
     #: 其余后端恒 None，GUI 无数据不显示对应行）
     speed: "TurnSpeed | None" = None
-    #: 轮次真实 token 消耗（kind="usage" 时可同帧携带；仅 kimi / DSH
-    #: 后端产出，2026-1114-1452 计划；GUI 轮末落盘进按日统计与滚动汇总）
+    #: 轮次真实 token 消耗（kind="usage" 时可同帧携带；仅部分后台产出，
+    #: 2026-1114-1452 计划；GUI 轮末落盘进按日统计与滚动汇总）
     consumption: "TurnConsumption | None" = None
 
 
@@ -149,11 +148,10 @@ class LanguageModel(Protocol):
     def poll_usage(self) -> "UsageStats | None":
         """轮次内主动取用量快照（可选能力，默认 None 表示不支持）。
 
-        背景（0117 计划）：推送型后端（DSH / Local）的
-        `usage_update` 由 agent 决定时机，IDE 无中间数据可挖；
-        kimi 的用量落在本地 wire.jsonl 且轮次内每次 API 调用后增量写盘
-        （0117 T0 实证），可由 provider 主动读取。GUI 侧 QTimer 在轮次进行
-        中周期调用本方法，非 None 即刷新徽章。
+        背景（0117 计划）：推送型后端的 `usage_update` 由 agent 决定时机，
+        IDE 无中间数据可挖；部分后台的用量落在本地会话记录且轮次内增量
+        写盘，可由该后台 provider 主动读取。GUI 侧 QTimer 在轮次进行中
+        周期调用本方法，非 None 即刷新徽章。
 
         约束：实现须廉价（首次有界尾部建立游标，之后只读新增字节与缓存）、
         幂等、线程安全（从 GUI 线程调用，与 chat 所在 worker 并发），任何
@@ -173,7 +171,7 @@ class LanguageModel(Protocol):
     def stall_watchdog_enabled(self) -> bool:
         """轮次挂起看门狗是否适用于本后台（可选能力，默认启用）。
 
-        后台若由自有生命周期保证轮次必然收尾（如 Kimi ACP 的响应/断连
-        收口），可返回 False 明确退出看门狗。
+        后台若由自有生命周期保证轮次必然收尾（如协议响应/断连即可收口），
+        可返回 False 明确退出看门狗。
         """
         return True

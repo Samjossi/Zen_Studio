@@ -167,7 +167,7 @@ class _ElidedLabel(BandLabel):
     def _refresh_text(self) -> None:
         """按当前可用宽重算上屏文本。
 
-        富文本（DiffCard 两段式双色副标题）：够宽原样上屏保双色，
+        富文本（具体卡片两段式双色副标题）：够宽原样上屏保双色，
         不够宽退化为纯文本省略（截断态弃样式保可读，tooltip 同纯文本）。
         """
         full = self._full_text
@@ -576,9 +576,9 @@ class ToolCard(CollapsibleCard):
     """
 
     _attach_input_detail = True
-    #: 更新帧 title 是否覆盖卡标题（DiffCard 等路径内嵌标题的场景置 False）
+    #: 更新帧 title 是否覆盖卡标题（路径内嵌标题的具体卡片置 False）
     _accept_title_update = True
-    #: 是否承接子代理内嵌帧（仅厂商 SubagentCard 置 True）
+    #: 是否承接子代理内嵌帧（仅厂商子代理卡置 True）
     supports_children = False
 
     def __init__(
@@ -603,7 +603,7 @@ class ToolCard(CollapsibleCard):
             payload.get("title") or "?",
             "",
         )
-        # 虚分派重设副标题：子类（DiffCard）的两段式对首帧 summary 也生效
+        # 虚分派重设副标题：子类（两段式副标题卡）对首帧 summary 也生效
         self.set_subtitle(subtitle or "")
         self.set_status("◐", colors.tool_fg)
         self._resolve_initial_open()
@@ -615,7 +615,7 @@ class ToolCard(CollapsibleCard):
         """各专类 body 构建（厂商卡片构造器尾调用）。"""
 
     def _on_progress(self, payload: dict) -> None:
-        """in_progress 帧（BashCard 尾滚用；其余卡忽略）。"""
+        """in_progress 帧（命令类卡片尾滚用；其余卡忽略）。"""
 
     def _on_completed(self, payload: dict) -> None:
         """completed 帧（输出正文/成果摘要/行数尾注落 body）。"""
@@ -642,7 +642,7 @@ class ToolCard(CollapsibleCard):
             self.set_subtitle(subtitle)
 
     def attach_input_detail(self, detail: str | None) -> None:
-        """迟到入参回填入口：首帧优先，已挂不覆盖（McpCard 自行处理常驻区）。"""
+        """迟到入参回填入口：首帧优先，已挂不覆盖（通用工具卡自行处理常驻区）。"""
         if detail:
             self._set_input_detail(detail)
 

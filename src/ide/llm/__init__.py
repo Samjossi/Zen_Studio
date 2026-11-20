@@ -1,12 +1,12 @@
-"""LLM 调用层：统一接口 + provider（本机 agent CLI 后端，代码库零密钥）。
+"""LLM 调用层公共出口：稳定契约、ACP 公共类型与后端注册表 API。
 
-后端注册单点在 ide/llm/registry.py（BackendSpec + REGISTRY，计划
-2026-0730-0150 §4-D3）；provider 装配单点在 ChatPanel（D4 懒实例化，
-多标签改造后每标签自持实例，标签间完全隔离）；import 无副作用
-（AFCP 2.3 依赖显式）：CLI 探测与 provider 实例化不发生在模块级，
-由消费方显式构造。
+具体 provider 类不由本模块再导出：生产代码需要实例时经 `registry` 的
+`BackendSpec.factory` 装配，只有 `registry` 可以从厂商包导入具体实现。
+厂商包需要具体类时直接 import 本厂商模块，不回到公共出口取型。
 
-依赖方向（无环）：本模块 → registry → providers → llm.base。
+依赖方向（无环）：本模块 → registry → providers → llm.base；
+本模块 → providers.acp（仅稳定协议类型）。本模块不导入 GUI。
+import 无副作用：CLI 探测与 provider 实例化不发生在模块级。
 """
 from ide.llm.base import (
     Chunk,
@@ -22,11 +22,9 @@ from ide.llm.providers.acp import (
     PermissionRequest,
     TurnCancelled,
 )
-from ide.llm.providers.dsh import DshAcpLLM, dsh_available, list_dsh_models
-from ide.llm.providers.kimi import KimiAcpLLM, kimi_available, list_kimi_models
-from ide.llm.providers.local import LocalAcpLLM, list_local_models, local_available
 from ide.llm.registry import (
     BACKEND_LABELS,
+    DEFAULT_BACKEND,
     REGISTRY,
     VENDOR_LABELS,
     BackendSpec,
@@ -37,22 +35,17 @@ from ide.llm.registry import (
     vendor_of,
 )
 
-#: 后端注册名（settings 默认值、设置菜单、ModelBar 共用此常量）——
-#: 即 REGISTRY 的键；注册表条目以此字面量为名，无从再行"派生"
-#: （kimi-cli 已移除，见 文档/修改记录/2026-0731-0036）
-BACKEND_KIMI_ACP = "kimi-acp"
-
-
 __all__ = [
+    # 稳定契约
     "Chunk",
     "LanguageModel",
     "Message",
     "TurnSpeed",
     "TurnConsumption",
     "UsageStats",
-    "BACKEND_KIMI_ACP",
+    # 注册表 API（组合根与查询；具体实现由 REGISTRY 工厂装配）
+    "DEFAULT_BACKEND",
     "BACKEND_LABELS",
-    # 注册表（D3；阶段二 UI 三级选择的数据源）
     "REGISTRY",
     "BackendSpec",
     "spec_of",
@@ -61,19 +54,7 @@ __all__ = [
     "refresh_models",
     "resolve_efforts",
     "VENDOR_LABELS",
-    # Kimi 专有符号（非 Protocol 成员；探测/枚举居 kimi 厂商包）
-    "KimiAcpLLM",
-    "kimi_available",
-    "list_kimi_models",
-    # DeepSeek Harness（dsh）专有符号（非 Protocol 成员）
-    "DshAcpLLM",
-    "dsh_available",
-    "list_dsh_models",
-    # Local CLI 专有符号（非 Protocol 成员）
-    "LocalAcpLLM",
-    "local_available",
-    "list_local_models",
-    # ACP 协议层定型（审批回环共用；现居 llm.providers.acp，此处 re-export）
+    # ACP 协议层公共类型（审批回环共用；具体 provider 类不在公共出口）
     "PermissionHandler",
     "PermissionParams",
     "PermissionRequest",

@@ -130,7 +130,7 @@ class AcpConnection:
         :param argv: 完整启动命令（由各厂商 provider 组装，如
             `[bin_path, "acp"]`；连接层不再拼 `"acp"` 子命令）
         :param cwd: agent 子进程工作目录（多开模式由启动参数注入）
-        :param agent_name: agent 显示名（错误文案用，如 "kimi acp"）
+        :param agent_name: agent 显示名（错误文案用，如 "agent acp"）
         """
         self._agent_name = agent_name
         self.generation = next(_connection_generations)
@@ -517,8 +517,9 @@ class AcpConnection:
     def next_update(self, timeout: float | None = None) -> _TurnMessage:
         """取下一条轮次内消息（默认无超时阻塞：agent 轮次可长达数分钟）。
 
-        timeout 秒数超时抛 queue.Empty（0813-1919 计划 T4：kimi wire
-        旁路与 conn 双源汇合的轮询消费用；其余后端不传超时保持原语义）。
+        timeout 秒数超时抛 queue.Empty（0813-1919 计划 T4：部分后端的
+        会话记录旁路与 conn 双源汇合轮询消费用；其余后端不传超时保持
+        原语义）。
 
         2026-1118-1115 计划 D1 拆拍：内部以 ≤_NEXT_UPDATE_TICK_S 的队列
         等待逼近调用方语义，每拍检查 _turn_abort——置位即抛 TurnAborted。

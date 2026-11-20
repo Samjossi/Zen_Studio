@@ -26,4 +26,5 @@
 
 - 新脚本必须在头部 docstring 写明：用途、用法、依赖来源（优先复用项目已有依赖，新增第三方依赖需先过选型）；
 - 脚本产生的临时文件/缓存一律落项目根内 `./.temp/` 或 `./.tmp/`，严禁系统临时目录；
-- 测试一律写进 `tests/` 由 pytest 收编，`scripts/` 不再新增 `test_` / `smoke_` 前缀脚本。
+- 测试一律写进 `tests/` 由 pytest 收编，`scripts/` 不再新增 `test_` / `smoke_` 前缀脚本；
+- 厂商专用脚本直接 import 目标厂商模块（如 `ide.llm.providers.kimi.updates`、`ide.gui.panels.chat.vendors.kimi.factory`）。`ide.llm` 顶层只导出稳定契约、ACP 公共类型与注册表 API，不再导出具体 provider 类或探测函数。

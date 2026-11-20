@@ -204,6 +204,10 @@ def resolve_efforts(
     return spec.efforts, spec.default_effort
 
 
+#: 出厂默认后台（settings `model_backend` 初值）。具体后台 ID 归注册表所有；
+#: 公共出口只再导出这个注册表常量，不暴露厂商类或探测函数。
+DEFAULT_BACKEND = "kimi-acp"
+
 # ----------------------------------------------------------------------
 # 注册段：新增后台在 ide/llm/providers/ 实现后于此后台追加一项（dict 保持插入序，
 # 插入序即 UI 菜单序）。全接口均为 ACP 传输层（kimi CLI `-p` 模式已于
@@ -321,7 +325,7 @@ def vendor_groups() -> dict[str, list[BackendSpec]]:
 
 
 # ----------------------------------------------------------------------
-# 派生映射（由 REGISTRY 生成，ide/llm/__init__ re-export 保旧 import 路径不破）
+# 派生映射（由 REGISTRY 生成；经 ide/llm/__init__ 作为公共 API 再导出）
 # ----------------------------------------------------------------------
 #: 接口实现名 → 显示名（设置菜单项 / ModelBar 下拉 / 切换提示共用单一映射）
 BACKEND_LABELS: dict[str, str] = {name: spec.label for name, spec in REGISTRY.items()}
@@ -333,6 +337,7 @@ VENDOR_LABELS: dict[str, str] = {
 
 __all__ = [
     "BackendSpec",
+    "DEFAULT_BACKEND",
     "REGISTRY",
     "spec_of",
     "vendor_of",

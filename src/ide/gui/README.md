@@ -42,7 +42,7 @@
 | `ide/gui/panels/viewer/` | 文件查看面板子包（中栏上，五页预览分流）：`panel.py` 装配（QStackedLayout 五页 + Git 差异徽标）/ `code_viewer.py` 只读文本查看器（行号栏）/ `highlighter.py` Pygments 高亮器 / `image_viewer.py` 图片页（位图 + SVG + GIF）/ `pdf_viewer.py` PDF 页（QPdfView 连续滚动）/ `markdown_view.py` Markdown 渲染页（GFM）/ `media_viewer.py` 音视频播放页 |
 | `ide/gui/panels/terminal/` | 终端面板子包（中栏下）：`panel.py` 装配 / `widget.py` 自绘终端控件 / `screen.py` pyte 语义层 / `session.py` PTY 会话 / `palette.py` ANSI 共享资源包色板 / `selection.py` 选区控制器（纯逻辑零 Qt 依赖）/ `agent_bridge.py` ACP terminal/* 反向能力 GUI 桥（AI tab，2026-08-17） |
 
-> LLM 调用层为后端逻辑，位于 `src/ide/llm/`（与 `src/ide/gui/` 平级）：`base.py` Protocol / `providers/` 下 Kimi / DSH（DeepSeek Harness）/ Local 三家 ACP 长驻后端（传输层统一为 ACP，kimi CLI `-p` 模式已于 2026-07-31 移除）。多标签改造后 provider 由每个 `ChatPanel` 自持（`ChatPanel._build_providers` 装配单点）。
+> LLM 调用层为后端逻辑，位于 `src/ide/llm/`（与 `src/ide/gui/` 平级）：`base.py` Protocol / `providers/` 下 Kimi / DSH（DeepSeek Harness）/ Local 三家 ACP 长驻后端（传输层统一为 ACP，kimi CLI `-p` 模式已于 2026-07-31 移除）。多标签改造后 provider 由每个 `ChatPanel` 自持；实例仍经 `ide/llm/registry.py` 的 `BackendSpec.factory` 装配（`ChatPanel._get_provider` 懒创建），卡片经 `vendors/registry.py` 组合根选择，通用面板不直接 import 具体厂商包。
 >
 > Git 数据层同理位于 `src/ide/core/git/`：`GitStatusService`（subprocess 调系统 git CLI，零 Qt 依赖纯 Python 包），GUI 侧经 `main_window` 注入各面板消费。
 

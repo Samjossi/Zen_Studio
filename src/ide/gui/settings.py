@@ -37,7 +37,7 @@ from pathlib import Path
 from typing import TypedDict
 
 from ide.core.paths import USER_CONFIG_DIR
-from ide.llm import BACKEND_KIMI_ACP
+from ide.llm import DEFAULT_BACKEND
 from ide.llm.permission_policy import DEFAULT_PERMISSION_MODE, MODE_CONFIRM_ALL
 
 #: 配置目录：开发态项目内 config/；打包态 XDG（ide/core/paths.py USER_CONFIG_DIR，
@@ -191,7 +191,7 @@ DEFAULT_SETTINGS: AppSettings = {
     KEY_FONT_SIZE: 10,
     KEY_FONT_FAMILY: "Source Han Sans CN",
     KEY_WINDOW_BORDER: True,
-    KEY_MODEL_BACKEND: BACKEND_KIMI_ACP,
+    KEY_MODEL_BACKEND: DEFAULT_BACKEND,
     KEY_MODEL_VERSIONS: {},
     KEY_MODEL_EFFORTS: {},
     KEY_TERMINAL_SWAP_COPY_PASTE: False,

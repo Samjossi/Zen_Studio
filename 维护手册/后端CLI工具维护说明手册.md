@@ -154,3 +154,41 @@ local-cli models
 ```
 
 正常输出为每行一个 GGUF 模型别名；空输出、非零退出或二进制缺失时，IDE 模型列表回退为空，不伪造可用模型。未安装时界面标注「未检测到」，这与后台封存无关。完整对话验证还需在 `~/.local-cli/config.toml` 配置有效 `model_dir` 并准备 GGUF 模型。
+
+---
+
+## 4. 源码目录、架构守卫与扩展流程
+
+本节记录现行依赖边界；CLI 安装、更新和真机验证仍以第 1–3 节为准。
+
+### 4.1 目录职责
+
+| 路径 | 职责 |
+|:---|:---|
+| `src/ide/llm/__init__.py` | 公共出口：稳定契约、ACP 公共类型、注册表 API；不再导出具体 provider 类或探测函数 |
+| `src/ide/llm/registry.py` | 后台组合根：`BackendSpec`/`REGISTRY`/`DEFAULT_BACKEND`；唯一允许 import 具体厂商后台的模块 |
+| `src/ide/llm/providers/acp/` | 稳定 ACP 传输、协议定型、prompt 与标准 content 纯函数；不含厂商工具名、私有配置键或落盘路径 |
+| `src/ide/llm/providers/<vendor>/` | 各厂商 provider、models、updates 与 permissions；厂商之间禁止横向 import |
+| `src/ide/gui/panels/chat/card_base.py` | 无厂商语义的卡片生命周期、折叠/复制/图片等 UI 基础件 |
+| `src/ide/gui/panels/chat/vendors/registry.py` | 卡片组合根：唯一允许 import 具体厂商卡片包的模块 |
+| `src/ide/gui/panels/chat/vendors/<vendor>/` | 各厂商 `factory.py`/`cards.py`/`presenter.py`；互不借用，最多 import 本厂商 `models.py` 纯类型 |
+| `src/ide/gui/panels/chat/panel.py` | 只选择当前厂商工厂、管理卡片生命周期和转发不透明事件 |
+
+### 4.2 新增后台 provider
+
+1. 在 `src/ide/llm/providers/<vendor>/` 建厂商包，`__init__.py` 只公开本厂商入口；ACP 系后端复用 `providers/acp/` 的 `AcpConnection`，provider 自行组装完整启动 argv。
+2. 在 `src/ide/llm/registry.py` 注册 `BackendSpec`；`available`/`list_models`/`factory` 必须惰性，import 无副作用。
+3. 不要修改 `src/ide/llm/__init__.py` 追加具体类；GUI 通过注册表工厂消费，无需新增厂商分支。
+4. 厂商私有工具名、载荷字段、配置键、错误关键词和落盘路径只写入本厂商目录。
+
+### 4.3 新增厂商卡片包
+
+1. 在 `src/ide/gui/panels/chat/vendors/<vendor>/` 建 `factory.py`、`cards.py`、`presenter.py`、`__init__.py`；工厂只理解本厂商工具名与载荷，presenter 只维护本厂商账本。
+2. 在 `src/ide/gui/panels/chat/vendors/registry.py` 注册工厂、presenter 与卡片模块；通用面板不得直接 import 厂商卡片包。
+3. 具体卡片可先从现有厂商等价复制，复制后独立维护；禁止跨厂商共享具体卡片、公共 `card_kind` 或万能卡片基类。
+
+### 4.4 架构守卫
+
+- `tests/test_provider_boundaries.py` 用标准库 AST 扫描 `src/ide/**/*.py` 与 `main.py`，覆盖：厂商后台/卡片横向隔离、两个组合根例外、provider 不反向 import registry/GUI、公共层不含厂商工具分派表/私有载荷/configId/落盘路径、旧平铺模块路径。
+- 守卫内置受控反例，反例只在测试内存构造；新增规则时必须同时提供「会失败」的反例，避免全绿只是没扫到目标路径。
+- 提交前统一运行 `bash scripts/check.sh`（隐私扫描 + QLabel 守卫 + ruff + pytest）；架构守卫失败时不得通过删除测试或放宽断言绕过。

@@ -28,7 +28,7 @@ KIND_LABELS = {
     "reject_always": "始终拒绝",
 }
 
-#: 自由作答引导文案（0807-0445 计划，方案 B；QuestionDialog 与 QuestionCard
+#: 自由作答引导文案（0807-0445 计划，方案 B；提问对话框与厂商提问卡
 #: 共用单一来源）。背景：T0 spike 实证 kimi ACP request_permission 通道无法
 #: 回传自由文本（H1 文本原文/H2 约定前缀/H3 _meta 全部失效——未知 optionId
 #: 被静默视为 dismiss，文档/帧存档/askuser_other_*.json），客户端

@@ -65,7 +65,7 @@ def _collect_content_block(block: dict, texts: list[str], images: list[str]) -> 
 
     text 原样拼入 texts；image / image_url / resource 图片形态入 images
     （data-URI 或 file://）；http(s) 图片链接不联网拉取，留一行占位文本。
-    厂商私有文本标记（如 Kimi 的 `<image path>`）不得在此解析。
+    厂商私有文本标记（如 `<image path>`）不得在此解析。
     """
     btype = block.get("type")
     if btype == "text" or btype is None:
@@ -102,11 +102,11 @@ def _collect_content_block(block: dict, texts: list[str], images: list[str]) -> 
 
 
 def _dispatch_output_string(output: str, texts: list[str], images: list[str]) -> bool:
-    """字符串出参 JSON 探测分发（0806 计划 T2，对标 kilocode McpTool.formattedOutput）。
+    """字符串出参 JSON 探测分发（0806 计划 T2，沿用既有工具卡 formattedOutput 解析）。
 
     try-parse 成功：解析结果为 content 数组（各项含 "type"）则再走一遍
-    按 type 分发（ReadMediaFile 出参即此形态——序列化为字符串的 content
-    数组）；其余 JSON pretty 化拼入 texts。解析失败原样拼入。
+    按 type 分发（标准图片读取类工具的出参即此形态——序列化为字符串的
+    content 数组）；其余 JSON pretty 化拼入 texts。解析失败原样拼入。
     返回 True 表示整段为合法 JSON（调用方据此豁免单行字符截断）。
     """
     stripped = output.strip()

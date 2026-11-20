@@ -95,7 +95,7 @@ class ChatTabs(QWidget):
     #: 完成提醒：声音 + 系统桌面通知）
     turn_completed = Signal(bool)
 
-    #: 任一标签 AskUserQuestion 类交互请求到达（转发 ChatPanel.question_asked；
+    #: 任一标签提问类交互请求到达（转发 ChatPanel.question_asked；
     #: 主窗口联动提问提醒：声音 + 系统桌面通知）
     question_asked = Signal()
 
