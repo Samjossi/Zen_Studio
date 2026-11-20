@@ -1227,6 +1227,9 @@ class ChatPanel(QWidget):
     def _on_chunk(self, chunk: Chunk) -> None:
         self._last_chunk_at = time.monotonic()  # 看门狗 idle 口径：任何消息帧均刷新
         self.timeline.feed(chunk)  # 时间线色块条旁路分接
+        if chunk.kind == "turn_sync":
+            self.output.append_message("系统", chunk.text)
+            return
         if chunk.kind == "usage":
             # 上下文用量通知：只更新徽章簿记，不进输出区文本流、不入 _history
             if chunk.usage is not None:
@@ -1400,11 +1403,13 @@ class ChatPanel(QWidget):
             self.output.append_stream_chunk(f"\n[请求失败] {error}")
             self._history.pop()  # 失败的用户消息不入历史
             recovery_failed = error.startswith("原会话恢复失败")
+            desynchronized = error.startswith("Kimi 轮次状态失配")
             if recovery_failed and not self.input.toPlainText().strip():
                 self.input.setPlainText(self._sent_text)
             self._restore_sent_attachments()  # 附件恢复回附件行
             provider = self._providers.get(self._llm_name)
-            if not recovery_failed and getattr(provider, "recovery_pending", False):
+            if (not recovery_failed and not desynchronized
+                    and getattr(provider, "recovery_pending", False)):
                 self.output.append_message(
                     "系统", "ACP 连接已失效；原请求不会自动重发。下一次手动发送将尝试"
                             "恢复原会话，请先核对已发生的工具副作用")

@@ -83,6 +83,11 @@ from ide.llm.providers.kimi_common import (
     context_sizes_from_catalog,
     load_kimi_provider_catalog,
 )
+from ide.llm.providers.kimi_turn_consistency import (
+    KimiTurnTracker,
+    TurnConsistencySnapshot,
+    TurnDesynchronized,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -99,6 +104,7 @@ _SESSION_DIR_RETRY_DELAYS_S = (2.0, 5.0, 15.0)
 #: kimi/reasonix 支持；本 agent 不支持时保持 terminal: false（行为与现状等价）
 _TERMINAL_CAPABILITY = True
 _SESSION_RESUME_TIMEOUT_S = 30.0
+_TURN_CONSISTENCY_WAIT_S = 3.0
 
 
 def _session_dir_of(session_id: str) -> Path | None:
@@ -617,6 +623,7 @@ class KimiAcpLLM(LanguageModel):
         self._context_catalog_attempts = 0
         self._idle_push_stats: UsageStats | None = None
         self._usage_warning_active = False
+        self._turn_tracker: KimiTurnTracker | None = None
         atexit.register(self.close)
 
     def _ensure_context_sizes(self) -> None:
@@ -642,6 +649,7 @@ class KimiAcpLLM(LanguageModel):
             self._poll_dir_retry_at = 0.0
             self._wire_usage_states.clear()
             self._idle_push_stats = None
+        self._turn_tracker = None
 
     # ------------------------------------------------------------------
     # 生命周期
@@ -894,6 +902,16 @@ class KimiAcpLLM(LanguageModel):
                 self._poll_dir_failures, delay)
             return None
 
+    def _turn_tracker_for_session(self) -> KimiTurnTracker | None:
+        session_id = self._session_id
+        session_dir = _session_dir_of(session_id) if session_id else None
+        if session_dir is None:
+            return None
+        wire_path = session_dir / "agents" / "main" / "wire.jsonl"
+        if self._turn_tracker is None or self._turn_tracker.path != wire_path:
+            self._turn_tracker = KimiTurnTracker(session_dir)
+        return self._turn_tracker
+
     @staticmethod
     def _drain_usage_updates(conn: AcpConnection) -> UsageStats | None:
         """排空空闲队列，仅保留有效 usage；其他迟到帧维持原清理语义。"""
@@ -952,23 +970,41 @@ class KimiAcpLLM(LanguageModel):
             return
         with self._turn_lock:  # 串行化轮次，防 inbox 串抢
             conn = self._ensure_session()
+            tracker = self._turn_tracker_for_session()
+            if tracker is not None:
+                tracker.poll()
+                before = tracker.snapshot(response_received=False)
+                if before.state == "draining":
+                    yield self._turn_sync_chunk(before)
+                    yield from self._drain_turn_consistency(
+                        conn, tracker, None, None,
+                        response_received=False, request_id=None)
             late_usage = self._drain_usage_updates(conn)
             conn.purge_updates()
             if late_usage is not None:
                 yield Chunk("usage", "", usage=late_usage)
             self._idle_push_stats = None
-            conn.begin_turn("session/prompt", {
+            request_id = conn.begin_turn("session/prompt", {
                 "sessionId": self._session_id,
                 "prompt": build_prompt_blocks(message, workspace_root=self._cwd),
             })
             try:
-                yield from self._iter_turn_chunks(conn)
+                yield from self._iter_turn_chunks(conn, request_id, tracker)
             finally:
                 conn.end_turn()
 
-    def _iter_turn_chunks(self, conn: AcpConnection) -> Iterator[Chunk]:
-        """轮次内消费 ACP 与 sidecar；response 后继续收集迟到用量。"""
+    def _iter_turn_chunks(
+        self,
+        conn: AcpConnection,
+        request_id: int | None = None,
+        tracker: KimiTurnTracker | None = None,
+    ) -> Iterator[Chunk]:
+        """轮次内消费 ACP 与 sidecar；正常响应先核对私有轮次再收尾。"""
         session_dir = _session_dir_of(self._session_id) if self._session_id else None
+        if tracker is None and session_dir is not None:
+            tracker = KimiTurnTracker(session_dir, start_at_end=False)
+        if tracker is not None:
+            self._turn_tracker = tracker
         turn_stats0 = (_read_wire_turn_stats(
             session_dir, self._context_sizes, self._model) if session_dir else None)
         usage_baseline = turn_stats0[0] if turn_stats0 else 0
@@ -996,12 +1032,41 @@ class KimiAcpLLM(LanguageModel):
                         self._raise_on_turn_error(obj)
                         # 先分类、后收尾、收尾完成再抛：非 end_turn 终态
                         # 同样需要本轮用量/速度/消耗（D5）
-                        pending_error = self._classify_stop_reason(obj)
+                        pending_error = self._classify_stop_reason(obj, request_id)
+                        sync_notified = False
+                        if pending_error is None and tracker is not None:
+                            tracker.poll()
+                            snapshot = tracker.snapshot(response_received=True)
+                            self._log_turn_consistency("response", snapshot, request_id)
+                            if snapshot.state != "normal":
+                                yield self._turn_sync_chunk(snapshot)
+                                sync_notified = True
+                                yield from self._drain_turn_consistency(
+                                    conn, tracker, sidecar, sidecar_queue,
+                                    response_received=True, request_id=request_id)
                         yield from self._collect_turn_end_usage(
                             conn, session_dir, usage_baseline, request_baseline,
-                            sidecar, sidecar_queue, turn_push_stats)
+                            sidecar, sidecar_queue, turn_push_stats,
+                            tracker=tracker if pending_error is None else None,
+                            request_id=request_id, sync_notified=sync_notified)
                         if pending_error is not None:
                             raise pending_error
+                        if tracker is not None:
+                            tracker.poll()
+                            snapshot = tracker.snapshot(response_received=True)
+                            # 收尾检查与用量窗口之间仍可能有新通知落盘；
+                            # 活跃时继续排空，确认空闲后才允许失配收尾和恢复标记
+                            while snapshot.state != "normal" and snapshot.agent_active:
+                                yield self._turn_sync_chunk(snapshot)
+                                yield from self._drain_turn_consistency(
+                                    conn, tracker, sidecar, sidecar_queue,
+                                    response_received=True, request_id=request_id)
+                                tracker.poll()
+                                snapshot = tracker.snapshot(response_received=True)
+                            self._log_turn_consistency("settled", snapshot, request_id)
+                            if snapshot.state != "normal":
+                                self._needs_recovery = True
+                                raise TurnDesynchronized(snapshot.reason)
                         return
                     chunk = map_session_update(obj)
                     if chunk:
@@ -1016,6 +1081,75 @@ class KimiAcpLLM(LanguageModel):
             if sidecar is not None:
                 sidecar.stop()
 
+    @staticmethod
+    def _turn_sync_chunk(snapshot: TurnConsistencySnapshot) -> Chunk:
+        text = ("正在同步 Kimi 后台通知轮次；完成与待发已暂停"
+                if snapshot.notification_ids else
+                "正在核对 Kimi 轮次状态；完成与待发已暂停")
+        return Chunk("turn_sync", text)
+
+    def _log_turn_consistency(
+        self,
+        event: str,
+        snapshot: TurnConsistencySnapshot,
+        request_id: int | None,
+    ) -> None:
+        logger.info(
+            "[kimi acp] 轮次一致性 event=%s state=%s reason=%s "
+            "requestId=%s sessionId=%s generation=%s promptId=%s turnId=%s "
+            "notifications=%s finishReason=%s active=%s",
+            event, snapshot.state, snapshot.reason, request_id, self._session_id,
+            self._conn.generation if self._conn is not None else None,
+            snapshot.user_prompt_id, snapshot.user_turn_id,
+            ",".join(snapshot.notification_ids) or "-",
+            snapshot.last_finish_reason, snapshot.agent_active)
+
+    def _drain_turn_consistency(
+        self,
+        conn: AcpConnection,
+        tracker: KimiTurnTracker,
+        sidecar: _WireSidecar | None,
+        sidecar_queue: "queue.Queue[dict] | None",
+        *,
+        response_received: bool,
+        request_id: int | None,
+    ) -> Iterator[Chunk]:
+        """保持原 worker 消费通道，直到内部活动落定或出现明确失配。"""
+        started = time.monotonic()
+        tracker.poll()
+        initial = tracker.snapshot(response_received=response_received)
+        self._log_turn_consistency("drain_start", initial, request_id)
+        while True:
+            tracker.poll()
+            snapshot = tracker.snapshot(
+                response_received=response_received,
+                missing_prompt_expired=(
+                    time.monotonic() - started >= _TURN_CONSISTENCY_WAIT_S),
+            )
+            if snapshot.state != "draining" and not snapshot.agent_active:
+                self._log_turn_consistency("drain_end", snapshot, request_id)
+                return
+            try:
+                kind, obj = conn.next_update(timeout=_WIRE_USAGE_POLL_S)
+            except queue.Empty:
+                if sidecar is not None and sidecar_queue is not None:
+                    yield from self._drain_sidecar(sidecar_queue)
+                continue
+            if kind == "dead":
+                self._needs_recovery = True
+                raise RuntimeError(
+                    f"kimi acp 连接已断开（{conn.failure_reason or '未知原因'}，"
+                    f"退出码 {obj}）；原请求不会自动重发")
+            if kind == "response":
+                continue
+            chunk = map_session_update(obj)
+            if chunk:
+                if sidecar is not None:
+                    _sidecar_observe(sidecar, chunk)
+                yield chunk
+            if sidecar is not None and sidecar_queue is not None:
+                yield from self._drain_sidecar(sidecar_queue)
+
     def _collect_turn_end_usage(
         self,
         conn: AcpConnection,
@@ -1025,6 +1159,9 @@ class KimiAcpLLM(LanguageModel):
         sidecar: _WireSidecar | None,
         sidecar_queue: "queue.Queue[dict]",
         initial_push: UsageStats | None,
+        tracker: KimiTurnTracker | None = None,
+        request_id: int | None = None,
+        sync_notified: bool = False,
     ) -> Iterator[Chunk]:
         """在同一截止时间内收集 ACP 与 wire；ACP 优先，wire 保留部分结果。"""
         deadline = time.monotonic() + _WIRE_USAGE_WAIT_S
@@ -1079,6 +1216,16 @@ class KimiAcpLLM(LanguageModel):
                 yield from self._drain_sidecar(sidecar_queue)
         if sidecar is not None:
             yield from self._drain_sidecar(sidecar_queue)
+        if tracker is not None:
+            tracker.poll()
+            snapshot = tracker.snapshot(response_received=True)
+            if snapshot.state != "normal":
+                if not sync_notified:
+                    yield self._turn_sync_chunk(snapshot)
+                if snapshot.state == "draining" or snapshot.agent_active:
+                    yield from self._drain_turn_consistency(
+                        conn, tracker, sidecar, sidecar_queue,
+                        response_received=True, request_id=request_id)
         speed: TurnSpeed | None = None
         consumption: TurnConsumption | None = None
         if session_dir is not None:
@@ -1146,7 +1293,9 @@ class KimiAcpLLM(LanguageModel):
                 return latest_stats
             time.sleep(_WIRE_USAGE_POLL_S)
 
-    def _classify_stop_reason(self, response: dict) -> Exception | None:
+    def _classify_stop_reason(
+        self, response: dict, request_id: int | None = None
+    ) -> Exception | None:
         """把 prompt 响应的 `stopReason` 映射为待抛异常；正常终态返回 None。
 
         ACP 只以 `session/prompt` 响应的 StopReason 表示轮次终态，`cancelled`
@@ -1157,8 +1306,9 @@ class KimiAcpLLM(LanguageModel):
         """
         stop_reason = (response.get("result") or {}).get("stopReason")
         logger.info(
-            "[kimi acp] 轮次响应 stopReason=%r sessionId=%s generation=%s",
-            stop_reason, self._session_id,
+            "[kimi acp] 轮次响应 stopReason=%r requestId=%s responseId=%s "
+            "sessionId=%s generation=%s",
+            stop_reason, request_id, response.get("id"), self._session_id,
             self._conn.generation if self._conn is not None else None)
         if stop_reason in (None, "end_turn"):
             return None

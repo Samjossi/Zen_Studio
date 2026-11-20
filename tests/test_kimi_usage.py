@@ -118,6 +118,19 @@ def _run_turn(monkeypatch, messages, session_dir=None, sidecar_enabled=False):
             return read_stats(path, *args, **kwargs)
 
         monkeypatch.setattr(kimi_acp, "_read_wire_turn_stats", empty_baseline_then_real)
+        turn_metadata = [
+            {"type": "turn.prompt", "origin": {"kind": "user"},
+             "promptId": "msg_usage", "turnId": 0, "trigger": "normal"},
+            {"type": "context.append_loop_event", "event": {
+                "type": "step.end", "turnId": "0", "finishReason": "end_turn"}},
+            {"type": "turn.ended", "turnId": 0, "reason": "completed"},
+            {"type": "prompt.completed", "promptId": "msg_usage",
+             "reason": "completed"},
+        ]
+        with (session_dir / "agents" / "main" / "wire.jsonl").open(
+                "a", encoding="utf-8") as stream:
+            for record in turn_metadata:
+                stream.write(json.dumps(record) + "\n")
     conn = _FakeConn(messages)
     try:
         chunks = list(llm._iter_turn_chunks(conn))

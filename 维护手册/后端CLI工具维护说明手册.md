@@ -58,6 +58,13 @@ kimi --version
 - 开发态日志位于项目 `config/logs/zen-studio.log`，桌面冻结态位于 `~/.config/zen-studio/logs/zen-studio.log`。检索 `generation`、`sessionId`、`requestId`、`resume`、`connection_dead` 和 `recovery_failed`，先确认连接代次与退出码，再区分 IDE 写失败、CLI EOF 和控制请求超时。
 - ACP stdout 永远是协议帧，完整帧与 prompt 正文不得写入诊断日志。stderr 由 IDE 持续排空，仅保留有界脱敏尾部并在异常时落日志；CLI 自身完整日志仍按官方数据位置另行查看，取证时不得复制凭证或上传完整会话内容。
 
+### 后台通知轮次一致性
+
+- Kimi `session/prompt` 的 `end_turn` 仍是主信号，但 IDE 会增量核对主 agent wire 的用户 `turn.prompt`、最后 `step.end.finishReason`、`turn.ended`、`prompt.completed` 和 task/notify 轮次。用户轮次缺失、未完成、在 `tool_use` 后提前完成，均不得按成功收尾。
+- 通知轮次仍活跃时，原 worker 保持 busy 并继续消费 ACP/sidecar 工具帧，完成提醒与自动待发暂停；下一轮 `session/prompt` 前还会再次检查并排干已登记通知。不得以固定等待代替状态判定，也不得另起 worker 或 provider。
+- 失配必须先等已知 agent 活动安全结束，再标记下轮手动恢复；活跃时禁止 kill/resume。恢复只接受用户新的手动发送，原 prompt 和排队追问均不自动重放，失败时不得退回 `session/new`。
+- 取证检索 `轮次一致性`、`drain_start`、`drain_end`、`requestId`、`promptId`、`turnId`、`notifications` 与 `finishReason`。这些日志只含元数据；上游复现材料同样不得包含 prompt 正文、完整工具参数/输出、diff 或凭证。
+
 ### 上下文用量采集与迟到通知诊断
 
 - 官方 ACP `usage_update` 仍是 prompt response 后的轮末单帧，携带 `used/size`。Zen 的轮内刷新额外读取私有 `agents/main/wire.jsonl`；该文件没有 ACP 公共契约保证，解析失败必须降级，不得影响聊天主流程。

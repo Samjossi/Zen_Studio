@@ -582,3 +582,49 @@ def test_recovery_failure_restores_sent_text_when_input_is_empty(
         assert panel._history == []
     finally:
         panel.close()
+
+
+def test_desynchronization_cancels_pending_without_success_history(
+        fake_registry, isolated_settings):
+    panel = _make_panel(fake_registry, isolated_settings)
+    panel._history = [{"role": "user", "content": "original"}]
+    panel._stream_buffer = "partial"
+    panel._turn_started_at = datetime.now()
+    panel.input.setPlainText("queued draft")
+    panel._pending_send = True
+    panel._set_busy(True)
+
+    class _Provider:
+        recovery_pending = True
+
+    panel._providers[panel._llm_name] = _Provider()  # type: ignore[assignment]
+    messages: list[str] = []
+    panel.output.append_message = lambda _role, text: messages.append(text)
+    completed: list[bool] = []
+    panel.turn_completed.connect(completed.append)
+    try:
+        panel._on_finished("Kimi 轮次状态失配：用户轮次在 tool_use 后提前完成")
+        assert panel._history == []
+        assert panel.input.toPlainText() == "queued draft"
+        assert not panel._pending_send and not panel._busy
+        assert completed == [False]
+        assert not any("ACP 连接已失效" in message for message in messages)
+    finally:
+        panel.close()
+
+
+def test_turn_sync_notice_keeps_busy_and_pending_send(
+        fake_registry, isolated_settings):
+    panel = _make_panel(fake_registry, isolated_settings)
+    panel.input.setPlainText("queued draft")
+    panel._pending_send = True
+    panel._set_busy(True)
+    messages: list[str] = []
+    panel.output.append_message = lambda _role, text: messages.append(text)
+    try:
+        panel._on_chunk(ka.Chunk(
+            "turn_sync", "正在同步 Kimi 后台通知轮次；完成与待发已暂停"))
+        assert panel._busy and panel._pending_send
+        assert messages == ["正在同步 Kimi 后台通知轮次；完成与待发已暂停"]
+    finally:
+        panel.close()

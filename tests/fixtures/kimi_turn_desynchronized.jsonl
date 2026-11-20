@@ -1,0 +1,7 @@
+{"type":"turn.prompt","origin":{"kind":"user"},"promptId":"msg_user","turnId":0,"trigger":"normal","time":1}
+{"type":"context.append_loop_event","event":{"type":"step.end","turnId":"0","finishReason":"tool_use","providerFinishReason":"tool_calls"},"time":2}
+{"type":"prompt.steered","activePromptId":"msg_user","promptIds":["task:bash-1:completed"],"messageId":"task:bash-1:completed","time":3}
+{"type":"turn.ended","turnId":0,"reason":"completed","time":4}
+{"type":"prompt.completed","promptId":"msg_user","reason":"completed","time":5}
+{"type":"turn.prompt","origin":{"kind":"task","taskId":"bash-1","notificationId":"task:bash-1:completed"},"promptId":"task:bash-1:completed","turnId":1,"trigger":"notify","time":6}
+{"type":"context.append_loop_event","event":{"type":"step.end","turnId":"1","finishReason":"tool_use","providerFinishReason":"tool_calls"},"time":7}
