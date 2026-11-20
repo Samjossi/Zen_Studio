@@ -5,7 +5,7 @@
 ## 公共约定
 
 - GUI 用例一律 offscreen 平台（`conftest.py` 注入 `QT_QPA_PLATFORM=offscreen`），不起真实窗口；
-- 配置文件读写重定向到 `./.temp/` 隔离（如 `test_notification.py` 的 `isolated_settings` 装置），严禁污染真实 `config/settings.json`；
+- 配置文件读写重定向到 `./.temp/` 隔离，严禁污染真实 `config/settings.json`；
 - 不起真实 CLI/后端：注册表、ACP 连接等一律 monkeypatch 伪造；
 - 临时产物一律落 `./.temp/`，禁用系统临时目录。
 
@@ -17,4 +17,4 @@
 
 **现行处理方式**：提示音已改为独立系统播放器子进程，测试必须打桩 `subprocess.Popen`，只验证调用链而不启动真实音频进程。若新增媒体查看器测试，也必须使用假播放器或播放桩。若哪天发现门禁时又有提示音外放，先怀疑有涉及音频的用例没打桩。
 
-新增涉及音频的用例时：monkeypatch `_play` / `play_system` / `subprocess.Popen`，或使用假播放器；进程桩可参考 `test_notification.py` 的 `_FakeProcess`。
+新增涉及音频的用例时：monkeypatch `_play` / `play_system` / `subprocess.Popen`，或使用假播放器。
