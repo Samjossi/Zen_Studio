@@ -67,21 +67,6 @@ DSH_BIN = "dsh"
 #: 明示 unsupported surfaces），保持 terminal: false
 _TERMINAL_CAPABILITY = False
 
-#: 模型静态表（2026-11-05 ACP 实测，见 .temp/dsh_model_catalog_20261105.json）：
-#: session/new 的 model 目录仍含旧别名 deepseek-v4-flash；新会话候选仅保留
-#: 两个现行 ID。值为不透明 JSON 对串（协议原值，原样透传），与动态目录
-#: 漂移时以 session/set_config_option 拒绝为信号（失败降级，不崩 UI）
-_DSH_MODELS: list[str] = [
-    '["deepseek-official","deepseek-flash"]',
-    '["deepseek-official","deepseek-v4-pro"]',
-]
-
-#: 模型显示名（ACP 实测选项 name 原值；纯 UI 呈现，协议/持久化恒用对串）
-_DSH_DISPLAY_NAMES: dict[str, str] = {
-    '["deepseek-official","deepseek-flash"]': "DeepSeek-V4.1-Flash",
-    '["deepseek-official","deepseek-v4-pro"]': "DeepSeek-V4-Pro",
-}
-
 
 def _find_bin() -> str | None:
     """解析 dsh 二进制路径：PATH → $DSH_HOME/bin → ~/.dsh/bin → npx 缓存兜底。
@@ -115,15 +100,6 @@ def dsh_available() -> bool:
     """检测 dsh CLI 是否可用（PATH、安装目录或 npx 缓存存在可执行 dsh）。"""
     return _find_bin() is not None
 
-
-def list_dsh_models() -> list[str]:
-    """模型别名枚举：静态表（dsh 无 CLI 枚举命令，见模块 docstring 差异 3）。"""
-    return list(_DSH_MODELS)
-
-
-def list_dsh_display_names() -> dict[str, str]:
-    """模型显示名枚举：静态表（别名 → 显示名；查无该别名 UI 回退别名原文）。"""
-    return dict(_DSH_DISPLAY_NAMES)
 
 
 

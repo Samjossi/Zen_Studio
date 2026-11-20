@@ -4,8 +4,9 @@
 `BackendSpec.factory` 装配，只有 `registry` 可以从厂商包导入具体实现。
 厂商包需要具体类时直接 import 本厂商模块，不回到公共出口取型。
 
-依赖方向（无环）：本模块 → registry → providers → llm.base；
-本模块 → providers.acp（仅稳定协议类型）。本模块不导入 GUI。
+依赖方向（无环）：本模块 → registry → 厂商 spec → providers → llm.base；
+本模块 → llm.spec（类型与强度解析）、llm.cache（失效口）、
+providers.acp（仅稳定协议类型）。本模块不导入 GUI。
 import 无副作用：CLI 探测与 provider 实例化不发生在模块级。
 """
 from ide.llm.base import (
@@ -30,13 +31,12 @@ from ide.llm.registry import (
     DEFAULT_BACKEND,
     REGISTRY,
     VENDOR_LABELS,
-    BackendSpec,
     refresh_models,
-    resolve_efforts,
     spec_of,
     vendor_groups,
     vendor_of,
 )
+from ide.llm.spec import BackendSpec, resolve_efforts
 
 __all__ = [
     # 稳定契约

@@ -80,7 +80,7 @@
 
 模型显示名呈现（2026-0920-0727 计划）：
 - 菜单项/按钮文本优先显示名（BackendSpec.list_display_names，kimi
-  provider list --json 的 displayName 经注册表 _kimi_catalog 同源
+  provider list --json 的 displayName 经厂商 spec 的共享目录缓存同源
   派生）；无显示名数据源/查无别名时回退原规则（菜单全文别名、按钮
   '/' 末段）
 - action data/信号载荷/持久化值恒为别名（D6 红线 2 不破）；显示名

@@ -10,7 +10,7 @@
 
 `ide/llm/` 是 Zen Studio 的 LLM 调用层，与 `ide/gui/` 平级。职责单一：把"多轮消息 → 流式文本"抽象为统一接口 `LanguageModel`。多标签改造（2026-07-22，文档/修改记录/2026-0722-0756）后 provider 由每个 `ChatPanel` 自持实例（标签间完全隔离可并行），注册表仍是唯一的装配来源；依赖方向为"前端 → 后端"，包内不 import 任何 GUI 代码。
 
-**注册表装配**（2026-07-30，文档/修改记录/2026-0730-0150）：后端发现/可用性探测/模型枚举/实例工厂收敛为 `ide/llm/registry.py` 单一注册表（`BackendSpec` + `REGISTRY`），`ChatPanel` 经注册表工厂**懒实例化** provider（首轮对话前创建，切换接口时旧实例关闭丢弃，防多标签×多后台长驻进程膨胀）；新增 CLI 后台只动 `ide/llm/providers/` 与注册表，公共出口 `ide/llm/__init__.py` 不再需要追加具体 provider 类。
+**注册表装配**（2026-07-30，文档/修改记录/2026-0730-0150）：后端发现/可用性探测/模型枚举/实例工厂收敛为单一注册表（`REGISTRY`），`ChatPanel` 经注册表工厂**懒实例化** provider（首轮对话前创建，切换接口时旧实例关闭丢弃，防多标签×多后台长驻进程膨胀）；新增 CLI 后台只动 `ide/llm/providers/` 与注册表，公共出口 `ide/llm/__init__.py` 不再需要追加具体 provider 类。**S5 收口**（2026-11-21）：`BackendSpec`/`resolve_efforts` 迁入中性 `llm/spec.py`，三路模型缓存迁入 `llm/cache.py`，各厂商静态元数据迁入 `providers/<vendor>/spec.py`；`registry.py` 只剩组合、`DEFAULT_BACKEND`、查询 API 与缓存失效委托。
 
 **统一后端策略**：对话统一经本机 agent CLI（Kimi / DSH / Local）完成，代码库**不存放、不读取、不输入任何 API KEY**——凭证由各 CLI 自行管理（如 kimi 的 OAuth）。DeepSeek API KEY 直连已于 2026-07-18 移除（见 `2026-0718-1455_移除APIKEY直连统一CLI后端实施计划.md`）。
 
@@ -22,7 +22,10 @@
 |:---|:---|
 | `ide/llm/__init__.py` | 公共出口：只导出稳定契约（`LanguageModel`/`Chunk` 等）、ACP 公共类型（`PermissionRequest` 等）与注册表 API（`DEFAULT_BACKEND`/`REGISTRY`/`spec_of`/`BACKEND_LABELS` 等）；**不再导出具体 provider 类或探测函数**，具体类由各厂商包公开、由 `registry.py` 装配 |
 | `ide/llm/base.py` | `LanguageModel` Protocol + `Message` 类型别名 + `Chunk` 流式块（kind：text/reasoning/usage/tool_call/tool_call_update/todo；工具/计划 `payload` 对通用层不透明，schema 归各厂商 `models.py`；`speed` 可选字段携轮次输出速度，2026-10-23，work plans/2026-1023-1632）+ `UsageStats` 用量定型（source 三级 push/transcript/estimate，2026-07-31，文档/修改记录/2026-0731-1454）+ `TurnSpeed` 输出速度定型（output_tokens/gen_seconds，仅模型生成时间计分母）+ `TurnConsumption` 轮次真实消耗定型（输入缓存读写/输出四项 + turn_id 去重键，随轮末 usage chunk 的 `consumption` 字段携带，仅具备逐次真值的后台产出，2026-1114-1452 计划）+ `BackendCapabilities` 不可变能力快照（图片输入/轮后宽限/看门狗/恢复待定）与 `capabilities_of()` 中立读取 helper、`apply_vendor_settings()` 厂商设置入口（默认 no-op，`apply_vendor_settings_to()` 兼容未实现对象） + `poll_usage()` 可选轮询方法（默认 None，2026-08-02，文档/修改记录/2026-0802-0117） |
-| `ide/llm/registry.py` | 后端注册表：`BackendSpec`（name/label/vendor/available/list_models/factory + 可选 `dev_note` 开发中告知文案，2026-08-14，文档/修改记录/2026-0814-0603 计划 + `vendor_settings` 厂商设置键声明）+ `REGISTRY` 单点 + 查询 API（`spec_of`/`vendor_of`/`vendor_groups`）；模型列表进程级缓存（`_cached_list_models` 包装，锁覆盖查拉写防并发重复拉取）+ `refresh_models()` 唯一失效口（2026-07-30，文档/修改记录/2026-0730-2338）；import 无副作用，探测均惰性 |
+| `ide/llm/spec.py` | 中性注册类型：`BackendSpec`（接口名/显示名/后台名/可用性/模型与强度工厂/静态能力/`dev_note`/`vendor_settings`）+ `resolve_efforts()` 强度解析链；不出现厂商名、私有路径、工具名或设置键，不 import registry/厂商包/GUI |
+| `ide/llm/cache.py` | 进程级三路模型缓存：模型别名、模型级强度、原始目录载荷；锁覆盖查拉写，键恒为接口实现名；`clear(name=None)` 是唯一失效实现，`registry.refresh_models()` 只委托它 |
+| `ide/llm/registry.py` | 后端组合根：按固定顺序组合三家 `providers/<vendor>/spec.py` 的 `SPEC` 为 `REGISTRY`，保留 `DEFAULT_BACKEND`、查询 API（`spec_of`/`vendor_of`/`vendor_groups`）、派生显示映射与 `refresh_models()` 委托；不再持有厂商静态数据或缓存闭包；import 无副作用，探测均惰性 |
+| `ide/llm/providers/<vendor>/spec.py` | 厂商注册声明：显示名、厂商标签、可用性、目录/强度/显示名工厂、静态能力、默认强度、`dev_note`、`vendor_settings` 与实例工厂；只 import 中性 `llm.spec`/`llm.cache`、`llm.base` 与本厂商模块，不 import registry/GUI/其他厂商 |
 | `ide/llm/providers/__init__.py` | provider 子包标记（稳定 ACP 公共层 + Kimi/DSH/Local 厂商目录）；刻意不 re-export 任何具体 provider |
 | `ide/llm/providers/acp/__init__.py` | 稳定 ACP 公共设施出口：连接、协议定型、prompt 构造、usage 解析；不导出过渡期 update 映射 |
 | `ide/llm/providers/acp/connection.py` | `AcpConnection`：ndjson JSON-RPC 帧收发/id 配对/反向请求分发/统一幂等失效；构造接收**完整 argv**（启动命令由各厂商 provider 组装）；连接代次、请求 ID、预期/意外关闭与有界脱敏 stderr 尾部诊断；terminal/* 反向能力（create/output/kill/release 同步应答、wait_for_exit 异步应答） |
@@ -32,16 +35,23 @@
 | `ide/llm/providers/kimi/__init__.py` | Kimi 厂商包公开入口：`KimiAcpLLM`、探测/模型目录函数 |
 | `ide/llm/providers/kimi/models.py` | Kimi 工具/计划活动载荷类型（tool_call/update、todo、提问、图片字段），只服务 Kimi 卡片，不是通用契约 |
 | `ide/llm/providers/kimi/updates.py` | `KimiUpdateMapper`：显式 kind 信任、Kimi 工具名/rawInput 词表、write diff 合成、回执模板、`<image path>`、task 成果、todo `title`/`done`、wire 层级父指针；账本按实例与 `(sessionId, toolCallId)` 隔离 |
-| `ide/llm/providers/kimi/provider.py` | `KimiAcpLLM`：Kimi ACP 后端（长驻 `kimi acp` 子进程，provider 组装 `[bin_path, "acp"]`；token 级流式、思维链可见、审批反向请求路由；轮末 ACP `usage_update` 为主，response 后在同一 ≤3s 窗口继续收集，并由轮后短宽限回收迟到帧，source="push"；wire 用于轮内增量轮询与 ACP 缺失兜底，source="transcript"，优先 token_counting.measured 水位、旧 usage.record 四项求和兜底，窗口读模型目录而非 llm.request.maxTokens；仅带 turnStep 的请求参与计数与速度配对，超时保留有效子集；轮次输出速度随收尾 usage chunk 携带；能力快照声明图片可用/无看门狗/正常轮末 10s 宽限（待恢复态 0），并解释 `kimi_wire_sidecar` 厂商设置；子代理 wire 旁路 `_WireSidecar` 格式假设见 `维护手册/后端CLI工具维护说明手册.md`） |
+| `ide/llm/providers/kimi/provider.py` | `KimiAcpLLM`：Kimi ACP 后端（长驻 `kimi acp` 子进程，provider 组装 `[bin_path, "acp"]`；token 级流式、思维链可见、审批反向请求路由；轮末 ACP `usage_update` 为主，response 后在同一 ≤3s 窗口继续收集，并由轮后短宽限回收迟到帧，source="push"；wire 用于轮内增量轮询与 ACP 缺失兜底，source="transcript"，优先 token_counting.measured 水位、旧 usage.record 四项求和兜底，窗口读模型目录而非 llm.request.maxTokens；仅带 turnStep 的请求参与计数与速度配对，超时保留有效子集；轮次输出速度随收尾 usage chunk 携带；能力快照声明图片可用/无看门狗/正常轮末 10s 宽限（待恢复态 0），并解释 `kimi_wire_sidecar` 厂商设置；子代理 wire 旁路由 `subagent.WireSidecar` 承接，格式假设见 `维护手册/后端CLI工具维护说明手册.md`） |
+| `ide/llm/providers/kimi/wire.py` | wire.jsonl 私有读取与统计：session_index 反查、全量/增量字节游标、轮次统计、输出速度与真实消耗；纯文件计算，不 import provider/Qt/其他厂商 |
+| `ide/llm/providers/kimi/usage.py` | 轮内用量轮询、轮末宽限、push 优先配对与轮次消耗汇总；状态按实例持有，不 import provider |
+| `ide/llm/providers/kimi/subagent.py` | 子代理 wire 旁路：`WireSidecar` 线程生命周期、`agent-N` 目录发现、tool.call/result 合成与父调用登记；线程由 provider 显式启停，import 无副作用 |
 | `ide/llm/providers/kimi/catalog.py` | kimi 二进制公共探测与模型目录：`kimi provider list --json` 同源派生模型别名、强度档位、显示名及 `maxContextSize` 上下文窗口（`context_sizes_from_catalog`），目录失败不臆造静态上限 |
-| `ide/llm/providers/dsh/provider.py` | `DshAcpLLM`：DeepSeek Harness（dsh）ACP 后端（长驻 `dsh acp` 子进程，以 local/provider.py 为底本同构，计划 2026-1018-0732；探测链 PATH → `$DSH_HOME/bin` → `~/.dsh/bin` → npx 缓存兜底；强度 configId 为 `reasoning_effort`；模型值为不透明 JSON 对串，静态表仅列现行 `deepseek-flash` / `deepseek-v4-pro`，旧别名 `deepseek-v4-flash` 不再作为新会话候选、持久化旧值不静默改写；terminals 不支持、图片能力由 initialize 的 `promptCapabilities.image` 实测（未建连时快照为 None，GUI 回退注册表静态位）；凭据归 dsh 自管 `~/.dsh/`，developer preview 状态经注册表 `dev_note` 如实告知；协议真值来源 `参考代码/deepseek-harness/packages/acp/acp/README.md`） |
+| `ide/llm/providers/kimi/spec.py` | Kimi 注册声明：显示名/厂商标签、可用性、目录三路派生（共享原始载荷缓存）、图片能力、静态强度与默认档、`kimi_wire_sidecar` 设置键与实例工厂 |
+| `ide/llm/providers/dsh/provider.py` | `DshAcpLLM`：DeepSeek Harness（dsh）ACP 后端（长驻 `dsh acp` 子进程，以 local/provider.py 为底本同构，计划 2026-1018-0732；探测链 PATH → `$DSH_HOME/bin` → `~/.dsh/bin` → npx 缓存兜底；强度 configId 为 `reasoning_effort`；模型值为不透明 JSON 对串，静态表与 developer preview `dev_note` 归 `dsh/spec.py`，旧别名 `deepseek-v4-flash` 不再作为新会话候选、持久化旧值不静默改写；terminals 不支持、图片能力由 initialize 的 `promptCapabilities.image` 实测（未建连时快照为 None，GUI 回退注册表静态位）；凭据归 dsh 自管 `~/.dsh/`；协议真值来源 `参考代码/deepseek-harness/packages/acp/acp/README.md`） |
+| `ide/llm/providers/dsh/spec.py` | DSH 注册声明：静态模型/显示名表、静态强度、`dev_note`、可用性、图片兜底位与实例工厂；import 不探测 CLI |
+| `ide/llm/providers/dsh/session_log.py` | generation 定位、zstd 解压、usage 事件提取与轮次消耗差量；纯文件计算，不 import provider/其他厂商/GUI |
 | `ide/llm/providers/dsh/models.py` | DSH 工具/计划活动载荷类型，只服务 DSH 卡片，不复用 Kimi schema |
 | `ide/llm/providers/dsh/updates.py` | `DshUpdateMapper`：kind 缺失/`other` 时按 DSH 工具名兜底、snake_case 词表、`read_image`、`todo_write`、DSH 图片输入与输出形态；推导账本按实例与 `(sessionId, toolCallId)` 隔离 |
 | `ide/llm/providers/local/provider.py` | `LocalAcpLLM`：本地模型 ACP 后端（厂商分组 Local；探测链 PATH → `$LOCAL_HOME/bin/local-cli` → `~/.local-cli/bin/local-cli`；模型枚举走 `local-cli models` 子进程动态扫描 GGUF 目录，无静态表；服务端为独立仓库 Local CLI（llama-server orchestrator），协议参考保留在 `dream-acp/protocol/dream-acp-v1.md`，该目录不再是 Dream 后台注册入口；能力快照图片输入恒 False） |
+| `ide/llm/providers/local/spec.py` | Local 注册声明：模型枚举缓存包装、静态单档强度、图片能力与实例工厂 |
 | `ide/llm/providers/local/models.py` | Local 工具/计划活动载荷类型，不从 Kimi/DSH 导入 |
 | `ide/llm/providers/local/updates.py` | `LocalUpdateMapper`：信任显式 kind、标准 ACP content 与自身 rawInput 词表；不借用 DSH 工具名兜底或 Kimi 私有标记 |
 
-> 公共出口边界（T5）：`ide.llm` 只导出稳定契约、ACP 公共类型与注册表 API；具体 provider 类由各厂商包公开、由 `registry.py` 装配。公共 `acp/` 包不包含 session/update 映射、工具名表、厂商回执模板或厂商私有落盘路径；`llm.base` 只保留稳定流式信封，`Chunk.payload` 对通用层不透明。依赖方向与公共层词表由 `tests/test_provider_boundaries.py` 守卫。
+> 公共出口边界（T5/S5）：`ide.llm` 只导出稳定契约、ACP 公共类型与注册表 API；`BackendSpec`/`resolve_efforts` 由中性 `llm/spec.py` 提供并再导出，缓存 helper 不进公共出口。具体 provider 类由各厂商包公开、由厂商 `spec.py` 声明、由 `registry.py` 装配。公共 `acp/` 包不包含 session/update 映射、工具名表、厂商回执模板或厂商私有落盘路径；`llm.base` 只保留稳定流式信封，`Chunk.payload` 对通用层不透明。依赖方向与公共层词表由 `tests/test_provider_boundaries.py` 守卫。
 
 ## 3. 接口设计
 
@@ -150,10 +160,12 @@ for chunk in llm.chat([{"role": "user", "content": "你好"}]):
 ## 6. 新增后台 provider
 
 1. 在 `ide/llm/providers/<名称>/` 建厂商包：`__init__.py` 只导出本厂商公开入口，`provider.py` 实现 `LanguageModel` 协议（`chat()` 为流式 generator；历史策略由各实现自决，CLI 类推荐"末条 user 消息 + CLI 侧会话"）；按实例状态覆写 `capabilities()` 返回 `BackendCapabilities`，需要用户配置时覆写 `apply_vendor_settings()`；ACP 系后端直接复用 `ide/llm/providers/acp/` 的 `AcpConnection`，由 provider 组装完整启动 argv（如 `[bin_path, "acp"]`；参照任一现有厂商包）。
-2. 在 `ide/llm/registry.py` 的 `REGISTRY` 注册 `BackendSpec`（`available`/`list_models`/`factory` 均惰性可调用，import 无副作用；有厂商设置时在 `vendor_settings` 声明键名并确保键已在公共设置默认值中）——注册即全链路生效（ModelBar 三级下拉、设置中心、ChatPanel 懒实例化工厂），**无需改任何 GUI 代码**。`registry.py` 是唯一允许 import 具体厂商后台的模块；不要在 `ide/llm/__init__.py` 追加具体类或探测函数。
-3. 厂商包之间禁止横向 import；provider 不得 import `ide.llm.registry` 或 `ide.gui`。厂商私有工具名、载荷字段、配置键和落盘路径只留在本厂商目录。
-4. 模型范围按接口级隔离（D6 红线）：模型目录挂各 `BackendSpec.list_models()`，别名是各后台私有语义的不透明字符串，禁止跨后台共享模型表、禁止在公共代码解析别名。
-5. 凭证管理：CLI 类凭证由 CLI 自管，代码库不出现密钥；API key 类凭证放项目根 `api_key/<名称>`（已 gitignore）。
+2. 在 `ide/llm/providers/<名称>/spec.py` 声明本厂商 `SPEC = BackendSpec(...)`：显示名/厂商标签、可用性、模型/强度/显示名工厂、静态能力、默认强度、可选 `dev_note` 与 `vendor_settings`；`available`/`list_models`/`factory` 均惰性可调用，import 无副作用。需要共享目录载荷或进程缓存时只经 `ide/llm/cache.py` 的 `cached_*` helper，缓存键用接口实现名。
+3. 在 `ide/llm/registry.py` 的 `REGISTRY` 组合元组追加本厂商 `SPEC`——注册即全链路生效（ModelBar 三级下拉、设置中心、ChatPanel 懒实例化工厂），**无需改任何 GUI 代码**。`registry.py` 是唯一允许 import 具体厂商后台的模块；不要在 `ide/llm/__init__.py` 追加具体类或探测函数。
+4. 厂商 `spec.py` 只允许 import 中性 `ide.llm.spec`/`ide.llm.cache`、`ide.llm.base` 与本厂商模块；禁止 import `ide.llm.registry`、GUI 或其他厂商。
+5. 厂商包之间禁止横向 import；provider 不得 import `ide.llm.registry` 或 `ide.gui`。厂商私有工具名、载荷字段、配置键和落盘路径只留在本厂商目录。
+6. 模型范围按接口级隔离（D6 红线）：模型目录挂各 `BackendSpec.list_models()`，别名是各后台私有语义的不透明字符串，禁止跨后台共享模型表、禁止在公共代码解析别名。
+7. 凭证管理：CLI 类凭证由 CLI 自管，代码库不出现密钥；API key 类凭证放项目根 `api_key/<名称>`（已 gitignore）。
 
 ## 7. 新增厂商卡片包
 
@@ -168,6 +180,7 @@ for chunk in llm.chat([{"role": "user", "content": "你好"}]):
 
 - 后台三厂商、GUI 卡片三厂商互不横向 import；
 - 只有 `ide/llm/registry.py` 可 import 具体后台包，只有 `vendors/registry.py` 可 import 具体卡片包；
+- 厂商 `spec.py` 只 import 中性 `llm.spec`/`llm.cache`、`llm.base` 与本厂商模块；`llm.spec`/`llm.cache` 与 `registry.py` 按公共层扫描，不得含厂商显示名、工具名、私有路径或设置键；
 - provider/公共 ACP 不 import registry 或 GUI，`llm.base`/`permission_policy` 不依赖具体厂商；
 - 公共 LLM 层与通用聊天 GUI 不含厂商工具名分派表、私有载荷字段、私有 configId 或落盘路径；
 - 生产代码不再 import 迁移前的平铺模块路径。

@@ -166,9 +166,11 @@ local-cli models
 | 路径 | 职责 |
 |:---|:---|
 | `src/ide/llm/__init__.py` | 公共出口：稳定契约、ACP 公共类型、注册表 API；不再导出具体 provider 类或探测函数 |
-| `src/ide/llm/registry.py` | 后台组合根：`BackendSpec`/`REGISTRY`/`DEFAULT_BACKEND`；唯一允许 import 具体厂商后台的模块 |
+| `src/ide/llm/spec.py` | 中性注册类型：`BackendSpec` 与 `resolve_efforts()`；不含厂商名、私有路径、工具名或设置键 |
+| `src/ide/llm/cache.py` | 进程级三路模型缓存（模型/强度/原始载荷）；按接口名隔离，`clear()` 是唯一失效实现 |
+| `src/ide/llm/registry.py` | 后台组合根：组合三家厂商 `spec.py` 为 `REGISTRY`，保留 `DEFAULT_BACKEND`、查询 API 与 `refresh_models()` 委托；唯一允许 import 具体厂商后台的模块 |
 | `src/ide/llm/providers/acp/` | 稳定 ACP 传输、协议定型、prompt 与标准 content 纯函数；不含厂商工具名、私有配置键或落盘路径 |
-| `src/ide/llm/providers/<vendor>/` | 各厂商 provider、models、updates 与 permissions；厂商之间禁止横向 import |
+| `src/ide/llm/providers/<vendor>/` | 各厂商 `spec.py`（注册声明）、provider、models、updates 与 permissions；厂商之间禁止横向 import |
 | `src/ide/gui/panels/chat/card_base.py` | 无厂商语义的卡片生命周期、折叠/复制/图片等 UI 基础件 |
 | `src/ide/gui/panels/chat/vendors/registry.py` | 卡片组合根：唯一允许 import 具体厂商卡片包的模块 |
 | `src/ide/gui/panels/chat/vendors/<vendor>/` | 各厂商 `factory.py`/`cards.py`/`presenter.py`；互不借用，最多 import 本厂商 `models.py` 纯类型 |
@@ -177,9 +179,11 @@ local-cli models
 ### 4.2 新增后台 provider
 
 1. 在 `src/ide/llm/providers/<vendor>/` 建厂商包，`__init__.py` 只公开本厂商入口；ACP 系后端复用 `providers/acp/` 的 `AcpConnection`，provider 自行组装完整启动 argv。
-2. 在 `src/ide/llm/registry.py` 注册 `BackendSpec`；`available`/`list_models`/`factory` 必须惰性，import 无副作用。
-3. 不要修改 `src/ide/llm/__init__.py` 追加具体类；GUI 通过注册表工厂消费，无需新增厂商分支。
-4. 厂商私有工具名、载荷字段、配置键、错误关键词和落盘路径只写入本厂商目录。
+2. 在同目录 `spec.py` 声明 `SPEC = BackendSpec(...)`：显示名/厂商标签、可用性、模型/强度/显示名工厂、静态能力、默认强度、可选 `dev_note` 与 `vendor_settings`；所有探测/枚举/工厂必须惰性，import 无副作用。需要跨调用缓存时只经 `ide/llm/cache.py`，键用接口实现名。
+3. 在 `src/ide/llm/registry.py` 的组合元组追加本厂商 `SPEC`；`registry.py` 只做组合与查询，不再写厂商静态数据或缓存闭包。
+4. 不要修改 `src/ide/llm/__init__.py` 追加具体类；GUI 通过注册表工厂消费，无需新增厂商分支。
+5. 厂商 `spec.py` 只允许 import 中性 `ide.llm.spec`/`ide.llm.cache`、`ide.llm.base` 与本厂商模块；禁止 import registry、GUI 或其他厂商。
+6. 厂商私有工具名、载荷字段、配置键、错误关键词和落盘路径只写入本厂商目录。
 
 ### 4.3 新增厂商卡片包
 
@@ -189,6 +193,6 @@ local-cli models
 
 ### 4.4 架构守卫
 
-- `tests/test_provider_boundaries.py` 用标准库 AST 扫描 `src/ide/**/*.py` 与 `main.py`，覆盖：厂商后台/卡片横向隔离、两个组合根例外、provider 不反向 import registry/GUI、公共层不含厂商工具分派表/私有载荷/configId/落盘路径、旧平铺模块路径。
+- `tests/test_provider_boundaries.py` 用标准库 AST 扫描 `src/ide/**/*.py` 与 `main.py`，覆盖：厂商后台/卡片横向隔离、两个组合根例外、provider 不反向 import registry/GUI、公共层不含厂商工具分派表/私有载荷/configId/落盘路径、厂商 `spec.py` 只依赖中性 spec/cache 与本厂商模块、旧平铺模块路径。
 - 守卫内置受控反例，反例只在测试内存构造；新增规则时必须同时提供「会失败」的反例，避免全绿只是没扫到目标路径。
 - 提交前统一运行 `bash scripts/check.sh`（隐私扫描 + QLabel 守卫 + ruff + pytest）；架构守卫失败时不得通过删除测试或放宽断言绕过。

@@ -29,6 +29,8 @@ LLM_INIT = f"{LLM_ROOT}/__init__.py"
 LLM_BASE = f"{LLM_ROOT}/base.py"
 LLM_POLICY = f"{LLM_ROOT}/permission_policy.py"
 LLM_REGISTRY = f"{LLM_ROOT}/registry.py"
+LLM_SPEC = f"{LLM_ROOT}/spec.py"
+LLM_CACHE = f"{LLM_ROOT}/cache.py"
 LLM_REGISTRY_MODULE = "ide.llm.registry"
 PROVIDERS_ROOT = f"{LLM_ROOT}/providers"
 ACP_ROOT = f"{PROVIDERS_ROOT}/acp"
@@ -160,6 +162,13 @@ VENDOR_PRIVATE_MODULES = {
     "ide.llm.providers.kimi.subagent": "kimi",
     "ide.llm.providers.dsh.session_log": "dsh",
 }
+
+#: 厂商 spec.py 可导入的中性 LLM 模块；其余 ide.llm.* 只允许本厂商
+VENDOR_SPEC_ALLOWED_LLM = (
+    "ide.llm.spec",
+    "ide.llm.cache",
+    "ide.llm.base",
+)
 
 #: 厂商设置键的受控例外：组合根声明 + 设置 schema（持久化键不能删除）
 VENDOR_SETTING_KEY = "kimi_wire_sidecar"
@@ -353,7 +362,8 @@ def _is_generic_chat_gui(m: ModuleInfo) -> bool:
 
 def _is_public_llm(m: ModuleInfo) -> bool:
     return m.rel_path in {
-        LLM_INIT, LLM_BASE, LLM_POLICY, f"{PROVIDERS_ROOT}/__init__.py",
+        LLM_INIT, LLM_BASE, LLM_POLICY, LLM_SPEC, LLM_CACHE,
+        LLM_REGISTRY, f"{PROVIDERS_ROOT}/__init__.py",
     } or _is_acp(m)
 
 
@@ -734,7 +744,6 @@ def _check_vendor_setting_keys(modules: tuple[ModuleInfo, ...]) -> list[str]:
     """规则 4：Kimi 设置键只在 Kimi 包、后台组合根与设置 schema 出现。"""
     problems: list[str] = []
     allowed_paths = {
-        LLM_REGISTRY,       # 组合根声明 vendor_settings
         GUI_SETTINGS,       # 设置 schema：持久化键/默认值不能删（S0 回写约定）
     }
     for m in modules:
@@ -789,6 +798,33 @@ def _check_vendor_private_imports(
     return problems
 
 
+def _check_vendor_spec_imports(
+        modules: tuple[ModuleInfo, ...]) -> list[str]:
+    """规则 6：厂商 spec.py 只依赖中性 spec/cache、llm.base 与本厂商模块。"""
+    problems: list[str] = []
+    for m in modules:
+        vendor = _backend_vendor(m)
+        if vendor is None or not m.rel_path.endswith("/spec.py"):
+            continue
+        for target in m.targets():
+            if target == "ide.gui" or target.startswith("ide.gui."):
+                problems.append(
+                    f"{m.rel_path}: 厂商 spec 只能导入中性 spec/cache、"
+                    f"llm.base 与本厂商模块，不得导入 GUI（{target}）")
+                continue
+            if not (target == "ide.llm" or target.startswith("ide.llm.")):
+                continue
+            if any(target == base or target.startswith(base + ".")
+                   for base in VENDOR_SPEC_ALLOWED_LLM):
+                continue
+            if _backend_vendor_of_module(target) == vendor:
+                continue
+            problems.append(
+                f"{m.rel_path}: 厂商 spec 只能导入中性 spec/cache、"
+                f"llm.base 与本厂商模块（{target}）")
+    return problems
+
+
 def _all_violations(modules: tuple[ModuleInfo, ...]) -> list[str]:
     return (
         _check_vendor_isolation(modules)
@@ -803,6 +839,7 @@ def _all_violations(modules: tuple[ModuleInfo, ...]) -> list[str]:
         + _check_capability_probes(modules)
         + _check_vendor_setting_keys(modules)
         + _check_vendor_private_imports(modules)
+        + _check_vendor_spec_imports(modules)
     )
 
 
@@ -824,6 +861,8 @@ def test_guard_scans_expected_production_files_only():
         LLM_BASE,
         LLM_POLICY,
         LLM_REGISTRY,
+        LLM_SPEC,
+        LLM_CACHE,
         f"{PROVIDERS_ROOT}/__init__.py",
         f"{ACP_ROOT}/__init__.py",
         f"{ACP_ROOT}/connection.py",
@@ -836,6 +875,7 @@ def test_guard_scans_expected_production_files_only():
     } <= rel_paths
     for vendor in VENDORS:
         assert f"{PROVIDERS_ROOT}/{vendor}/provider.py" in rel_paths
+        assert f"{PROVIDERS_ROOT}/{vendor}/spec.py" in rel_paths
         assert f"{GUI_VENDORS_ROOT}/{vendor}/factory.py" in rel_paths
     assert all(
         not rel.startswith(("tests/", "scripts/", ".temp/"))
@@ -1183,6 +1223,60 @@ def test_guard_allows_own_vendor_private_module_import():
         f"{PROVIDERS_ROOT}/kimi/provider.py",
         "from .wire import parse_wire\n")
     assert _check_vendor_private_imports((module,)) == []
+
+
+@pytest.mark.parametrize("target", [
+    "ide.llm.registry",
+    "ide.llm",
+    "ide.llm.permission_policy",
+    "ide.gui.theme",
+    "ide.llm.providers.dsh.provider",
+    "ide.llm.providers.acp.connection",
+])
+def test_guard_rejects_vendor_spec_disallowed_import(target):
+    module = _synthetic(
+        f"{PROVIDERS_ROOT}/kimi/spec.py", f"import {target}\n")
+    problems = _check_vendor_spec_imports((module,))
+    assert any("厂商 spec 只能导入" in problem for problem in problems), problems
+
+
+def test_guard_allows_vendor_spec_neutral_and_own_imports():
+    module = _synthetic(
+        f"{PROVIDERS_ROOT}/kimi/spec.py",
+        "from ide.llm.spec import BackendSpec\n"
+        "from ide.llm.cache import clear\n"
+        "from ide.llm.base import LanguageModel\n"
+        "from ide.llm.providers.kimi.catalog import models_from_catalog\n"
+        "from ide.llm.providers.kimi.provider import KimiAcpLLM\n")
+    assert _check_vendor_spec_imports((module,)) == []
+
+
+@pytest.mark.parametrize("rel_path", [LLM_SPEC, LLM_CACHE])
+def test_guard_scans_new_neutral_modules(rel_path):
+    module = _synthetic(rel_path, "MARKER = 'wire.jsonl'\n")
+    problems = _check_public_vocabulary((module,))
+    assert any("公共层出现厂商私有词表" in problem for problem in problems), problems
+
+
+def test_guard_rejects_registry_vendor_setting_key():
+    module = _synthetic(
+        LLM_REGISTRY, "KEY = 'kimi_wire_sidecar'\n")
+    problems = _check_vendor_setting_keys((module,))
+    assert any("厂商设置键" in problem for problem in problems), problems
+
+
+def test_guard_aggregate_reports_vendor_spec_import_rule():
+    module = _synthetic(
+        f"{PROVIDERS_ROOT}/kimi/spec.py",
+        "import ide.llm.registry\n")
+    problems = _all_violations((module,))
+    assert any("厂商 spec 只能导入" in problem for problem in problems), problems
+
+
+def test_guard_aggregate_reports_neutral_module_vocabulary():
+    module = _synthetic(LLM_CACHE, "MARKER = 'wire.jsonl'\n")
+    problems = _all_violations((module,))
+    assert any("厂商私有词表" in problem for problem in problems), problems
 
 
 @pytest.mark.parametrize(("rel_path", "source", "marker"), [
