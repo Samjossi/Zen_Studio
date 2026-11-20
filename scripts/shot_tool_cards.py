@@ -1,8 +1,8 @@
 """工具调用卡片 mock 截图脚本（0806 计划 §5：可视化验证闭环）。
 
 不依赖真实后端：构造覆盖全部症状场景的 mock ACP 帧 → 走真实链路
-（Kimi update mapper → 路由层 _allow_progress_frame → 渲染层
-make_tool_card + apply_update）→ 逐场景 QWidget.grab() 截图落盘 →
+（Kimi update mapper → KimiCardPresenter 路由 → Kimi 工厂 make_tool_card
++ apply_update）→ 逐场景 QWidget.grab() 截图落盘 →
 输出 manifest.md（场景 → PNG → 预期看点），供读图工具逐张核对。
 
 用法：
@@ -17,7 +17,6 @@ import shutil
 import sys
 from datetime import datetime
 from pathlib import Path
-from types import SimpleNamespace
 
 # 无显示环境（CI / SSH）亦可运行；有显示时 offscreen 同样无副作用
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -29,19 +28,23 @@ from PySide6.QtWidgets import QApplication, QVBoxLayout, QWidget
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-from ide.gui.panels.chat.cards import (  # noqa: E402
+from ide.gui.panels.chat.card_base import (  # noqa: E402
     CardColors,
     OpenStateMap,
-    SubagentCard,
-    TodoCard,
     ToolCard,
-    find_pending_question_card,
-    find_question_card,
-    make_tool_card,
 )
 from ide.gui.panels.chat.permission_dialog import QuestionDialog  # noqa: E402
-from ide.gui.panels.chat.panel import ChatPanel  # noqa: E402
 from ide.gui.panels.chat.transcript import ChatTranscriptView  # noqa: E402
+from ide.gui.panels.chat.vendors.kimi.cards import (  # noqa: E402
+    SubagentCard,
+    TodoCard,
+    find_pending_question_card,
+    find_question_card,
+)
+from ide.gui.panels.chat.vendors.kimi.factory import make_tool_card  # noqa: E402
+from ide.gui.panels.chat.vendors.kimi.presenter import (  # noqa: E402
+    KimiCardPresenter,
+)
 from ide.gui.theme import DEFAULT_THEME, get_theme_palette  # noqa: E402
 from ide.llm.providers.kimi.provider import (  # noqa: E402
     _synthesize_wire_call,
@@ -444,7 +447,7 @@ def _scenarios() -> list[tuple[str, list[dict], str, object]]:
             # rawInput={path,old_string,new_string}、content 带顶层键
             # diff 项 → completed 仅结果文本（同帧再带一次相同 diff 项
             # 验 _diff_attached 去重）。同时实证 0919 迟到帧放行链路
-            # （_allow_progress_frame 对带 diff_hunks/summary 帧放行）
+            # （presenter.prepare_update 对带 diff_hunks/summary 帧放行）
             _tool_call("tc-editkimi", "Edit", "edit",
                        content=[{"type": "content",
                                  "content": {"type": "text", "text": ""}}]),
@@ -495,13 +498,13 @@ def _scenarios() -> list[tuple[str, list[dict], str, object]]:
             # kilocode 系（ACP 标准形态推定）：首帧即带 locations +
             # content diff 项 + rawInput——徽标/hunk/副标题首帧一次到位
             _tool_call("tc-editkilo", "Edit", "edit",
-                       {"filePath": "src/ide/gui/panels/chat/cards.py",
+                       {"filePath": "src/ide/gui/panels/chat/card_base.py",
                         "oldString": "旧实现行", "newString": "新实现行"},
                        content=[{"type": "diff",
-                                 "path": "src/ide/gui/panels/chat/cards.py",
+                                 "path": "src/ide/gui/panels/chat/card_base.py",
                                  "oldText": "上下文甲\n旧实现行\n上下文乙",
                                  "newText": "上下文甲\n新实现行\n上下文乙"}],
-                       locations=[{"path": "src/ide/gui/panels/chat/cards.py"}]),
+                       locations=[{"path": "src/ide/gui/panels/chat/card_base.py"}]),
             _tool_update("tc-editkilo", "completed", kind="edit",
                          raw_output={"output": "Edit applied."}),
         ], "首帧即渲染徽标 +1 −1 与 hunk 三色；副标题取 locations[0].path"
@@ -589,7 +592,7 @@ def _scenarios() -> list[tuple[str, list[dict], str, object]]:
                          raw_output="capture_execute_probe\n"),
         ], "运行中标题短暂变为「Running: echo capture_execute_probe」"
            "（BashCard _accept_title_update=True），completed 帧缺 title"
-           "经路由 _tool_titles 簿记回填首帧标题——定格标题恒为「Bash」；"
+           "经 presenter _tool_titles 簿记回填首帧标题——定格标题恒为「Bash」；"
            "$ 粗体命令头随迟到帧建立（协议层迟到提取 + 路由迟到簿记 +"
            " BashCard _set_command 补挂，0812-0918 计划 T2）；尾滚输出"
            "帧放行（_tool_commands 闸门）；入参区迟到回填显示「command: "
@@ -614,7 +617,7 @@ def _scenarios() -> list[tuple[str, list[dict], str, object]]:
                          content=[{"type": "content",
                                    "content": {"type": "text",
                                                "text": "The user answered:\n- 今晚吃啥: 火锅"}}]),
-        ], "reasonix ask 走 QuestionCard（_TOOL_NAME_CARDS 注册实证名）："
+        ], "reasonix ask 走 QuestionCard（Kimi 工厂历史兼容项）："
            "问题粗体行 + ✅ 答案行——The user answered 文本形态经 "
            "_parse_answered_text 解析落行，不再裸露原文兜底", None),
         ("32_ask_reasonix_multiSelect", [
@@ -797,11 +800,11 @@ def _nested_scenarios() -> list[tuple[str, list[dict], str, frozenset]]:
 def _run_nested_scenario(frames: list[dict], session_id: str = "mock",
                          open_children: frozenset = frozenset()) -> QWidget:
     """嵌套场景全链路回放（0813-1919 计划 T5）：真实 ChatTranscriptView
-    路由——帧 → Kimi update mapper → panel 同语义路由（title 回填/
-    command 簿记/闸门）→ append_tool_call/append_tool_update（T3 嵌套
+    路由——帧 → Kimi update mapper → KimiCardPresenter（title 回填/
+    command 簿记/闸门）→ append_tool_call/append_tool_update（嵌套
     委派走真实代码，不绕过分派直建卡）。返回展开态容器供截图。"""
-    router = _MiniRouter()
-    view = ChatTranscriptView(CHAT_PACK)
+    router = KimiCardPresenter()
+    view = ChatTranscriptView(CHAT_PACK, vendor="kimi")
     mapper = KimiUpdateMapper()
     for frame in frames:
         chunk = mapper.map_session_update(
@@ -809,23 +812,11 @@ def _run_nested_scenario(frames: list[dict], session_id: str = "mock",
         if chunk is None:
             continue
         if chunk.kind == "tool_call":
-            payload = chunk.payload
-            tid = payload.get("tool_call_id") or ""
-            if title := payload.get("title"):
-                router._titles[tid] = title
-            router.note_command(payload, tid)  # panel.py:906 同语义
-            view.append_tool_call(payload)
+            view.append_tool_call(router.prepare_call(chunk.payload))
         elif chunk.kind == "tool_call_update":
-            payload = dict(chunk.payload)
-            tid = payload.get("tool_call_id") or ""
-            if not payload.get("title"):
-                payload["title"] = router._titles.get(tid, tid[:8] or "?")
-            router.note_command(payload, tid)
-            if payload.get("status") == "in_progress" \
-                    and not router.allow_progress(payload, tid):
-                continue  # 闸门同语义（嵌套子帧 tid 为层级全串，天然唯一）
-            if payload.get("output") and (cmd := router.command_for(tid)):
-                payload["command"] = cmd
+            payload = router.prepare_update(dict(chunk.payload), cards_track=True)
+            if payload is None:
+                continue  # 200ms 尾滚节流丢弃
             view.append_tool_update(payload)
     # 截图展开：父卡 + open_children 下标集内的子卡（其余子卡保持默认
     # 开合，折叠行入镜证归属；全展开会触发子卡片区块内滚动只见前部）
@@ -866,34 +857,6 @@ def _activate_and_click(tid: str, index: int) -> None:
     card._options_box.findChildren(QPushButton)[index].click()
 
 
-class _MiniRouter:
-    """panel 路由逻辑真实代码复用（0806 计划 §5.2：禁止绕过分派直建卡）。
-
-    _allow_progress_frame 是 ChatPanel 实例方法，仅依赖
-    _tool_commands/_tail_last 两个簿记——SimpleNamespace 伪装实例调
-    未绑定方法，T3 放行判定走真实代码。0812-0918 计划 T3：
-    _tool_commands 簿记语义与真实路由对齐——首帧 command 登记、
-    update 帧迟到 command setdefault、输出帧补 command 注入
-    （panel.py:906-907/917-920/928-929 同语义），场景 30 实证
-    迟到簿记后的尾滚放行与 `$ ` 头补挂。
-    """
-
-    def __init__(self) -> None:
-        self._fake_panel = SimpleNamespace(_tool_commands={}, _tail_last={})
-        self._titles: dict[str, str] = {}
-
-    def allow_progress(self, payload: dict, tid: str) -> bool:
-        return ChatPanel._allow_progress_frame(self._fake_panel, payload, tid)
-
-    def note_command(self, payload: dict, tid: str) -> None:
-        """command 簿记（panel.py 同语义）：首帧登记、迟到帧 setdefault。"""
-        if tid and payload.get("command"):
-            self._fake_panel._tool_commands.setdefault(tid, payload["command"])
-
-    def command_for(self, tid: str) -> str | None:
-        return self._fake_panel._tool_commands.get(tid)
-
-
 def _run_scenario(frames: list[dict],
                   session_id: str = "mock") -> tuple[QWidget, dict]:
     """单场景全链路回放：帧 → Chunk → 路由 → 建卡/更新 → (容器 widget, 卡表)。
@@ -901,7 +864,7 @@ def _run_scenario(frames: list[dict],
     每个场景使用独立的 KimiUpdateMapper；session_id 仍按场景注入，保证
     todo 跨调用 diff 只在同场景内推进，场景间不串联。
     """
-    router = _MiniRouter()
+    router = KimiCardPresenter()
     open_state = OpenStateMap()
     card_map: dict[str, ToolCard] = {}
     cards: list[QWidget] = []
@@ -912,27 +875,16 @@ def _run_scenario(frames: list[dict],
         if chunk is None:
             continue
         if chunk.kind == "tool_call":
-            card = make_tool_card(COLORS, open_state, chunk.payload)
+            payload = router.prepare_call(chunk.payload)
+            card = make_tool_card(COLORS, open_state, payload)
             cards.append(card)
-            if tid := chunk.payload.get("tool_call_id"):
+            if tid := payload.get("tool_call_id"):
                 card_map[tid] = card
-                if title := chunk.payload.get("title"):
-                    router._titles[tid] = title
-                router.note_command(chunk.payload, tid)  # panel.py:906 同语义
         elif chunk.kind == "tool_call_update":
-            payload = dict(chunk.payload)
+            payload = router.prepare_update(dict(chunk.payload), cards_track=True)
+            if payload is None:
+                continue  # 200ms 尾滚节流丢弃
             tid = payload.get("tool_call_id") or ""
-            if not payload.get("title"):
-                payload["title"] = router._titles.get(tid, tid[:8] or "?")
-            # 0918 计划 T2-2：迟到 command 簿记（panel.py 同语义，
-            # 须在 in_progress 放行判定之前）
-            router.note_command(payload, tid)
-            if payload.get("status") == "in_progress" \
-                    and not router.allow_progress(payload, tid):
-                continue  # 路由丢弃（T3 验证点：带 input_detail/images 不丢）
-            # panel.py:921 同语义：execute 输出帧补 command（`$ ` 头数据源）
-            if payload.get("output") and (cmd := router.command_for(tid)):
-                payload["command"] = cmd
             card = card_map.get(tid)
             if card is None:  # 容错补建（transcript.append_tool_update 同语义）
                 card = make_tool_card(COLORS, open_state, payload)

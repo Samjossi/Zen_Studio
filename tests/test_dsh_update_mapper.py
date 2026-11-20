@@ -1,22 +1,21 @@
 """DSH update mapper：kind 兜底、snake_case、DSH 专有工具与图片。
 
-T0 基线按厂商归属改写：只使用 DshUpdateMapper；卡片仍用 T3 前的公共
-工厂，验证载荷字段语义不变。
+T0 基线按厂商归属改写：只使用 DshUpdateMapper 与 DSH 卡片工厂，不经过
+公共映射入口或其他厂商卡片包。
 """
 import pytest
 from PySide6.QtWidgets import QApplication
 
-from ide.gui.panels.chat.cards import (
+from ide.gui.panels.chat.card_base import CardColors, OpenStateMap
+from ide.gui.panels.chat.vendors.dsh.cards import (
     BashCard,
-    CardColors,
     DiffCard,
     MediaReadCard,
-    OpenStateMap,
     SubagentCard,
     TextOutputCard,
     TodoListCard,
-    make_tool_card,
 )
+from ide.gui.panels.chat.vendors.dsh.factory import make_tool_card
 from ide.llm.base import UsageStats
 from ide.llm.providers.dsh.updates import DshUpdateMapper
 

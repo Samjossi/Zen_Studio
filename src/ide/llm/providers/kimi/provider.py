@@ -57,6 +57,9 @@ logger = logging.getLogger(__name__)
 _WIRE_USAGE_WAIT_S = 3.0
 _WIRE_USAGE_POLL_S = 0.2
 
+#: 轮次收尾后继续接收迟到用量帧的宽限（Kimi 轮末 push 可能晚于 response）
+_POST_TURN_USAGE_GRACE_S = 10.0
+
 #: 首次轮询只以 64KB 尾部建立游标，之后仅读新增字节，避免全量扫描 MB 级文件
 _WIRE_TAIL_BYTES = 64 * 1024
 _SESSION_DIR_RETRY_DELAYS_S = (2.0, 5.0, 15.0)
@@ -680,6 +683,14 @@ class KimiAcpLLM(LanguageModel):
     def recovery_pending(self) -> bool:
         return bool(self._session_id) and (
             self._needs_recovery or self._conn is None or not self._conn.is_alive)
+
+    def post_turn_usage_grace_s(self) -> float:
+        """正常轮末给迟到用量 10s 宽限；连接待恢复时不再空转轮询。"""
+        return 0.0 if self.recovery_pending else _POST_TURN_USAGE_GRACE_S
+
+    def stall_watchdog_enabled(self) -> bool:
+        """Kimi 的响应/断连收口保证轮次必然结束，退出通用挂起看门狗。"""
+        return False
 
     def cancel(self) -> None:
         """取消当前轮次：协议 `session/cancel` + 本地 abort_turn；无轮次时 no-op。

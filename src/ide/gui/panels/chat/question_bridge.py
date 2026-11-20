@@ -18,12 +18,12 @@ from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QWidget
 from shiboken6 import isValid
 
-from ide.gui.panels.chat.cards import find_pending_question_card, find_question_card
+from ide.gui.panels.chat.vendors import registry as card_registry
 from ide.gui.panels.chat.permission_dialog import QuestionDialog
 from ide.gui.panels.chat.permission_queue import PERMISSION_TIMEOUT_S
 from ide.llm import PermissionParams
 
-#: 队列条目：[params, tool_call_id, parent, choice, done, is_stale, is_claimed, card]
+#: 队列条目：[params, tool_call_id, parent, choice, done, is_stale, is_claimed, card, vendor]
 _Entry = list
 
 
@@ -40,6 +40,8 @@ class QuestionBridge:
         params: PermissionParams,
         tool_call_id: str,
         parent: QWidget,
+        *,
+        vendor: str = "local",
     ) -> str | None:
         """agent reader 线程调用：排队等卡片按钮作答，返回 optionId（None = 拒绝兜底）。
 
@@ -48,7 +50,7 @@ class QuestionBridge:
         防用户永不点击时队列饿死。
         """
         entry: _Entry = [params, tool_call_id, parent, None,
-                         threading.Event(), False, False, None]
+                         threading.Event(), False, False, None, vendor]
         with self._lock:
             self._pending.append(entry)
         # callable 在 parent 所在（GUI）线程执行；标签关闭则不发（迟到请求自然丢弃）
@@ -89,14 +91,16 @@ class QuestionBridge:
         id 定位必然 miss——决策帧与渲染帧的问题文本同文，可精确匹配
         待答卡，避免无意义降级为巨大弹窗。"""
         params, tool_call_id, parent = entry[0], entry[1], entry[2]
+        vendor = entry[8]
         try:
             if not isValid(parent):  # parent 标签排队期间被关闭销毁
                 self._finish(entry, None)
                 return
-            card = find_question_card(tool_call_id) if tool_call_id else None
+            card = card_registry.find_question_card(
+                vendor, tool_call_id) if tool_call_id else None
             if card is None:
-                card = find_pending_question_card(
-                    QuestionDialog._extract_questions(params))
+                card = card_registry.find_pending_question_card(
+                    vendor, QuestionDialog._extract_questions(params))
             if card is not None and card.activate_options(
                     params.get("options") or [],
                     lambda oid: self._finish(entry, oid)):

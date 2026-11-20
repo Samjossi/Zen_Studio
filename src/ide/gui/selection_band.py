@@ -14,10 +14,10 @@
 
 挂载点：Markdown 预览 `ide/gui/panels/viewer/markdown_view.py`、旧轨聊天
 `ide/gui/panels/chat/output.py` 与 `ide/gui/panels/chat/input.py`、卡片轨正文块
-`ide/gui/panels/chat/cards.py`（BodyHtml/BodyText，TextStreamBlock/
+`ide/gui/panels/chat/card_base.py`（BodyHtml/BodyText，TextStreamBlock/
 SystemBlock/用户气泡体及各工具卡正文随之继承）、QLabel 家族
 `BandLabel`（卡片标题/节标签/问答行/todo 条目与设置中心路径标签，
-经 cards.py `_selectable` 与 popups.make_label_selectable 叠加右键
+经 card_base.py `_selectable` 与 popups.make_label_selectable 叠加右键
 精简菜单）。
 
 覆写纪律：Qt 样式表整表替换——对正文块裸调 setStyleSheet 会丢抑制

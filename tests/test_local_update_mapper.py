@@ -1,17 +1,14 @@
 """Local update mapper：标准 ACP 帧、显式 kind 与独立词表。
 
-T0 基线按厂商归属改写：只使用 LocalUpdateMapper；不经过 Kimi/DSH 规则，
-并锁定 Local 不借用 DSH 的工具名兜底。
+T0 基线按厂商归属改写：只使用 LocalUpdateMapper 与 Local 卡片工厂，不经过
+Kimi/DSH 规则，并锁定 Local 不借用 DSH 的工具名兜底。
 """
 import pytest
 from PySide6.QtWidgets import QApplication
 
-from ide.gui.panels.chat.cards import (
-    BashCard,
-    CardColors,
-    OpenStateMap,
-    make_tool_card,
-)
+from ide.gui.panels.chat.card_base import CardColors, OpenStateMap
+from ide.gui.panels.chat.vendors.local.cards import BashCard
+from ide.gui.panels.chat.vendors.local.factory import make_tool_card
 from ide.llm.base import UsageStats
 from ide.llm.providers.local.updates import LocalUpdateMapper
 

@@ -162,3 +162,18 @@ class LanguageModel(Protocol):
         工具或响应帧，也不得在持轮询锁时执行目录子进程或等待 ACP。
         """
         return None
+
+    def post_turn_usage_grace_s(self) -> float:
+        """轮次收尾后继续接收迟到用量帧的宽限秒数（可选能力，默认 0）。
+
+        只有确实存在轮末迟到 push 的后台才需要覆盖；GUI 不按后台 ID 特判。
+        """
+        return 0.0
+
+    def stall_watchdog_enabled(self) -> bool:
+        """轮次挂起看门狗是否适用于本后台（可选能力，默认启用）。
+
+        后台若由自有生命周期保证轮次必然收尾（如 Kimi ACP 的响应/断连
+        收口），可返回 False 明确退出看门狗。
+        """
+        return True

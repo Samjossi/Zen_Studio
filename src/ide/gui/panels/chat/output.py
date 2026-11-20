@@ -13,9 +13,9 @@ AI 活动块（1602 计划 T4/T5：对话区 AI 活动信息充分展示）：
   轮次收尾 reset_activity_anchors 作废（防跨轮锚点串位）。
 
 渲染纪律与 append_reasoning_chunk 同构：显式 QTextCharFormat 上屏
-（防格式经光标位置继承）+ 光标 End 插入 + 滚底。三类活动块的文本
-格式与各厂商 updates.py 的兜底文本（_tool_call_fallback 等）保持一致；
-厂商各自维护，修改本文件时须同步对应厂商的格式。
+（防格式经光标位置继承）+ 光标 End 插入 + 滚底。旧轨只消费各厂商
+presenter 预处理后的载荷：标题回填、命令头与输出裁剪已在 presenter
+完成，本文件不再读取厂商工具名或判断后台 ID。
 
 1836 计划 L1 三项：
 - T1 推理标题提取：reasoning 块先缓冲至标题行闭合（含 "\n" 或

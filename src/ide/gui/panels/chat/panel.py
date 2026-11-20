@@ -12,8 +12,8 @@
 AI 活动信息路由：
 - _on_chunk 分 tool_call / tool_call_update / todo 三分支——只上屏，
   不入 _stream_buffer/_history（与 reasoning 同约束，防历史污染回传）；
-  toolCallId→title 簿记补全状态行标题；轮次收尾 reset_activity_anchors
-  作废 todo 锚点（防跨轮串位）
+  厂商 presenter 持有 toolCallId→title/command 账本与迟到帧闸门；轮次收尾
+  reset_activity_anchors 作废 todo 锚点（防跨轮串位）
 
 对话区双轨渲染：
 - 构造时按 chat_renderer 设置选轨：cards = ChatTranscriptView 卡片折叠轨
@@ -21,7 +21,8 @@ AI 活动信息路由：
   ChatOutput 旧轨（冻结保留即回退通道）；存量标签不热切换
 - 新轨路由差异：取消非 execute 工具的 output 剥除（全工具卡 body 承接）；
   in_progress 尾滚帧仅 execute + 200ms 节流；旧轨维持剥除纪律且 execute
-  输出钳回末 20 行（协议层软上限 1000 行，旧轨渲染规格由路由层钳制不变）
+  输出钳回末 20 行（协议层软上限 1000 行）。上述厂商载荷纪律归各厂商
+  `vendors/<vendor>/presenter.py`，面板只转发不透明载荷
 
 会话活动时间线色块条：
 - ActivityTimeline 细条与上下文用量徽章组成输入区状态行；_on_chunk 入口
@@ -88,6 +89,7 @@ from ide.gui.panels.chat.question_bridge import QUESTION_BRIDGE
 from ide.gui.panels.chat.session_store import SessionRecord
 from ide.gui.panels.chat.timeline import ActivityTimeline
 from ide.gui.panels.chat.transcript import ChatTranscriptView
+from ide.gui.panels.chat.vendors.registry import make_presenter
 from ide.gui.panels.chat.worker import ChatWorker
 from ide.gui.settings import (
     CHAT_RENDERER_CARDS,
@@ -111,6 +113,7 @@ from ide.llm import (
     UsageStats,
     resolve_efforts,
     spec_of,
+    vendor_of,
 )
 from ide.llm.permission_policy import (
     DECISION_ALLOW,
@@ -125,7 +128,6 @@ _USAGE_SOURCE_NOTE = {
     "transcript": "数据来源：kimi 会话记录（agent 落盘的接口真值）",
     "estimate": "数据来源：IDE 估算（会话文本 ÷4，非精确计量，仅量级参考）",
 }
-_KIMI_USAGE_GRACE_S = 10.0
 
 
 def _format_duration(seconds: float) -> str:
@@ -233,19 +235,6 @@ def _compose_usage_tooltip(
     return "\n".join(lines)
 
 
-def _is_fs_mutation_terminal(payload: dict) -> bool:
-    """tool_call_update 终态帧且 kind 为改盘类（edit/execute）→ 应提示刷新 Git。
-
-    首帧（tool_call）不判：写盘尚未发生；in_progress 不判：改动未落定。
-    failed 亦算：multi-edit 中断等场景可能部分落盘，多刷一次无妨。
-    read/search/fetch/think/todo 不改盘；execute 覆盖 sed/重定向/代码
-    生成/git checkout 等命令行改盘（误报成本仅一次去抖合并的刷新）。
-    tool_kind 由协议层归一化（含兜底推导回填），本函数只读不猜。
-    """
-    return payload.get("status") in ("completed", "failed") \
-        and payload.get("tool_kind") in ("edit", "execute")
-
-
 class ChatPanel(QWidget):
     """单个 AI 会话标签页（独立 provider 实例，由 ChatTabs 托管）。"""
 
@@ -326,14 +315,6 @@ class ChatPanel(QWidget):
         #: 再存档（重启多次记录不丢，导出时两段拼接）
         self._replayed_history: list[Message] = []
         self._has_seen_reasoning = False
-        #: 工具调用 title 簿记（toolCallId → title）：tool_call_update 帧
-        #: 常缺 title，状态行显示经此簿记补全；_on_send 时随
-        #: _stream_buffer 一并清空
-        self._tool_titles: dict[str, str] = {}
-        #: execute 工具命令簿记（toolCallId → command）：bash 输出卡 `$ `
-        #: 头数据源，兼作 execute 判定键（非 execute 工具的输出正文不上屏，
-        #: 防 read/edit 长文刷屏）
-        self._tool_commands: dict[str, str] = {}
         #: 本标签最新一轮的上下文用量（usage_update 每轮一条，覆盖即
         #: 「最后一条 assistant 消息」语义）；None = 未收到/已切换后端
         self._usage: UsageStats | None = None
@@ -355,7 +336,7 @@ class ChatPanel(QWidget):
         #: text/reasoning chunk 到达即采样，速率按窗口优先、本轮均值兜底计算
         self._speed_samples: deque[tuple[float, int]] = deque()
         self._speed_cum_chars: int = 0
-        #: 轮内 2 秒轮询；Kimi 轮后另有短宽限接收迟到 push，其他后端收尾即停
+        #: 轮内 2 秒轮询；轮后是否短宽限由 provider 可选能力决定
         self._usage_timer = QTimer(self)
         self._usage_timer.setInterval(2000)
         self._usage_timer.timeout.connect(self._poll_usage_tick)
@@ -391,9 +372,6 @@ class ChatPanel(QWidget):
                 # 链接色复用 timeline_read_fg（VS Code textLink-foreground
                 # 同源值，单一来源纪律不新增键）
                 chat_pack["timeline_read_fg"], self)
-        #: bash 运行中尾滚节流簿记（tid → 末次上屏 time.monotonic()；
-        #: 200ms 内到达的快照帧丢弃，终态帧不经过本簿记）
-        self._tail_last: dict[str, float] = {}
         self.timeline = ActivityTimeline(_timeline_colors(chat_pack), self)
         self.input = ChatInput(
             # 选区带色与 ChatOutput 同源（timeline_read_fg 复用，不新增主题键）
@@ -410,6 +388,12 @@ class ChatPanel(QWidget):
         self.model_bar = ModelBar(self)
         self.model_bar.set_selection(backend, version)
         self._llm_name = self.model_bar.current_backend()
+        #: 当前后台厂商（卡片组合根按此选本厂商工厂/presenter；面板不解析
+        #: 厂商工具名或载荷字段）
+        self._chat_vendor = vendor_of(self._llm_name) or "local"
+        self._presenter = make_presenter(self._chat_vendor)
+        if self._cards_track:
+            self.output.set_vendor(self._chat_vendor)
         #: 用户显式选定的推理强度（None = 未定制，不下发
         #: set_config_option）——_get_provider 懒实例化时的预选数据源
         self._effort_explicit: str | None = None
@@ -461,8 +445,8 @@ class ChatPanel(QWidget):
         if self._effort_explicit \
                 and (set_effort := getattr(provider, "set_effort", None)) is not None:
             set_effort(self._effort_explicit)
-        # kimi 子代理 wire 旁路开关：鸭子类型注入，无 set_subagent_sidecar
-        # 的 provider 静默跳过
+        # 子代理 wire 旁路开关：鸭子类型注入，无 set_subagent_sidecar
+        # 的 provider 静默跳过（设置键为历史持久化值，跨后台共用读取口）
         if (set_sidecar := getattr(provider, "set_subagent_sidecar", None)) is not None:
             set_sidecar(load_settings()[KEY_KIMI_WIRE_SIDECAR])
         self._providers[name] = provider
@@ -554,6 +538,10 @@ class ChatPanel(QWidget):
                 "系统", f"已切换到 {BACKEND_LABELS.get(backend, backend)} 后端，开始新会话")
             self._show_dev_note(backend)
         self._llm_name = backend
+        self._chat_vendor = vendor_of(backend) or "local"
+        self._presenter = make_presenter(self._chat_vendor)
+        if self._cards_track:
+            self.output.set_vendor(self._chat_vendor)
         self._apply_image_capability()  # 能力位随后端切换刷新
         # 封存后端不实例化 provider（不起 agent 子进程）；发送由
         # _blocked_by_archive 拦停，实例留着也无消费者
@@ -1058,7 +1046,8 @@ class ChatPanel(QWidget):
         if is_question_request(params):
             tool_call_id = (params.get("toolCall") or {}).get("toolCallId") or ""
             self.question_asked.emit()
-            return QUESTION_BRIDGE.ask(params, tool_call_id, self)
+            return QUESTION_BRIDGE.ask(
+                params, tool_call_id, self, vendor=self._chat_vendor)
         return PERMISSION_QUEUE.ask(params, self, danger_reason=reason)
 
     # ------------------------------------------------------------------
@@ -1104,9 +1093,7 @@ class ChatPanel(QWidget):
         self.output.begin_stream("AI")
         self._stream_buffer = ""
         self._has_seen_reasoning = False
-        self._tool_titles = {}
-        self._tool_commands = {}
-        self._tail_last = {}
+        self._presenter.reset()
 
         messages: list[Message] = list(self._history)
 
@@ -1118,7 +1105,7 @@ class ChatPanel(QWidget):
         self._usage_grace_deadline = None
         self._usage_timer.start()
         self._last_chunk_at = time.monotonic()  # 看门狗起播点（首轮帧前口径）
-        if self._llm_name != "kimi-acp":
+        if self._stall_watchdog_enabled(provider):
             self._stall_timer.start()
         turn_start = datetime.now()
         self._turn_started_at = turn_start
@@ -1179,18 +1166,22 @@ class ChatPanel(QWidget):
         self.input.setPlaceholderText(text)
 
     def _start_usage_grace(self) -> None:
-        """Kimi 轮后短宽限只延长用量接收，不延长 busy 或阻塞接续轮。"""
+        """轮后用量宽限：provider 可选能力，0 表示收尾即停轮询。"""
         self._usage_grace_deadline = None
         provider = self._providers.get(self._llm_name)
-        if self._llm_name != "kimi-acp" or provider is None \
-                or getattr(provider, "recovery_pending", False):
+        grace_s = 0.0
+        if provider is not None:
+            grace = getattr(provider, "post_turn_usage_grace_s", None)
+            if callable(grace):
+                grace_s = grace()
+        if grace_s <= 0:
             self._usage_timer.stop()
             return
-        self._usage_grace_deadline = time.monotonic() + _KIMI_USAGE_GRACE_S
+        self._usage_grace_deadline = time.monotonic() + grace_s
         self._usage_timer.start()
 
     def _poll_usage_tick(self) -> None:
-        """轮内及 Kimi 轮后宽限采样；空结果绝不清除最后一次有效值。"""
+        """轮内及 provider 轮后宽限采样；空结果绝不清除最后一次有效值。"""
         provider = self._providers.get(self._llm_name)
         if provider is None:
             self._usage_timer.stop()
@@ -1205,6 +1196,14 @@ class ChatPanel(QWidget):
             self._usage_timer.stop()
             self._usage_grace_deadline = None
 
+    def _stall_watchdog_enabled(self, provider=None) -> bool:
+        """看门狗是否适用于当前 provider（可选能力，缺省启用）。"""
+        provider = provider or self._providers.get(self._llm_name)
+        if provider is None:
+            return True
+        enabled = getattr(provider, "stall_watchdog_enabled", None)
+        return bool(enabled()) if callable(enabled) else True
+
     def _stall_watchdog_tick(self) -> None:
         """轮次挂起看门狗 tick：距末条消息帧超阈值 → 自动中断 + 明确提示。
 
@@ -1216,7 +1215,7 @@ class ChatPanel(QWidget):
         停止来源随 worker 收尾信号回传，_on_stopped 按看门狗文案收尾并
         解除 busy、取消排队待发。
         """
-        if self._llm_name == "kimi-acp":
+        if not self._stall_watchdog_enabled():
             return
         threshold_min = load_settings()[KEY_TURN_STALL_TIMEOUT_MIN]
         if not threshold_min or self._worker is None \
@@ -1280,96 +1279,27 @@ class ChatPanel(QWidget):
         self._speed_cum_chars = 0
 
     def _on_activity_chunk(self, chunk: Chunk) -> None:
-        """AI 活动信息路由：tool_call / tool_call_update / todo。
+        """AI 活动信息路由：只把不透明载荷转交厂商 presenter 与输出区。
 
-        只上屏，不入 _stream_buffer/_history（与 reasoning 同约束，防历史
-        污染回传禁令）；与 text 同位处理思维链收尾（reasoning → 工具活动
-        → 正文 交错序列语义不变）。
+        厂商标题/命令账本、迟到帧放行、旧轨输出裁剪与 todo 字段读取均在
+        presenter 内；本方法不读取任何载荷字段。
         """
         if self._has_seen_reasoning:
             self.output.end_reasoning()
             self._has_seen_reasoning = False
         payload = chunk.payload or {}
         if chunk.kind == "tool_call":
-            if tid := payload.get("tool_call_id"):
-                if payload.get("title"):
-                    self._tool_titles[tid] = payload["title"]
-                if payload.get("command"):  # execute 簿记（输出卡数据源）
-                    self._tool_commands[tid] = payload["command"]
-            self.output.append_tool_call(payload)
+            self.output.append_tool_call(self._presenter.prepare_call(payload))
         elif chunk.kind == "tool_call_update":
-            tid = payload.get("tool_call_id") or ""
-            # 更新帧常缺 title（部分更新）：自簿记补全，缺省回退 id 短串
-            if not payload.get("title"):
-                payload = {**payload,
-                           "title": self._tool_titles.get(tid, tid[:8] or "?")}
-            # execute 迟到 command 簿记——kimi 系首帧空壳，command 随
-            # update 帧经协议层提取迟到到达；setdefault 语义，首帧已簿记
-            # 者不覆盖。簿记建立后同帧/后续带 output 的帧过
-            # _allow_progress_frame 闸门并补 `$ ` 头（新旧两轨同闸门）
-            if payload.get("command") and tid not in self._tool_commands:
-                self._tool_commands[tid] = payload["command"]
-            if self._cards_track:
-                # 新轨：取消非 execute 工具的 output 剥除——所有工具的
-                # output 随载荷进渲染层，由对应卡 body 承接。
-                # 带父指针的嵌套子帧与主流同语义过闸——簿记键 tid 即层级
-                # 全串（`父/子`）天然唯一，节流/补 `$ ` 头无需特判
-                # （kimi 系子帧无 in_progress，旁路也不合成 in_progress，
-                # 本分支实为终态帧直通）
-                if payload.get("status") == "in_progress" \
-                        and not self._allow_progress_frame(payload, tid):
-                    return
-                if payload.get("output") and tid in self._tool_commands:
-                    payload = {**payload, "command": self._tool_commands[tid]}
-                self.output.append_tool_update(payload)
-            else:
-                # 旧轨（冻结）：in_progress 不上屏；bash 输出卡仅 execute
-                # 工具（有 command 簿记者）放行输出正文并补 `$ ` 头，其余
-                # 工具长输出丢弃（防 read/edit 刷屏）；execute 输出钳回
-                # 末 20 行（协议层软上限 1000 行，旧轨渲染规格不变由本
-                # 路由钳制）
-                if payload.get("output"):
-                    if tid in self._tool_commands:
-                        lines = payload["output"].split("\n")
-                        if len(lines) > _LEGACY_OUTPUT_KEEP_LINES:
-                            payload = {**payload,
-                                       "output": "\n".join(lines[-_LEGACY_OUTPUT_KEEP_LINES:])}
-                        payload = {**payload, "command": self._tool_commands[tid]}
-                    else:
-                        payload = {k: v for k, v in payload.items() if k != "output"}
-                self.output.append_tool_update(payload)
-            if _is_fs_mutation_terminal(payload):
+            payload = self._presenter.prepare_update(payload, self._cards_track)
+            if payload is None:
+                return
+            self.output.append_tool_update(payload)
+            if self._presenter.is_fs_mutation_terminal(payload):
                 # 改盘已落定：提示 Git 刷新（去抖在主窗口侧，此处逐帧直发）
                 self.files_maybe_changed.emit()
         else:
-            self.output.upsert_todo_block(payload.get("entries") or [])
-
-    def _allow_progress_frame(self, payload: dict, tid: str) -> bool:
-        """in_progress 帧放行判定（新轨）。
-
-        尾滚帧（BashCard 运行中实时帧）：仅 execute 工具、仅带输出帧，
-        同 tid 200ms 节流（丢弃中间帧，终态帧不经本分支不受节流影响）。
-        带 diff/摘要的迟到信息帧（kimi 系 edit 的 diff content 与
-        rawInput.path 在 in_progress 帧才发）不限工具放行，DiffCard 补挂
-        徽标/body/副标题。带 input_detail（迟到入参回填）或 images（出参
-        图片通道）的帧同样放行——否则协议层回填的入参永远到不了卡片
-        （kimi 系 ReadMediaFile 首帧空壳场景）。带 todos（清单快照迟到
-        回填）的帧同位放行（kimi 系 TodoList 首帧空壳场景，与
-        input_detail/images 同范式）。
-        """
-        if payload.get("diff_hunks") or payload.get("summary"):
-            return True
-        if payload.get("input_detail") or payload.get("images"):
-            return True
-        if payload.get("todos"):
-            return True
-        if tid not in self._tool_commands or not payload.get("output"):
-            return False
-        now = time.monotonic()
-        if now - self._tail_last.get(tid, 0.0) < _TAIL_THROTTLE_S:
-            return False
-        self._tail_last[tid] = now
-        return True
+            self._presenter.append_todo(self.output, payload)
 
     def _flush_turn_consumption(self) -> None:
         """本轮真实消耗落盘（成功/失败/中断同口径：已发生的调用照记）。
@@ -1508,14 +1438,6 @@ class ChatPanel(QWidget):
         # （病根纪律：两钮恒宽，文本切换不改 sizeHint）
         self._refresh_send_button()
         self._refresh_placeholder()
-
-
-#: 旧轨 bash 输出卡截尾行数（协议层软上限 1000 行，旧轨冻结不改由
-#: 路由层钳回；旧轨规格固定 20 行，与协议层软上限独立）
-_LEGACY_OUTPUT_KEEP_LINES = 20
-
-#: bash 运行中尾滚节流间隔（秒）
-_TAIL_THROTTLE_S = 0.2
 
 
 def _timeline_colors(chat_pack: dict) -> dict[str, str]:

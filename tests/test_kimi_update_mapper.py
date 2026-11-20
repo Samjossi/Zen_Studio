@@ -1,21 +1,20 @@
 """Kimi update mapper：帧 → Kimi 载荷 → 卡片。
 
-T0 基线按厂商归属改写：本文件只使用 KimiUpdateMapper，不经过公共映射
-入口；卡片仍用 T3 前的公共工厂，验证载荷字段语义不变。
+T0 基线按厂商归属改写：本文件只使用 KimiUpdateMapper 与 Kimi 卡片工厂，
+不经过公共映射入口或其他厂商卡片包。
 """
 import pytest
 from PySide6.QtWidgets import QApplication
 
-from ide.gui.panels.chat.cards import (
-    CardColors,
+from ide.gui.panels.chat.card_base import CardColors, OpenStateMap
+from ide.gui.panels.chat.vendors.kimi.cards import (
     DiffCard,
     MediaReadCard,
-    OpenStateMap,
     QuestionCard,
     SubagentCard,
     TodoListCard,
-    make_tool_card,
 )
+from ide.gui.panels.chat.vendors.kimi.factory import make_tool_card
 from ide.llm.base import UsageStats
 from ide.llm.providers.kimi import provider as kimi_acp
 from ide.llm.providers.kimi.updates import KimiUpdateMapper

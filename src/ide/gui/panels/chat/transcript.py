@@ -16,13 +16,13 @@ panel 路由层按设置项选轨后零分支复用同一代码路径。
 - TextStreamBlock  正文流式块（30ms 合帧节流 + 文件链接化平移；
                    自身高度贴内容无内滚动——主内容块不限高）
 - SystemBlock      系统消息块
-- 工具卡/思维链卡/TODO 卡见 cards.py（CollapsibleCard 族）
+- 通用折叠/正文/思维链见 card_base.py；工具卡与 TODO 卡由 vendors/registry.py 按厂商装配
 
 跨块文本选择丢失（widget 路线固有代价，0640 §9）以块内选择 + 卡片
 复制按钮（T11）补偿；旧轨双轨开关为回退通道。
 
 横向滚动根治（2026-08-06，文档/修改记录/2026-0806-0401 计划 T3）：
-横向滚动条 ScrollBarAlwaysOff 硬关闭——治本在 cards.py _ElidedLabel
+横向滚动条 ScrollBarAlwaysOff 硬关闭——治本在 card_base.py _ElidedLabel
 （单行 QLabel 长文本撑宽容器的病根截断 + 最小宽归零）与 Body 块
 WidgetWidth 换行，本策略兜底任何未来块类型异常撑宽只裁边不滚动。
 
@@ -46,14 +46,15 @@ from PySide6.QtWidgets import (
 )
 from shiboken6 import isValid
 
-from ide.gui.panels.chat.cards import (
+from ide.gui.panels.chat.card_base import (
     BodyHtml,
     CardColors,
     OpenStateMap,
-    SubagentCard,
     ThinkingCard,
-    TodoCard,
     ToolCard,
+)
+from ide.gui.panels.chat.vendors.registry import (
+    make_todo_card,
     make_tool_card,
 )
 from ide.gui.panels.chat.file_links import (
@@ -208,7 +209,8 @@ class ChatTranscriptView(QScrollArea):
     #: panel._on_output_link 零改动复用）
     anchorClicked = Signal(QUrl)
 
-    def __init__(self, chat_pack: dict, parent=None) -> None:
+    def __init__(self, chat_pack: dict, parent=None, *,
+                 vendor: str = "local") -> None:
         """
         :param chat_pack: 主题 ChatPack（diff_add_fg/diff_del_fg 为 0645
             计划新增键；链接色复用 timeline_read_fg，单一来源纪律）
@@ -221,6 +223,8 @@ class ChatTranscriptView(QScrollArea):
             chat_pack["diff_add_fg"], chat_pack["diff_del_fg"])
         self._open_state = OpenStateMap()
         self._workspace_root: Path | None = None
+        #: 当前后台厂商（卡片组合根按此选本厂商工厂/TODO 卡）
+        self._vendor = vendor
 
         self.setWidgetResizable(True)
         # 横向滚动硬关闭（0401 计划 D3/T3）：内容自适应由 _ElidedLabel
@@ -284,7 +288,7 @@ class ChatTranscriptView(QScrollArea):
         #: 工具卡表（toolCallId → ToolCard，轮次收尾清簿记不清屏幕）
         self._tool_cards: dict[str, ToolCard] = {}
         #: 本轮 todo 卡（快照整刷；轮次收尾作废簿记，下一轮新卡）
-        self._todo_card: TodoCard | None = None
+        self._todo_card: QWidget | None = None
 
     # ------------------------------------------------------------------
     # 注入与主题（panel 构造/切换链路）
@@ -292,6 +296,12 @@ class ChatTranscriptView(QScrollArea):
     def set_workspace_root(self, root: str) -> None:
         """@路径 引用存在性校验的工作区基准（0438 计划 T2 平移）。"""
         self._workspace_root = Path(root)
+
+    def set_vendor(self, vendor: str) -> None:
+        """切换本视图的卡片厂商（切后台新会话时调用；旧卡簿记作废）。"""
+        self._vendor = vendor
+        self._tool_cards.clear()
+        self._todo_card = None
 
     def set_reasoning_color(self, color: str) -> None:
         self._colors.reasoning_fg = color
@@ -376,25 +386,25 @@ class ChatTranscriptView(QScrollArea):
     # ------------------------------------------------------------------
     def append_tool_call(self, payload: dict) -> None:
         """工具卡上屏：工厂分派专类；toolCallId 簿记供状态流转寻卡。
-        0813-1919 计划 T3：带父指针的子代理内部帧委派父 SubagentCard
-        内嵌区；父卡缺失/非子代理卡降级主流平铺（容错不丢帧）。"""
+        带父指针的子代理内部帧委派父卡内嵌区；父卡缺失/不承接子帧
+        时降级主流平铺（容错不丢帧）。"""
         self._flush_stream()
-        if (parent := self._find_parent_subagent(payload)) is not None:
+        if (parent := self._find_parent_card(payload)) is not None:
             parent.append_child_call(payload)
             self._scroll_to_bottom()
             return
-        card = make_tool_card(self._colors, self._open_state, payload,
-                              workspace_root=self._workspace_root)
+        card = make_tool_card(self._vendor, self._colors, self._open_state,
+                              payload, workspace_root=self._workspace_root)
         self._add_block(card)
         if tid := payload.get("tool_call_id"):
             self._tool_cards[tid] = card
 
     def append_tool_update(self, payload: dict) -> None:
         """状态流转：寻卡属性更新（◐→✔/✖ 同卡更新、无新增块）。
-        0813-1919 计划 T3：带父指针的子帧同位委派父卡内嵌区（父卡
-        已完成时迟到子帧由父卡幂等回填不新建）；父卡缺失降级平铺。"""
+        带父指针的子帧同位委派父卡内嵌区（父卡已完成时迟到子帧由
+        父卡幂等回填不新建）；父卡缺失降级平铺。"""
         self._flush_stream()
-        if (parent := self._find_parent_subagent(payload)) is not None:
+        if (parent := self._find_parent_card(payload)) is not None:
             parent.append_child_update(payload)
             self._scroll_to_bottom()
             return
@@ -402,29 +412,31 @@ class ChatTranscriptView(QScrollArea):
         card = self._tool_cards.get(tid)
         if card is None:
             # 容错：tool_call 帧缺失（部分更新直达）——按 update 载荷补建卡
-            card = make_tool_card(self._colors, self._open_state, payload,
-                                  workspace_root=self._workspace_root)
+            card = make_tool_card(
+                self._vendor, self._colors, self._open_state, payload,
+                workspace_root=self._workspace_root)
             self._add_block(card)
             if tid:
                 self._tool_cards[tid] = card
         card.apply_update(payload)
         self._scroll_to_bottom()
 
-    def _find_parent_subagent(self, payload: dict) -> SubagentCard | None:
-        """父指针路由（0813-1919 计划 T3）：payload 带 parent_tool_call_id
-        且父卡为 SubagentCard 时返回父卡；否则 None（降级主流平铺）。
-        子帧先到父卡未建（理论乱序）同走降级——不暂存，平铺主流。"""
+    def _find_parent_card(self, payload: dict) -> ToolCard | None:
+        """父指针路由：payload 带 parent_tool_call_id 且父卡声明可承接子帧
+        时返回父卡；否则 None（降级主流平铺）。子帧先到父卡未建（理论
+        乱序）同走降级——不暂存，平铺主流。具体父卡类型由厂商包决定。"""
         parent_id = payload.get("parent_tool_call_id")
         if not parent_id:
             return None
         parent = self._tool_cards.get(parent_id)
-        return parent if isinstance(parent, SubagentCard) else None
+        return parent if parent is not None and parent.supports_children else None
 
     def upsert_todo_block(self, entries: list) -> None:
         """todo 卡上屏/整刷：首帧建卡，后续快照 set_entries 整刷（弃锚点）。"""
         self._flush_stream()
         if self._todo_card is None:
-            self._todo_card = TodoCard(self._colors, self._container)
+            self._todo_card = make_todo_card(
+                self._vendor, self._colors, self._container)
             self._add_block(self._todo_card)
         self._todo_card.set_entries(entries)
         self._scroll_to_bottom()

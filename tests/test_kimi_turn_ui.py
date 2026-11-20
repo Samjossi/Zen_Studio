@@ -31,6 +31,13 @@ class InputStub:
         return "draft"
 
 
+class ProviderStub:
+    recovery_pending = False
+
+    def stall_watchdog_enabled(self):
+        return False
+
+
 class PanelHarness:
     def __init__(self):
         self._llm_name = "kimi-acp"
@@ -43,7 +50,7 @@ class PanelHarness:
         self._sent_attachments = []
         self._sent_text = "hello"
         self._has_seen_reasoning = False
-        self._providers = {}
+        self._providers = {"kimi-acp": ProviderStub()}
         self._pending_send = True
         self._stop_reason = "user"
         self.output = OutputStub()
@@ -69,6 +76,9 @@ class PanelHarness:
 
     def _start_usage_grace(self):
         pass
+
+    def _stall_watchdog_enabled(self, provider=None):
+        return False
 
     def _refresh_usage_label(self):
         pass

@@ -3,7 +3,7 @@
 病根：文本类控件 setStyleSheet 挂**无选择器**的 background 声明时，
 控件级样式表沿父子链级联——Qt 以控件为父即时创建的标准右键菜单
 （QMenu）会被灌入 background: transparent，覆盖应用级主题底色致
-菜单全透明（cards.py BodyText/BodyHtml 实证根因）。
+菜单全透明（card_base.py BodyText/BodyHtml 实证根因）。
 
 本守卫扫描 src/ide/gui/panels/chat/ 下全部 setStyleSheet 调用，规则二则：
 1. 拦截「无选择器（无 {} 规则块）且含 background 声明」的模式；
@@ -11,7 +11,7 @@
 2. 拦截「字符串常量段含 #CardBodyText/#CardBodyHtml 选择器」的裸
    整表覆写——Qt 样式表整表替换，裸写会冲掉构造时并入的
    SUPPRESSION_QSS，原生偏下选区带回归并与自绘带双层叠加
-   （2026-10-17 用户真机截图实证）；正文块样式只允许经 cards.py
+   （2026-10-17 用户真机截图实证）；正文块样式只允许经 card_base.py
    `_body_stylesheet`/`set_extra_style` 汇入（选择器由 objectName
    拼接，合法路径天然不含该常量）。
 
