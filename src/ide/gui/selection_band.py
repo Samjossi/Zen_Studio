@@ -9,6 +9,7 @@
   正文块将其并入 ID 选择器块内，防无选择器声明级联进右键菜单）；
 - selection_rects()——逐行算选区视口矩形（纵向=行 ascent+descent
   墨盒上下各加 SELECTION_PAD_Y 对称留白）；
+- text_range_rects()——以同一几何计算任意文档区间，供行内代码带复用；
 - paint_selection_band()——基类绘制后叠绘半透明直角带。
 
 挂载点：Markdown 预览 `ide/gui/panels/viewer/markdown_view.py`、旧轨聊天
@@ -54,16 +55,23 @@ SUPPRESSION_QSS = (
 
 
 def selection_rects(edit) -> list[QRectF]:
-    """当前选区的视口坐标矩形列（逐行一段；纵向=行墨盒±SELECTION_PAD_Y）。
+    """当前选区的视口坐标矩形列（逐行一段；纵向=行墨盒±SELECTION_PAD_Y）。"""
+    cursor = edit.textCursor()
+    if not cursor.hasSelection():
+        return []
+    return text_range_rects(edit, cursor.selectionStart(), cursor.selectionEnd())
+
+
+def text_range_rects(edit, start: int, end: int) -> list[QRectF]:
+    """指定文档区间的视口坐标矩形列，几何与选区带一致。
 
     坐标映射：块内行坐标 → 视口，锚点取块首 cursorRect（规避块内/视口
     坐标混用坑，见 2055 计划 §3.4）；横向端点取 QTextLine.cursorToX。
     :param edit: QTextEdit/QTextBrowser 实例
     """
-    cursor = edit.textCursor()
-    if not cursor.hasSelection():
+    if start >= end:
         return []
-    sel_start, sel_end = cursor.selectionStart(), cursor.selectionEnd()
+    sel_start, sel_end = start, end
     doc = edit.document()
     rects: list[QRectF] = []
     block = doc.findBlock(sel_start)

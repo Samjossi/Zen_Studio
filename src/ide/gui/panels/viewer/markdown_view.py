@@ -14,7 +14,7 @@ gfm-like 预设，vendor 于项目根 markdown_it/ + mdurl/，不经 uv/pip；
 linkify 禁用免第二依赖链）、相对图片/链接以 md 所在目录为基准解析
 （searchPaths + baseUrl）、链接三分发（http→系统浏览器、工作区内文件
 →file_link_clicked 信号、#锚点→页内跳转）、主题样式表重建、全局字号
-跟随、大文件 1MB 截断守卫、选区带自绘（2026-0731-2055 方案 A）。
+跟随、大文件 1MB 截断守卫、行内代码带与选区带自绘（选区为 2026-0731-2055 方案 A）。
 
 选区带自绘（方案 A）：原生选区带 = QTextLine 整行高（含 leading），而
 Qt 排版把 leading 全部垫在行框底部——思源黑体 lineGap 6.5px@10pt 导致
@@ -30,12 +30,24 @@ from pathlib import Path
 
 from markdown_it import MarkdownIt
 from markdown_it.token import Token
-from PySide6.QtCore import Qt, QUrl, Signal
-from PySide6.QtGui import QColor, QDesktopServices, QFont, QPalette
+from PySide6.QtCore import QRectF, Qt, QUrl, Signal
+from PySide6.QtGui import (
+    QColor,
+    QDesktopServices,
+    QFont,
+    QKeySequence,
+    QPainter,
+    QPalette,
+)
 from PySide6.QtWidgets import QApplication, QFrame, QMenu, QTextBrowser, QWidget
 
 from ide.gui.popups import make_translucent_popup
-from ide.gui.selection_band import SUPPRESSION_QSS, paint_selection_band
+from ide.gui.selection_band import (
+    SUPPRESSION_QSS,
+    paint_selection_band,
+    text_range_rects,
+)
+from ide.gui.theme import get_mono_family
 
 #: 可渲染预览的 Markdown 扩展名（不含点，与 IMAGE_EXTS 同规约；不含 mdx——决策不启用）
 MARKDOWN_EXTS: frozenset[str] = frozenset({"md", "markdown"})
@@ -45,6 +57,9 @@ MAX_BYTES = 1_048_576
 
 #: GFM 任务列表标记：列表项行内文本开头的 [ ] / [x]（大小写兼容）
 _TASK_MARK_RE = re.compile(r"^\[([ xX])\]\s+")
+
+#: 行内代码两端的零宽定位符；Qt 文档保留它，但排版不产生字形或占位
+_INLINE_CODE_SENTINEL = "\u200b"
 
 
 def _task_list_check_rule(state) -> bool:
@@ -78,9 +93,19 @@ def _task_list_check_rule(state) -> bool:
 def _build_renderer() -> MarkdownIt:
     """装配阅览模式渲染内核：gfm-like 预设（CommonMark 全量 + 表格 + 删除线），
     linkify 禁用（免 linkify-it-py/uc-micro-py 第二依赖链），
-    追加任务列表 ☑/☐ 规则。"""
+    追加任务列表 ☑/☐ 与行内代码零宽定位符规则。"""
     md = MarkdownIt("gfm-like").disable("linkify")
     md.core.ruler.push("task_list_check", _task_list_check_rule)
+    render_code_inline = md.renderer.rules["code_inline"]
+
+    def code_inline_with_sentinels(renderer, tokens, idx, options, env) -> str:
+        html = render_code_inline(tokens, idx, options, env)
+        opening, separator, content = html.partition(">")
+        content = content.removesuffix("</code>")
+        return (f"{opening}{separator}{_INLINE_CODE_SENTINEL}{content}"
+                f"{_INLINE_CODE_SENTINEL}</code>")
+
+    md.add_render_rule("code_inline", code_inline_with_sentinels)
     return md
 
 
@@ -110,7 +135,10 @@ class MarkdownView(QTextBrowser):
         self._current_path: Path | None = None
         self._truncated = False
         self._selection_color: QColor | None = None  # apply_theme 注入 accent
+        self._inline_code_color = QColor()
+        self._inline_code_ranges: list[tuple[int, int]] = []
         self._renderer = _build_renderer()  # markdown-it-py gfm-like 内核
+        self.document().contentsChanged.connect(self._refresh_inline_code_ranges)
 
         self.refresh_font()
         self.apply_theme(palette)
@@ -185,6 +213,22 @@ class MarkdownView(QTextBrowser):
             return
         super().wheelEvent(event)
 
+    def keyPressEvent(self, event) -> None:
+        """复制快捷键与右键菜单共用纯文本出口，避免零宽定位符外泄。"""
+        if event.matches(QKeySequence.StandardKey.Copy):
+            self.copy()
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
+    def copy(self) -> None:
+        """复制选区纯文本，去除定位符并恢复段落换行。"""
+        cursor = self.textCursor()
+        if not cursor.hasSelection():
+            return
+        text = cursor.selectedText().replace(_INLINE_CODE_SENTINEL, "")
+        QApplication.clipboard().setText(text.replace("\u2029", "\n"))
+
     # ------------------------------------------------------------------
     # 右键菜单（「复制」「全选」两项）
     # ------------------------------------------------------------------
@@ -192,7 +236,7 @@ class MarkdownView(QTextBrowser):
         """装配右键菜单：「复制」「全选」两项（构建与弹出分离，可探针断言）。
 
         只读查看器右键统一形态：复制仅在有选区时可用，全选恒可用；
-        Ctrl+C / Ctrl+A 快捷键与菜单项正交并存（Qt 内建按键处理不动）。
+        Ctrl+C 与复制菜单共用净化出口，Ctrl+A 保留 Qt 内建处理。
         """
         menu = QMenu(self)
         make_translucent_popup(menu)
@@ -214,6 +258,7 @@ class MarkdownView(QTextBrowser):
         """切换主题：重建文档默认样式表（色值取调色板令牌）。"""
         self.document().setDefaultStyleSheet(self._build_stylesheet(palette))
         self._selection_color = QColor(palette["accent"])  # 自绘选区带色源
+        self._inline_code_color = QColor(palette["chrome"]["code_bg"])
         self.viewport().update()
 
     @staticmethod
@@ -221,7 +266,7 @@ class MarkdownView(QTextBrowser):
         """md 各元素排版样式：Qt 富文本 CSS 子集内重建（2026-0811-0402 计划 D4）。
 
         标题字号阶梯用相对关键字（不做动态 pt 计算）；表格/代码块/引用着色
-        沿用现有调色板令牌；code_bg 为行内代码/代码块/表头底专用键——
+        沿用现有调色板令牌；code_bg 为代码块/表头底色及行内代码自绘色源——
         不借用 line_number_bg，否则行号栏随主题染色会连带染色 md 代码底。
         代码块不做语法着色。
         """
@@ -230,6 +275,7 @@ class MarkdownView(QTextBrowser):
         accent = palette["accent"]
         border = palette["border"]
         code_bg = palette["chrome"]["code_bg"]
+        mono_family = get_mono_family()
         return f"""
             body {{ color: {text}; }}
             a {{ color: {accent}; text-decoration: none; }}
@@ -237,9 +283,8 @@ class MarkdownView(QTextBrowser):
             h2 {{ font-size: x-large; }}
             h3 {{ font-size: large; }}
             h1, h2 {{ border-bottom: 1px solid {border}; padding-bottom: 4px; }}
-            code, pre {{ background-color: {code_bg}; }}
-            pre {{ padding: 8px; }}
-            pre code {{ background-color: transparent; }}
+            code {{ font-family: "{mono_family}"; }}
+            pre {{ background-color: {code_bg}; padding: 8px; }}
             blockquote {{
                 color: {muted};
                 margin-left: 16px;
@@ -260,12 +305,53 @@ class MarkdownView(QTextBrowser):
             self.document().setDefaultFont(font)
 
     # ------------------------------------------------------------------
+    # 行内代码带自绘：Qt 原生背景包含整行 leading，需按行墨盒重画
+    # ------------------------------------------------------------------
+    def _refresh_inline_code_ranges(self) -> None:
+        """内容变化时重扫成对定位符，缓存哨兵之间的文档字符区间。"""
+        text = self.document().toPlainText()
+        ranges: list[tuple[int, int]] = []
+        start = text.find(_INLINE_CODE_SENTINEL)
+        while start >= 0:
+            end = text.find(_INLINE_CODE_SENTINEL, start + 1)
+            if end < 0:
+                break
+            if end > start + 1:
+                ranges.append((start + 1, end))
+            start = text.find(_INLINE_CODE_SENTINEL, end + 1)
+        self._inline_code_ranges = ranges
+
+    def _inline_code_rects(self) -> list[QRectF]:
+        """行内代码视口矩形：折行分段，与选区带共用纵向几何。"""
+        return [rect for start, end in self._inline_code_ranges
+                for rect in text_range_rects(self, start, end)]
+
+    def _paint_inline_code_bands(self) -> None:
+        """先填实色带再局部重绘文字，避免背景覆盖字形。"""
+        rects = self._inline_code_rects()
+        if not rects or not self._inline_code_color.isValid():
+            return
+        painter = QPainter(self.viewport())
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(self._inline_code_color)
+        for rect in rects:
+            painter.drawRect(rect)
+        offset = self.verticalScrollBar().value()
+        painter.translate(0, -offset)
+        for rect in rects:
+            document_rect = QRectF(rect)
+            document_rect.translate(0, offset)
+            self.document().drawContents(painter, document_rect)
+        painter.end()
+
+    # ------------------------------------------------------------------
     # 选区带自绘（2026-0731-2055 方案 A：墨盒上下对称留白，矫正原生带偏下；
     # 实现已通用化至 ide/gui/selection_band.py，聊天区 ChatOutput 共用）
     # ------------------------------------------------------------------
     def paintEvent(self, event) -> None:
-        """基类绘制（原生选区带已被透明化）后，叠绘半透明对称选区带。"""
+        """基类绘制后依次叠绘行内代码带与半透明对称选区带。"""
         super().paintEvent(event)
+        self._paint_inline_code_bands()
         color = self._selection_color or QApplication.palette().color(
             QPalette.ColorRole.Highlight)
         paint_selection_band(self, color)
