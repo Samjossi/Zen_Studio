@@ -103,13 +103,14 @@
 | `LanguageModel` Protocol | 统一接口 `chat(messages) -> Iterator[Chunk]`，与 UI 解耦 |
 | 能力快照 | `capabilities_of(provider)` 读取不可变 `BackendCapabilities`：图片输入（None=未实测回退注册表静态位）、轮后用量宽限、看门狗、恢复待定；provider 创建后、initialize 完成后、轮次收尾后、切换后台后刷新，快照不承担事件通知 |
 | 厂商设置 | 面板按当前 `BackendSpec.vendor_settings` 过滤公共设置，经中立入口整体交给 provider；键名只在注册表组合根与厂商包出现，持久化键名/默认值不变 |
-| `Chunk` | 流式块：`kind="text"` 正文 / `kind="reasoning"` 过程信息（思维链或工具调用摘要灰字展示）；用量与工具/计划块只上屏，不入历史、不回传 |
+| `Chunk` | 流式块：`kind="text"` 正文 / `kind="reasoning"` 过程信息（思维链或工具调用摘要灰字展示）；`kind="status"` 后台轮次同步状态（终态确认 drain 期间由后台产出）：只更新输入区占位符（同步中 + 已运行时长），不进输出区/时间线/历史；用量与工具/计划块只上屏，不入历史、不回传 |
 | `KimiAcpLLM` | Kimi ACP 后端（长驻 `kimi acp` + JSON-RPC，kimi 后台唯一接口）：**token 级流式**、思维链可见（`agent_thought_chunk`）、`session/new` 原生会话、`session/set_config_option` 会话内切模型；能力快照：图片可用、无看门狗、正常轮末 10s 宽限（恢复态 0） |
 | `PermissionDialog` | ACP 工具审批模态框（中性标题「工具审批请求」，保留工具名/kind）：参数摘要 + 选项按钮（允许一次/始终允许/拒绝）；reader 线程请求转 GUI 线程弹出，180s 无响应按拒绝兜底 |
 | `ModelBar` | 输入区底行左端三按钮（纯视图，每标签实例）：后台（CLI 产品分组）→ 接口（接入实现，不可用时禁用标「未检测到」）→ 模型（别名联动刷新），按钮**直显当前值短文本**（接口剥后台前缀 `Kimi ACP`→`ACP`、模型别名取 `/` 末段 `kimi-code/k3-256k`→`k3-256k`，宽度贴合文本），点击弹 InstantPopup 菜单——按内容加宽显示全文、当前项 ✓ 勾选；tooltip 三行全名链兜底；切换下次请求生效，任一标签发送中全标签锁定；选择与写盘归 ChatTabs 状态层（`model_backend` + 按接口记忆的 `model_versions` 表，2026-07-31 起，见 文档/修改记录/2026-0731-0052），启动时恢复 |
 | 多轮 | 历史由各后端会话管理；请求失败的用户消息不入历史，错误上屏不崩溃 |
 | 真实断连恢复 | Kimi 仅在 stdout EOF、进程退出或写帧失败后保留下轮恢复身份；界面明确原请求不自动重发、下一次手动发送恢复原会话。恢复期间 busy 与模型锁定不变；恢复失败取消排队待发、保留草稿，不自动新建空会话；正常完成仍按原规则接续待发 |
-| Kimi 长等待 | 看门狗开关由能力快照 `stall_watchdog` 决定（Kimi 为 False），面板不按后端 ID 特判；Kimi 不会因十分钟无新帧自动取消，永久静默时由用户手动停止。其他后端保持看门狗启用 |
+| Kimi 终态失配 | `stopReason=end_turn` 只是候选终态（上游会提前回执）：后台核对 wire 后 drain 期间保持 busy、占位符显示「后台轮次同步中」、不发完成音、不自动补发、停止可用；落定失配走非成功收尾（保留卡片、回滚用户消息、草稿驻留、提示核对工具副作用并置恢复态）；恢复后下一次手动发送只 `session/resume` 一次，不自动重放原请求 |
+| Kimi 长等待 | 看门狗开关由能力快照 `stall_watchdog` 决定（Kimi 为 False），面板不按后端 ID 特判；Kimi 不会因十分钟无新帧自动取消，永久静默时由用户手动停止（drain 期间停止经 `session/close` 真正终止后台轮次，不再 no-op）。其他后端保持看门狗启用 |
 | 轮次停止来源 | `stopped_by_user(str)` 携带 `user` / `stall` / `cancelled`：停止钮=已手动停止、看门狗=已因无响应中断、agent 回 `stopReason=cancelled`=本轮已被 agent 取消。三者均回滚 history、取消待发、不播报成功；本地已请求停止时优先按本地来源收尾（用户按停止后 agent 再回 cancelled 仍显示已手动停止） |
 
 ## 6. 文件查看面板（中栏上）

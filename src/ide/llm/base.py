@@ -153,11 +153,13 @@ class Chunk:
     字段；具体 schema 由各厂商 `models.py` 定义。text 字段为协议层预填的
     兜底显示单行：GUI 对未识别 kind 按 text 渲染，新协议层配旧 GUI 不崩
     （多标签/多开版本错配防御）。新三 kind 与 reasoning 同约束：
-    仅上屏，不入历史、不回传。
+    仅上屏，不入历史、不回传。kind="status" 为后台轮次同步状态提示
+    （终态确认期间由后台产出），同样只显示、不入历史、不回传。
     """
 
     kind: Literal[
         "text", "reasoning", "usage", "tool_call", "tool_call_update", "todo",
+        "status",
     ]
     text: str
     usage: UsageStats | None = None

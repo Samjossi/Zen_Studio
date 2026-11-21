@@ -37,7 +37,8 @@
 | `ide/llm/providers/kimi/__init__.py` | Kimi 厂商包公开入口：`KimiAcpLLM`、探测/模型目录函数 |
 | `ide/llm/providers/kimi/models.py` | Kimi 工具/计划活动载荷类型（tool_call/update、todo、提问、图片字段），只服务 Kimi 卡片，不是通用契约 |
 | `ide/llm/providers/kimi/updates.py` | `KimiUpdateMapper`：显式 kind 信任、Kimi 工具名/rawInput 词表、write diff 合成、回执模板、`<image path>`、task 成果、todo `title`/`done`、wire 层级父指针；账本按实例与 `(sessionId, toolCallId)` 隔离 |
-| `ide/llm/providers/kimi/provider.py` | `KimiAcpLLM`：Kimi ACP 后端（长驻 `kimi acp` 子进程，provider 组装 `[bin_path, "acp"]`；token 级流式、思维链可见、审批反向请求路由；轮末 ACP `usage_update` 为主，response 后在同一 ≤3s 窗口继续收集，并由轮后短宽限回收迟到帧，source="push"；wire 用于轮内增量轮询与 ACP 缺失兜底，source="transcript"，优先 token_counting.measured 水位、旧 usage.record 四项求和兜底，窗口读模型目录而非 llm.request.maxTokens；仅带 turnStep 的请求参与计数与速度配对，超时保留有效子集；轮次输出速度随收尾 usage chunk 携带；能力快照声明图片可用/无看门狗/正常轮末 10s 宽限（待恢复态 0），并解释 `kimi_wire_sidecar` 厂商设置；子代理 wire 旁路由 `subagent.WireSidecar` 承接，格式假设见 `维护手册/后端CLI工具维护说明手册.md`） |
+| `ide/llm/providers/kimi/provider.py` | `KimiAcpLLM`：Kimi ACP 后端（长驻 `kimi acp` 子进程，provider 组装 `[bin_path, "acp"]`；token 级流式、思维链可见、审批反向请求路由）。终态确认：上游 ACP 适配层会在内部轮次仍在执行时提前回 `end_turn`（13:53 事故），故 `stopReason=end_turn` 只作候选终态——response 后按 `turn_state` 核对 wire 真实轮次，风险轮次 drain 到真实落定（发 status 块、保持 busy、不播完成音），失配抛 `TurnDesynchronized` 走非成功收尾；wire 不可用且无风险证据时 fail-open。停止分流（D7）：轮次级 `session/cancel` 无效且终态未确认时回落会话级 `session/close`（停通知轮/孤儿轮并回收后台子进程），能力缺失时降级并明示。轮末 ACP `usage_update` 为主，response 后在同一 ≤3s 窗口继续收集，并由轮后短宽限回收迟到帧，source="push"；wire 用于轮内增量轮询与 ACP 缺失兜底，source="transcript"；能力快照声明图片可用/无看门狗/正常轮末 10s 宽限（待恢复态 0），并解释 `kimi_wire_sidecar` 厂商设置；子代理 wire 旁路由 `subagent.WireSidecar` 承接，格式假设见 `维护手册/后端CLI工具维护说明手册.md`） |
+| `ide/llm/providers/kimi/turn_state.py` | Kimi 轮次元数据跟踪与 ACP 响应终态确认：四态判定（normal/draining/desynchronized/unknown）、增量游标读取、通知轮与后台任务跟踪、`TurnDesynchronized` 失配异常；只解析元数据（promptId/turnId/trigger/reason/finishReason/taskId），不保存正文/工具载荷；无风险证据时 wire 不可读一律 fail-open，有风险才 fail-closed；仅被本厂商 provider 引用，公共 `acp/` 与 DSH/Local 不感知 |
 | `ide/llm/providers/kimi/wire.py` | wire.jsonl 私有读取与统计：session_index 反查、全量/增量字节游标、轮次统计、输出速度与真实消耗；纯文件计算，不 import provider/Qt/其他厂商 |
 | `ide/llm/providers/kimi/usage.py` | 轮内用量轮询、轮末宽限、push 优先配对与轮次消耗汇总；状态按实例持有，不 import provider |
 | `ide/llm/providers/kimi/subagent.py` | 子代理 wire 旁路：`WireSidecar` 线程生命周期、`agent-N` 目录发现、tool.call/result 合成与父调用登记；线程由 provider 显式启停，import 无副作用 |
@@ -65,7 +66,8 @@ Message = dict[str, str]  # {"role": "system"|"user"|"assistant", "content": str
 class Chunk:
     kind: Literal[
         "text", "reasoning", "usage", "tool_call", "tool_call_update", "todo",
-    ]  # 正文 / 过程信息 / 用量 / 不透明工具与计划事件
+        "status",
+    ]  # 正文 / 过程信息 / 用量 / 不透明工具与计划事件 / 后台同步状态提示
     text: str
     payload: dict | None = None  # 工具/计划私有载荷：通用层只路由不读字段
 
@@ -79,7 +81,7 @@ class LanguageModel(Protocol):
 |:---|:---|
 | `LanguageModel` | 统一接口，返回 `Iterator[Chunk]` 逐块产出，与 UI 解耦 |
 | `Chunk` | 流式块：`kind="text"` 为正文增量；`kind="reasoning"` 为过程信息（思维链或工具调用摘要），仅当次显示、不回传；`usage` 与工具/计划块只更新展示，不决定轮次终态 |
-| `KimiAcpLLM` | kimi 后台唯一接口（`"kimi-acp"`，出厂默认）：长驻 `kimi acp` 子进程经 ndjson JSON-RPC 对接（[ACP 协议](https://agentclientprotocol.com)，Zed/JetBrains 同款集成方式）；**token 级流式**（`agent_message_chunk`）、思维链可见（`agent_thought_chunk` → reasoning 通道）、`session/new` 原生会话、`session/set_config_option` 会话内切模型；工具审批经 `set_permission_handler()` 注入的回调路由（GUI 模态框），无回调时自动允许，回调返回 None/异常按拒绝兜底；轮次终态按 `stopReason` 分类：`cancelled` → `TurnCancelled` 停止通道，`max_tokens` / `max_turn_requests` / `refusal` → 失败通道（带原始值），缺失/未知 fail-open；真实 EOF、进程退出或写失败后，下一次手动发送重建连接并以 `session/resume` 恢复原会话，绝不自动重放中断 prompt；Kimi 不启用停滞看门狗 |
+| `KimiAcpLLM` | kimi 后台唯一接口（`"kimi-acp"`，出厂默认）：长驻 `kimi acp` 子进程经 ndjson JSON-RPC 对接（[ACP 协议](https://agentclientprotocol.com)，Zed/JetBrains 同款集成方式）；**token 级流式**（`agent_message_chunk`）、思维链可见（`agent_thought_chunk` → reasoning 通道）、`session/new` 原生会话、`session/set_config_option` 会话内切模型；工具审批经 `set_permission_handler()` 注入的回调路由（GUI 模态框），无回调时自动允许，回调返回 None/异常按拒绝兜底；`stopReason` 分类：`cancelled` → `TurnCancelled` 停止通道，`max_tokens` / `max_turn_requests` / `refusal` → 失败通道（带原始值），缺失/未知 fail-open；**`end_turn` 为候选终态**：response 后经 `turn_state` 核对 wire 真实轮次（四态判定），风险轮次 drain 期间继续消费 update、发 status 块、停止可用，直到真实落定/失配/停止/断连——界面假完成归零；失配抛 `TurnDesynchronized`（置恢复态，下一次手动发送只 `session/resume` 一次，不自动重放）；真实 EOF、进程退出或写失败后，下一次手动发送重建连接并以 `session/resume` 恢复原会话；停止分流：轮次级 cancel 无效且终态未确认时回落 `session/close`；Kimi 不启用停滞看门狗 |
 | `DshAcpLLM` | provider（`"dsh-acp"`，后台 DSH，developer preview）：长驻 `dsh acp` 子进程，同构；模型/强度切换走 `session/set_config_option`（configId `model` / `reasoning_effort`，spike 实测），模型值为不透明 JSON 对串、静态表枚举；凭据类错误映射「配置 ~/.dsh/.credentials.yaml 或 DEEPSEEK_API_KEY」引导；轮次失败 `stopReason=error` 转可读报错 |
 | `LocalAcpLLM` | provider（`"local-acp"`，后台 Local）：长驻 `local-cli acp` 子进程，同构；模型目录经 `local-cli models` 纯文本枚举（Local CLI 扫描配置 `model_dir` 下的 `*.gguf`）；思维链由 llama-server SSE 的 `reasoning_content` 字段经服务端映射进 thought 通道；模型加载/配置类错误映射「检查 ~/.local-cli/config.toml」引导 |
 
@@ -138,14 +140,14 @@ for chunk in llm.chat([{"role": "user", "content": "你好"}]):
 
 ### Kimi 连接失效与恢复状态机
 
-- 正常手动停止只发送 `session/cancel` 并本地解除等待，连接与原会话保留；Kimi 不启动停滞看门狗，长时间静默由用户决定何时停止。
+- 手动停止分流（D7）：轮次级 `session/cancel` 生效时保留连接（会话资产），仅本地解除等待；cancel 无效（假完成已清轮次句柄）且终态未确认时，回落会话级 `session/close`——它能终止隐藏通知轮/孤儿轮并回收后台子进程（轮次级 cancel 实测覆盖不到），CLI 未声明 close 能力时降级为 cancel + 明确日志，不假装已停止。标签关闭/切后端/退出统一先 close 再 terminate 兜底。Kimi 不启动停滞看门狗，长时间静默由用户决定何时停止。
 - 轮次终态以 `session/prompt` 响应的 `stopReason` 为准（Kimi）：`cancelled` 抛 `TurnCancelled` 走停止收尾（保留屏幕输出、回滚 history、不播报成功），`max_tokens` / `max_turn_requests` / `refusal` 抛带原始值的 `RuntimeError` 走失败收尾；两者都在轮末用量收尾之后抛，避免丢 usage/速度/消耗。缺失或未知值 fail-open 并按正常完成收尾，未知值记 warning 保留原始值。
 - EOF、进程退出或任意写路径失败统一标记连接死亡，唤醒控制请求、轮次消费与 terminal wait；会话 ID、创建工作区和 MCP 参数不随连接销毁。
 - 下一次手动发送在同一 `_turn_lock` 内执行 `initialize → session/resume → session/set_config_option`；`resume` 不回放历史，恢复后只发送本次新指令。恢复期间到达的旧连接事件不参与新连接状态。
 - CLI 未声明 `agentCapabilities.sessionCapabilities.resume`，或 initialize/resume/模型/thinking 配置失败时，恢复 fail closed：不发送 prompt、不降级 `session/new`，用户可重试或显式清空会话。
 - stderr 由独立 daemon reader 持续排空，内存仅保留最多 40 行、8 KiB 的脱敏尾部；正常对话不逐行落日志，异常退出、写失败、请求超时和初始化/恢复失败才输出诊断尾部。结构化日志记录 PID、agent 版本、连接代次、会话 ID、请求 ID、失败方法、退出码与恢复结果，不记录 prompt 正文或 ACP stdout 原文。
 
-**Kimi 后台通知边界**：IDE 不读取私有 wire 判断轮次是否完成。后台通知期间是否仍应继续执行，由 Kimi 的 ACP `session/prompt` 响应与后续协议事件决定；上游提前 `end_turn` 属于上游契约问题，本地不再设置 drain 或失配恢复。
+**Kimi 后台通知边界**：Kimi CLI 的 ACP 适配层会在内部轮次仍在执行时提前回 `end_turn`（13:53 事故：假完成 → 排队注入忙态 → 停止失效），故 `end_turn` 只作候选终态。客户端经 `turn_state` 从 wire.jsonl 核对真实轮次（只读元数据、增量游标、无风险 fail-open）：用户轮完整 `turn.ended`+`prompt.completed`、最后一步 `end_turn`、无活跃通知轮/后台任务才判 normal；通知轮/任务/用户轮未落定判 draining（保持 busy、发 status 块、不播完成音、停止可用）；`tool_use` 收尾或终态非 completed 判 desynchronized（非成功收尾：保留卡片、回滚用户消息、保留草稿、置恢复态）；wire 受损且有风险证据判 unknown（fail-closed，可停止）。该私有解析只留在 `kimi/` 包，DSH/Local 与公共 ACP 层不感知。
 
 **kimi 二进制探测与模型枚举**（`ide/llm/providers/kimi/catalog.py`）：
 

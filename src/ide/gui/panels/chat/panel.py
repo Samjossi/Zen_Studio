@@ -300,6 +300,12 @@ class ChatPanel(QWidget):
         #: 排队发送待发标志（单条待发）：busy 期间登记后文本驻留输入框，
         #: 轮次正常收尾立即自动发送；清空输入框自动取消；内存态不持久化
         self._pending_send = False
+        #: 后台轮次同步中（Kimi 终态确认 drain）：status 块置位、轮末清零。
+        #: 占位符据此显示「同步中」并暂停完成播报/自动补发（D4/D8）
+        self._sync_active = False
+        #: 同步开始时刻（monotonic，首条 status 块记录）：占位符据此显示
+        #: 已运行时长（D10 长任务可见；0=阈值关闭时只有基础文案）
+        self._sync_started_at: float | None = None
         #: 开发中后端告知已上屏标记：切后端分支与 _send_turn 首发送补告
         #: 共用本标记——切换告知后置位，防启动即落在该后端（无切换事件）
         #: 时每次发送重复告知
@@ -1122,8 +1128,17 @@ class ChatPanel(QWidget):
         """轮次正常收尾：待发登记且输入框有内容 → 立即自动发送（直发
         路径正式气泡上屏，发送成功才清空输入框——与 _on_send 直发路径
         清空时机一致）。无待发/已清空/后端不可用或已封存返回 False（后端不可用
-        时待发内容保留输入框不丢，按失败惯例系统提示）。"""
+        时待发内容保留输入框不丢，按失败惯例系统提示）。
+
+        D6 闸门：provider 报告上一轮终态未确认（turn_pending）时拒绝
+        自动补发——忙态 agent 会吞消息（上游实测），草稿须驻留输入框。"""
         if not self._pending_send:
+            return False
+        provider = self._get_provider(self._llm_name)
+        if provider is not None and getattr(provider, "turn_pending", False):
+            self.output.append_message(
+                "系统", "后台轮次尚未落定，待发内容保留在输入框；"
+                        "请待会话恢复后手动发送")
             return False
         self._pending_send = False
         text = self.input.toPlainText().strip()
@@ -1131,7 +1146,6 @@ class ChatPanel(QWidget):
             return False  # 轮末前已被清空取消（保险，正常不可达）
         if self._blocked_by_archive():
             return False
-        provider = self._get_provider(self._llm_name)
         if provider is None:
             self.output.append_message(
                 "系统", f"后端不可用：{self._llm_name}（未检测到本机 agent CLI）")
@@ -1144,15 +1158,38 @@ class ChatPanel(QWidget):
 
     def _refresh_placeholder(self) -> None:
         """输入框占位符：busy=「响应中…Enter 排队待发送 / ■ 停止」；
+        同步中=「后台轮次同步中（已 X 分）…」：完成与自动待发已暂停；
         空闲=常规提示；停止进行中提示不被覆盖。"""
         if self._busy:
             if self.input.placeholderText() == "正在停止…":
                 return
-            label = BACKEND_LABELS.get(self._llm_name, "AI")
-            text = f"{label} 响应中…Enter 排队待发送 / ■ 停止"
+            if self._sync_active:
+                label = BACKEND_LABELS.get(self._llm_name, "AI")
+                text = (f"{label} 后台轮次同步中"
+                        f"{self._sync_elapsed_hint()}…"
+                        "（完成与自动待发已暂停 / ■ 停止）")
+            else:
+                label = BACKEND_LABELS.get(self._llm_name, "AI")
+                text = f"{label} 响应中…Enter 排队待发送 / ■ 停止"
         else:
             text = "输入消息，Enter 发送 / Shift+Enter 换行"
         self.input.setPlaceholderText(text)
+
+    #: 长任务提示阈值（秒）：同步时长超过后占位符追加「已 X 分」，
+    #: 0 = 关闭（只显示基础文案）。v1 为模块常量，不暴露设置项（D10）
+    _LONG_TASK_HINT_S = 60
+
+    def _sync_elapsed_hint(self) -> str:
+        """同步已运行时长的文案段：未达阈值返回空串（只影响文案，
+        不触发任何中断——Kimi 的停止权在用户手里，D10）。"""
+        started_at = self._sync_started_at
+        if started_at is None or self._LONG_TASK_HINT_S <= 0:
+            return ""
+        elapsed_s = int(time.monotonic() - started_at)
+        if elapsed_s < self._LONG_TASK_HINT_S:
+            return ""
+        minutes, secs = divmod(elapsed_s, 60)
+        return f"，已 {minutes} 分 {secs:02d} 秒"
 
     def _start_usage_grace(self) -> None:
         """轮后用量宽限：由能力快照给出，0 表示收尾即停轮询。"""
@@ -1176,6 +1213,8 @@ class ChatPanel(QWidget):
         if stats is not None:
             self._usage = stats
             self._refresh_usage_label()
+        if self._sync_active:
+            self._refresh_placeholder()  # 同步时长文案随 tick 走动
         deadline = self._usage_grace_deadline
         if not self._busy and deadline is not None and time.monotonic() >= deadline:
             self._usage_timer.stop()
@@ -1215,6 +1254,14 @@ class ChatPanel(QWidget):
 
     def _on_chunk(self, chunk: Chunk) -> None:
         self._last_chunk_at = time.monotonic()  # 看门狗 idle 口径：任何消息帧均刷新
+        if chunk.kind == "status":
+            # 后台轮次同步状态：只更新输入区提示，不进输出区/时间线/历史
+            # （与 usage 同约束；终态确认落定后由收尾路径清零）
+            self._sync_active = True
+            if self._sync_started_at is None:
+                self._sync_started_at = time.monotonic()
+            self._refresh_placeholder()
+            return
         # 时间线色块条旁路分接：工具帧先经厂商 presenter 压成中性投影，
         # 通用组件不读 summary/status/error 等厂商载荷字段
         if chunk.kind in ("tool_call", "tool_call_update"):
@@ -1311,6 +1358,8 @@ class ChatPanel(QWidget):
         )
 
     def _on_finished(self, error: str) -> None:
+        self._sync_active = False  # 轮次收尾：同步态随 busy 一并解除
+        self._sync_started_at = None
         self._flush_turn_consumption()
         if self._turn_started_at is not None:  # 轮次计时收尾（正常/失败同记）
             self._last_turn = {
@@ -1324,14 +1373,24 @@ class ChatPanel(QWidget):
             if self._has_seen_reasoning:
                 self.output.end_reasoning()
                 self._has_seen_reasoning = False
-            self.output.append_stream_chunk(f"\n[请求失败] {error}")
+            # 终态失配与传输失败分流：失配不是请求失败，副作用需核对
+            turn_desync = error.startswith("轮次未确认完成")
+            if turn_desync:
+                self.output.append_stream_chunk(f"\n[未完成] {error}")
+            else:
+                self.output.append_stream_chunk(f"\n[请求失败] {error}")
             self._history.pop()  # 失败的用户消息不入历史
             recovery_failed = error.startswith("原会话恢复失败")
             if recovery_failed and not self.input.toPlainText().strip():
                 self.input.setPlainText(self._sent_text)
             self._restore_sent_attachments()  # 附件恢复回附件行
             provider = self._providers.get(self._llm_name)
-            if (not recovery_failed
+            if turn_desync:
+                label = BACKEND_LABELS.get(self._llm_name, "AI")
+                self.output.append_message(
+                    "系统", f"{label} 后台轮次未确认完成；已发生的工具副作用请核对。"
+                            "下一次手动发送将尝试恢复原会话，原请求不会自动重发")
+            elif (not recovery_failed
                     and capabilities_of(provider).recovery_pending):
                 self.output.append_message(
                     "系统", "ACP 连接已失效；原请求不会自动重发。下一次手动发送将尝试"
@@ -1377,6 +1436,8 @@ class ChatPanel(QWidget):
         取消处理。worker 的 "user" 载荷分不出停止钮与看门狗，故本地来源
         以面板字段为准。
         """
+        self._sync_active = False  # 排空被停止：同步态随收尾解除
+        self._sync_started_at = None
         effective = self._stop_reason or reason
         if effective not in ("user", "stall", "cancelled"):
             effective = "user"

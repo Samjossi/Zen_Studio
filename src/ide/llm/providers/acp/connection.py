@@ -35,6 +35,10 @@ _ACP_TIMEOUT_S = 30  # initialize / session/new / set_config_option 等控制请
 #: 使阻塞中的轮次消费能响应本地中断（TurnAborted）；对外阻塞语义不变
 _NEXT_UPDATE_TICK_S = 1.0
 
+#: session/close 超时：停止路径的辅助请求，必须短——用户按停止后
+#: 界面秒级收尾，不能为等 close 回包卡住清理线程
+_SESSION_CLOSE_TIMEOUT_S = 2.0
+
 
 class TurnAborted(Exception):
     """轮次本地中断信号：cancel 路径置位 _turn_abort 后，阻塞中的
@@ -367,6 +371,29 @@ class AcpConnection:
         logger.info(
             "[%s] 轮次取消 generation=%s sessionId=%s requestId=%s",
             self._agent_name, self.generation, session_id, self._turn_id)
+        return True
+
+    def close_session(self, session_id: str) -> bool:
+        """会话级关闭：停 agent 内部轮次并回收其后台子进程。
+
+        忙态提前回执后 `_turn_id` 已清、轮次级 cancel 又覆盖不到隐藏
+        通知轮（2026-11-21 探针实测），孤儿轮只有会话级 close 能停。
+        超时/失败只记日志并返回 False：不杀连接（调用方随后
+        `terminate()` 兜底），也不假装已停止（D7 降级口径）。
+        """
+        if not self.is_alive:
+            return False
+        try:
+            self.request("session/close", {"sessionId": session_id},
+                         timeout=_SESSION_CLOSE_TIMEOUT_S)
+        except RuntimeError:
+            logger.exception(
+                "[%s] session/close 失败 generation=%s sessionId=%s",
+                self._agent_name, self.generation, session_id)
+            return False
+        logger.info(
+            "[%s] 会话关闭 generation=%s sessionId=%s",
+            self._agent_name, self.generation, session_id)
         return True
 
     def purge_updates(self) -> None:
