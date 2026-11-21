@@ -4,7 +4,9 @@
 #   1. 将 <INSTALL_DIR> 替换为实际路径：
 #      - onedir 直启：打包产物目录（building/dist/zen-studio 的绝对路径）
 #      - AppImage：AppImage 文件所在目录，并将 Exec 改为
-#        Exec=<INSTALL_DIR>/Zen_Studio-x86_64.AppImage
+#        Exec=<INSTALL_DIR>/Zen_Studio-<版本>-x86_64.AppImage
+#        （或指向构建目录中的稳定别名 Zen_Studio-x86_64.AppImage；
+#          分发时拷贝带版本号的真实文件，不要拷贝别名）
 #   2. 拷贝到 ~/.local/share/applications/zen-studio.desktop
 #   3. update-desktop-database ~/.local/share/applications/（可选，刷新菜单缓存）
 #

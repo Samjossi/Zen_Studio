@@ -21,7 +21,7 @@ Zen Studio 全部打包构建活动的专属目录（2026-07-25 收编，见 文
 | `building/build-fcitx5-qt6-plugin.sh` | fcitx5 Qt6 输入法插件编译脚本：编译与 wheel 内 Qt 同版本的插件并部署进 `.venv`（背景见 `文档/修改记录/2026-0731-1640_中文输入法fcitx5失效修复计划.md` 与诊断手册 V1.1） | ✅ |
 | `.build-tools/` | 插件编译工具链（aqt 下载的 Qt、fcitx5-qt 源码/构建区、产物归档 `dist/`） | ❌ gitignored |
 | `building/build/` | PyInstaller 工作目录 + AppDir 组装区 | ❌ gitignored |
-| `building/dist/` | 构建产物：`zen-studio/`（onedir 中间产物）与 `Zen_Studio-x86_64.AppImage` | ❌ gitignored |
+| `building/dist/` | 构建产物：`zen-studio/`（onedir 中间产物）、`Zen_Studio-<版本>-x86_64.AppImage`（带版本真实产物）与 `Zen_Studio-x86_64.AppImage`（稳定别名，指向最新已验证版本） | ❌ gitignored |
 | `building/tools/` | 打包工具链（`appimagetool` 缺失时自动下载；`runtime-x86_64` 缺失时从 appimagetool 内提取，均经哈希校验） | ❌ gitignored |
 
 ## 3. 用法
@@ -30,8 +30,11 @@ Zen Studio 全部打包构建活动的专属目录（2026-07-25 收编，见 文
 # 重新打包（唯一构建入口）
 bash building/build_appimage.sh
 
-# 运行打包程序（AppImage）
+# 运行打包程序（AppImage；稳定别名指向最新已验证版本）
 building/dist/Zen_Studio-x86_64.AppImage
+
+# 分发/归档请拷贝带版本号的真实产物
+ls building/dist/Zen_Studio-*-x86_64.AppImage
 
 # 运行打包程序（onedir 中间产物）
 building/dist/zen-studio/zen-studio
@@ -44,4 +47,5 @@ building/dist/zen-studio/zen-studio
 - 🛡️ 前置自查含 fcitx5 插件 venv 部署断言：插件系手动编译后部署进 `.venv`，venv 重建会丢失，缺失即快速失败并提示恢复路径（归档件 `.build-tools/dist/` 或重编脚本），不再等到冒烟验证才暴露；
 - ⚠️ **升级 PySide6 必须同步重编 fcitx5 输入法插件**（插件绑定 Qt 私有 ABI，不跨版本兼容）：`bash building/build-fcitx5-qt6-plugin.sh`，脚本内置 venv 版本校验，不一致会拒绝编译；
 - 新增需要打包的运行时资产时，必须同时在 `building/zen-studio.spec` 的 `datas` 补收编记录（联动纪律见 `assets/README.md`）；
+- 📦 `dist/` 内保留稳定别名 `Zen_Studio-x86_64.AppImage` 指向最新已验证版本；它是相对符号链接，**分发时必须拷贝带版本号的真实产物**，不要拷贝别名（离开 `dist/` 会断链）；
 - 打包态路径行为（`sys._MEIPASS` 检测、XDG 用户数据目录）收口于 `src/ide/core/paths.py`，本目录不做路径推导。

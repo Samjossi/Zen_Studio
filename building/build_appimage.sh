@@ -15,7 +15,6 @@ DIST_DIR="building/dist"
 WORK_DIR="building/build"
 ONEDIR="$DIST_DIR/zen-studio"
 APPDIR="$WORK_DIR/Zen_Studio.AppDir"
-APPIMAGE="$DIST_DIR/Zen_Studio-x86_64.AppImage"
 TOOL="$BUILDING_DIR/tools/appimagetool"
 TOOL_URL="https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage"
 #: appimagetool 基线哈希（2026-07-25 首下记录，防 continuous 通道漂移/投毒；
@@ -102,9 +101,17 @@ ACTUAL_RUNTIME_SHA256="$(sha256sum "$RUNTIME" | cut -d' ' -f1)"
 }
 
 # 完整版本捕获（pyproject.toml 唯一来源 + git 提交计数构建号）：
-# desktop 元数据注入与 bundle 内 version.txt 一致性断言共用此值
+# desktop 元数据注入、产物文件名与 bundle 内 version.txt 一致性断言共用此值
 VERSION="$(uv run python building/version.py get)"
+# 版本段进入文件名，格式非法会把产物写到意外路径，先守卫再拼接
+[[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?$ ]] \
+    || { echo "❌ 版本格式非法，不能用于文件名：$VERSION"; exit 1; }
+APPIMAGE_NAME="Zen_Studio-${VERSION}-x86_64.AppImage"
+APPIMAGE="$DIST_DIR/$APPIMAGE_NAME"
+# 稳定别名：兼容旧文档/快捷方式，仅在冒烟通过后指向本次产物
+LATEST_LINK="$DIST_DIR/Zen_Studio-x86_64.AppImage"
 echo "    完整版本：$VERSION"
+echo "    产物名：$APPIMAGE_NAME"
 
 echo "==> [2/5] PyInstaller 构建（onedir）"
 # 清 Analysis 缓存：PyInstaller 6.21 复用 workpath 缓存，不感知 venv 内
@@ -157,7 +164,7 @@ Categories=Development;IDE;
 StartupWMClass=zen-studio
 StartupNotify=true
 EOF
-# 版本元数据注入产物内部（文件名保持固定不带版本）
+# 版本元数据注入产物内部；文件名由版本号派生（稳定别名另行维护）
 echo "X-AppImage-Version=$VERSION" >> "$APPDIR/zen-studio.desktop"
 cp "assets/logo/正式logo/logo_256.png" "$APPDIR/zen-studio.png"
 
@@ -179,6 +186,8 @@ fi
 chmod +x "$APPIMAGE"
 
 echo "==> [5/5] 冒烟验证（--appimage-extract 解包核对）"
+[[ "$(basename "$APPIMAGE")" == "$APPIMAGE_NAME" ]] \
+    || { echo "❌ 冒烟：产物文件名与版本不一致：$(basename "$APPIMAGE") ≠ $APPIMAGE_NAME"; exit 1; }
 SMOKE_DIR="$(mktemp -d -p "$WORK_DIR" smoke.XXXXXX)"
 # 失败路径兜底清理（审计 W2：断言 exit 时残留百 M 级解包）
 trap 'rm -rf "$SMOKE_DIR"' EXIT
@@ -220,7 +229,22 @@ find "$SQ" -xtype l -print -quit | grep -q . \
 rm -rf "$SMOKE_DIR"
 trap - EXIT
 
+# 稳定别名：先冒烟后切，保证旧文档/快捷方式指向的永远是通过验证的产物。
+# 别名只是本机便利入口，分发时须拷贝版本化真实文件；文件系统不支持
+# 符号链接时只告警，不阻断版本化产物交付。
+if ln -sfn "$APPIMAGE_NAME" "$LATEST_LINK" \
+    && [[ -L "$LATEST_LINK" && "$(readlink "$LATEST_LINK")" == "$APPIMAGE_NAME" ]]; then
+    echo "    稳定别名：$LATEST_LINK -> $APPIMAGE_NAME"
+else
+    echo "    ⚠️ 稳定别名创建失败（文件系统不支持符号链接？）"
+    echo "       文档/desktop 请直接使用版本化文件名：$APPIMAGE_NAME"
+fi
+
 SIZE_ONEDIR="$(du -sh "$ONEDIR" | cut -f1)"
 SIZE_APPIMAGE="$(du -sh "$APPIMAGE" | cut -f1)"
 echo "✅ 构建完成：$APPIMAGE"
 echo "   onedir 体积 $SIZE_ONEDIR → AppImage 体积 $SIZE_APPIMAGE"
+# 历史版本不自动清理（保留回滚能力），只公示数量与总占用
+VERSIONED_COUNT="$(find "$DIST_DIR" -maxdepth 1 -type f -name 'Zen_Studio-*-x86_64.AppImage' | wc -l)"
+VERSIONED_SIZE="$(du -ch "$DIST_DIR"/Zen_Studio-*-x86_64.AppImage 2>/dev/null | tail -n 1 | cut -f1)"
+echo "   历史版本产物：${VERSIONED_COUNT} 个，合计 ${VERSIONED_SIZE:-0}"

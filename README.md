@@ -141,8 +141,11 @@ uv run main.py --auto-screenshot --screenshot-interval 1
 # 重新打包（AppImage 唯一构建入口）
 bash building/build_appimage.sh
 
-# 运行打包程序（AppImage）
+# 运行打包程序（AppImage；稳定别名指向最新已验证版本）
 building/dist/Zen_Studio-x86_64.AppImage
+
+# 分发/归档产物（文件名带版本号）
+ls building/dist/Zen_Studio-*-x86_64.AppImage
 
 # 运行打包程序（onedir 中间产物）
 building/dist/zen-studio/zen-studio
