@@ -2,7 +2,7 @@
 
 > **状态**：现行（2026-11-21）
 > **范围**：Kimi / DSH / Local 三家后台的「工具名 → 卡片 → 标题图标」
-> **数据源**：`src/ide/gui/panels/chat/vendors/<vendor>/`、`src/ide/llm/providers/<vendor>/updates.py`、公共 `src/ide/gui/panels/chat/card_base.py`、`维护手册/工具箱说明.md`
+> **数据源**：`src/ide/gui/panels/chat/vendors/<vendor>/`、`src/ide/llm/providers/<vendor>/updates.py`、公共 `src/ide/gui/panels/chat/card_base.py`、`维护手册/工具箱说明.md`、`参考代码/deepseek-harness/apps/cli/tests/web-agent-presets.e2e.ts`
 > **用途**：查某个后台有哪些工具、各自落什么卡、标题行图标是什么；后续加工具时知道改哪张表
 
 ## 1. 先看口径
@@ -32,11 +32,12 @@ Kimi/Local：公共 _KIND_ICONS[kind]（无卡级覆盖）
 
 | 后台 | IDE 可识别工具名 | 后端工具清单 | `kind` 通道 | 工具卡类 | 工具卡图标种数 | 读图 / 清单 / MCP 是否独立图标 |
 |:---|:---:|:---|:---:|:---:|:---:|:---|
-| **DSH** | 19 | 19（代码内完整） | 7 | 7 | 10 | **是**：👁️ / 🎯 / 🔌 |
+| **DSH** | 19 | 31（官方标准预设；IDE 登记 19） | 7 | 7 | 10 | **是**：👁️ / 🎯 / 🔌 |
 | **Kimi** | 7（工厂具名） | 26（`工具箱说明.md`） | 7 | 8 | 7 | 否：通常都是 🧩 |
 | **Local** | 7（兼容词表） | 未固化，由 `local-cli` 运行时上报 | 7 | 8 | 7 | 否：通常都是 🧩 |
 
 > 「IDE 可识别工具名」= IDE 里有专门分派或工具名兜底的名称，不等于后端权限系统里的工具总数。
+> DSH 官方 standard 预设是 31 个工具；IDE 目前登记 19 个，另有 20 个（goal/schedule/job/agent 等）当前兜底 🧩，见 `DSH工具与图标.md` §3。
 > 工具卡类不含 `TodoCard`（📋）与 `ThinkingCard`（🧠）；这两类不是工具调用。
 
 ## 3. 同一功能在三家的图标对照
@@ -51,16 +52,19 @@ Kimi/Local：公共 _KIND_ICONS[kind]（无卡级覆盖）
 | 抓网页 | `web` / `web_search` / `web_fetch` / `fetch` 🌐 | `WebSearch` / `FetchURL` 🌐 | 按 `kind=fetch` 🌐 | 一致 |
 | 待办清单 | `todo_write` **🎯** | `TodoList` **🧩** | `TodoList`（兼容词表）**🧩** | **DSH 独有 🎯** |
 | 子代理 | `subagent` / `task` 🤖 | `Agent` 🤖 | `Agent`（兼容词表）🤖 | 一致 |
-| 提问 | `AskUserQuestion` 🧩 | `AskUserQuestion` 🧩 | `AskUserQuestion`（兼容词表）🧩 | 一致；DSH 的 ❓ 仅预留 |
+| 提问 | `ask_user_question` 🧩 | `AskUserQuestion` 🧩 | `AskUserQuestion`（兼容词表）🧩 | 一致；DSH 的 ❓ 仅预留 |
 | MCP 工具 | `mcp__server__tool` **🔌** | 按 `kind`（通常 `other`）🧩 | 按 `kind`（通常 `other`）🧩 | **DSH 独有 🔌** |
 
 ## 4. 本目录文件
 
 | 文件 | 内容 |
 |:---|:---|
-| `DSH工具与图标.md` | 19 个工具名 + 7 个 `kind` + MCP/未知/计划/思维链；含工厂分派优先级 |
+| `DSH工具与图标.md` | IDE 已登记 19 + 后端未登记 20（官方 31）+ 7 个 `kind` + MCP/未知/计划/思维链；含工厂分派优先级 |
 | `Kimi工具与图标.md` | 26 个后端工具名、7 个工厂具名、7 个 `kind`、子代理 wire 工具名映射 |
 | `Local工具与图标.md` | 7 个兼容具名、7 个 `kind`；说明全量工具清单为何待补 |
+
+> DSH 的 31 工具全量对齐（把 20 个未登记工具补成专用卡/图标）已另立计划：
+> `work plans/2026-1121-1153_DSH官方31工具全量对齐计划.md`（草稿）。
 
 ## 5. 图标码点
 
@@ -89,7 +93,7 @@ Kimi/Local：公共 _KIND_ICONS[kind]（无卡级覆盖）
 | 公共 `_KIND_ICONS` 增删/换图 | 本 README 第 2 节 + 三家文件的 `kind` 表 |
 | DSH `_header_icon` / 工厂 `header_icon` | `DSH工具与图标.md` 的具名表与优先级 |
 | 任一厂商 `_TOOL_NAME_CARDS` | 对应厂商文件的「工厂具名」表 |
-| DSH `_FALLBACK_TOOL_KINDS` | `DSH工具与图标.md` 的 19 个工具名表 |
+| DSH `_FALLBACK_TOOL_KINDS` | `DSH工具与图标.md` 的已登记 19 个工具名表 |
 | Kimi `WIRE_TOOL_KINDS` | `Kimi工具与图标.md` 的「子代理 wire」小节 |
 | 新增后台厂商 | 本目录新增一份文件，并更新 README 总览 |
 
