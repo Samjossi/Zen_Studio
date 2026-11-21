@@ -1,6 +1,6 @@
 # Kimi Code CLI ACP 轮次提前 end_turn、追问延迟执行与隐藏通知轮审计报告
 
-> **状态**：上游 ACP 轮次契约缺陷已定位；客户端未使用官方 `session/close` 的关闭缺口已确认（2.7.1 实际能力位与修复效果待实测），待双方分别修复
+> **状态**：上游 ACP 轮次契约缺陷已定位；客户端未使用官方 `session/close` 的关闭缺口已确认。2026-11-21 裸 ACP 探针已实测：2.7.1 声明 `sessionCapabilities.close`，close 能停通知轮并回收后台子进程；`session/cancel` 不覆盖通知轮。待双方分别修复
 > **范围**：Kimi Code CLI 2.7.1（ACP 模式）、Zen Studio 1.8.0.565（ACP 客户端）、后台任务完成通知、用户追问排队、轮次收尾、关闭/取消
 > **时间**：2026-11-21 12:25（UTC+8，编写）
 > **优先级**：高（界面假完成、后台持续写文件、用户无法继续、新任务与旧任务并发）
@@ -27,12 +27,12 @@
 
 补查官方文档后，需要修正一个责任判断：
 
-- 官方 `kimi acp` 参考页明确支持 `session/cancel`（中断当前 turn）与 `session/close`（尽力拆除：中断进行中的 turn、释放会话级资源并关闭存活会话；未知 id 不算错误）。**注意**：该页是当前官方文档；2.7.1 是否实际在 `initialize` 响应中声明 `sessionCapabilities.close`，需在客户端握手日志或裸 ACP 探针中确认。本次客户端没有读取/记录该能力位，因此不能把“补上 `session/close`”当成已证实的修复；若 2.7.1 未声明该能力，则需先升级 CLI 再测。
+- 官方 `kimi acp` 参考页明确支持 `session/cancel`（中断当前 turn）与 `session/close`（尽力拆除：中断进行中的 turn、释放会话级资源并关闭存活会话；未知 id 不算错误）。**2026-11-21 裸 ACP 探针已确认**：2.7.1 的 `initialize` 声明 `sessionCapabilities.close={}`；`session/close` 能停住 `origin.kind=task/trigger=notify` 的通知轮并回收后台子进程；`session/cancel` 不覆盖该通知轮。事故当时客户端没有读取/记录该能力位，本次已补测（见 9.5）。
 - 官方 2.7.1 changelog 明确写着“Keep queued prompts pending until background notification turns finish”，说明追问排队到通知轮结束是官方有意设计，不是随机丢消息。
 - 但 ACP 规范对 `session/prompt` 响应的定义是：v1 的响应就是 turn 的结束；v2 的响应只确认消息已插入，且明确写着“仅仅接收、排队或分配 ID 不足以返回成功响应”。本次 12:07:34 的 `end_turn` 发生在追问尚未插入 wire（12:23:45 才出现 `turn.prompt`）之前，因此即使按 v2 语义也不成立。
 - Zen Studio 当前没有实现 `session/close`：`KimiProvider.close()` 走 `AcpConnection.terminate()`（SIGTERM），停止按钮走 `session/cancel`；而 `cancel_turn()` 在 `_turn_id=None` 时直接返回 False。12:03:57 的 `end_turn` 已经把 `_turn_id` 置空，所以之后的停止/关闭没有可取消的轮次。
 
-因此责任分成两层：**上游负责提前 `end_turn` 与“未插入却回成功”的轮次契约；客户端负责“没有使用官方 `session/close`、停止按钮在 `_turn_id=None` 时 no-op”的关闭缺口。** “关了还在跑”的直接原因在客户端这一层；不能把它写成官方低级错误。官方文档声明 `session/close` 会中断进行中的 turn；本次未实测。若客户端补上 `session/close` 后仍停不住通知轮，才可升级为上游关闭语义缺陷。
+因此责任分成两层：**上游负责提前 `end_turn` 与“未插入却回成功”的轮次契约；客户端负责“没有使用官方 `session/close`、停止按钮在 `_turn_id=None` 时 no-op”的关闭缺口。** “关了还在跑”的直接原因在客户端这一层；不能把它写成官方低级错误。2026-11-21 裸 ACP 探针已实测：`session/close` 能中断通知轮并回收后台子进程（9.5），因此“补上 close 后仍停不住”不再作为待验证的上游关闭缺陷；上游仍需修提前 `end_turn` 与响应先于执行。
 
 需要明确区分责任边界：上述 1–3 中，1、2 是上游轮次契约问题；第 3 条“隐藏轮缺少轮次级句柄”在协议层确实没有轮次级请求 ID，但官方提供了 `session/close` 作为会话级终止入口，而 Zen Studio 没有实现它。因此“关了还在跑”不能全部归因于 Kimi：客户端缺少官方关闭路径是直接原因之一。报告将两者分开，既不把客户端缺口算作上游缺陷，也不让上游用“你们没调 session/close”掩盖提前 `end_turn` 与响应先于执行的问题。
 
@@ -286,7 +286,7 @@ IDE 代码里存在一条关闭链路（但不含官方 `session/close`）：
 - 用户只做了语义暂停（question 回答），没有触发传输取消；
 - 其他客户端侧生命周期缺口。
 
-**这一点属于 Zen Studio 的责任，本文不把它归因于 Kimi。** 但它与上游缺陷叠加，造成了用户看到的“关了还在跑”。客户端侧需要单独修复并复验：实现官方 `session/close` 并在关闭标签时调用；停止按钮必须能取消内部通知轮；关闭后必须确认进程退出。官方文档声明 `session/close` 会中断进行中的 turn；本次未实测，需在修复后复验。如果 `session/close` 仍停不住通知轮，再把它升级为上游关闭语义缺陷。
+**这一点属于 Zen Studio 的责任，本文不把它归因于 Kimi。** 但它与上游缺陷叠加，造成了用户看到的“关了还在跑”。客户端侧需要单独修复并复验：实现官方 `session/close` 并在关闭标签时调用；停止按钮在 `_turn_id=None` 时应走 `session/close` 会话级兜底（并明确告知会关闭当前会话），不能继续用 `session/cancel` 的 no-op 冒充停止；关闭后必须确认进程退出。2026-11-21 裸 ACP 探针已实测：`session/close` 能中断通知轮、回收后台子进程并返回成功（9.5），因此“close 停不住通知轮”不再是待验证的上游关闭缺陷；上游仍需修提前 `end_turn` 与响应先于插入。
 
 ### 6.4 对上游的合理要求
 
@@ -345,13 +345,15 @@ IDE 代码里存在一条关闭链路（但不含官方 `session/close`）：
 
 ### 8.3 待与官方共同验证
 
-- 客户端发送 `session/cancel` 时，CLI 是否取消内部通知轮？
-- 客户端发送 `session/close` 时，CLI 是否中断 `origin=task/trigger=notify` 的通知轮？
+2026-11-21 裸 ACP 探针已答前两项（见 9.5）：
+
+- ~~客户端发送 `session/cancel` 时，CLI 是否取消内部通知轮？~~ **已答（2026-11-21 探针）：不取消；通知轮无 `turn.ended`，后台子进程继续存活。**
+- ~~客户端发送 `session/close` 时，CLI 是否中断 `origin=task/trigger=notify` 的通知轮？~~ **已答（2026-11-21 探针）：会中断通知轮并回收后台子进程。**
 - 客户端关闭 stdin / 退出 ACP 进程时，CLI 是否终止所有后台任务与会话写手？
 - CLI 是否存在独立于 ACP 前端的 daemon/写手？如果有，如何优雅停止？
 - 追问排队期间，CLI 是否能在 ACP 上返回“已排队”而非 `end_turn`？
 
-在拿到官方复现结果前，本文不声称“CLI 忽略关闭信号”，也不声称“存在脱离父进程的 daemon”。目前只能证明：**关闭/暂停没有立即终止隐藏轮，隐藏轮直到自己的结束边界才停；客户端未实现/未调用官方 `session/close`，需补齐后复验。**
+仍未验证 stdin EOF/SIGTERM、daemon/写手、显式“已排队”响应。探针结果不声称“CLI 忽略关闭信号”：`session/close` 有效，`session/cancel` 有明确边界；也不声称存在脱离父进程的 daemon。
 
 ---
 
@@ -400,8 +402,8 @@ IDE 代码里存在一条关闭链路（但不含官方 `session/close`）：
 | 通知轮可见性 | 作为新 ACP 轮次暴露，或等客户端下一次 prompt | ACP 无请求 ID，客户端不可见 |
 | 第二个 prompt 响应 | 执行完成后才 `end_turn`，或明确“已排队” | 8ms 空 `end_turn` |
 | 第二个 prompt 执行 | 恰好一次，且在响应前 | 16m11s 后才执行，响应早已发出 |
-| `session/cancel` | 取消当前 turn；通知轮是否随之取消需官方确认 | 待官方复现；本次客户端未发出可确认的 cancel |
-| `session/close` | 中断进行中的 turn、释放会话资源 | 待官方复现；客户端当前未实现/未调用 |
+| `session/cancel` | 取消当前 turn；通知轮是否随之取消需官方确认 | 探针实测（2026-11-21）：不覆盖通知轮，30s 内无 `turn.ended`，后台 `sleep` 子进程存活（9.5） |
+| `session/close` | 中断进行中的 turn、释放会话资源 | 探针实测（2026-11-21）：能中断通知轮、回收后台子进程；同 session 再 prompt 返回 `-32602`（9.5） |
 | 客户端关闭 | CLI 有限时间内停止/退出 | 本次客户端未发出可确认的关闭；CLI 继续写 wire |
 
 ### 9.4 建议抓取的证据
@@ -412,6 +414,45 @@ IDE 代码里存在一条关闭链路（但不含官方 `session/close`）：
 - `state.json` 的 `lastPrompt` / `updatedAt`；
 - `logs/kimi-code.log` 的请求/响应时间；
 - 进程树与文件 mtime（证明客户端关闭后是否仍写文件）。
+
+### 9.5 探针实测结果（2026-11-21）
+
+> 方法：直接 spawn `kimi acp`，不经过 Zen Studio provider/UI；每个场景独立进程、独立 session、独立临时 workspace。只记录帧/wire/文件/进程元数据，不记录 prompt 正文、工具参数/输出、diff 或凭证。
+> 环境：Kimi Code CLI 2.7.1，`kimi-code/k3.1-pro`，Linux x86_64。
+> 证据：`.temp/kimi_acp_close_probe/REPORT.md` 与同目录下各运行目录；机器汇总 `.temp/kimi_acp_close_probe/evidence.json`。
+
+| 问题 | 实测结论 | 关键证据 |
+|:---|:---|:---|
+| Q1 close 能力 | **有**：`agentCapabilities.sessionCapabilities.close={}`；另含 `list/resume/delete/fork/additionalDirectories`；`agentInfo.version=2.7.1` | `s0-v1-20261121-131542/initialize.json` |
+| Q2 提前 `end_turn` | **复现**：首轮响应前最后一个 `step.end` 为 `finishReason=tool_use`，紧接着 `turn.ended`、ACP `stopReason=end_turn`，同一毫秒通知轮启动 | `s1-20261121-130445`、`s1-20261121-131545` |
+| Q3 追问先回后执行 | **复现**：追问 6–10ms 返回空 `end_turn`（0 正文/0 工具），响应时 wire 无对应 `turn.prompt`；95.3–105.5 秒后才插入执行 | 同上两次 S1 |
+| Q4 `session/cancel` | **不覆盖通知轮**：cancel 后 30s 内无 `turn.ended`，后台 `sleep 90` 子进程仍存活；`wire` 的 `turn.cancel` 只在清理阶段 `session/close` 时出现 | `s2-20261121-130730`、`s2-20261121-131153` |
+| Q5 `session/close` | **覆盖通知轮**：close 返回 `{}`，约 4ms 内通知轮 `turn.ended reason=cancelled`；close 前存活的 `sleep 90` 在 close 后消失，wire 停止增长 | `s3-20261121-130905`、`s3-20261121-131320` |
+| Q6 close 后会话 | 同 session 再 `session/prompt` 返回 **`-32602` Invalid params: Unknown sessionId**；CLI 进程不退出、空闲、无残留子进程 | `s3-20261121-131320/summary.json` |
+| Q7 ACP v2 | 请求 `protocolVersion: 2` 仍返回 **`1`**；响应为 v1 形状，无 `state_update`/`background`，2.7.1 为 v1-only | `s0-v2-20261121-131543/initialize.json` |
+
+关键时序（`s1-20261121-130445`）：
+
+```text
+t=10.128  step 1 end, finishReason=tool_use（后台任务）
+t=35.133  prompt.steered（后台完成通知进入）
+t=42.813  step 2 end, finishReason=tool_use（前台工具返回，没有最终答复步）
+t=42.813  turn.ended turn 0 reason=completed
+t=42.816  ACP response stopReason=end_turn
+t=42.816  turn.prompt turn 1, origin.kind=task, trigger=notify
+t=48.87   追问 session/prompt 发出（通知轮活跃）
+t=49.33   追问响应 stopReason=end_turn（0.010s，空）
+t=154.860 追问才作为 turn 2 插入执行（迟到 105,540ms）
+```
+
+`session/close` 的两次实测（`s3-20261121-130905` / `s3-20261121-131320`）：
+
+- close 响应均为 `{}`（`result_keys: []`，无 error）；
+- 通知轮 `turn.ended` 均为 `reason=cancelled`，分别在 close 后 4ms；
+- 第二次 close 前 `sleep 90` pid 119 真实存活，close 后快照只剩 `kimi-code`；
+- 30 秒窗口内 wire 大小不变（129285 字节）。
+
+**对前文的修正**：9.3 表中 `session/cancel` / `session/close` 两行已按本次实测更新；8.3 的前两项已答。2.7.1 的 close 能力位与“close 能停通知轮”均已证实，客户端不再有“能力未声明”的前置阻塞。上游仍需修 Q2/Q3（提前 `end_turn`、响应先于插入）与 Q4 的 cancel 边界；Q6 的 `-32602` 应对齐 ACP 的 `-32002`。
 
 ---
 
@@ -584,7 +625,7 @@ CLI 自己的 Bash 工具结果写着：
 4. **修复 C4**：明确 `session/cancel` 与 `session/close` 的覆盖边界，并保证 `session/close` 能覆盖内部轮、后台任务和会话写手，在有限时间内停止。
 5. **补充文档**：说明 ACP 模式下 `end_turn`、通知轮、追问排队、取消/关闭的准确语义，便于客户端正确实现。
 6. **回归验证**：修复版本请覆盖 U1–U4 四个场景，并附裸 ACP 帧序证据（请求 ID、`stopReason`、`turn.prompt`、`turn.ended`、`prompt.completed`）。
-7. **确认 `session/close` 的通知轮语义**：官方文档声明 `session/close` 会中断进行中的 turn；请确认它是否也能中断 `origin=task/trigger=notify` 的通知轮。若不能，请一并修复；若能，请给出客户端调用时序（关闭前是否需等待 idle、返回码与超时）。
+7. **保持 `session/close` 的通知轮语义**：2026-11-21 裸 ACP 探针已确认 2.7.1 的 `session/close` 能中断 `origin.kind=task/trigger=notify` 的通知轮并回收后台子进程（9.5）。请在修复版本保持该语义，并补充关闭前是否需等待 idle、返回码与超时的文档；同时把未知 session 的错误码从 `-32602` 对齐到 ACP 规范的 `-32002` + `data.sessionId`。
 
 Zen Studio 侧将同步修复客户端关闭链路（C1–C3），包括实现官方 `session/close` 并在关闭标签时调用；随后在官方修复版本上用同一用例复验。在此之前，本报告不把“客户端没调 `session/close`”算作 Kimi 的缺陷，也不把“提前 `end_turn`”算作客户端的责任。
 
