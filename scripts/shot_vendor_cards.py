@@ -7,7 +7,8 @@
 
 覆盖范围（现行可用路径）：
 - Kimi：Agent / AskUserQuestion / ReadMediaFile / TodoList
-- DSH：read_image / todo_write / subagent
+- DSH：bash / write / read / read_image（读取中、完成、缺失、同源）/
+  search / web_fetch / todo_write / mcp 服务器 / 未知工具 / subagent
 - Local：AskUserQuestion / ReadMediaFile / TodoList / agent
   （Local 用可控假数据验证独立工厂与卡片，不借用 Kimi 截图代替）
 
@@ -18,6 +19,7 @@
 （幂等覆盖写；不写文档目录，截图与临时资产全部留在 .temp/）。
 """
 import argparse
+import hashlib
 import json
 import os
 import sys
@@ -158,7 +160,9 @@ def _answered_update(tid: str, answers: dict,
 
 
 def _vendor_cases(media_path: str, result_path: str) -> dict[str, list[tuple]]:
-    """厂商 → 代表场景。元组：场景名、帧序列、预期卡片类名、看点。"""
+    """厂商 → 代表场景。元组：场景名、帧序列、预期卡片类名、看点、
+    预期标题图标（仅 DSH 断言；其余厂商 None 表示不断言）。"""
+    missing_path = str(ASSET_DIR / "vendor_missing.png")
     kimi_questions = [
         {"question": "选择哪个渲染方案？",
          "options": [{"label": "方案A: BodyHtml"},
@@ -208,7 +212,36 @@ def _vendor_cases(media_path: str, result_path: str) -> dict[str, list[tuple]]:
              "TodoList 清单卡：完成数 1/4，新增项与状态变化高亮"),
         ],
         "dsh": [
-            ("read_image_图片",
+            ("bash_命令",
+             [_tool_call("dsh-bash", "bash", "execute",
+                         {"command": "pytest tests/ -q"}),
+              _tool_update("dsh-bash", "completed",
+                           raw_output={"output": "316 passed in 2.73s"})],
+             "BashCard",
+             "bash：命令头 + 输出，kind=execute 图标 💻", "💻"),
+            ("write_编辑",
+             [_tool_call("dsh-write", "write", "edit",
+                         {"file_path": "src/demo.py",
+                          "content": "a = 1\nb = 2\n"}),
+              _tool_update("dsh-write", "completed",
+                           raw_output={"output": "已写入 2 行"})],
+             "DiffCard",
+             "write：+2 −0 统计与三色 diff，图标 📝", "📝"),
+            ("read_文本",
+             [_tool_call("dsh-read", "read", "read",
+                         {"file_path": "src/demo.py"}),
+              _tool_update("dsh-read", "completed",
+                           raw_output={"output": "1  a = 1\n2  b = 2"})],
+             "TextOutputCard",
+             "read：副标题路径 + 等宽正文，图标 📄", "📄"),
+            ("read_image_读取中",
+             [_tool_call("dsh-media-live", "read_image", "other",
+                         {"file_path": media_path}),
+              _tool_update("dsh-media-live", "in_progress")],
+             "MediaReadCard",
+             "read_image 读取中：图片优先、无入参/出参调试标签，图标 👁️",
+             "\U0001F441\uFE0F"),
+            ("read_image_完成",
              [_tool_call("dsh-media", "read_image", "other",
                          {"file_path": media_path}),
               _tool_update("dsh-media", "completed",
@@ -217,7 +250,41 @@ def _vendor_cases(media_path: str, result_path: str) -> dict[str, list[tuple]]:
                                  "imageUrl": {"url": f"file://{result_path}"}}],
                                ensure_ascii=False)})],
              "MediaReadCard",
-             "DSH read_image：snake_case file_path 进图片卡，kind 兜底为 read"),
+             "read_image：结果图为主图，入参图降为次级缩略图，图标 👁️",
+             "\U0001F441\uFE0F"),
+            ("read_image_同源",
+             [_tool_call("dsh-media-same", "read_image", "other",
+                         {"file_path": media_path}),
+              _tool_update("dsh-media-same", "completed",
+                           raw_output={"output": json.dumps(
+                               [{"type": "image_url",
+                                 "imageUrl": {"url": f"file://{media_path}"}}],
+                               ensure_ascii=False)})],
+             "MediaReadCard",
+             "read_image 同源：入参与结果同一文件只显示一次，无重复小图",
+             "\U0001F441\uFE0F"),
+            ("read_image_缺失",
+             [_tool_call("dsh-media-missing", "read_image", "other",
+                         {"file_path": missing_path}),
+              _tool_update("dsh-media-missing", "completed",
+                           raw_output={"output": "Error: file not found"})],
+             "MediaReadCard",
+             "read_image 缺失：不渲染破图，保留路径行与降级说明，图标 👁️",
+             "\U0001F441\uFE0F"),
+            ("search_检索",
+             [_tool_call("dsh-search", "grep", "search",
+                         {"pattern": "media_path", "path": "src"}),
+              _tool_update("dsh-search", "completed",
+                           raw_output={"output": "src/a.py:66: media_path"})],
+             "TextOutputCard",
+             "search：pattern 副标题 + 命中行，图标 🔍", "🔍"),
+            ("fetch_抓取",
+             [_tool_call("dsh-fetch", "web_fetch", "fetch",
+                         {"url": "https://example.invalid/doc"}),
+              _tool_update("dsh-fetch", "completed",
+                           raw_output={"output": "示例正文摘要"})],
+             "TextOutputCard",
+             "fetch：URL 副标题 + 正文，图标 🌐", "🌐"),
             ("todo_write_清单",
              [_todo_frame("dsh-todo", [
                  {"content": "确认 DSH 工具名兜底", "status": "completed"},
@@ -229,7 +296,21 @@ def _vendor_cases(media_path: str, result_path: str) -> dict[str, list[tuple]]:
                   {"content": "回写 T6 计划", "status": "in_progress"},
                   {"content": "冻结态冒烟", "status": "pending"}], "todo_write")],
              "TodoListCard",
-             "DSH todo_write：content 字段与完成数变化，不借用 Kimi 标题字段"),
+             "DSH todo_write：content 字段与完成数变化，图标 🎯", "🎯"),
+            ("mcp_服务器",
+             [_tool_call("dsh-mcp", "mcp__demo__search", "other",
+                         {"query": "卡片"}),
+              _tool_update("dsh-mcp", "completed",
+                           raw_output={"output": json.dumps(
+                               {"matches": []}, ensure_ascii=False)})],
+             "McpCard",
+             "MCP 服务器：mcp__ 前缀走 🔌，与未知工具分开", "🔌"),
+            ("未知工具",
+             [_tool_call("dsh-unknown", "未收录工具", "other", {"arg": "x"}),
+              _tool_update("dsh-unknown", "completed",
+                           raw_output={"output": "ok"})],
+             "McpCard",
+             "未知工具：McpCard 的 🧩 兜底，不能被误标为 🔌", "🧩"),
             ("subagent_子代理",
              [_tool_call("dsh-subagent", "subagent", "other", {
                  "prompt": "检查 DSH 卡片分派路径",
@@ -239,7 +320,8 @@ def _vendor_cases(media_path: str, result_path: str) -> dict[str, list[tuple]]:
                                "<task_result>结论：subagent → SubagentCard "
                                "分派正常</task_result>")})],
              "SubagentCard",
-             "DSH subagent：kind=other 经工具名兜底为 think，成果摘要上卡"),
+             "DSH subagent：kind=other 经工具名兜底为 think，成果摘要上卡",
+             "🤖"),
         ],
         "local": [
             ("askuserquestion_问答对",
@@ -293,7 +375,8 @@ _VENDOR_CONFIG = {
 
 
 def _render_case(vendor: str, frames: list[dict], session_id: str,
-                 expect_class: str) -> tuple[QWidget, dict]:
+                 expect_class: str,
+                 expect_icon: str | None = None) -> tuple[QWidget, dict]:
     mapper_cls, presenter_cls, factory, vendor_cards = _VENDOR_CONFIG[vendor]
     mapper = mapper_cls()
     router = presenter_cls()
@@ -337,6 +420,12 @@ def _render_case(vendor: str, frames: list[dict], session_id: str,
     first = cards[0]
     assert type(first).__name__ == expect_class, (
         f"{vendor}/{session_id}: 期望 {expect_class}，实得 {type(first).__name__}")
+    if expect_icon is not None:
+        assert isinstance(first, ToolCard), (
+            f"{vendor}/{session_id}: {expect_class} 不是工具卡，无法断言图标")
+        assert first._icon_label.text() == expect_icon, (
+            f"{vendor}/{session_id}: 期望图标 {expect_icon!r}，"
+            f"实得 {first._icon_label.text()!r}")
 
     container = QWidget()
     container.setStyleSheet(f"background: {_WINDOW_BG};")
@@ -373,11 +462,12 @@ def main(argv: list[str] | None = None) -> int:
 
     manifest = ["# 分厂商代表卡片截图清单（shot_vendor_cards.py 产物）", ""]
     for vendor in vendors:
-        for index, (name, frames, expect_class, notes) in enumerate(
-                cases[vendor], start=1):
+        for index, case in enumerate(cases[vendor], start=1):
+            name, frames, expect_class, notes = case[:4]
+            expect_icon = case[4] if len(case) > 4 else None
             session_id = f"{vendor}-{index}"
             container, _ = _render_case(
-                vendor, frames, session_id, expect_class)
+                vendor, frames, session_id, expect_class, expect_icon)
             png = SHOT_DIR / f"{vendor}_{index:02d}_{name}.png"
             if not container.grab().save(str(png)):
                 print(f"[shot_vendor_cards] 错误：截图失败 {png}",
@@ -386,6 +476,7 @@ def main(argv: list[str] | None = None) -> int:
             manifest.extend([
                 f"## {vendor} / {name}",
                 f"- 截图：`{png.relative_to(PROJECT_ROOT)}`",
+                f"- sha256：`{hashlib.sha256(png.read_bytes()).hexdigest()}`",
                 f"- 卡片类：`{vendor}.cards.{expect_class}`（运行时断言来自本厂商包）",
                 f"- 预期看点：{notes}",
                 "",

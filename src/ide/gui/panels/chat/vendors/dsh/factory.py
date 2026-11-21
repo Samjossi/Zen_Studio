@@ -36,6 +36,14 @@ def _normalize_tool_name(title: str) -> str:
     return name.lower()
 
 
+#: MCP 服务器工具命名空间前缀（区分「MCP 工具」与「未知工具/AskUserQuestion」）
+_MCP_TOOL_PREFIX = "mcp__"
+
+
+def _is_mcp_tool(title: str) -> bool:
+    return title.strip().lower().startswith(_MCP_TOOL_PREFIX)
+
+
 def is_question_tool(title: str) -> bool:
     """本厂商工具名是否分派到提问卡（子代理卡据此禁止嵌套交互卡）。"""
     return _TOOL_NAME_CARDS.get(_normalize_tool_name(title)) is QuestionCard
@@ -45,7 +53,8 @@ def make_tool_card(colors: CardColors, open_state: OpenStateMap,
                    payload: dict,
                    workspace_root: Path | None = None) -> ToolCard:
     """工具名二级分派优先，未命中按 tool_kind 分派本厂商专类。"""
-    if title := payload.get("title"):
+    title = payload.get("title") or ""
+    if title:
         if card_cls := _TOOL_NAME_CARDS.get(_normalize_tool_name(title)):
             return card_cls(colors, open_state, payload, workspace_root)
     kind = payload.get("tool_kind") or "other"
@@ -57,4 +66,7 @@ def make_tool_card(colors: CardColors, open_state: OpenStateMap,
         return TextOutputCard(colors, open_state, payload, workspace_root)
     if kind == "think":
         return SubagentCard(colors, open_state, payload, workspace_root)
-    return McpCard(colors, open_state, payload, workspace_root)
+    # MCP 服务器工具用 🔌；未知工具与 AskUserQuestion 仍由 McpCard 的 🧩 兜底
+    header_icon = "🔌" if _is_mcp_tool(title) else None
+    return McpCard(colors, open_state, payload, workspace_root,
+                   header_icon=header_icon)

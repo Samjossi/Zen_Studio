@@ -7,20 +7,27 @@ models 的纯数据类型与无厂商语义的 card_base 基础件。
 import json
 from html import escape as _html_escape
 from pathlib import Path
+from urllib.parse import unquote, urlparse
 
 from PySide6.QtCore import QEvent, Qt, QTimer
 from PySide6.QtWidgets import (
+    QApplication,
     QFrame,
     QHBoxLayout,
     QLabel,
     QPushButton,
     QScrollArea,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
+from ide.core.paths import PROJECT_ROOT
 from ide.gui.panels.chat.card_base import (
     BODY_MAX_HEIGHT,
+    MCP_IMAGE_WIDTH,
+    MEDIA_THUMB_MAX_BYTES,
+    MEDIA_THUMB_WIDTH,
     BodyHtml,
     BodyText,
     CardColors,
@@ -29,7 +36,6 @@ from ide.gui.panels.chat.card_base import (
     _ElidedLabel,
     _selectable,
     compose_mcp_output_html,
-    media_thumb_html,
 )
 from ide.gui.panels.chat.permission_dialog import OTHER_HINT_TEXT
 from ide.gui.selection_band import BandLabel
@@ -41,14 +47,27 @@ from ide.gui.theme import get_mono_family
 class ToolCard(BaseToolCard):
     """DSH 工具卡外壳：只解释本厂商 mapper 产出的卡片字段。"""
 
+    #: 厂商私有标题图标覆盖；空串沿用公共 _KIND_ICONS 的 ACP kind 图标。
+    #: 图标是卡片自身视觉属性，放类上，新增卡类时不易漏。
+    _header_icon: str = ""
+
     def __init__(self, colors: CardColors, open_state: OpenStateMap,
                  payload: dict,
-                 workspace_root: Path | None = None) -> None:
+                 workspace_root: Path | None = None,
+                 *,
+                 header_icon: str | None = None) -> None:
         super().__init__(
             colors, open_state, payload, workspace_root,
             subtitle=payload.get("summary") or "")
+        self._apply_header_icon(header_icon)
         self._build_body(payload)
         self.attach_input_detail(payload.get("input_detail") or "")
+
+    def _apply_header_icon(self, header_icon: str | None) -> None:
+        """应用标题图标覆盖（构造器 super().__init__ 之后调用）。"""
+        icon = header_icon or self._header_icon
+        if icon:
+            self._icon_label.setText(icon)
 
     def _build_body(self, payload: dict) -> None:
         """各专类 body 构建（构造器尾调用）。"""
@@ -448,6 +467,9 @@ class QuestionCard(ToolCard):
     旧会话重放不复活交互按钮。
     """
 
+    #: 仅预留：DSH 工厂尚未接入本卡分派，AskUserQuestion 仍落 McpCard。
+    _header_icon = "❓"
+
     def _build_body(self, payload: dict) -> None:
         self._qa_rows: list[tuple[str, QLabel]] = []
         self._fallback: BodyText | None = None
@@ -663,6 +685,9 @@ class McpCard(ToolCard):
 
     _attach_input_detail = False
 
+    #: 未知工具与 AskUserQuestion 的兜底；MCP 服务器由工厂传 🔌 覆盖。
+    _header_icon = "🧩"
+
     def _build_body(self, payload: dict) -> None:
         in_label = _selectable(BandLabel("入参", self))
         in_label.setStyleSheet(f"color: {self._colors.tool_fg}; font-size: 90%;")
@@ -692,36 +717,250 @@ class McpCard(ToolCard):
         self._output.setVisible(True)
 
 
-class MediaReadCard(McpCard):
-    """ReadMediaFile 专用卡（0158 计划 T2）：McpCard 入参/出参两节之上，
-    入参区 path 文本下方内嵌入参图片略缩图（阅读顺序：路径 → 缩略图 →
-    出参）。仅人类查看，不回传 AI、不改协议语义。
+def _media_image_html(path: Path, width: int) -> str:
+    """本地图片绝对路径 → `<img>`；宽度只用属性（QTextBrowser 不吃 max-width）。"""
+    return f'<img src="{_html_escape(path.as_uri())}" width="{width}">'
 
-    降级纪律（path 文本始终在场，略缩图静默缺失不破坏卡片）：
-    - 文件不存在 → 不渲染；
-    - 文件 >10MB → 不内嵌，留一行占位说明；
-    - 略缩图（320px 辨认用）与出参图（480px 结果用）并存是刻意的：
-      入参图回答「AI 要读什么」，出参图回答「AI 读到了什么」。
+
+class MediaReadCard(ToolCard):
+    """read_image 专用卡（0200 计划 T5）：图片优先，不再沿用 MCP 入参/出参
+    调试卡体例。仅改展示，不改协议：media_path / images / output 字段与
+    mapper 语义原样消费。
+
+    body 顺序：输入或结果主图 → 输入次级缩略图 → 降级说明 → 文本兜底 →
+    底部路径行（省略显示 + 复制完整路径）。入参图回答「AI 要读什么」，
+    结果图回答「AI 读到了什么」；同源时只显示一次。
+
+    降级纪律（路径行与 tooltip 始终保留完整路径）：
+    - 文件不存在 → 不渲染图片，留一行说明；
+    - 文件 >10MB → 不内嵌，留一行说明（width 只限显示宽，不限解码量）；
+    - 无 media_path → 路径行隐藏，回退出参文本。
     """
 
+    #: U+1F441 默认文本呈现，必须附 VS16（U+FE0F）才是彩色眼睛；不要改成裸 👁。
+    _header_icon = "\U0001F441\uFE0F"
+    _attach_input_detail = False
+
     def _build_body(self, payload: dict) -> None:
-        super()._build_body(payload)
-        self._thumb: BodyHtml | None = None
-        self._thumb_rendered = False  # 幂等簿记（首帧优先不覆盖）
+        self._media_path = ""
+        self._path_value = ""
+        self._resolved: Path | None = None
+        self._result_shown = False
+        self._result_src = ""
+
+        self._caption = _selectable(BandLabel(self))
+        self._caption.setStyleSheet(
+            f"color: {self._colors.tool_fg}; font-size: 90%;")
+        self._caption.setVisible(False)
+        self.add_body_widget(self._caption)
+
+        self._image = BodyHtml()
+        self._image.setVisible(False)
+        self.add_body_widget(self._image)
+
+        self._input_caption = _selectable(BandLabel("输入", self))
+        self._input_caption.setStyleSheet(
+            f"color: {self._colors.tool_fg}; font-size: 90%;")
+        self._input_caption.setVisible(False)
+        self.add_body_widget(self._input_caption)
+
+        self._input_thumb = BodyHtml()
+        self._input_thumb.setVisible(False)
+        self.add_body_widget(self._input_thumb)
+
+        self._placeholder = _selectable(BandLabel(self))
+        self._placeholder.setStyleSheet(
+            f"color: {self._colors.reasoning_fg}; font-style: italic;")
+        self._placeholder.setVisible(False)
+        self.add_body_widget(self._placeholder)
+
+        self._output = BodyText(mono=True)
+        self._output.setVisible(False)
+        self.add_body_widget(self._output)
+
+        path_host = QWidget(self)
+        path_row = QHBoxLayout(path_host)
+        path_row.setContentsMargins(0, 0, 0, 0)
+        path_row.setSpacing(6)
+        self._path_label = _ElidedLabel("", path_host)
+        self._path_label.setStyleSheet(
+            f"color: {self._colors.reasoning_fg};")
+        path_row.addWidget(self._path_label, 1)
+        self._copy_path_button = QToolButton(path_host)
+        self._copy_path_button.setText("复制")
+        self._copy_path_button.setAutoRaise(True)
+        self._copy_path_button.setFixedHeight(20)
+        self._copy_path_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._copy_path_button.setStyleSheet(
+            "QToolButton { background: transparent; border: none;"
+            " padding: 0px 4px;"
+            f" color: {self._colors.reasoning_fg}; font-size: 90%; }}"
+            "QToolButton:hover { background: transparent; border: none;"
+            f" color: {self._colors.tool_fg}; }}")
+        self._copy_path_button.clicked.connect(self._copy_path)
+        path_row.addWidget(self._copy_path_button)
+        self._path_host = path_host
+        path_host.setVisible(False)
+        self.add_body_widget(path_host)
+
         if media_path := payload.get("media_path"):
             self._set_media_path(media_path)
+        elif summary := payload.get("summary"):
+            self._set_path_text(summary)
+            self._resolved = self._resolve(summary)
+
+    # ------------------------------------------------------------------
+    # 路径与图片渲染
+    # ------------------------------------------------------------------
+    def _resolve(self, path: str) -> Path:
+        p = Path(path)
+        if not p.is_absolute():
+            p = (self._workspace_root or PROJECT_ROOT) / p
+        return p
+
+    def _set_path_text(self, path: str) -> None:
+        """路径行 + 副标题（文件名 · 目录；完整路径进 tooltip）。"""
+        self._path_value = path
+        self._path_label.setText(path)
+        self._copy_path_button.setToolTip(f"复制完整路径：{path}")
+        self._path_host.setVisible(True)
+        p = Path(path)
+        parent = "" if str(p.parent) in ("", ".") else p.parent.name
+        subtitle = f"{p.name} · {parent}" if parent else p.name
+        self.set_subtitle(subtitle or path)
+        self._subtitle_label.setToolTip(path)
 
     def _set_media_path(self, path: str) -> None:
-        """略缩图渲染（幂等）：解析 → 组装 → 插入入参与出参之间。"""
-        if self._thumb_rendered:
+        """入参路径到达/迟到补挂：主图未定格时渲染主图，已定格则降为次级图。"""
+        path = str(path)
+        if not path or path == self._media_path:
             return
-        html = media_thumb_html(path, self._workspace_root)
-        if html is None:
-            return  # 文件不存在/解析失败：静默降级（path 文本仍在）
-        self._thumb = BodyHtml(html)
-        idx = self._body_layout.indexOf(self._out_label)
-        self._body_layout.insertWidget(idx, self._thumb)
-        self._thumb_rendered = True
+        self._media_path = path
+        self._resolved = self._resolve(path)
+        self._set_path_text(path)
+        if self._result_shown:
+            self._render_input_secondary()
+        else:
+            self._render_input_main()
+
+    def _preview_failure(self, path: Path | None) -> str | None:
+        """预览降级原因；None 表示可渲染。"""
+        if path is None:
+            return "（无图片路径）"
+        try:
+            if not path.is_file():
+                return "（文件不存在，未渲染预览）"
+            if path.stat().st_size > MEDIA_THUMB_MAX_BYTES:
+                return "（图片过大，未生成预览）"
+        except OSError:
+            return "（图片不可读，未渲染预览）"
+        return None
+
+    def _render_input_main(self) -> None:
+        reason = self._preview_failure(self._resolved)
+        if reason:
+            self._image.setVisible(False)
+            self._caption.setVisible(False)
+            self._show_placeholder(reason)
+            return
+        self._clear_placeholder()
+        self._caption.setText("输入")
+        self._caption.setVisible(True)
+        self._image.setHtml(_media_image_html(self._resolved, MCP_IMAGE_WIDTH))
+        self._image.setVisible(True)
+
+    def _render_input_secondary(self) -> None:
+        """结果图已定格时，入参图降为次级小图；同源或不可读则跳过。"""
+        if self._preview_failure(self._resolved) or self._same_as_result():
+            return
+        self._input_caption.setVisible(True)
+        self._input_thumb.setHtml(
+            _media_image_html(self._resolved, MEDIA_THUMB_WIDTH))
+        self._input_thumb.setVisible(True)
+
+    def _same_as_result(self) -> bool:
+        """结果图与入参图是否同一文件（file:// 非标准相对写法也归一）。"""
+        if not self._result_src.startswith("file:") or self._resolved is None:
+            return False
+        raw = self._result_src
+        if raw.startswith("file://"):
+            raw = raw[len("file://"):]
+        raw = unquote(urlparse(raw).path)
+        if not raw:
+            return False
+        result_path = Path(raw) if raw.startswith("/") else self._resolve(raw)
+        try:
+            return result_path.resolve() == self._resolved.resolve()
+        except OSError:
+            return False
+
+    def _render_result(self, src: str) -> None:
+        if self._result_shown and src == self._result_src:
+            return
+        self._result_src = src
+        self._result_shown = True
+        self._clear_placeholder()
+        self._caption.setText("结果")
+        self._caption.setVisible(True)
+        self._image.setHtml(
+            f'<img src="{_html_escape(src)}" width="{MCP_IMAGE_WIDTH}">')
+        self._image.setVisible(True)
+        self._output.setVisible(False)
+        if self._media_path:
+            self._render_input_secondary()
+
+    def _show_output(self, text: str) -> None:
+        self._output.set_extra_style(f"color: {self._colors.tool_fg};")
+        self._output.set_text(text)
+        self._output.setVisible(True)
+
+    def _show_placeholder(self, text: str) -> None:
+        self._placeholder.setText(text)
+        self._placeholder.setVisible(True)
+
+    def _clear_placeholder(self) -> None:
+        self._placeholder.setVisible(False)
+
+    def _copy_path(self) -> None:
+        path = self._media_path or self._path_value
+        if not path:
+            return
+        QApplication.clipboard().setText(path)
+        self._copy_path_button.setText("✓")
+        QTimer.singleShot(1200, self._restore_copy_path)
+
+    def _restore_copy_path(self) -> None:
+        self._copy_path_button.setText("复制")
+
+    # ------------------------------------------------------------------
+    # 生命周期钩子
+    # ------------------------------------------------------------------
+    def _on_completed(self, payload: dict) -> None:
+        images = payload.get("images") or []
+        if images:
+            self._render_result(str(images[0]))
+        elif output := payload.get("output"):
+            if not self._result_shown:  # 结果图在场时文本不得压到图下
+                self._show_output(output)
+
+    def _on_failed(self, payload: dict) -> None:
+        detail = payload.get("error_detail") or payload.get("error")
+        if detail:
+            self._output.set_extra_style(
+                f"color: {self._colors.tool_error_fg};")
+            self._output.set_text(detail)
+            self._output.setVisible(True)
+
+    def apply_update(self, payload: dict) -> None:
+        """只管本卡字段：不挂通用入参块（图片优先，路径行即入参）。"""
+        self.apply_title(payload.get("title"))
+        if media_path := payload.get("media_path"):
+            self._set_media_path(media_path)
+        elif summary := payload.get("summary"):
+            if not self._media_path:
+                self._set_path_text(summary)
+                self._resolved = self._resolve(summary)
+        self.apply_status(payload.get("status"), payload)
 
 
 # ----------------------------------------------------------------------
@@ -798,6 +1037,9 @@ class TodoListCard(McpCard):
     - 首帧空壳场景（本厂商）：清单随迟到 update 帧载荷出现
       （apply_update 整刷，幂等）。
     """
+
+    #: 与 TodoCard（计划通道）的 📋 区分：本卡是「目标清单」。
+    _header_icon = "🎯"
 
     def _build_body(self, payload: dict) -> None:
         entries = payload.get("todos") or []
