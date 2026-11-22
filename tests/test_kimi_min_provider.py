@@ -7,6 +7,7 @@ import queue
 
 import pytest
 
+from ide.llm.base import UsageStats
 from ide.llm.providers.acp import TurnCancelled
 from ide.llm.providers.kimi.provider import KimiAcpLLM
 
@@ -43,6 +44,9 @@ class FakeConn:
         self.requests = []
         self.prompts = []
         self.purged = 0
+        self.cancelled = 0
+        self.aborted = 0
+        self.terminated = 0
 
     def set_permission_handler(self, handler):
         pass
@@ -69,12 +73,14 @@ class FakeConn:
         self.purged += 1
 
     def cancel_turn(self, session_id):
+        self.cancelled += 1
         return True
 
     def abort_turn(self):
-        pass
+        self.aborted += 1
 
     def terminate(self):
+        self.terminated += 1
         self.is_alive = False
 
     def log_diagnostics(self, event, method=None):
@@ -142,3 +148,70 @@ def test_empty_user_message_is_noop():
     conn = FakeConn([])
     assert list(_provider(conn).chat([{"role": "assistant", "content": "x"}])) == []
     assert conn.prompts == []
+
+
+def test_poll_usage_while_turn_lock_held_never_touches_connection(monkeypatch):
+    conn = FakeConn([])
+    llm = _provider(conn)
+    monkeypatch.setattr(llm._usage_poller, "poll", lambda session_id, alias: None)
+    llm._turn_lock.acquire()
+    try:
+        assert llm.poll_usage() is None
+    finally:
+        llm._turn_lock.release()
+
+    assert conn.requests == []
+    assert conn.prompts == []
+    assert conn.purged == 0
+    assert conn.cancelled == 0
+    assert conn.aborted == 0
+    assert conn.terminated == 0
+    assert conn.events.qsize() == 0
+
+
+def test_poll_usage_has_no_structural_connection_access(monkeypatch):
+    class ExplodingConn:
+        def __getattr__(self, name):
+            raise AssertionError(f"轮询触碰 ACP 连接：{name}")
+
+    llm = _provider(ExplodingConn())
+    stats = UsageStats(42, 100, None, "transcript")
+    calls = []
+
+    def poll(session_id, alias):
+        calls.append((session_id, alias))
+        return stats
+
+    monkeypatch.setattr(llm._usage_poller, "poll", poll)
+    assert llm.poll_usage() is stats
+    assert calls == [(SESSION_ID, None)]
+    llm._conn = None
+
+
+def test_worker_prepares_context_catalog_without_gui_subprocess(monkeypatch):
+    conn = FakeConn([])
+    llm = _provider(conn)
+    calls = []
+    monkeypatch.setattr("ide.llm.providers.kimi.provider._find_bin", lambda: "/bin/kimi")
+    monkeypatch.setattr(
+        llm._usage_poller, "ensure_context_sizes", lambda: calls.append(1))
+
+    assert llm._ensure_session() is conn
+    llm._ensure_session()
+    assert calls == [1, 1]
+
+
+def test_model_reset_and_resume_invalidate_usage_cursor(monkeypatch):
+    llm = KimiAcpLLM()
+    calls = []
+    monkeypatch.setattr(llm._usage_poller, "invalidate_model", lambda: calls.append("model"))
+    monkeypatch.setattr(llm._usage_poller, "reset", lambda: calls.append("reset"))
+
+    llm.set_model("other")
+    llm.reset_session()
+    conn = FakeConn([])
+    llm._conn = conn
+    llm._session_id = SESSION_ID
+    llm._resume_session(conn, {"agentCapabilities": {"sessionCapabilities": {"resume": {}}}})
+
+    assert calls == ["model", "reset", "reset"]

@@ -13,7 +13,7 @@ def test_kimi_normal_and_recovery_snapshot():
     llm = KimiAcpLLM()
     normal = llm.capabilities()
     assert normal.image_input is True
-    assert normal.post_turn_usage_grace_s == 0.0  # 极简版无私有用量轮询
+    assert normal.post_turn_usage_grace_s == 0.0  # 零轮后宽限；轮内只读轮询不受影响
     assert normal.stall_watchdog is False
     assert normal.recovery_pending is False
 

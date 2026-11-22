@@ -113,7 +113,7 @@ def test_provider_builds_own_argv_and_keeps_session_params(
     monkeypatch.setattr(module, "_find_bin", lambda: "/fake/agent")
     monkeypatch.setattr(module, "AcpConnection", factory)
     if extra_patch == "kimi":
-        pass  # 极简版无私有 wire/用量旁路
+        pass  # 只读轮内用量不需要额外启动补丁
     elif extra_patch == "dsh":
         monkeypatch.setattr(dsh_session_log, "turn_consumption", lambda *args: (None, 0))
 

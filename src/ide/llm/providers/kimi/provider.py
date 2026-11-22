@@ -1,10 +1,11 @@
 """极简 Kimi ACP provider：一条官方轮次链路，不替上游猜测终态。
 
 按方案 A 的约束，`session/prompt` 响应即本轮终态：`end_turn` 正常收尾，
-其余 `stopReason` 走失败或取消通道。本模块刻意不读 Kimi 私有
-`wire.jsonl`，不做终态确认、drain、同步提示与待发闸门——Kimi CLI 在内部
+其余 `stopReason` 走失败或取消通道。本模块不读 Kimi 私有 `wire.jsonl`
+判断终态，不做终态确认、drain、同步提示与待发闸门——Kimi CLI 在内部
 轮次仍在执行时提前回 `end_turn` 属上游缺陷，客户端如实反映协议，不在
 这里补一层私有判定（见 `2026-1122-1846_Kimi提供商极简重写路线选型.md`）。
+轮内上下文水位由独立只读轮询器从 wire 获取，不接触 ACP 队列。
 
 真实断连保留会话身份：下一次手动发送先 `session/resume`，原 prompt 不自动
 重放。历史由 agent 会话管理，凭证由 CLI 自管。
@@ -21,6 +22,7 @@ from ide.llm.base import (
     Chunk,
     LanguageModel,
     Message,
+    UsageStats,
 )
 # 权限与 terminal 类型来自稳定 ACP 协议层；审批处理器接收厂商分类后的
 # 中性 PermissionRequest，连接层只传原始 params（无厂商语义）。
@@ -33,9 +35,14 @@ from ide.llm.providers.acp import (
     build_client_capabilities,
     build_prompt_blocks,
 )
-from ide.llm.providers.kimi.catalog import _find_bin
+from ide.llm.providers.kimi.catalog import (
+    _find_bin,
+    context_sizes_from_catalog,
+    load_kimi_provider_catalog,
+)
 from ide.llm.providers.kimi.permissions import build_permission_request
 from ide.llm.providers.kimi.updates import KimiUpdateMapper
+from ide.llm.providers.kimi.usage_poll import UsagePoller
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +67,9 @@ class KimiAcpLLM(LanguageModel):
         self._session_id: str | None = None
         #: 本 provider 实例私有的 update 映射器；账本不跨标签/会话共享。
         self._updates = KimiUpdateMapper()
+        self._usage_poller = UsagePoller(
+            context_sizes_source=lambda: context_sizes_from_catalog(
+                load_kimi_provider_catalog()))
         self._session_cwd: str | None = None
         self._session_mcp_servers: list[dict] = []
         #: 断连后待恢复：下一次手动发送重连并 resume，原 prompt 不自动重放
@@ -81,6 +91,7 @@ class KimiAcpLLM(LanguageModel):
     def set_model(self, alias: str) -> None:
         """切换模型别名；失败保留原会话，普通协议错误不触发连接恢复。"""
         self._model = alias
+        self._usage_poller.invalidate_model()
         if self._conn and self._conn.is_alive and self._session_id:
             try:
                 self._conn.request("session/set_config_option", {
@@ -111,6 +122,7 @@ class KimiAcpLLM(LanguageModel):
         self._session_mcp_servers = []
         self._needs_recovery = False
         self._updates.reset()
+        self._usage_poller.reset()
 
     def set_permission_handler(self, handler: PermissionRequestHandler | None) -> None:
         """注入审批处理器：中性 PermissionRequest → optionId（None 视为拒绝）。
@@ -155,6 +167,12 @@ class KimiAcpLLM(LanguageModel):
         return bool(self._session_id) and (
             self._needs_recovery or self._conn is None or not self._conn.is_alive)
 
+    def poll_usage(self) -> UsageStats | None:
+        session_id = self._session_id
+        if session_id is None:
+            return None
+        return self._usage_poller.poll(session_id, self._model)
+
     def capabilities(self) -> BackendCapabilities:
         """当前能力快照：图片可用、无看门狗、无轮末用量宽限。
 
@@ -187,6 +205,7 @@ class KimiAcpLLM(LanguageModel):
         bin_path = _find_bin()
         if not bin_path:
             raise RuntimeError("kimi CLI 不可用：PATH 与 ~/.kimi-code/bin 均未找到 kimi")
+        self._usage_poller.ensure_context_sizes()
         if self._conn is not None and (not self._conn.is_alive or self._needs_recovery):
             self._conn.terminate()
             self._conn = None
@@ -237,6 +256,7 @@ class KimiAcpLLM(LanguageModel):
             # 新会话没有旧会话的调用账本可承接；清空可防止无界增长，并让
             # 相同 toolCallId 在新会话中重新开始。
             self._updates.reset()
+            self._usage_poller.reset()
             self._apply_session_config(strict=False)
             self._needs_recovery = False
         return self._conn
@@ -274,6 +294,7 @@ class KimiAcpLLM(LanguageModel):
         except RuntimeError as e:
             self._raise_recovery_failed(e)
         self._needs_recovery = False
+        self._usage_poller.reset()
         logger.info(
             "[kimi acp min] 恢复成功 sessionId=%s generation=%s",
             self._session_id, conn.generation)

@@ -2,7 +2,7 @@
 
 > 本文档只保留团队常用后端 CLI 的安装、运行、更新与验证命令。
 > 升级后需重启 Zen Studio，再验证版本与实际会话。
-> 最后更新：2026-11-20
+> 最后更新：2026-11-22
 
 ---
 
@@ -63,19 +63,17 @@ kimi --version
 - Kimi 轮次只以对应 `session/prompt` response 的 `stopReason` 收尾。IDE 不读取私有 wire 判断 busy、成功、失配、恢复或待发，也没有轮前/轮后 drain。
 - 后台通知期间提前 `end_turn`、追问未形成真实执行轮或工具副作用重复，应按上游 ACP 契约问题独立取证；不得重新引入本地私有状态机掩盖。
 - 取证保留 CLI 版本、`requestId`、`sessionId`、`stopReason`、ACP 帧顺序和脱敏 wire 元数据；不得包含 prompt 正文、完整工具参数/输出、diff 或凭证。
-- 关闭/停止的协议路径（2026-11-21 裸 ACP 实测，CLI 2.7.1）：关闭标签优先发 `session/close`，再 `AcpConnection.terminate()`；`session/close` 会中断进行中的 turn、回收后台子进程并关闭会话，响应为 `{}`。`session/cancel` 只针对当前前台 turn，不覆盖 `origin.kind=task/trigger=notify` 的通知轮，不能替代会话级关闭。不得先 SIGTERM 再补 close。
-- `session/close` 后同 `sessionId` 再 `session/prompt` 返回 `-32602 Invalid params: Unknown sessionId`（不是 ACP 规范的 `-32002`）；CLI 进程仍存活。客户端必须把该会话标记为非活跃，不能继续用旧 id 发 prompt；下一次发送新建 `session/new`，或显式 `session/resume`（本次未测），不得默认复用旧 id。
-- 2.7.1 的 `initialize` 声明 `sessionCapabilities.close={}`，但 `protocolVersion=1`（对 v2 请求也回退到 1）；没有 ACP v2 的 `state_update.background`，不要依赖 v2 表达隐藏通知轮。
-- 停止按钮在 `_turn_id=None` 时发 `session/cancel` 是 no-op；若用户要求强制停止，使用 `session/close`，并明确告知会关闭当前会话（之后需新建会话）。普通“停止当前回答”仍可先发 `session/cancel`，但不能把它当作关闭兜底。
-- 2026-11-21 裸 ACP 复现：通知 steering 后首轮最后 `step.end` 为 `tool_use` 仍回 `end_turn`；追问 6–10ms 返回空 `end_turn`，95–106 秒后才插入执行。这是上游轮次契约问题，客户端不得用本地 drain 或轮次状态机掩盖；关闭路径按上面的 close 顺序处理。
+- 当前手动停止只发 `session/cancel` 并本地 `abort_turn()` 解封，不回落 `session/close`。关闭标签、切后端和退出只走 `AcpConnection.terminate()`，不额外关闭会话。
+- `session/cancel` 只针对当前前台 turn，不覆盖 `origin.kind=task/trigger=notify` 的通知轮；这是上游能力边界，客户端不得擅自增加第二条停止通道。
+- 2026-11-21 裸 ACP 复现：通知 steering 后首轮最后 `step.end` 为 `tool_use` 仍回 `end_turn`；追问 6–10ms 返回空 `end_turn`，95–106 秒后才插入执行。这是上游轮次契约问题，客户端不得用本地 drain、轮次状态机或会话关闭分流掩盖。
 
 ### 上下文用量采集与迟到通知诊断
 
-- 官方 ACP `usage_update` 仍是 prompt response 后的轮末单帧，携带 `used/size`。Zen 的轮内刷新额外读取私有 `agents/main/wire.jsonl`；该文件没有 ACP 公共契约保证，解析失败必须降级，不得影响聊天主流程。
-- 轮内优先读取 `token_counting.measured.tokens` 作为实测上下文水位；旧版本或事件缺失时，以 `usage.record` 的 `inputOther + inputCacheRead + inputCacheCreation + output` 兜底。模型窗口来自模型目录 `maxContextSize`，不得使用 `llm.request.maxTokens`。
-- 轮内读取采用每会话增量游标与残行缓冲，首次仅取 64KB 尾部；大工具输出后沿用最后有效采样。会话目录只缓存成功定位，失败按 2/5/15 秒退避；空模型目录在下一轮 worker 准备时重试，GUI tick 不启动目录子进程。
-- response 后保留 3 秒有界用量收尾窗口；Kimi 面板另有最长 10 秒非 busy 宽限，由 `poll_usage()` 回收迟到 usage。空闲回收必须非阻塞取得轮次锁，正文、工具、响应和 Token 消耗账本不得走该通道；用量缺失或迟到不改变轮次终态。
-- 排查时只记录事件类型、脱敏数值、时间差、失败类别与重试次数。若轮内长期为 `—`，依次检查目录定位/模型窗口重试日志、wire 是否出现有效 measured 或 usage.record、轮后宽限是否仍在运行；不得复制完整 wire、prompt、工具参数或凭证。
+- 官方 ACP `usage_update` 携带 `used/size`，只在正常帧循环中上屏。Zen 的轮内刷新额外只读私有 `agents/main/wire.jsonl`；该文件没有 ACP 公共契约保证，解析失败必须降级，不得影响聊天主流程。
+- 轮内优先读取 `token_counting.measured.tokens` 作为实测上下文水位；旧版本或事件缺失时，以 turn 级 `usage.record` 的 `inputOther + inputCacheRead + inputCacheCreation + output` 兜底。模型窗口来自模型目录 `maxContextSize`，不得使用 `llm.request.maxTokens`。模型别名可来自轮内 `llm.request.modelAlias`；CLI 2.7.2 还会写 `profile.bind.modelAlias` 与 `usage.record.model`，缺失时才回退 provider 当前别名。
+- 轮内读取采用每会话增量游标与残行缓冲，首次仅取 64KB 尾部；GUI 每 2 秒调用一次，Kimi 内部每 4 秒最多真正读盘一次，大工具输出后沿用最后有效采样。会话目录只缓存成功定位，失败按 2/5/15 秒退避；空模型目录在下一轮 worker 准备时重试，GUI tick 不启动目录子进程。
+- response 到达立即收尾，`post_turn_usage_grace_s=0.0`；没有额外轮末收尾窗口、轮后宽限或空闲队列回收。`poll_usage()` 不接收连接、不获取轮次锁，严禁读取、排空或清理 ACP 队列；response 后才到达的官方推送不回收，最后有效轮内水位保留。
+- 排查时只记录事件类型、脱敏数值、时间差、失败类别与重试次数。若轮内长期为 `—`，依次检查目录定位/模型窗口重试日志、wire 是否出现有效 measured 或 turn 级 usage.record，以及 4 秒采样节拍；不得复制完整 wire、prompt、工具参数或凭证，也不得为补用量修改真实会话文件。
 
 ---
 

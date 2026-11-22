@@ -273,7 +273,7 @@ def test_vendor_tool_turn_stop_and_close(
         ]
 
     if label == "kimi":
-        pass  # 极简版无私有 wire/用量旁路
+        pass  # 只读轮内用量不改变 provider 生命周期
     elif label == "dsh":
         monkeypatch.setattr(dsh_session_log, "turn_consumption",
                             lambda *args: (None, 0))
