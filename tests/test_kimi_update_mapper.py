@@ -14,6 +14,7 @@ from ide.gui.panels.chat.vendors.kimi.cards import (
     TodoListCard,
 )
 from ide.gui.panels.chat.vendors.kimi.factory import make_tool_card
+from ide.gui.panels.chat.vendors.kimi.presenter import KimiCardPresenter
 from ide.llm.base import UsageStats
 from ide.llm.providers.kimi.updates import KimiUpdateMapper
 
@@ -69,12 +70,12 @@ def usage_frame(used: int = 10, size: int = 100) -> dict:
     return frame({"sessionUpdate": "usage_update", "used": used, "size": size})
 
 
-def tool_call(update: dict) -> dict:
-    return frame({"sessionUpdate": "tool_call", **update})
+def tool_call(update: dict, session_id: str = SESSION_ID) -> dict:
+    return frame({"sessionUpdate": "tool_call", **update}, session_id)
 
 
-def tool_update(update: dict) -> dict:
-    return frame({"sessionUpdate": "tool_call_update", **update})
+def tool_update(update: dict, session_id: str = SESSION_ID) -> dict:
+    return frame({"sessionUpdate": "tool_call_update", **update}, session_id)
 
 
 def test_kimi_text_reasoning_usage_are_stable_chunks(mapper):
@@ -219,3 +220,157 @@ def test_kimi_todo_and_question_payloads_reach_cards(qapp, colors, mapper):
     assert ask_update.payload["question_options"][0]["options"][0]["label"] == "红色"
     ask_card.apply_update(ask_update.payload)
     assert ask_card._qa_rows[0][0] == "你希望问候语是什么颜色？"
+
+
+@pytest.mark.parametrize("kind", ["edit", "execute"])
+@pytest.mark.parametrize("status", ["completed", "failed"])
+def test_tool_update_explicit_kind_reaches_fs_mutation_terminal(
+        mapper, kind, status):
+    tid = _tid()
+    mapper.map_session_update(tool_call({
+        "toolCallId": tid, "title": "Tool", "kind": kind,
+    }))
+
+    update = mapper.map_session_update(tool_update({
+        "toolCallId": tid, "kind": kind, "status": status,
+    }))
+
+    assert update.payload["tool_kind"] == kind
+    assert KimiCardPresenter.is_fs_mutation_terminal(update.payload)
+
+
+@pytest.mark.parametrize("kind", ["edit", "execute"])
+@pytest.mark.parametrize("status", ["completed", "failed"])
+def test_tool_update_inherits_first_frame_kind_for_fs_refresh(
+        mapper, kind, status):
+    tid = _tid()
+    mapper.map_session_update(tool_call({
+        "toolCallId": tid, "title": "Tool", "kind": kind,
+    }))
+
+    update = mapper.map_session_update(tool_update({
+        "toolCallId": tid, "status": status,
+    }))
+
+    assert update.payload["tool_kind"] == kind
+    assert KimiCardPresenter.is_fs_mutation_terminal(update.payload)
+
+
+@pytest.mark.parametrize("first_kind,status", [
+    ("read", "completed"),
+    ("other", "completed"),
+    ("edit", "in_progress"),
+])
+def test_tool_update_non_mutation_or_non_terminal_does_not_refresh(
+        mapper, first_kind, status):
+    tid = _tid()
+    mapper.map_session_update(tool_call({
+        "toolCallId": tid, "title": "Edit", "kind": first_kind,
+    }))
+
+    update = mapper.map_session_update(tool_update({
+        "toolCallId": tid, "title": "Edit", "status": status,
+    }))
+
+    assert update.payload["tool_kind"] == first_kind
+    assert not KimiCardPresenter.is_fs_mutation_terminal(update.payload)
+
+
+def test_tool_update_without_trusted_kind_does_not_guess_from_title(mapper):
+    update = mapper.map_session_update(tool_update({
+        "toolCallId": _tid(), "title": "Edit", "status": "completed",
+    }))
+
+    assert "tool_kind" not in update.payload
+    assert not KimiCardPresenter.is_fs_mutation_terminal(update.payload)
+
+
+def test_missing_first_frame_kind_is_not_recorded_as_explicit_other(mapper):
+    tid = _tid()
+    first = mapper.map_session_update(tool_call({
+        "toolCallId": tid, "title": "Unknown",
+    }))
+    update = mapper.map_session_update(tool_update({
+        "toolCallId": tid, "status": "completed",
+    }))
+
+    assert first.payload["tool_kind"] == "other"
+    assert "tool_kind" not in update.payload
+
+
+def test_nested_tool_update_uses_full_tool_call_id_for_kind(mapper):
+    tid = f"parent/{_tid()}"
+    mapper.map_session_update(tool_call({
+        "toolCallId": tid, "title": "Nested edit", "kind": "edit",
+    }))
+
+    update = mapper.map_session_update(tool_update({
+        "toolCallId": tid, "status": "completed",
+    }))
+
+    assert update.payload["parent_tool_call_id"] == "parent"
+    assert update.payload["tool_kind"] == "edit"
+    assert KimiCardPresenter.is_fs_mutation_terminal(update.payload)
+
+
+def test_tool_kind_ledger_is_isolated_by_session(mapper):
+    tid = _tid()
+    mapper.map_session_update(tool_call({
+        "toolCallId": tid, "title": "Edit", "kind": "edit",
+    }, "session-a"))
+
+    other_session = mapper.map_session_update(tool_update({
+        "toolCallId": tid, "status": "completed",
+    }, "session-b"))
+    original_session = mapper.map_session_update(tool_update({
+        "toolCallId": tid, "status": "completed",
+    }, "session-a"))
+
+    assert "tool_kind" not in other_session.payload
+    assert original_session.payload["tool_kind"] == "edit"
+
+
+def test_tool_update_explicit_kind_overrides_first_frame(mapper):
+    tid = _tid()
+    mapper.map_session_update(tool_call({
+        "toolCallId": tid, "title": "Tool", "kind": "read",
+    }))
+
+    update = mapper.map_session_update(tool_update({
+        "toolCallId": tid, "kind": "edit", "status": "completed",
+    }))
+
+    assert update.payload["tool_kind"] == "edit"
+    assert KimiCardPresenter.is_fs_mutation_terminal(update.payload)
+
+
+def test_tool_kind_ledger_clears_after_terminal(mapper):
+    tid = _tid()
+    first = {
+        "toolCallId": tid, "title": "Edit", "kind": "edit",
+    }
+    mapper.map_session_update(tool_call(first))
+
+    terminal = mapper.map_session_update(tool_update({
+        "toolCallId": tid, "status": "completed",
+    }))
+    reused_id = mapper.map_session_update(tool_update({
+        "toolCallId": tid, "status": "completed",
+    }))
+
+    assert terminal.payload["tool_kind"] == "edit"
+    assert "tool_kind" not in reused_id.payload
+
+
+def test_tool_kind_ledger_clears_on_reset(mapper):
+    tid = _tid()
+    mapper.map_session_update(tool_call({
+        "toolCallId": tid, "title": "Edit", "kind": "edit",
+    }))
+    mapper.reset()
+
+    update = mapper.map_session_update(tool_update({
+        "toolCallId": tid, "status": "completed",
+    }))
+
+    assert "tool_kind" not in update.payload

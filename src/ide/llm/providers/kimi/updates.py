@@ -6,8 +6,8 @@ Kimi 自有规则：显式 kind 信任、Kimi 工具名与 rawInput 词表、wri
 ANSI 净化、截断与标准 diff，不承担这里的字段解释。
 
 账本按 mapper 实例持有，并以 `(sessionId, toolCallId)` 键控：不同标签的
-provider 实例、同一 provider 内不同会话都不共享状态；`reset()` 在会话
-重建/关闭时清空本实例全部账本。
+provider 实例、同一 provider 内不同会话都不共享状态；更新帧优先保留显式
+工具类型，缺失时继承首帧记录；`reset()` 在会话重建/关闭时清空全部账本。
 """
 import json
 import re
@@ -366,12 +366,15 @@ class KimiUpdateMapper:
         #: 已提取入参的调用键 `(sessionId, toolCallId)`：update 帧迟到回填
         #: 只做一次；终态帧清理，防同会话内调用 ID 复用。
         self._input_detail_seen: set[tuple[str, str]] = set()
+        #: 首帧显式工具类型供缺字段的更新帧继承；终态清理，防 ID 复用串值。
+        self._tool_kinds: dict[tuple[str, str], str] = {}
         #: 会话级 todo 快照：跨调用 diff 的 before；跨轮保留以维持连续高亮。
         self._last_todo_snapshots: dict[str, list[TodoEntry]] = {}
 
     def reset(self) -> None:
         """清空本实例全部账本；会话重建或 provider 关闭时调用。"""
         self._input_detail_seen.clear()
+        self._tool_kinds.clear()
         self._last_todo_snapshots.clear()
 
     def _record_input_detail(self, payload: dict, detail: str | None,
@@ -406,9 +409,12 @@ class KimiUpdateMapper:
         payload["title"] = update.get("title") or "?"
         # Kimi 的显式 kind 是可信输入：不按工具名兜底，ReadMediaFile /
         # TodoList / AskUserQuestion 保持 other，由字段与卡片名分派承接。
-        tool_kind = update.get("kind") if isinstance(update.get("kind"), str) \
-            else "other"
+        explicit_kind = update.get("kind")
+        tool_kind = explicit_kind if isinstance(explicit_kind, str) else "other"
         payload["tool_kind"] = tool_kind
+        if ((tid := payload.get("tool_call_id"))
+                and isinstance(explicit_kind, str) and explicit_kind):
+            self._tool_kinds[(session_id, tid)] = explicit_kind
         if tool_kind == "think":
             payload["is_subagent"] = True
         if tool_kind == "execute":
@@ -454,9 +460,15 @@ class KimiUpdateMapper:
         if isinstance(update.get("title"), str):
             payload["title"] = update["title"]
         kind = update.get("kind")
-        if not isinstance(kind, str) or not kind:
-            kind = None
         tid = payload.get("tool_call_id")
+        if isinstance(kind, str) and kind:
+            payload["tool_kind"] = kind
+            if tid:
+                self._tool_kinds[(session_id, tid)] = kind
+        else:
+            kind = self._tool_kinds.get((session_id, tid)) if tid else None
+            if kind:
+                payload["tool_kind"] = kind
         if tid and (session_id, tid) not in self._input_detail_seen:
             self._record_input_detail(
                 payload, _format_input_detail(update), session_id)
@@ -492,6 +504,7 @@ class KimiUpdateMapper:
                 payload["images"] = images
         if status in ("completed", "failed") and tid:
             self._input_detail_seen.discard((session_id, tid))
+            self._tool_kinds.pop((session_id, tid), None)
         if diff := _extract_diff(update.get("content")):
             payload["diff_stat"], payload["diff_hunks"], truncated = diff
             if truncated:

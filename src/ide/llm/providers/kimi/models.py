@@ -62,6 +62,7 @@ class ToolUpdatePayload(TypedDict, total=False):
     tool_call_id: str
     status: str
     title: str
+    tool_kind: str
     error: str
     error_detail: str
     output: str

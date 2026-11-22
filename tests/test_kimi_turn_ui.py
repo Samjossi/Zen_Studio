@@ -1,7 +1,13 @@
 import pytest
+from PySide6.QtCore import QObject, QTimer, Signal
+from PySide6.QtTest import QTest
+from PySide6.QtWidgets import QApplication
 
+from ide.gui.controllers import GitStatusController
 from ide.gui.panels.chat.panel import ChatPanel
+from ide.gui.panels.chat.vendors.kimi.presenter import KimiCardPresenter
 from ide.llm.base import BackendCapabilities, Chunk
+from ide.llm.providers.kimi.updates import KimiUpdateMapper
 
 
 class SignalStub:
@@ -112,6 +118,8 @@ class PanelHarness:
         self.attachments = AttachmentsStub()
         self.turn_finished = SignalStub()
         self.turn_completed = SignalStub()
+        self.files_maybe_changed = SignalStub()
+        self._presenter = KimiCardPresenter()
         self.sent_turns = []
         self.busy = True
         self._busy = True
@@ -307,3 +315,80 @@ def test_normal_provider_turn_pending_clear_allows_fire():
     assert fired is True
     assert panel._pending_send is False
     assert panel.sent_turns == [("draft", [])]
+
+
+@pytest.mark.parametrize("kind,status,expected_signals", [
+    ("edit", "completed", 1),
+    ("execute", "failed", 1),
+    ("read", "completed", 0),
+    ("other", "completed", 0),
+    ("edit", "in_progress", 0),
+])
+def test_kimi_activity_frames_drive_files_maybe_changed(
+        kind, status, expected_signals):
+    panel = PanelHarness()
+    mapper = KimiUpdateMapper()
+    first = mapper.map_session_update({
+        "method": "session/update",
+        "params": {
+            "sessionId": "panel-refresh",
+            "update": {
+                "sessionUpdate": "tool_call",
+                "toolCallId": "panel-tool",
+                "title": "Tool",
+                "kind": kind,
+            },
+        },
+    })
+    terminal = mapper.map_session_update({
+        "method": "session/update",
+        "params": {
+            "sessionId": "panel-refresh",
+            "update": {
+                "sessionUpdate": "tool_call_update",
+                "toolCallId": "panel-tool",
+                "status": status,
+            },
+        },
+    })
+
+    ChatPanel._on_activity_chunk(panel, first)
+    assert panel.files_maybe_changed.events == []
+    ChatPanel._on_activity_chunk(panel, terminal)
+
+    assert len(panel.files_maybe_changed.events) == expected_signals
+
+
+def test_files_maybe_changed_uses_existing_git_debounce():
+    app = QApplication.instance() or QApplication([])
+
+    class TabsStub(QObject):
+        files_maybe_changed = Signal()
+
+    class GitControllerStub(QObject):
+        schedule_refresh = GitStatusController.schedule_refresh
+
+        def __init__(self):
+            super().__init__()
+            self.refresh_calls = 0
+            self._debounce = QTimer(self)
+            self._debounce.setSingleShot(True)
+            self._debounce.setInterval(GitStatusController.REFRESH_DEBOUNCE_MS)
+            self._debounce.timeout.connect(self.refresh)
+
+        def refresh(self):
+            self.refresh_calls += 1
+
+    tabs = TabsStub()
+    controller = GitControllerStub()
+    tabs.files_maybe_changed.connect(controller.schedule_refresh)
+
+    for _ in range(3):
+        tabs.files_maybe_changed.emit()
+
+    assert controller._debounce.interval() == 300
+    assert controller._debounce.isActive()
+    assert controller.refresh_calls == 0
+    QTest.qWait(350)
+    assert controller.refresh_calls == 1
+    app.processEvents()
