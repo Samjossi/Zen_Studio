@@ -12,7 +12,6 @@ from ide.llm.providers.acp.connection import AcpConnection
 from ide.llm.providers.dsh import provider as dsh_provider
 from ide.llm.providers.dsh import session_log as dsh_session_log
 from ide.llm.providers.kimi import provider as kimi_provider
-from ide.llm.providers.kimi import usage as kimi_usage, wire as kimi_wire
 from ide.llm.providers.local import provider as local_provider
 
 WORKSPACE = os.path.abspath(".")
@@ -114,10 +113,7 @@ def test_provider_builds_own_argv_and_keeps_session_params(
     monkeypatch.setattr(module, "_find_bin", lambda: "/fake/agent")
     monkeypatch.setattr(module, "AcpConnection", factory)
     if extra_patch == "kimi":
-        monkeypatch.setattr(
-            kimi_usage.UsageTracker, "ensure_context_sizes", lambda self: None)
-        monkeypatch.setattr(kimi_wire, "session_dir_of", lambda session_id: None)
-        monkeypatch.setattr(kimi_usage, "WIRE_USAGE_WAIT_S", 0.0)
+        pass  # 极简版无私有 wire/用量旁路
     elif extra_patch == "dsh":
         monkeypatch.setattr(dsh_session_log, "turn_consumption", lambda *args: (None, 0))
 

@@ -11,12 +11,10 @@ from ide.gui.panels.chat.vendors.kimi.cards import (
     DiffCard,
     MediaReadCard,
     QuestionCard,
-    SubagentCard,
     TodoListCard,
 )
 from ide.gui.panels.chat.vendors.kimi.factory import make_tool_card
 from ide.llm.base import UsageStats
-from ide.llm.providers.kimi import subagent as kimi_subagent
 from ide.llm.providers.kimi.updates import KimiUpdateMapper
 
 SESSION_ID = "kimi-mapper-session"
@@ -221,37 +219,3 @@ def test_kimi_todo_and_question_payloads_reach_cards(qapp, colors, mapper):
     assert ask_update.payload["question_options"][0]["options"][0]["label"] == "红色"
     ask_card.apply_update(ask_update.payload)
     assert ask_card._qa_rows[0][0] == "你希望问候语是什么颜色？"
-
-
-def test_kimi_agent_sidecar_nests_child_card(qapp, colors, mapper):
-    parent_tid = _tid()
-    parent = mapper.map_session_update(tool_call({
-        "toolCallId": parent_tid, "title": "Agent", "kind": "think",
-        "status": "pending", "content": [],
-    }))
-    parent_card = make_tool_card(colors, OpenStateMap(), parent.payload)
-    assert isinstance(parent_card, SubagentCard)
-    assert parent.payload["is_subagent"] is True
-
-    child = kimi_subagent.synthesize_wire_call(
-        {"name": "Bash", "toolCallId": "wire-1",
-         "args": {"command": "ls -la"}},
-        parent_tid,
-    )
-    child_chunk = mapper.map_session_update(frame(child))
-    assert child_chunk.payload["parent_tool_call_id"] == parent_tid
-    assert child_chunk.payload["title"] == "Bash"
-    assert child_chunk.payload["tool_kind"] == "execute"
-    assert child_chunk.payload["command"] == "ls -la"
-    parent_card.append_child_call(child_chunk.payload)
-    assert parent_tid + "/wire-1" in parent_card._tool_cards
-
-    result = kimi_subagent.synthesize_wire_result(
-        {"toolCallId": "wire-1", "result": {"output": "README.md"}},
-        parent_tid,
-        "execute",
-    )
-    result_chunk = mapper.map_session_update(frame(result))
-    assert result_chunk.payload["status"] == "completed"
-    assert result_chunk.payload["parent_tool_call_id"] == parent_tid
-    parent_card.append_child_update(result_chunk.payload)

@@ -66,9 +66,6 @@ KEY_TERMINAL_SWAP_COPY_PASTE = "terminal_swap_copy_paste"
 KEY_TERMINAL_AI_TAB_CLOSE_DELAY_S = "terminal_ai_tab_close_delay_s"
 KEY_PERMISSION_MODE = "permission_mode"
 KEY_CHAT_RENDERER = "chat_renderer"
-#: kimi 子代理 wire 旁路开关（0813-1919 计划 T4；默认开，False 回退
-#: 纯 ACP 行为——子代理仅起止 + 成果摘要；格式漂移熔断时的手动回退通道）
-KEY_KIMI_WIRE_SIDECAR = "kimi_wire_sidecar"
 #: AI 任务完成提示音开关（ide/gui/sound_player.py 消费）
 KEY_NOTIFY_SOUND_ENABLED = "notify_sound_enabled"
 #: AI 任务完成桌面通知开关（ide/gui/desktop_notifier.py 消费，notify-send 系统通知）
@@ -116,7 +113,7 @@ DEFAULT_TURN_STALL_TIMEOUT_MIN = 10
 
 
 class AppSettings(TypedDict):
-    """settings.json 全量结构（18 个固定键，均为用户偏好）。"""
+    """settings.json 全量结构（17 个固定键，均为用户偏好）。"""
 
     theme: str                   # 主题名（ide/gui/theme.py 注册表键）
     font_size: int               # 全局 UI 字号（pt）
@@ -144,9 +141,6 @@ class AppSettings(TypedDict):
     #: 对话区渲染轨；只为旧存档兼容保留，值恒为 cards（历史 classic
     #: 在加载时归一，不迁移也不回写配置文件）
     chat_renderer: str
-    #: kimi 子代理 wire 旁路开关（0813-1919 计划 T4：True 默认——
-    #: 子代理内部活动经 wire.jsonl 旁路嵌套显示；False 回退纯 ACP）
-    kimi_wire_sidecar: bool
     #: AI 任务完成时播放提示音（True 默认）
     notify_sound_enabled: bool
     #: AI 任务完成时弹出顶部通知横幅（True 默认）
@@ -176,7 +170,6 @@ class AppSettingsPatch(TypedDict, total=False):
     terminal_ai_tab_close_delay_s: int
     permission_mode: str
     chat_renderer: str
-    kimi_wire_sidecar: bool
     notify_sound_enabled: bool
     notify_banner_enabled: bool
     notify_sound_done: str
@@ -198,7 +191,6 @@ DEFAULT_SETTINGS: AppSettings = {
     KEY_TERMINAL_AI_TAB_CLOSE_DELAY_S: DEFAULT_TERMINAL_AI_TAB_CLOSE_DELAY_S,
     KEY_PERMISSION_MODE: DEFAULT_PERMISSION_MODE,
     KEY_CHAT_RENDERER: DEFAULT_CHAT_RENDERER,
-    KEY_KIMI_WIRE_SIDECAR: True,
     KEY_NOTIFY_SOUND_ENABLED: True,
     KEY_NOTIFY_BANNER_ENABLED: True,
     KEY_NOTIFY_SOUND_DONE: "done.wav",

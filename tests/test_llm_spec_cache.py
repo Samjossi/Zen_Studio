@@ -86,7 +86,7 @@ def test_vendor_specs_snapshot_metadata_and_factories():
     assert kimi_spec.SPEC.supports_images is True
     assert kimi_spec.SPEC.efforts == ("low", "high", "max")
     assert kimi_spec.SPEC.default_effort == "high"
-    assert kimi_spec.SPEC.vendor_settings == ("kimi_wire_sidecar",)
+    assert kimi_spec.SPEC.vendor_settings == ()
     assert kimi_spec.SPEC.dev_note is None
     assert kimi_spec.SPEC.factory is KimiAcpLLM
 

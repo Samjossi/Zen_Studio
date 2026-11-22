@@ -6,13 +6,13 @@ from ide.gui import settings as settings_module
 from ide.gui.panels.chat import panel as panel_module
 from ide.llm.base import apply_vendor_settings_to
 from ide.llm.providers.dsh.provider import DshAcpLLM
-from ide.llm.providers.kimi.provider import KimiAcpLLM
 from ide.llm.providers.local.provider import LocalAcpLLM
 from ide.llm.registry import REGISTRY
 
 
-def test_vendor_settings_declared_only_by_kimi():
-    assert REGISTRY["kimi-acp"].vendor_settings == ("kimi_wire_sidecar",)
+def test_no_vendor_settings_declared():
+    # 极简重写后 Kimi 无私有旁路开关；三家均不声明厂商设置键
+    assert REGISTRY["kimi-acp"].vendor_settings == ()
     assert REGISTRY["dsh-acp"].vendor_settings == ()
     assert REGISTRY["local-acp"].vendor_settings == ()
 
@@ -22,22 +22,6 @@ def test_declared_vendor_keys_exist_in_default_settings():
         for key in spec.vendor_settings:
             assert key in settings_module.DEFAULT_SETTINGS, (
                 f"{spec.name} 声明的厂商设置键 {key!r} 不在公共设置默认值中")
-    # 持久化键名与默认值保持不变
-    assert settings_module.DEFAULT_SETTINGS["kimi_wire_sidecar"] is True
-
-
-def test_kimi_applies_declared_setting_and_ignores_unknown_keys():
-    llm = KimiAcpLLM()
-    assert llm._sidecar_enabled is True
-
-    llm.apply_vendor_settings({"kimi_wire_sidecar": False})
-    assert llm._sidecar_enabled is False
-    llm.apply_vendor_settings({"kimi_wire_sidecar": False, "unknown_key": 1})
-    assert llm._sidecar_enabled is False
-    llm.apply_vendor_settings({"kimi_wire_sidecar": True})
-    assert llm._sidecar_enabled is True
-    llm.apply_vendor_settings({})
-    assert llm._sidecar_enabled is True
 
 
 def test_dsh_and_local_unknown_vendor_settings_change_nothing():
