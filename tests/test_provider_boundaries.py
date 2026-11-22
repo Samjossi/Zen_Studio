@@ -157,6 +157,7 @@ _PAYLOAD_MAPPING_METHODS = frozenset({
 
 #: 新增厂商私有模块：只有本厂商后台包可以导入；公共 ACP 与通用 GUI 不得导入
 VENDOR_PRIVATE_MODULES = {
+    "ide.llm.providers.kimi.kap": "kimi",
     "ide.llm.providers.kimi.wire": "kimi",
     "ide.llm.providers.kimi.usage": "kimi",
     "ide.llm.providers.kimi.subagent": "kimi",
@@ -936,6 +937,16 @@ def test_guard_rejects_generic_module_importing_concrete_provider():
         "from ide.llm.providers.kimi import KimiAcpLLM\n")
     problems = _check_composition_roots((module,))
     assert any("只有后台注册表" in problem for problem in problems), problems
+
+
+def test_guard_rejects_generic_module_importing_kap_provider():
+    module = _synthetic(
+        f"{GUI_CHAT_ROOT}/panel.py",
+        "from ide.llm.providers.kimi.kap.provider import KimiKapLLM\n")
+    problems = _check_composition_roots((module,))
+    assert any("只有后台注册表" in problem for problem in problems), problems
+    private = _check_vendor_private_imports((module,))
+    assert any("只有 kimi 后台包" in problem for problem in private), private
 
 
 def test_guard_rejects_generic_gui_importing_vendor_cards():

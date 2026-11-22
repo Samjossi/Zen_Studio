@@ -49,10 +49,12 @@ def _spec(**overrides) -> spec.BackendSpec:
 # 注册表快照与公共导出
 # ----------------------------------------------------------------------
 def test_registry_order_labels_and_queries_unchanged():
-    assert list(registry.REGISTRY) == ["kimi-acp", "dsh-acp", "local-acp"]
+    assert list(registry.REGISTRY) == [
+        "kimi-acp", "kimi-kap", "dsh-acp", "local-acp"]
     assert registry.DEFAULT_BACKEND == "kimi-acp"
     assert registry.BACKEND_LABELS == {
         "kimi-acp": "Kimi ACP",
+        "kimi-kap": "Kimi KAP",
         "dsh-acp": "DeepSeek Harness",
         "local-acp": "Local ACP",
     }
@@ -89,6 +91,14 @@ def test_vendor_specs_snapshot_metadata_and_factories():
     assert kimi_spec.SPEC.vendor_settings == ()
     assert kimi_spec.SPEC.dev_note is None
     assert kimi_spec.SPEC.factory is KimiAcpLLM
+
+    assert kimi_spec.KAP_SPEC.name == "kimi-kap"
+    assert kimi_spec.KAP_SPEC.vendor == "kimi"
+    assert kimi_spec.KAP_SPEC.supports_images is True
+    assert kimi_spec.KAP_SPEC.efforts == ("low", "high", "max")
+    assert kimi_spec.KAP_SPEC.vendor_settings == ()
+    assert "实验性" in (kimi_spec.KAP_SPEC.dev_note or "")
+    assert kimi_spec.KAP_SPEC.factory.__name__ == "KimiKapLLM"
 
     assert dsh_spec.SPEC.name == "dsh-acp"
     assert dsh_spec.SPEC.vendor_label == "DSH"

@@ -14,9 +14,11 @@ from ide.llm.providers.kimi.catalog import (
     display_names_from_catalog,
     efforts_from_catalog,
     kimi_available,
+    kimi_kap_available,
     load_kimi_provider_catalog,
     models_from_catalog,
 )
+from ide.llm.providers.kimi.kap.provider import KimiKapLLM
 from ide.llm.providers.kimi.provider import KimiAcpLLM
 from ide.llm.spec import BackendSpec
 
@@ -43,4 +45,26 @@ SPEC = BackendSpec(
     default_effort="high",
     list_efforts=lambda: efforts_from_catalog(_catalog()),
     list_display_names=lambda: display_names_from_catalog(_catalog()),
+)
+
+#: KAP 链路的接口声明：与 ACP 并列，服务发现/进程生命周期归 kap 子包。
+#: 模型目录沿用同一份 `kimi provider list --json` 载荷（同厂商单一来源），
+#: 不另建私有目录源；`available` 额外要求 CLI >= 2.7.0。
+KAP_SPEC = BackendSpec(
+    name="kimi-kap",
+    label="Kimi KAP",
+    vendor="kimi",
+    vendor_label="Kimi",
+    available=kimi_kap_available,
+    list_models=lambda: models_from_catalog(_catalog()),
+    factory=KimiKapLLM,
+    supports_images=True,
+    efforts=("low", "high", "max"),
+    default_effort="high",
+    list_efforts=lambda: efforts_from_catalog(_catalog()),
+    list_display_names=lambda: display_names_from_catalog(_catalog()),
+    dev_note=(
+        "Kimi KAP 为实验性链路（本地 kimi web / KAP 1.0.0）："
+        "轮次事件与工具卡取自官方本地服务；契约随 CLI 升级可能变化，"
+        "解析失败会降级而不阻断聊天。"),
 )

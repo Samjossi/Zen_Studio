@@ -12,6 +12,7 @@ maxContextSize 上下文窗口。
 import json
 import logging
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -19,6 +20,12 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 KIMI_BIN = "kimi"
+
+#: KAP 1.0.0 的硬性 CLI 门槛；低于该版本不注册 kap 入口，避免菜单可点、
+#: 一发就报 `Unknown command: web`。
+KAP_MIN_VERSION = (2, 7, 0)
+
+_VERSION_RE = re.compile(r"(\d+)\.(\d+)\.(\d+)")
 
 
 def _find_bin() -> str | None:
@@ -41,6 +48,30 @@ def _find_bin() -> str | None:
 def kimi_available() -> bool:
     """检测 kimi CLI 是否可用（PATH 或默认安装位置存在）。"""
     return _find_bin() is not None
+
+
+def kimi_kap_available() -> bool:
+    """检测 CLI 是否满足 KAP 1.0.0 的 v2.7.0 门槛。
+
+    `--version` 解析失败时 fail-open（返回 True）：版本输出格式变化不应
+    让一个实际可用的后端从菜单消失；真正的兼容性问题会在首个 chat 的
+    `kimi web` 启动错误里暴露。低于门槛则 fail-closed，菜单不展示。
+    """
+    bin_path = _find_bin()
+    if not bin_path:
+        return False
+    try:
+        proc = subprocess.run(
+            [bin_path, "--version"], capture_output=True, text=True,
+            timeout=5, check=False)
+    except (OSError, subprocess.SubprocessError):
+        return True
+    match = _VERSION_RE.search(proc.stdout or proc.stderr or "")
+    if match is None:
+        logger.warning("kimi --version 无法解析，KAP 可用性按 fail-open 处理")
+        return True
+    version = tuple(int(part) for part in match.groups())
+    return version >= KAP_MIN_VERSION
 
 
 def load_kimi_provider_catalog() -> dict:

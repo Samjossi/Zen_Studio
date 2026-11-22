@@ -8,7 +8,7 @@
 
 ## 1. Kimi Code（原 Kimi CLI）
 
-Kimi 官方 AI 编程代理，Zen Studio 通过 `kimi acp` 接入。
+Kimi 官方 AI 编程代理，Zen Studio 默认通过 `kimi acp` 接入，并提供实验性 `kimi web` KAP 链路（同一厂商下并列，默认仍 ACP）。
 
 | 资源 | 地址 |
 | --- | --- |
@@ -66,6 +66,43 @@ kimi --version
 - 当前手动停止只发 `session/cancel` 并本地 `abort_turn()` 解封，不回落 `session/close`。关闭标签、切后端和退出只走 `AcpConnection.terminate()`，不额外关闭会话。
 - `session/cancel` 只针对当前前台 turn，不覆盖 `origin.kind=task/trigger=notify` 的通知轮；这是上游能力边界，客户端不得擅自增加第二条停止通道。
 - 2026-11-21 裸 ACP 复现：通知 steering 后首轮最后 `step.end` 为 `tool_use` 仍回 `end_turn`；追问 6–10ms 返回空 `end_turn`，95–106 秒后才插入执行。这是上游轮次契约问题，客户端不得用本地 drain、轮次状态机或会话关闭分流掩盖。
+
+### KAP 链路（实验性，与 ACP 并列）
+
+Kimi Code 的本地 `kimi web` 服务提供 KAP 1.0.0（REST + WebSocket）。Zen Studio 在 Kimi 厂商下并列提供 **Kimi KAP** 接口，默认仍为 **Kimi ACP**；两者二选一，不替换、不废弃 ACP。
+
+**前置门槛**：CLI ≥ `2.7.0`、Desktop ≥ `1.4.0`。低于门槛时 `kimi-kap` 入口不会出现在后端菜单。
+
+```bash
+kimi --version
+# 手动起一个临时服务（Zen 也会在无现成实例时自动拉起私有服务）
+kimi web --port 0 --json --no-open
+# stdout 首行:
+# {"origin":"http://127.0.0.1:<port>","ws_url":"ws://.../api/v1/ws","token":"...","kimi_agent_protocol_version":"1.0.0"}
+```
+
+**服务发现顺序**：优先复用已运行的 Desktop / `kimi web` 实例（读 `$KIMI_CODE_HOME/server/instances/*.json` 与 `server.token`，desktop 优先、其余按 `started_at` 新→旧，逐个 `/api/v1/meta` 鉴权探活）；没有可用实例才拉起私有 `kimi web --port 0 --json`，私有进程在标签关闭时回收，复用的用户服务不杀。
+
+**验证入口**：
+
+```bash
+# 需要 token；不要把 token 写进日志/文档/截图
+curl -sf -H "Authorization: Bearer $TOKEN" "$ORIGIN/api/v1/meta"
+curl -sf -H "Authorization: Bearer $TOKEN" "$ORIGIN/api/v1/kap.md" | head
+```
+
+- 正常轮：WS 应依次出现 `turn.started` → `user_message`/`reasoning`/`tool_call`/`assistant_message` item → `turn.ended(outcome=completed)`。
+- 后台通知轮：显式出现 `turn.ended` 之前的真实 `agent` turn，首个 item 为 `notification`（`notification_type=task.completed`）；通知轮活跃期提交的追问由服务端返回 `status=queued`，通知轮结束后才生成新的用户轮，**不应**出现「追问立即空 `end_turn`」或「end_turn 后隐藏执行」。
+- 用量：`context` 事件携带 `context_tokens`/`max_context_tokens`，轮末终值可能晚于 `turn.ended` 约 250ms；KAP 能力声明 `post_turn_usage_grace_s=1.0`，GUI 在轮后宽限内继续 `poll_usage()`，不要为抢终值在 WS reader 线程阻塞。
+- 停止：`POST /api/v1/sessions/{id}:cancel`（`include_background=false`），轮次以 `interrupted` 收尾；不自动 `:takeover`，`40931` 会话占用需用户在原客户端处理。
+
+**诊断与降级**：
+
+- 日志检索 `[kimi kap]`；只记录事件类型、`code`、`request_id`、会话/轮次 id 与数值，不记录 token、prompt 正文、完整工具载荷或 diff。
+- 错误码：`40901` 会话忙、`40931` 被其他进程占用、`40932` 已被其他客户端更新、`401/403` 凭证失效（需 `kimi login`）、`40401` 会话不存在（下一轮自动 `:reload` 或新建）。
+- WS 心跳是**应用层 JSON** `{"type":"ping"}` → `{"type":"pong"}`，不是 WS 控制帧；不回会被服务端断开订阅。`KapWebSocket` 内部已处理，排障时不要把它当普通控制帧。
+- 契约以运行时 `GET /openapi.json`、`GET /asyncapi.json` 与 `GET /api/v1/kap.md` 为准；CLI 升级后先复核 schema，未知事件类型忽略、解析失败降级，不阻断聊天。
+- 工具事件按 Kimi 现有卡片载荷适配；映射不了的未知工具降级为通用卡片，不伪造字段。图片走 KAP `image` content 的本地 `path` source。
 
 ### 上下文用量采集与迟到通知诊断
 
