@@ -2,7 +2,7 @@
 
 > **状态**：已实施
 > **范围**：`ide/llm/` 包 — LLM 调用薄层（本机 agent CLI 后端，代码库零密钥）
-> **时间**：2026-07-18 17:21（UTC+8，创建）/ 2026-11-20（T5 公共出口与依赖守卫修订）/ 2026-11-21（S6 ACP 诊断与 terminal 再分）/ 2026-11-22（Kimi 极简链路与只读轮内用量修订）
+> **时间**：2026-07-18 17:21（UTC+8，创建）/ 2026-11-20（T5 公共出口与依赖守卫修订）/ 2026-11-21（S6 ACP 诊断与 terminal 再分）/ 2026-11-22（Kimi 极简链路与只读轮内用量修订）/ 2026-11-23（Kimi 唯一 KAP 协议修订）
 
 ---
 
@@ -24,7 +24,7 @@
 | `ide/llm/base.py` | `LanguageModel` Protocol + `Message` 类型别名 + `Chunk` 流式块（kind：text/reasoning/usage/tool_call/tool_call_update/todo；工具/计划 `payload` 对通用层不透明，schema 归各厂商 `models.py`；`speed` 可选字段携轮次输出速度，2026-10-23，work plans/2026-1023-1632）+ `UsageStats` 用量定型（source 三级 push/transcript/estimate，2026-07-31，文档/修改记录/2026-0731-1454）+ `TurnSpeed` 输出速度定型（output_tokens/gen_seconds，仅模型生成时间计分母）+ `TurnConsumption` 轮次真实消耗定型（输入缓存读写/输出四项 + turn_id 去重键，随轮末 usage chunk 的 `consumption` 字段携带，仅具备逐次真值的后台产出，2026-1114-1452 计划）+ `BackendCapabilities` 不可变能力快照（图片输入/轮后宽限/看门狗/恢复待定）与 `capabilities_of()` 中立读取 helper、`apply_vendor_settings()` 厂商设置入口（默认 no-op，`apply_vendor_settings_to()` 兼容未实现对象） + `poll_usage()` 可选轮询方法（默认 None，2026-08-02，文档/修改记录/2026-0802-0117） |
 | `ide/llm/spec.py` | 中性注册类型：`BackendSpec`（接口名/显示名/后台名/可用性/模型与强度工厂/静态能力/`dev_note`/`vendor_settings`）+ `resolve_efforts()` 强度解析链；不出现厂商名、私有路径、工具名或设置键，不 import registry/厂商包/GUI |
 | `ide/llm/cache.py` | 进程级三路模型缓存：模型别名、模型级强度、原始目录载荷；锁覆盖查拉写，键恒为接口实现名；`clear(name=None)` 是唯一失效实现，`registry.refresh_models()` 只委托它 |
-| `ide/llm/registry.py` | 后端组合根：按固定顺序组合 `providers/<vendor>/spec.py` 的 `SPEC`（Kimi 下并列 ACP/KAP，DSH/Local 各一）为 `REGISTRY`，保留 `DEFAULT_BACKEND`、查询 API（`spec_of`/`vendor_of`/`vendor_groups`）、派生显示映射与 `refresh_models()` 委托；不再持有厂商静态数据或缓存闭包；import 无副作用，探测均惰性 |
+| `ide/llm/registry.py` | 后端组合根：按固定顺序组合 `providers/<vendor>/spec.py` 的 `SPEC`（Kimi 唯一 KAP，DSH/Local 各一 ACP）为 `REGISTRY`，`DEFAULT_BACKEND="kimi-kap"`；保留查询 API（`spec_of`/`vendor_of`/`vendor_groups`）、派生显示映射与 `refresh_models()` 委托；不再持有厂商静态数据或缓存闭包；import 无副作用，探测均惰性 |
 | `ide/llm/providers/<vendor>/spec.py` | 厂商注册声明：显示名、厂商标签、可用性、目录/强度/显示名工厂、静态能力、默认强度、`dev_note`、`vendor_settings` 与实例工厂；只 import 中性 `llm.spec`/`llm.cache`、`llm.base` 与本厂商模块，不 import registry/GUI/其他厂商 |
 | `ide/llm/providers/__init__.py` | provider 子包标记（稳定 ACP 公共层 + Kimi/DSH/Local 厂商目录）；刻意不 re-export 任何具体 provider |
 | `ide/llm/providers/acp/__init__.py` | 稳定 ACP 公共设施出口：连接、协议定型、prompt 构造、usage 解析；不导出过渡期 update 映射 |
@@ -34,13 +34,11 @@
 | `ide/llm/providers/acp/protocol.py` | ACP 协议定型：`PermissionOption`/`PermissionParams`/`ToolCallInfo`/`PermissionHandler`/`TerminalHandler`/`build_client_capabilities`/`map_usage_update` |
 | `ide/llm/providers/acp/prompt.py` | `build_prompt_blocks`：标准 text/image ContentBlock 构造与附图路径透传 |
 | `ide/llm/providers/acp/content.py` | 标准 ACP content/diff/文本截断纯函数（ANSI 净化、content 块分发、unified diff、行数截断）；不含厂商词表 |
-| `ide/llm/providers/kimi/__init__.py` | Kimi 厂商包公开入口：`KimiAcpLLM`/`KimiKapLLM`、探测/模型目录函数 |
+| `ide/llm/providers/kimi/__init__.py` | Kimi 厂商包公开入口：`KimiKapLLM`、KAP 可用性探测与模型目录函数 |
 | `ide/llm/providers/kimi/models.py` | Kimi 工具/计划活动载荷类型（tool_call/update、todo、提问、图片字段），只服务 Kimi 卡片，不是通用契约 |
-| `ide/llm/providers/kimi/updates.py` | `KimiUpdateMapper`：显式 kind 信任、Kimi 工具名/rawInput 词表、write diff 合成、回执模板、`<image path>`、task 成果、todo `title`/`done`、wire 层级父指针；账本按实例与 `(sessionId, toolCallId)` 隔离 |
-| `ide/llm/providers/kimi/provider.py` | `KimiAcpLLM`：长驻 `kimi acp` 子进程，token 级流式、思维链与审批路由；`session/prompt` response 即终态，不做私有终态确认、drain、同步提示、待发闸门或 `session/close` 停止分流。官方 `usage_update` 只在正常帧循环上屏；`poll_usage()` 仅把会话 ID 与模型别名交给只读轮询器，不接触 ACP 队列或轮次锁。能力快照为图片可用、无看门狗、零轮后用量宽限 |
-| `ide/llm/providers/kimi/usage_poll.py` | Kimi 轮内上下文水位：session_index 反查、64KB 首读与增量字节游标、残行缓冲、4 秒采样节流、真实水位解析；纯文件只读，不 import ACP/Qt/subprocess，不产出轮末速度或 Token 消耗 |
-| `ide/llm/providers/kimi/catalog.py` | kimi 二进制公共探测与模型目录：`kimi provider list --json` 同源派生模型别名、强度档位、显示名及 `maxContextSize` 上下文窗口（`context_sizes_from_catalog`），目录失败不臆造静态上限；`kimi_kap_available` 额外校验 CLI ≥ 2.7.0 |
-| `ide/llm/providers/kimi/spec.py` | Kimi 注册声明：`SPEC`（kimi-acp，默认）与 `KAP_SPEC`（kimi-kap，实验）并列；显示名/厂商标签、可用性、目录三路派生（共享原始载荷缓存）、图片能力、静态强度与默认档及实例工厂 |
+| `ide/llm/providers/kimi/updates.py` | `KimiUpdateMapper`：显式 kind 信任、Kimi 工具名/rawInput 词表、write diff 合成、回执模板、`<image path>`、task 成果、todo `title`/`done`、层级父指针；账本按实例与 `(sessionId, toolCallId)` 隔离，由 KAP 事件适配层复用 |
+| `ide/llm/providers/kimi/catalog.py` | kimi 二进制公共探测与模型目录：`kimi provider list --json` 同源派生模型别名、强度档位、显示名及 `maxContextSize` 上下文窗口（`context_sizes_from_catalog`），目录失败不臆造静态上限；`kimi_kap_available` 校验 CLI ≥ 2.7.0 |
+| `ide/llm/providers/kimi/spec.py` | Kimi 唯一注册声明：`SPEC`（kimi-kap，出厂默认）；显示名/厂商标签、KAP 可用性、目录三路派生（共享原始载荷缓存）、图片能力、静态强度与默认档及实例工厂 |
 | `ide/llm/providers/kimi/kap/transport.py` | KAP 传输：REST 信封/错误码、应用层 JSON ping-pong 的 WS 客户端、Desktop/`kimi web` 实例发现（回环校验、desktop 优先）与私有服务启动/回收 |
 | `ide/llm/providers/kimi/kap/events.py` | KAP `item.*` → ACP `session/update` 形状适配，复用 `KimiUpdateMapper` 生成现有 Kimi 卡片载荷；文本 delta/补尾、tool 快照、todo、context 用量、turn usage |
 | `ide/llm/providers/kimi/kap/provider.py` | `KimiKapLLM`：常驻服务多会话；prompt→`user_message` 精确绑定、通知轮隔离、排队/取消、审批交互、`context`/`turn.usage` 用量、`turn.ended` 终态与 `:reload` 恢复；WS 由独立 pump 消费，空闲期也更新用量并应答交互 |
@@ -81,8 +79,7 @@ class LanguageModel(Protocol):
 |:---|:---|
 | `LanguageModel` | 统一接口，返回 `Iterator[Chunk]` 逐块产出，与 UI 解耦 |
 | `Chunk` | 流式块：`kind="text"` 为正文增量；`kind="reasoning"` 为过程信息（思维链或工具调用摘要），仅当次显示、不回传；`usage` 与工具/计划块只更新展示，不决定轮次终态 |
-| `KimiAcpLLM` | kimi 后台接口（`"kimi-acp"`，出厂默认）：长驻 `kimi acp` 子进程经 ndjson JSON-RPC 对接；token 级流式、思维链、`session/new` 原生会话与会话内切模型；工具审批经回调路由。`session/prompt` response 即终态：`end_turn` 正常收尾，`cancelled` → `TurnCancelled`，`max_tokens` / `max_turn_requests` / `refusal` → 失败，缺失/未知 fail-open；response 后不再消费迟到帧。真实 EOF、进程退出或写失败后，下一次手动发送重建连接并 `session/resume`，原 prompt 不自动重放；停止只走 `session/cancel` + 本地 abort，Kimi 不启用停滞看门狗 |
-| `KimiKapLLM` | kimi 后台接口（`"kimi-kap"`，实验，与 ACP 并列）：优先复用本机 Desktop/`kimi web`，否则拉起私有 `kimi web --port 0 --json`；REST 提交 prompt、WS 收 `turn.*`/`item.*`。以 `user_message_id`/`prompt_id` 绑定本轮，通知轮（`notification` item）只观察不收尾；追问在通知轮活跃期返回 `status=queued`，等通知轮结束后的用户轮。`turn.ended` 为终态（completed/interrupted/failed）；停止走 `:cancel`；空闲 pump 持续更新 `context` 用量，轮后宽限 1s 让终值上屏；服务重启后保留 session 并 `:reload` |
+| `KimiKapLLM` | Kimi 唯一后台接口（`"kimi-kap"`，出厂默认）：优先复用本机 Desktop/`kimi web`，否则拉起私有 `kimi web --port 0 --json`；REST 提交 prompt、WS 收 `turn.*`/`item.*`。以 `user_message_id`/`prompt_id` 绑定本轮，通知轮（`notification` item）只观察不收尾；追问在通知轮活跃期返回 `status=queued`，等通知轮结束后的用户轮。`turn.ended` 为终态（completed/interrupted/failed）；停止走 `:cancel`；空闲 pump 持续更新 `context` 用量，轮后宽限 1s 让终值上屏；服务重启后保留 session 并 `:reload`。KAP 不可用时明确报错，不回退 ACP |
 | `DshAcpLLM` | provider（`"dsh-acp"`，后台 DSH，developer preview）：长驻 `dsh acp` 子进程，同构；模型/强度切换走 `session/set_config_option`（configId `model` / `reasoning_effort`，spike 实测），模型值为不透明 JSON 对串、静态表枚举；凭据类错误映射「配置 ~/.dsh/.credentials.yaml 或 DEEPSEEK_API_KEY」引导；轮次失败 `stopReason=error` 转可读报错 |
 | `LocalAcpLLM` | provider（`"local-acp"`，后台 Local）：长驻 `local-cli acp` 子进程，同构；模型目录经 `local-cli models` 纯文本枚举（Local CLI 扫描配置 `model_dir` 下的 `*.gguf`）；思维链由 llama-server SSE 的 `reasoning_content` 字段经服务端映射进 thought 通道；模型加载/配置类错误映射「检查 ~/.local-cli/config.toml」引导 |
 
@@ -92,17 +89,16 @@ class LanguageModel(Protocol):
 
 | 通道 | 机制 | 覆盖后端 |
 |:---|:---|:---|
-| 官方推送 | agent 在正常 ACP 帧循环中推 `usage_update`，映射为 `source="push"`；Kimi response 即终态，response 后才到达的推送不回收 | 以 agent 实际推送为准 |
-| 轮次内轮询 | GUI 侧 QTimer（2s）调 `provider.poll_usage()`；Kimi ACP 内部按 4 秒节流，首次以 64KB 尾部建立 wire.jsonl 游标，之后仅读新增字节并保留最后有效采样；KAP 由空闲 pump 持续接收官方 `context` 事件，轮后宽限 1s，其余后端默认 `None` | **kimi-acp / kimi-kap** |
+| 官方推送 | DSH/Local 在正常 ACP 帧循环中接收 `usage_update`；Kimi KAP 的常驻 WS pump 接收 `context` 与 `turn.usage`，空闲期也持续更新 | 以 agent 实际推送为准 |
+| 轮次内轮询 | GUI 侧 QTimer（2s）调 `provider.poll_usage()`；Kimi 返回最近一次官方 `context` 快照，轮后宽限 1s 接收可能晚于 `turn.ended` 的终值，其余后端默认 `None` | **kimi-kap** |
 
 限制与红线：
 
 - **推送型后端轮次内不刷新**（DSH / Local）：数据在 agent 进程内，IDE 无中间数据可挖；不插值、不估算、不按文本长度臆造百分比。
-- `poll_usage()` 实现约束：廉价、幂等、线程安全，失败静默 `None`，不得臆造数值；禁反复全量读 MB 级 wire.jsonl，禁 GUI 线程起目录子进程。Kimi 轮询只读普通文件，不接收连接、不取轮次锁，也绝不读取、排空或清理 ACP 队列。
-- Kimi wire 优先以 `token_counting.measured.tokens` 为实测上下文水位；未见过 measured 时以 turn 级 `usage.record` 的 `inputOther + inputCacheRead + inputCacheCreation + output` 兜底。上下文窗口取模型目录 `maxContextSize`，`llm.request.maxTokens` 是输出预算，禁止用作窗口。
-- 会话目录仅缓存成功定位，失败按 2/5/15 秒有界退避；空模型目录不置 loaded，下一轮 worker 准备阶段重试。文件截断、会话/模型切换会重置对应游标，空轮询与无效记录不清除最后有效值。
-- ACP `used` 是 agent 对外报告的上下文占用，可含官方策略的估算尾部，与会员额度分开理解；未收到真实用量时不做文本长度估算。
-- 未发送时徽章空白；发送后无真值显示 `—` 并在 tooltip 说明等待/不可用，绝不伪造 `0%`。已有有效值不被空轮询清除；零轮后宽限只表示收尾即停采，不表示没有轮内只读轮询。
+- `poll_usage()` 实现约束：廉价、幂等、线程安全，失败静默 `None`，不得臆造数值，禁 GUI 线程起目录子进程。Kimi 只读内存快照，不接收连接、不取轮次锁，也绝不读取、排空或清理事件队列。
+- Kimi 上下文窗口取模型目录 `maxContextSize` 或 KAP `/api/v1/models` 的 `max_context_size`，目录在 worker 会话准备阶段加载；缺失时不做静态上限兜底。
+- `context` 终值可能晚于 `turn.ended`，pump 必须常驻到轮后；1 秒宽限只用于让终值上屏，不延迟轮次终态。
+- 未发送时徽章空白；发送后无真值显示 `—` 并在 tooltip 说明等待/不可用，绝不伪造 `0%`。已有有效值不被空轮询清除。
 
 ### 3.2 能力快照与厂商设置
 
@@ -135,20 +131,19 @@ for chunk in llm.chat([{"role": "user", "content": "你好"}]):
         print(chunk.text, end="", flush=True)  # 正文
 ```
 
-> ⚠️ `chat()` 是阻塞式 generator（长驻子进程 stdio 读取）。GUI 中必须放后台线程消费，经信号逐块上屏，避免冻结主线程（参考实现：`ide/gui/panels/chat/worker.py`）。
+> ⚠️ `chat()` 是阻塞式 generator（ACP stdio 或 KAP REST/WS 读取）。GUI 中必须放后台线程消费，经信号逐块上屏，避免冻结主线程（参考实现：`ide/gui/panels/chat/worker.py`）。
 
-多轮对话由 agent 侧会话管理（`session/new` 原生会话，ACP 长驻连接内续轮）；调用方无需回传历史（panel 传入的消息列表中仅末条 user 消息被用作 prompt）。
+多轮对话由 agent 侧会话管理（ACP 长驻连接或 KAP 常驻服务会话）；调用方无需回传历史（panel 传入的消息列表中仅末条 user 消息被用作 prompt）。
 
 ### Kimi 连接失效与恢复状态机
 
-- 手动停止只发 `session/cancel` 并本地 `abort_turn()` 解封，不回落 `session/close`。标签关闭、切后端和退出只终止子进程，不为用量或停止增加额外协议请求。Kimi 不启动停滞看门狗，长时间静默由用户决定何时停止。
-- 轮次终态以 `session/prompt` 响应的 `stopReason` 为准（Kimi）：`cancelled` 抛 `TurnCancelled` 走停止收尾（保留屏幕输出、回滚 history、不播报成功），`max_tokens` / `max_turn_requests` / `refusal` 抛带原始值的 `RuntimeError` 走失败收尾。缺失或未知值 fail-open 并按正常完成收尾，未知值记 warning 保留原始值；响应到达立即收尾，不等待轮末用量。
-- EOF、进程退出或任意写路径失败统一标记连接死亡，唤醒控制请求、轮次消费与 terminal wait；会话 ID、创建工作区和 MCP 参数不随连接销毁。
-- 下一次手动发送在同一 `_turn_lock` 内执行 `initialize → session/resume → session/set_config_option`；`resume` 不回放历史，恢复后只发送本次新指令。恢复期间到达的旧连接事件不参与新连接状态。
-- CLI 未声明 `agentCapabilities.sessionCapabilities.resume`，或 initialize/resume/模型/thinking 配置失败时，恢复 fail closed：不发送 prompt、不降级 `session/new`，用户可重试或显式清空会话。
-- stderr 由独立 daemon reader 持续排空，内存仅保留最多 40 行、8 KiB 的脱敏尾部；正常对话不逐行落日志，异常退出、写失败、请求超时和初始化/恢复失败才输出诊断尾部。结构化日志记录 PID、agent 版本、连接代次、会话 ID、请求 ID、失败方法、退出码与恢复结果，不记录 prompt 正文或 ACP stdout 原文。
+- 手动停止走 `POST /api/v1/sessions/{id}:cancel`，等待本轮 `turn.ended(outcome=interrupted)`；超时按本地取消解封，不自动接管其他客户端占用的会话。Kimi 不启动停滞看门狗。
+- 轮次只由 `user_message_id`/`prompt_ids` 命中的用户轮收尾；通知轮是独立 `agent` turn，不得用它的 `turn.ended` 结束用户轮。`completed` 正常完成，`interrupted` 走 `TurnCancelled`，`failed` 转可读错误。
+- WS 断开或服务进程退出会保留 `session_id` 并标记恢复待定；下一次手动发送重新发现/启动服务，原会话存在则 `:reload`，已不存在才新建。原 prompt 不自动重放。
+- WS reader 只负责帧解析与应用层 JSON ping/pong，独立 pump 是唯一事件消费者；空闲期仍处理 `context` 用量和交互，轮后宽限不阻塞 reader。
+- 服务发现优先复用 Desktop/普通 `kimi web`，私有服务由本 provider 回收；复用实例不杀。日志只记录事件类型、业务码、请求/会话/轮次 ID 与脱敏数值，不记录 token、prompt 正文或完整工具载荷。
 
-**Kimi 后台通知边界**：上游若在内部轮次仍执行时提前回 `end_turn`，客户端按协议响应收尾并保留上游问题取证，不用私有状态机掩盖。wire.jsonl 只用于轮内上下文水位，不判断 busy、成功、失配、恢复或待发；DSH/Local 与公共 ACP 层不感知该私有文件。
+**Kimi 后台通知边界**：通知轮活跃期提交的追问由服务端排队，通知轮结束后才生成新的用户轮；客户端严格按 prompt 绑定观察，不以私有落盘或本地状态机判断终态。
 
 **kimi 二进制探测与模型枚举**（`ide/llm/providers/kimi/catalog.py`）：
 
@@ -160,7 +155,7 @@ for chunk in llm.chat([{"role": "user", "content": "你好"}]):
 
 - 代码库**零密钥字面量、零密钥读取路径**：凭证由各 CLI 自行管理（kimi：`kimi login` OAuth，存于 `~/.kimi-code/`）
 - `.gitignore` 保留 `api_key/` 条目，防未来误存密钥
-- agent 权限：ACP 工具审批四态（允许一次/始终允许/拒绝 + 设置中心默认档），agent 可在**项目目录**读写文件与执行命令（CLI 静态 deny 规则生效）；工作目录限定为项目根
+- agent 权限：Kimi KAP 与 DSH/Local ACP 共用工具审批四态（允许一次/始终允许/拒绝 + 设置中心默认档），agent 可在**项目目录**读写文件与执行命令（CLI 静态 deny 规则生效）；工作目录限定为项目根
 
 ## 6. 新增后台 provider
 

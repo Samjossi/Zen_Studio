@@ -37,8 +37,8 @@
 
 当前值直显与文本精简（2026-07-30，文档/修改记录/2026-0730-1143 计划）：
 - 三按钮由恒显层级标签改为直显当前值短文本（D4-A 纯值直显）：
-  后台原文；接口剥 vendor 前缀（short_interface_label，"Kimi ACP"→
-  "ACP"，不匹配前缀回退原文）；模型别名取 '/' 末段（short_model_alias，
+  后台原文；接口剥 vendor 前缀（short_interface_label，"Kimi KAP"→
+  "KAP"，不匹配前缀回退原文）；模型别名取 '/' 末段（short_model_alias，
   "kimi-code/k3-256k"→"k3-256k"，无 '/' 回退全文）——截取仅发生在
   UI 呈现层，action data/信号载荷/持久化值全程仍是全名（D6 红线 2 不破）
 - 宽度策略（用户拍板 2026-07-30，覆盖计划 D2-A 恒宽稿）：按钮宽度

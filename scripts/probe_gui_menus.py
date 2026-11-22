@@ -79,7 +79,7 @@ def _child() -> None:
         menu_png = _save(menu, "model_bar_menu.png")
         menu.hide()
 
-        backend = bar.current_backend() or "kimi-acp"
+        backend = bar.current_backend() or "kimi-kap"
         context = _Context(backend, bar.current_version() or "")
         dialog = SettingsDialog(context)
         dialog.show()

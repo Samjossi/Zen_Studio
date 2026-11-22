@@ -2,13 +2,13 @@
 
 > 本文档只保留团队常用后端 CLI 的安装、运行、更新与验证命令。
 > 升级后需重启 Zen Studio，再验证版本与实际会话。
-> 最后更新：2026-11-22
+> 最后更新：2026-11-23
 
 ---
 
 ## 1. Kimi Code（原 Kimi CLI）
 
-Kimi 官方 AI 编程代理，Zen Studio 默认通过 `kimi acp` 接入，并提供实验性 `kimi web` KAP 链路（同一厂商下并列，默认仍 ACP）。
+Kimi 官方 AI 编程代理，Zen Studio 仅通过 `kimi web` 提供的 KAP 1.0.0（REST + WebSocket）接入。`kimi-kap` 是 Kimi 厂商唯一且出厂默认的接口，不提供 ACP 回退；DSH、Local 仍分别使用各自 ACP 链路。
 
 | 资源 | 地址 |
 | --- | --- |
@@ -30,10 +30,10 @@ curl -fsSL https://code.kimi.com/kimi-code/install.sh | bash
 kimi
 ```
 
-ACP（Zen Studio 使用）：
+KAP 服务（Zen Studio 使用；无现成实例时会自动拉起，无需手动执行）：
 
 ```bash
-kimi acp
+kimi web --port 0 --json --no-open
 ```
 
 ### 更新
@@ -48,30 +48,13 @@ kimi upgrade -y
 kimi --version
 ```
 
-本次真实验收环境输出 `2.7.1`。
+KAP 真实验收环境输出 `2.7.2`。
 
-### ACP 原会话恢复与事故取证
+### KAP 链路（Kimi 唯一接口）
 
-- Zen Studio 要求 CLI 在 `initialize` 的 `agentCapabilities.sessionCapabilities.resume` 中声明恢复能力；2.6.3 实测为 `{}`（支持）。不支持时不会退回 `session/load` 或新建空会话，应升级 CLI 后重试。
-- 恢复仅由下一次手动发送触发，顺序为 `initialize → session/resume → session/set_config_option`；`resume` 参数为原 `sessionId`、创建时 `cwd` 与 `mcpServers`。响应可不返回 `sessionId`，客户端沿用原 ID。
-- 普通手动停止不重建进程；仅 stdout EOF、进程意外退出和真实写帧失败进入下轮恢复。Kimi 不使用停滞看门狗。原中断 prompt 永不自动重放，恢复失败时新 prompt 也不发送。
-- 开发态日志位于项目 `config/logs/zen-studio.log`，桌面冻结态位于 `~/.config/zen-studio/logs/zen-studio.log`。检索 `generation`、`sessionId`、`requestId`、`resume`、`connection_dead` 和 `recovery_failed`，先确认连接代次与退出码，再区分 IDE 写失败、CLI EOF 和控制请求超时。
-- ACP stdout 永远是协议帧，完整帧与 prompt 正文不得写入诊断日志。stderr 由 IDE 持续排空，仅保留有界脱敏尾部并在异常时落日志；CLI 自身完整日志仍按官方数据位置另行查看，取证时不得复制凭证或上传完整会话内容。
+Kimi Code 的本地 `kimi web` 服务提供 KAP 1.0.0（REST + WebSocket）。Zen Studio 只注册 **Kimi KAP**，并以其作为出厂默认后台；KAP 不可用时会明确显示不可用，不启动 `kimi acp`，也不静默切换其他厂商。
 
-### 后台通知轮次边界
-
-- Kimi 轮次只以对应 `session/prompt` response 的 `stopReason` 收尾。IDE 不读取私有 wire 判断 busy、成功、失配、恢复或待发，也没有轮前/轮后 drain。
-- 后台通知期间提前 `end_turn`、追问未形成真实执行轮或工具副作用重复，应按上游 ACP 契约问题独立取证；不得重新引入本地私有状态机掩盖。
-- 取证保留 CLI 版本、`requestId`、`sessionId`、`stopReason`、ACP 帧顺序和脱敏 wire 元数据；不得包含 prompt 正文、完整工具参数/输出、diff 或凭证。
-- 当前手动停止只发 `session/cancel` 并本地 `abort_turn()` 解封，不回落 `session/close`。关闭标签、切后端和退出只走 `AcpConnection.terminate()`，不额外关闭会话。
-- `session/cancel` 只针对当前前台 turn，不覆盖 `origin.kind=task/trigger=notify` 的通知轮；这是上游能力边界，客户端不得擅自增加第二条停止通道。
-- 2026-11-21 裸 ACP 复现：通知 steering 后首轮最后 `step.end` 为 `tool_use` 仍回 `end_turn`；追问 6–10ms 返回空 `end_turn`，95–106 秒后才插入执行。这是上游轮次契约问题，客户端不得用本地 drain、轮次状态机或会话关闭分流掩盖。
-
-### KAP 链路（实验性，与 ACP 并列）
-
-Kimi Code 的本地 `kimi web` 服务提供 KAP 1.0.0（REST + WebSocket）。Zen Studio 在 Kimi 厂商下并列提供 **Kimi KAP** 接口，默认仍为 **Kimi ACP**；两者二选一，不替换、不废弃 ACP。
-
-**前置门槛**：CLI ≥ `2.7.0`、Desktop ≥ `1.4.0`。低于门槛时 `kimi-kap` 入口不会出现在后端菜单。
+**前置门槛**：CLI ≥ `2.7.0`、Desktop ≥ `1.4.0`。CLI 缺失或低于门槛时 `kimi-kap` 入口显示「未检测到」并禁用，不会回退 ACP。
 
 ```bash
 kimi --version
@@ -104,13 +87,10 @@ curl -sf -H "Authorization: Bearer $TOKEN" "$ORIGIN/api/v1/kap.md" | head
 - 契约以运行时 `GET /openapi.json`、`GET /asyncapi.json` 与 `GET /api/v1/kap.md` 为准；CLI 升级后先复核 schema，未知事件类型忽略、解析失败降级，不阻断聊天。
 - 工具事件按 Kimi 现有卡片载荷适配；映射不了的未知工具降级为通用卡片，不伪造字段。图片走 KAP `image` content 的本地 `path` source。
 
-### 上下文用量采集与迟到通知诊断
+### 旧配置与会话存档边界
 
-- 官方 ACP `usage_update` 携带 `used/size`，只在正常帧循环中上屏。Zen 的轮内刷新额外只读私有 `agents/main/wire.jsonl`；该文件没有 ACP 公共契约保证，解析失败必须降级，不得影响聊天主流程。
-- 轮内优先读取 `token_counting.measured.tokens` 作为实测上下文水位；旧版本或事件缺失时，以 turn 级 `usage.record` 的 `inputOther + inputCacheRead + inputCacheCreation + output` 兜底。模型窗口来自模型目录 `maxContextSize`，不得使用 `llm.request.maxTokens`。模型别名可来自轮内 `llm.request.modelAlias`；CLI 2.7.2 还会写 `profile.bind.modelAlias` 与 `usage.record.model`，缺失时才回退 provider 当前别名。
-- 轮内读取采用每会话增量游标与残行缓冲，首次仅取 64KB 尾部；GUI 每 2 秒调用一次，Kimi 内部每 4 秒最多真正读盘一次，大工具输出后沿用最后有效采样。会话目录只缓存成功定位，失败按 2/5/15 秒退避；空模型目录在下一轮 worker 准备时重试，GUI tick 不启动目录子进程。
-- response 到达立即收尾，`post_turn_usage_grace_s=0.0`；没有额外轮末收尾窗口、轮后宽限或空闲队列回收。`poll_usage()` 不接收连接、不获取轮次锁，严禁读取、排空或清理 ACP 队列；response 后才到达的官方推送不回收，最后有效轮内水位保留。
-- 排查时只记录事件类型、脱敏数值、时间差、失败类别与重试次数。若轮内长期为 `—`，依次检查目录定位/模型窗口重试日志、wire 是否出现有效 measured 或 turn 级 usage.record，以及 4 秒采样节拍；不得复制完整 wire、prompt、工具参数或凭证，也不得为补用量修改真实会话文件。
+- 读取设置时，旧 `kimi-acp` 后台 ID、模型记忆和强度记忆会归一到 `kimi-kap`；已有 KAP 记忆优先，读取本身不写回用户文件。
+- 旧 ACP 会话存档只回放历史文字，下一次发送建立新的 KAP 会话；不得把 ACP session id 当作 KAP 会话续接，也不得宣称恢复了原 ACP 服务端上下文。
 
 ---
 
@@ -210,7 +190,7 @@ local-cli models
 | `src/ide/llm/cache.py` | 进程级三路模型缓存（模型/强度/原始载荷）；按接口名隔离，`clear()` 是唯一失效实现 |
 | `src/ide/llm/registry.py` | 后台组合根：组合三家厂商 `spec.py` 为 `REGISTRY`，保留 `DEFAULT_BACKEND`、查询 API 与 `refresh_models()` 委托；唯一允许 import 具体厂商后台的模块 |
 | `src/ide/llm/providers/acp/` | 稳定 ACP 传输（连接/诊断/terminal 分发）、协议定型、prompt 与标准 content 纯函数；不含厂商工具名、私有配置键或落盘路径 |
-| `src/ide/llm/providers/<vendor>/` | 各厂商 `spec.py`（注册声明）、provider、models、updates 与 permissions；厂商之间禁止横向 import |
+| `src/ide/llm/providers/<vendor>/` | 各厂商 `spec.py`（注册声明）、provider、models、updates 与按需划分的协议子包；厂商之间禁止横向 import。Kimi 运行时位于 `kimi/kap/`，DSH/Local 保留各自 ACP provider |
 | `src/ide/gui/panels/chat/card_base.py` | 无厂商语义的卡片生命周期、折叠/复制/图片等 UI 基础件 |
 | `src/ide/gui/panels/chat/vendors/registry.py` | 卡片组合根：唯一允许 import 具体厂商卡片包的模块 |
 | `src/ide/gui/panels/chat/vendors/<vendor>/` | 各厂商 `factory.py`/`cards.py`/`presenter.py`；互不借用，最多 import 本厂商 `models.py` 纯类型 |

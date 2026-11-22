@@ -42,7 +42,7 @@
 | `ide/gui/panels/viewer/` | 文件查看面板子包（中栏上，五页预览分流）：`panel.py` 装配（QStackedLayout 五页 + Git 差异徽标）/ `code_viewer.py` 只读文本查看器（行号栏）/ `highlighter.py` Pygments 高亮器 / `image_viewer.py` 图片页（位图 + SVG + GIF）/ `pdf_viewer.py` PDF 页（QPdfView 连续滚动）/ `markdown_view.py` Markdown 渲染页（GFM）/ `media_viewer.py` 音视频播放页 |
 | `ide/gui/panels/terminal/` | 终端面板子包（中栏下）：`panel.py` 装配 / `widget.py` 自绘终端控件 / `screen.py` pyte 语义层 / `session.py` PTY 会话 / `palette.py` ANSI 共享资源包色板 / `selection.py` 选区控制器（纯逻辑零 Qt 依赖）/ `agent_bridge.py` ACP terminal/* 反向能力 GUI 桥（AI tab，2026-08-17） |
 
-> LLM 调用层为后端逻辑，位于 `src/ide/llm/`（与 `src/ide/gui/` 平级）：`base.py` Protocol / `providers/` 下 Kimi / DSH（DeepSeek Harness）/ Local 三家 ACP 长驻后端（传输层统一为 ACP，kimi CLI `-p` 模式已于 2026-07-31 移除）。多标签改造后 provider 由每个 `ChatPanel` 自持；实例仍经 `ide/llm/registry.py` 的 `BackendSpec.factory` 装配（`ChatPanel._get_provider` 懒创建），卡片经 `vendors/registry.py` 组合根选择，通用面板不直接 import 具体厂商包。
+> LLM 调用层为后端逻辑，位于 `src/ide/llm/`（与 `src/ide/gui/` 平级）：`base.py` Protocol / `providers/` 下 Kimi 唯一 KAP 后端与 DSH（DeepSeek Harness）/ Local 两家 ACP 长驻后端。多标签改造后 provider 由每个 `ChatPanel` 自持；实例仍经 `ide/llm/registry.py` 的 `BackendSpec.factory` 装配（`ChatPanel._get_provider` 懒创建），卡片经 `vendors/registry.py` 组合根选择，通用面板不直接 import 具体厂商包。
 >
 > Git 数据层同理位于 `src/ide/core/git/`：`GitStatusService`（subprocess 调系统 git CLI，零 Qt 依赖纯 Python 包），GUI 侧经 `main_window` 注入各面板消费。
 
@@ -70,7 +70,7 @@
 
 | 栏位 | 初始尺寸 | 当前内容 |
 |:---|:---:|:---|
-| 左栏 | 320 px | **AI 聊天面板 `ChatTabs`**（多标签，上输出下输入，本机 agent CLI 三后台 ACP 可选） |
+| 左栏 | 320 px | **AI 聊天面板 `ChatTabs`**（多标签，上输出下输入，本机 agent CLI 三后台可选：Kimi KAP、DSH/Local ACP） |
 | 中栏（上） | 550 px（高） | **文件查看面板 `ViewerPanel`**（五页预览分流：文本/图片/PDF/Markdown/音视频，永久只读 + Git 差异徽标） |
 | 中栏下 | 250 px（高） | **终端面板 `TerminalPanel`**（真 PTY：ptyprocess + pyte + 自绘 QWidget） |
 | 右栏（上） | 340 px（高） | **文件树 `FileExplorer`**（根目录为项目根，双击文件经 `file_opened` 信号打开到查看器） |
@@ -94,7 +94,7 @@
 
 ## 5. 聊天面板（左栏）
 
-`ChatTabs` 标签容器（上限 4）：持有模型选择状态层（当前 backend/version 单一来源、统一写盘、阻断广播同步），下方每标签一个独立 `ChatPanel`。`ChatPanel` 上输出（QTextBrowser）下输入（QTextEdit）垂直分栏，输出/输入两区 Qt 内建 Ctrl+滚轮缩放字体均已禁用（2026-0806-0223，wheelEvent 守卫吞掉 Ctrl 滚轮事件，字号唯设置中心全局字号链管控）。输入区底行左端为模型选择按钮组（`ModelBar` 纯视图实例：后台 → 接口 → 模型 → 推理强度四级下拉，接口级为「一家多接法」扩展位——单接口时按钮自动隐藏，常态呈现三按钮；按钮直显当前值短文本——接口剥后台前缀、模型别名取 `/` 末段，点击弹勾选菜单，全部标签共享同一选择，任一标签切换经 ChatTabs 广播到其余标签 UI 与全部 provider），右端为**发送/停止双态按钮**（空闲=发送且空文本禁用，busy=■ 停止直停本标签，Esc 同效）；Enter 发送 / Shift+Enter 换行；流式调用放 `ChatWorker(QThread)` 后台线程，逐块信号上屏，UI 不冻结。每标签**自持 provider 实例**（独立 `kimi acp` 连接，标签间完全隔离可并行）。对话统一经本机 agent CLI（Kimi / DSH / Local 三后台 ACP 可选），代码库零 API KEY。从文件树或系统文件管理器**拖入文件 → 落点插入 `@工作区相对路径 ` 引用**（纯文本透传，由后端 agent CLI 解析）；模型选择持久化到 `config/settings.json`。多标签审批经全局 `PermissionQueue` 串行弹窗；任一标签响应中即禁用全部标签选择按钮与设置中心模型页。图片能力、轮后用量宽限、停滞看门狗与恢复待定统一经 provider 能力快照（`capabilities_of`）消费，厂商设置按 `BackendSpec.vendor_settings` 过滤后注入——通用面板不出现厂商设置键名或能力私有属性。
+`ChatTabs` 标签容器（上限 4）：持有模型选择状态层（当前 backend/version 单一来源、统一写盘、阻断广播同步），下方每标签一个独立 `ChatPanel`。`ChatPanel` 上输出（QTextBrowser）下输入（QTextEdit）垂直分栏，输出/输入两区 Qt 内建 Ctrl+滚轮缩放字体均已禁用（2026-0806-0223，wheelEvent 守卫吞掉 Ctrl 滚轮事件，字号唯设置中心全局字号链管控）。输入区底行左端为模型选择按钮组（`ModelBar` 纯视图实例：后台 → 接口 → 模型 → 推理强度四级下拉，接口级为「一家多接法」扩展位——单接口时按钮自动隐藏，常态呈现三按钮；按钮直显当前值短文本——接口剥后台前缀、模型别名取 `/` 末段，点击弹勾选菜单，全部标签共享同一选择，任一标签切换经 ChatTabs 广播到其余标签 UI 与全部 provider），右端为**发送/停止双态按钮**（空闲=发送且空文本禁用，busy=■ 停止直停本标签，Esc 同效）；Enter 发送 / Shift+Enter 换行；流式调用放 `ChatWorker(QThread)` 后台线程，逐块信号上屏，UI 不冻结。每标签**自持 provider 实例**（Kimi 使用独立 KAP 服务会话，标签间完全隔离可并行）。对话统一经本机 agent CLI（Kimi KAP 与 DSH/Local ACP 三后台可选），代码库零 API KEY。从文件树或系统文件管理器**拖入文件 → 落点插入 `@工作区相对路径 ` 引用**（纯文本透传，由后端 agent CLI 解析）；模型选择持久化到 `config/settings.json`。多标签审批经全局 `PermissionQueue` 串行弹窗；任一标签响应中即禁用全部标签选择按钮与设置中心模型页。图片能力、轮后用量宽限、停滞看门狗与恢复待定统一经 provider 能力快照（`capabilities_of`）消费，厂商设置按 `BackendSpec.vendor_settings` 过滤后注入——通用面板不出现厂商设置键名或能力私有属性。
 
 **标签全关与关闭异步化**（2026-07-22，文档/修改记录/2026-0722-1117）：标签可全部关闭——零标签时 `QStackedWidget` 切到占位页（提示 + 「新建会话」按钮），选择状态在 ChatTabs 状态层不随标签消失（新建标签注入恢复）；序号非全关不复用（防指代漂移），全关即重置回「会话 1」。关闭路径两段式：GUI 段毫秒级（`request_stop` + 断信号 + 起 daemon 清理线程），线程段先 `terminate`（杀 acp 进程并幂等注入死讯/错误帧，主动解封 worker 的 `next_update()`/`request()` 阻塞点）后 `worker.wait(3000)`，结束经 `QTimer.singleShot` 回 GUI 线程 `deleteLater`——关闭标签 GUI 零冻结，且不销毁运行中的 QThread。
 
@@ -104,13 +104,13 @@
 | 能力快照 | `capabilities_of(provider)` 读取不可变 `BackendCapabilities`：图片输入（None=未实测回退注册表静态位）、轮后用量宽限、看门狗、恢复待定；provider 创建后、initialize 完成后、轮次收尾后、切换后台后刷新，快照不承担事件通知 |
 | 厂商设置 | 面板按当前 `BackendSpec.vendor_settings` 过滤公共设置，经中立入口整体交给 provider；键名只在注册表组合根与厂商包出现，持久化键名/默认值不变 |
 | `Chunk` | 流式块：`kind="text"` 正文 / `kind="reasoning"` 过程信息（思维链或工具调用摘要灰字展示）；`kind="status"` 后台轮次同步状态（终态确认 drain 期间由后台产出）：只更新输入区占位符（同步中 + 已运行时长），不进输出区/时间线/历史；用量与工具/计划块只上屏，不入历史、不回传 |
-| `KimiAcpLLM` | Kimi ACP 后端（长驻 `kimi acp` + JSON-RPC，kimi 后台唯一接口）：**token 级流式**、思维链可见（`agent_thought_chunk`）、`session/new` 原生会话、`session/set_config_option` 会话内切模型；能力快照：图片可用、无看门狗、正常轮末 10s 宽限（恢复态 0） |
-| `PermissionDialog` | ACP 工具审批模态框（中性标题「工具审批请求」，保留工具名/kind）：参数摘要 + 选项按钮（允许一次/始终允许/拒绝）；reader 线程请求转 GUI 线程弹出，180s 无响应按拒绝兜底 |
-| `ModelBar` | 输入区底行左端三按钮（纯视图，每标签实例）：后台（CLI 产品分组）→ 接口（接入实现，不可用时禁用标「未检测到」）→ 模型（别名联动刷新），按钮**直显当前值短文本**（接口剥后台前缀 `Kimi ACP`→`ACP`、模型别名取 `/` 末段 `kimi-code/k3-256k`→`k3-256k`，宽度贴合文本），点击弹 InstantPopup 菜单——按内容加宽显示全文、当前项 ✓ 勾选；tooltip 三行全名链兜底；切换下次请求生效，任一标签发送中全标签锁定；选择与写盘归 ChatTabs 状态层（`model_backend` + 按接口记忆的 `model_versions` 表，2026-07-31 起，见 文档/修改记录/2026-0731-0052），启动时恢复 |
+| `KimiKapLLM` | Kimi 唯一 KAP 后端（`kimi web` REST + WebSocket）：正文/思维链增量、工具卡、通知轮隔离、排队追问、官方 `context` 用量与 `:reload` 恢复；能力快照为图片可用、无看门狗、轮后用量宽限 1 秒 |
+| `PermissionDialog` | 工具审批模态框（中性标题「工具审批请求」，保留工具名/kind）：参数摘要 + 选项按钮（允许一次/始终允许/拒绝）；后台请求转 GUI 线程弹出，180s 无响应按拒绝兜底 |
+| `ModelBar` | 输入区底行左端三按钮（纯视图，每标签实例）：后台（CLI 产品分组）→ 接口（接入实现，不可用时禁用标「未检测到」）→ 模型（别名联动刷新），按钮**直显当前值短文本**（接口剥后台前缀 `Kimi KAP`→`KAP`、模型别名取 `/` 末段 `kimi-code/k3-256k`→`k3-256k`，宽度贴合文本），点击弹 InstantPopup 菜单——按内容加宽显示全文、当前项 ✓ 勾选；tooltip 三行全名链兜底；切换下次请求生效，任一标签发送中全标签锁定；选择与写盘归 ChatTabs 状态层（`model_backend` + 按接口记忆的 `model_versions` 表，2026-07-31 起，见 文档/修改记录/2026-0731-0052），启动时恢复 |
 | 多轮 | 历史由各后端会话管理；请求失败的用户消息不入历史，错误上屏不崩溃 |
-| 真实断连恢复 | Kimi 仅在 stdout EOF、进程退出或写帧失败后保留下轮恢复身份；界面明确原请求不自动重发、下一次手动发送恢复原会话。恢复期间 busy 与模型锁定不变；恢复失败取消排队待发、保留草稿，不自动新建空会话；正常完成仍按原规则接续待发 |
-| Kimi 终态失配 | `stopReason=end_turn` 只是候选终态（上游会提前回执）：后台核对 wire 后 drain 期间保持 busy、占位符显示「后台轮次同步中」、不发完成音、不自动补发、停止可用；落定失配走非成功收尾（保留卡片、回滚用户消息、草稿驻留、提示核对工具副作用并置恢复态）；恢复后下一次手动发送只 `session/resume` 一次，不自动重放原请求 |
-| Kimi 长等待 | 看门狗开关由能力快照 `stall_watchdog` 决定（Kimi 为 False），面板不按后端 ID 特判；Kimi 不会因十分钟无新帧自动取消，永久静默时由用户手动停止（drain 期间停止经 `session/close` 真正终止后台轮次，不再 no-op）。其他后端保持看门狗启用 |
+| 真实断连恢复 | Kimi KAP 在 WS 断开或服务重启后保留 session id，下一次手动发送重新建连并 `:reload`；原请求不自动重发，原会话不存在才新建。恢复期间 busy 与模型锁定不变，恢复失败取消排队待发并保留草稿 |
+| Kimi 轮次边界 | 只由 prompt 绑定的用户轮 `turn.ended` 收尾；后台通知轮独立可见，活跃期追问由服务端排队，不以通知轮结束冒充用户轮完成 |
+| Kimi 长等待 | 看门狗开关由能力快照 `stall_watchdog` 决定（Kimi 为 False），面板不按后端 ID 特判；Kimi 不会因十分钟无新帧自动取消，永久静默时由用户手动停止，停止走 KAP `:cancel`。其他后端保持看门狗启用 |
 | 轮次停止来源 | `stopped_by_user(str)` 携带 `user` / `stall` / `cancelled`：停止钮=已手动停止、看门狗=已因无响应中断、agent 回 `stopReason=cancelled`=本轮已被 agent 取消。三者均回滚 history、取消待发、不播报成功；本地已请求停止时优先按本地来源收尾（用户按停止后 agent 再回 cancelled 仍显示已手动停止） |
 
 ## 6. 文件查看面板（中栏上）
@@ -137,7 +137,7 @@
 
 ## 7. 终端面板（中栏下）
 
-`TerminalPanel`：单行头部栏（**tab 区**＋固定操作组）+ `TerminalWidget` 自绘终端。**真 PTY 多会话终端**（ANSI 颜色/交互程序/`kimi login` 全可用）。AI-first 语境下为用户终端 **+ AI tab**（2026-08-17，ACP terminal/* 反向能力落地：支持该能力的 agent（当前 Kimi）Bash 命令落到用户可见的 `🤖 <命令>` tab 执行，实时输出、可 Ctrl+C 干预、手关等价 kill+release；桥接层 `agent_bridge.py` 仅经面板公开方法操作，连接层派发见 `ide/llm/providers/acp/connection.py`）。OOP 五层单向依赖（详见 `2026-0719-0412_中栏下终端面板实施计划.md` §2）：
+`TerminalPanel`：单行头部栏（**tab 区**＋固定操作组）+ `TerminalWidget` 自绘终端。**真 PTY 多会话终端**（ANSI 颜色/交互程序/`kimi login` 全可用）。AI-first 语境下为用户终端 **+ AI tab**（2026-08-17，ACP terminal/* 反向能力落地：支持该能力的 ACP agent 的 Bash 命令落到用户可见的 `🤖 <命令>` tab 执行，实时输出、可 Ctrl+C 干预、手关等价 kill+release；桥接层 `agent_bridge.py` 仅经面板公开方法操作，连接层派发见 `ide/llm/providers/acp/connection.py`）。OOP 五层单向依赖（详见 `2026-0719-0412_中栏下终端面板实施计划.md` §2）：
 
 头部栏（阶段一/二重构，见 `文档/修改记录/2026-0719-0955_*.md`）：左起 tab 区（每会话一 tab：shell 名/OSC 动态标题＋行内 ×；`＋`新建；激活态下划线随主题）＋状态＋「清屏」（写 Ctrl+L，shell 自清）＋「−」隐藏（视图菜单可恢复）；固定高度随字号重算。终端区右键菜单承接重开/终止/关闭（Theia 功能分层）；`Ctrl+F` 查找为右上角浮层（不占布局）。
 

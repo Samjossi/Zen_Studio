@@ -238,7 +238,7 @@ class ChatPanel(QWidget):
     busy_changed = Signal(bool)
 
     #: 一轮对话结束（正常/失败/用户停止均触发；主窗口经 ChatTabs 转发
-    #: 联动 Git 状态去抖刷新——ACP 子进程直接写盘不经窗口激活/查看器
+    #: 联动 Git 状态去抖刷新——后台 agent 直接写盘不经窗口激活/查看器
     #: 重载，补此事件源闭合）
     turn_finished = Signal()
 
@@ -300,7 +300,7 @@ class ChatPanel(QWidget):
         #: 排队发送待发标志（单条待发）：busy 期间登记后文本驻留输入框，
         #: 轮次正常收尾立即自动发送；清空输入框自动取消；内存态不持久化
         self._pending_send = False
-        #: 后台轮次同步中（Kimi 终态确认 drain）：status 块置位、轮末清零。
+        #: 后台轮次同步状态：status 块置位、轮末清零。
         #: 占位符据此显示「同步中」并暂停完成播报/自动补发（D4/D8）
         self._sync_active = False
         #: 同步开始时刻（monotonic，首条 status 块记录）：占位符据此显示
@@ -312,7 +312,7 @@ class ChatPanel(QWidget):
         self._dev_note_shown = False
         self._stream_buffer = ""
         #: 已重放的存档历史：replay_session 置位；与 _history 分列——
-        #: _history 回传 provider（ACP 系只取末条）、本字段只服务于导出
+        #: _history 回传 provider（当前实现只取末条）、本字段只服务于导出
         #: 再存档（重启多次记录不丢，导出时两段拼接）
         self._replayed_history: list[Message] = []
         self._has_seen_reasoning = False
@@ -522,8 +522,8 @@ class ChatPanel(QWidget):
             self.timeline.clear()  # 新会话清空色块条（随标签会话）
             if old is not None and getattr(old, "close", None) is not None:
                 # 切换路径与 close() 同策略：provider.close() 内
-                # terminate()+wait(timeout=5) 为秒级阻塞，挪 daemon 线程，
-                # GUI 不干等；旧实例已 pop 出 _providers 不再被引用，无
+                # close() 可能等待服务线程/子进程，挪 daemon 线程，GUI 不干等；
+                # 旧实例已 pop 出 _providers 不再被引用，无
                 # 并发访问。快速切回旧后台时新实例重新构造（独立子进程），
                 # 与后台 close 无共享状态
                 threading.Thread(
@@ -543,14 +543,14 @@ class ChatPanel(QWidget):
         if provider is not None and isinstance(version, str):
             if (set_model := getattr(provider, "set_model", None)) is not None:
                 # 保持同步：provider 层无锁，挪线程会与对话线程并发触达
-                # 同一 ACP stdio 连接；正常亚秒级
+                # 同一后台连接；正常亚秒级
                 set_model(version)
 
     def _show_dev_note(self, backend: str) -> None:
         """开发中后端如实告知：spec.dev_note 非空则对话流追加一条「系统」
         消息并置位已告知标记。
 
-        纯本地 UI——无任何字节进 ACP 帧，不进 prompt、不污染上下文；
+        纯本地 UI——无任何字节进协议帧，不进 prompt、不污染上下文；
         成熟后端 dev_note=None 时 no-op，零行为变化。
         """
         spec = spec_of(backend)
@@ -993,8 +993,8 @@ class ChatPanel(QWidget):
 
         只读展示语义：复用既有上屏接口渲染（user 气泡卡 / AI 流式块），
         末尾追加系统分隔行如实告知；**不回传 provider**——重放段簿记于
-        _replayed_history（供再导出），不进 _history（ACP 系 provider
-        历史由 agent 会话自管，重启后 agent 侧是全新会话，界面历史对
+        _replayed_history（供再导出），不进 _history（provider 历史由 agent
+        会话自管，重启后 agent 侧是全新会话，界面历史对
         AI 不可见）。
         """
         self._replayed_history = list(record["history"])
@@ -1014,10 +1014,10 @@ class ChatPanel(QWidget):
         self.output.append_message("系统", "🕘 会话记录（ 不计入上下文 ）")
 
     # ------------------------------------------------------------------
-    # ACP 审批回环（权限四态：纯逻辑前置决策，弹窗面由档位决定）
+    # 工具审批回环（权限四态：纯逻辑前置决策，弹窗面由档位决定）
     # ------------------------------------------------------------------
     def _ask_permission(self, request: PermissionRequest) -> str | None:
-        """ACP 审批处理器：在 agent reader 线程被调用。
+        """工具审批处理器：在后台事件线程被调用。
 
         provider 已按本厂商规则把原始参数分类为中性 `PermissionRequest`；
         这里只按 kind 与权限四态决策。decide_permission allow 时同步返回
@@ -1393,7 +1393,7 @@ class ChatPanel(QWidget):
             elif (not recovery_failed
                     and capabilities_of(provider).recovery_pending):
                 self.output.append_message(
-                    "系统", "ACP 连接已失效；原请求不会自动重发。下一次手动发送将尝试"
+                    "系统", "后台连接已失效；原请求不会自动重发。下一次手动发送将尝试"
                             "恢复原会话，请先核对已发生的工具副作用")
         else:
             self._history.append({"role": "assistant", "content": self._stream_buffer})

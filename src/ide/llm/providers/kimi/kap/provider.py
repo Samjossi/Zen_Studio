@@ -1,7 +1,7 @@
 """Kimi KAP provider：`kimi web` 常驻服务上的 REST + WebSocket 轮次链路。
 
-与 `KimiAcpLLM` 并列，不替换 ACP。轮次终态以 KAP 的 `turn.ended` 为准：
-`outcome=completed` 正常收尾，`interrupted` 走停止/中断通道，`failed` 走
+轮次终态以 KAP 的 `turn.ended` 为准：`outcome=completed` 正常收尾，
+`interrupted` 走停止/中断通道，`failed` 走
 失败通道。通知轮（后台任务完成）在 KAP 中是可见的真实 `agent` turn，
 用户追问会由服务端排队；本 provider 只消费 `user_message_id` 命中的
 那一轮，绝不把通知轮当作用户轮收尾。
@@ -95,7 +95,7 @@ def _image_blocks(images: object) -> list[dict]:
 
 
 class KimiKapLLM(LanguageModel):
-    """Kimi KAP 后端（常驻服务多会话，REST 提交 + WS 收款）。"""
+    """Kimi KAP 后端（常驻服务多会话，REST 提交 + WS 收事件）。"""
 
     def __init__(
         self,

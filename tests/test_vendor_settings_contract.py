@@ -12,7 +12,7 @@ from ide.llm.registry import REGISTRY
 
 def test_no_vendor_settings_declared():
     # 极简重写后 Kimi 无私有旁路开关；三家均不声明厂商设置键
-    assert REGISTRY["kimi-acp"].vendor_settings == ()
+    assert REGISTRY["kimi-kap"].vendor_settings == ()
     assert REGISTRY["dsh-acp"].vendor_settings == ()
     assert REGISTRY["local-acp"].vendor_settings == ()
 
@@ -81,7 +81,7 @@ def test_panel_injects_only_declared_settings(monkeypatch):
                  vendor_settings=("kimi_wire_sidecar",)))
     panel = PanelStub()
 
-    assert panel_module.ChatPanel._get_provider(panel, "kimi-acp") is provider
+    assert panel_module.ChatPanel._get_provider(panel, "kimi-kap") is provider
     assert provider.received == {"kimi_wire_sidecar": False}
     assert panel.image_refreshes == 1  # provider 创建后刷新能力位
 

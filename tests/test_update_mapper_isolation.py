@@ -10,7 +10,6 @@ import pytest
 
 from ide.llm.providers.dsh.provider import DshAcpLLM
 from ide.llm.providers.dsh.updates import DshUpdateMapper
-from ide.llm.providers.kimi.provider import KimiAcpLLM
 from ide.llm.providers.kimi.updates import KimiUpdateMapper
 from ide.llm.providers.local.provider import LocalAcpLLM
 from ide.llm.providers.local.updates import LocalUpdateMapper
@@ -162,7 +161,7 @@ def test_reset_clears_todo_snapshots():
 
 
 @pytest.mark.parametrize("provider_class", [
-    KimiAcpLLM, DshAcpLLM, LocalAcpLLM,
+    DshAcpLLM, LocalAcpLLM,
 ])
 def test_provider_reset_and_close_clear_mapper_state(provider_class):
     provider = provider_class(workspace_root=".")

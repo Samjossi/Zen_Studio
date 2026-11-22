@@ -13,44 +13,23 @@ from ide.llm.cache import cached_raw
 from ide.llm.providers.kimi.catalog import (
     display_names_from_catalog,
     efforts_from_catalog,
-    kimi_available,
     kimi_kap_available,
     load_kimi_provider_catalog,
     models_from_catalog,
 )
 from ide.llm.providers.kimi.kap.provider import KimiKapLLM
-from ide.llm.providers.kimi.provider import KimiAcpLLM
 from ide.llm.spec import BackendSpec
 
 #: 共享目录载荷（注册段 list_models/list_efforts/list_display_names 三路同源）
-_cached_catalog = cached_raw("kimi-acp", load_kimi_provider_catalog)
+_cached_catalog = cached_raw("kimi-kap", load_kimi_provider_catalog)
 
 
 def _catalog() -> dict:
     return cast(dict, _cached_catalog())
 
 
+#: Kimi 唯一接口：服务发现与进程生命周期归 kap 子包，可用性要求 CLI >= 2.7.0。
 SPEC = BackendSpec(
-    name="kimi-acp",
-    label="Kimi ACP",
-    vendor="kimi",
-    vendor_label="Kimi",
-    available=kimi_available,
-    list_models=lambda: models_from_catalog(_catalog()),
-    factory=KimiAcpLLM,
-    # 图片走公共 build_prompt_blocks，非私有旁路，随主链路保留
-    supports_images=True,
-    # 接口级兜底值：模型级目录整体不可得时回退（k3-256k 值域 low/high/max）
-    efforts=("low", "high", "max"),
-    default_effort="high",
-    list_efforts=lambda: efforts_from_catalog(_catalog()),
-    list_display_names=lambda: display_names_from_catalog(_catalog()),
-)
-
-#: KAP 链路的接口声明：与 ACP 并列，服务发现/进程生命周期归 kap 子包。
-#: 模型目录沿用同一份 `kimi provider list --json` 载荷（同厂商单一来源），
-#: 不另建私有目录源；`available` 额外要求 CLI >= 2.7.0。
-KAP_SPEC = BackendSpec(
     name="kimi-kap",
     label="Kimi KAP",
     vendor="kimi",
@@ -59,12 +38,9 @@ KAP_SPEC = BackendSpec(
     list_models=lambda: models_from_catalog(_catalog()),
     factory=KimiKapLLM,
     supports_images=True,
+    # 接口级兜底值：模型级目录整体不可得时回退（k3-256k 值域 low/high/max）
     efforts=("low", "high", "max"),
     default_effort="high",
     list_efforts=lambda: efforts_from_catalog(_catalog()),
     list_display_names=lambda: display_names_from_catalog(_catalog()),
-    dev_note=(
-        "Kimi KAP 为实验性链路（本地 kimi web / KAP 1.0.0）："
-        "轮次事件与工具卡取自官方本地服务；契约随 CLI 升级可能变化，"
-        "解析失败会降级而不阻断聊天。"),
 )

@@ -11,7 +11,6 @@ import pytest
 from ide.llm.providers.acp.connection import AcpConnection
 from ide.llm.providers.dsh import provider as dsh_provider
 from ide.llm.providers.dsh import session_log as dsh_session_log
-from ide.llm.providers.kimi import provider as kimi_provider
 from ide.llm.providers.local import provider as local_provider
 
 WORKSPACE = os.path.abspath(".")
@@ -94,7 +93,6 @@ def test_acp_connection_passes_full_argv_to_popen(monkeypatch):
 @pytest.mark.parametrize(
     "module,cls_name,label,extra_patch",
     [
-        (kimi_provider, "KimiAcpLLM", "kimi acp", "kimi"),
         (dsh_provider, "DshAcpLLM", "dsh acp", "dsh"),
         (local_provider, "LocalAcpLLM", "local acp", "local"),
     ],
@@ -112,9 +110,7 @@ def test_provider_builds_own_argv_and_keeps_session_params(
 
     monkeypatch.setattr(module, "_find_bin", lambda: "/fake/agent")
     monkeypatch.setattr(module, "AcpConnection", factory)
-    if extra_patch == "kimi":
-        pass  # 只读轮内用量不需要额外启动补丁
-    elif extra_patch == "dsh":
+    if extra_patch == "dsh":
         monkeypatch.setattr(dsh_session_log, "turn_consumption", lambda *args: (None, 0))
 
     provider = getattr(module, cls_name)(workspace_root=WORKSPACE)

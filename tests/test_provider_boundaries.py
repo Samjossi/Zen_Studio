@@ -109,6 +109,7 @@ FORBIDDEN_PUBLIC_TOKENS = (
 #: 大写 `Local` 才是显示名。厂商显示名只由注册表与厂商 spec 持有。
 FORBIDDEN_PUBLIC_DISPLAY_NAMES = (
     "Kimi ACP",
+    "Kimi KAP",
     "Kimi",
     "DeepSeek Harness",
     "DSH",
@@ -874,8 +875,10 @@ def test_guard_scans_expected_production_files_only():
         f"{GUI_CHAT_ROOT}/transcript.py",
         GUI_REGISTRY,
     } <= rel_paths
-    for vendor in VENDORS:
+    assert f"{PROVIDERS_ROOT}/kimi/kap/provider.py" in rel_paths
+    for vendor in ("dsh", "local"):
         assert f"{PROVIDERS_ROOT}/{vendor}/provider.py" in rel_paths
+    for vendor in VENDORS:
         assert f"{PROVIDERS_ROOT}/{vendor}/spec.py" in rel_paths
         assert f"{GUI_VENDORS_ROOT}/{vendor}/factory.py" in rel_paths
     assert all(
@@ -888,8 +891,8 @@ def test_public_export_surface_is_contract_only():
     import ide.llm as public
 
     forbidden = {
-        "KimiAcpLLM", "DshAcpLLM", "LocalAcpLLM",
-        "kimi_available", "dsh_available", "local_available",
+        "KimiKapLLM", "DshAcpLLM", "LocalAcpLLM",
+        "kimi_kap_available", "dsh_available", "local_available",
         "list_kimi_models", "list_dsh_models", "list_local_models",
         "load_kimi_provider_catalog", "display_names_from_catalog",
         "efforts_from_catalog", "models_from_catalog",
@@ -911,13 +914,13 @@ def test_guard_aggregate_reports_counterexample():
     """生产检查入口本身必须会失败，不能只是各个子规则自测。"""
     module = _synthetic(
         f"{GUI_CHAT_ROOT}/panel.py",
-        "from ide.llm.providers.kimi import KimiAcpLLM\n")
+        "from ide.llm.providers.kimi import KimiKapLLM\n")
     assert _all_violations((module,))
 
 
 def test_guard_rejects_cross_vendor_backend_import():
     module = _synthetic(
-        f"{PROVIDERS_ROOT}/kimi/provider.py",
+        f"{PROVIDERS_ROOT}/kimi/kap/provider.py",
         "from ide.llm.providers.dsh.updates import DshUpdateMapper\n")
     problems = _check_vendor_isolation((module,))
     assert any("横向导入了 dsh" in problem for problem in problems), problems
@@ -934,7 +937,7 @@ def test_guard_rejects_cross_vendor_card_import():
 def test_guard_rejects_generic_module_importing_concrete_provider():
     module = _synthetic(
         f"{GUI_CHAT_ROOT}/panel.py",
-        "from ide.llm.providers.kimi import KimiAcpLLM\n")
+        "from ide.llm.providers.kimi import KimiKapLLM\n")
     problems = _check_composition_roots((module,))
     assert any("只有后台注册表" in problem for problem in problems), problems
 
@@ -967,7 +970,7 @@ def test_guard_rejects_provider_importing_registry():
 
 def test_guard_rejects_provider_importing_public_exit():
     module = _synthetic(
-        f"{PROVIDERS_ROOT}/kimi/provider.py",
+        f"{PROVIDERS_ROOT}/kimi/kap/provider.py",
         "from ide.llm import REGISTRY\n")
     problems = _check_llm_dependency_direction((module,))
     assert any("不得导入公共出口" in problem for problem in problems), problems
@@ -983,7 +986,7 @@ def test_guard_rejects_llm_layer_importing_gui():
 def test_guard_rejects_gui_vendor_importing_provider_runtime():
     module = _synthetic(
         f"{GUI_VENDORS_ROOT}/kimi/factory.py",
-        "from ide.llm.providers.kimi.provider import KimiAcpLLM\n")
+        "from ide.llm.providers.kimi.kap.provider import KimiKapLLM\n")
     problems = _check_gui_vendor_imports((module,))
     assert any("只能导入本厂商 models" in p for p in problems), problems
 
@@ -997,8 +1000,8 @@ def test_guard_allows_gui_vendor_importing_own_models():
 
 def test_guard_rejects_legacy_module_path():
     module = _synthetic(
-        f"{PROVIDERS_ROOT}/kimi/provider.py",
-        "from ide.llm.providers.kimi_acp import KimiAcpLLM\n")
+        f"{PROVIDERS_ROOT}/kimi/kap/provider.py",
+        "from ide.llm.providers.kimi_acp import KimiKapLLM\n")
     problems = _check_legacy_paths((module,))
     assert any("旧模块路径" in problem for problem in problems), problems
 
@@ -1231,7 +1234,7 @@ def test_guard_rejects_generic_gui_importing_vendor_private_module():
 
 def test_guard_allows_own_vendor_private_module_import():
     module = _synthetic(
-        f"{PROVIDERS_ROOT}/kimi/provider.py",
+        f"{PROVIDERS_ROOT}/kimi/kap/provider.py",
         "from .wire import parse_wire\n")
     assert _check_vendor_private_imports((module,)) == []
 
@@ -1258,7 +1261,7 @@ def test_guard_allows_vendor_spec_neutral_and_own_imports():
         "from ide.llm.cache import clear\n"
         "from ide.llm.base import LanguageModel\n"
         "from ide.llm.providers.kimi.catalog import models_from_catalog\n"
-        "from ide.llm.providers.kimi.provider import KimiAcpLLM\n")
+        "from ide.llm.providers.kimi.kap.provider import KimiKapLLM\n")
     assert _check_vendor_spec_imports((module,)) == []
 
 

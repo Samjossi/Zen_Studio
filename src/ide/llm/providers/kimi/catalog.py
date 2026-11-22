@@ -1,13 +1,8 @@
 """kimi 二进制公共探测与模型目录枚举。
 
-供 kimi-acp 后台与注册表共用：`_find_bin` 解析二进制路径（PATH →
-$KIMI_CODE_HOME/bin → ~/.kimi-code/bin），`kimi_available` 判断可用性；
-`kimi provider list --json` 同源派生模型别名、强度档位、显示名与
-maxContextSize 上下文窗口。
-
-注：CLI 传输层（`kimi -p` 一次性子进程，原 kimi_cli.py）已于
-2026-07-31 精简移除（文档/修改记录/2026-0731-0036），本模块为其残留共享设施，
-现仅服务 ACP 传输层。
+`_find_bin` 解析二进制路径（PATH → $KIMI_CODE_HOME/bin → ~/.kimi-code/bin），
+`kimi_kap_available` 校验 KAP 版本门槛；`kimi provider list --json` 同源派生
+模型别名、强度档位、显示名与 maxContextSize 上下文窗口。
 """
 import json
 import logging
@@ -21,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 KIMI_BIN = "kimi"
 
-#: KAP 1.0.0 的硬性 CLI 门槛；低于该版本不注册 kap 入口，避免菜单可点、
+#: KAP 1.0.0 的硬性 CLI 门槛；低于该版本入口禁用，避免菜单可点、
 #: 一发就报 `Unknown command: web`。
 KAP_MIN_VERSION = (2, 7, 0)
 
@@ -45,17 +40,12 @@ def _find_bin() -> str | None:
     return None
 
 
-def kimi_available() -> bool:
-    """检测 kimi CLI 是否可用（PATH 或默认安装位置存在）。"""
-    return _find_bin() is not None
-
-
 def kimi_kap_available() -> bool:
     """检测 CLI 是否满足 KAP 1.0.0 的 v2.7.0 门槛。
 
     `--version` 解析失败时 fail-open（返回 True）：版本输出格式变化不应
-    让一个实际可用的后端从菜单消失；真正的兼容性问题会在首个 chat 的
-    `kimi web` 启动错误里暴露。低于门槛则 fail-closed，菜单不展示。
+    让一个实际可用的后端被误判禁用；真正的兼容性问题会在首个 chat 的
+    `kimi web` 启动错误里暴露。低于门槛则 fail-closed，入口禁用。
     """
     bin_path = _find_bin()
     if not bin_path:

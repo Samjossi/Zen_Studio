@@ -1,16 +1,15 @@
-"""三家 provider 的轮次终态与 mapper 集成基线。
+"""DSH/Local ACP provider 的轮次终态与 mapper 集成基线。
 
-T0 基线按厂商归属改写后保留的 provider 级用例：正文/usage 经各自
-mapper 上屏，错误与取消仍走各厂商原有通道。
+正文/usage 经各自 mapper 上屏，错误与取消仍走各厂商原有通道；
+Kimi 的 KAP 生命周期由专属 transport/provider 测试覆盖。
 """
 import queue
 
 import pytest
 
-from ide.llm.providers.acp import TurnAborted, TurnCancelled
+from ide.llm.providers.acp import TurnAborted
 from ide.llm.providers.dsh import provider as dsh_acp
 from ide.llm.providers.dsh import session_log as dsh_session_log
-from ide.llm.providers.kimi import provider as kimi_acp
 from ide.llm.providers.local import provider as local_acp
 
 SESSION_ID = "session-baseline"
@@ -203,28 +202,6 @@ def test_local_provider_cancel_keeps_connection_alive(monkeypatch):
     provider.close()
 
 
-def test_kimi_provider_text_usage_and_cancelled_stop(monkeypatch):
-    conn = FakeConnection([
-        update_event(text_frame("kimi 正文")), update_event(usage_frame(9, 90)),
-        _response(),
-    ])
-    _install_connection(monkeypatch, kimi_acp, conn)
-    provider = kimi_acp.KimiAcpLLM(workspace_root=".")
-    chunks = list(provider.chat([{"role": "user", "content": "hello"}]))
-    assert [chunk.text for chunk in chunks if chunk.kind == "text"] == ["kimi 正文"]
-    usage_chunks = [chunk for chunk in chunks if chunk.kind == "usage"]
-    assert usage_chunks and all(chunk.usage.used == 9 for chunk in usage_chunks)
-    provider.close()
-    assert conn.terminate_calls == 1
-
-    cancelled_conn = FakeConnection([_response("cancelled")])
-    _install_connection(monkeypatch, kimi_acp, cancelled_conn)
-    cancelled = kimi_acp.KimiAcpLLM(workspace_root=".")
-    with pytest.raises(TurnCancelled):
-        list(cancelled.chat([{"role": "user", "content": "hello"}]))
-    cancelled.close()
-
-
 def _tool_call_frame(tid: str, title: str, kind: str, raw_input: dict) -> dict:
     return frame({
         "sessionUpdate": "tool_call", "toolCallId": tid, "title": title,
@@ -241,8 +218,6 @@ def _tool_update_frame(tid: str, output: str) -> dict:
 
 _TOOL_LIFECYCLE_CASES = [
     # (标签, provider 模块, 类名, 工具名, 首帧 kind, rawInput, 期望 tool_kind)
-    ("kimi", kimi_acp, "KimiAcpLLM", "ReadMediaFile", "other",
-     {"path": "shot.png"}, "other"),
     ("dsh", dsh_acp, "DshAcpLLM", "read_image", "other",
      {"file_path": "shot.png"}, "read"),
     ("local", local_acp, "LocalAcpLLM", "Bash", "execute",
@@ -256,7 +231,7 @@ _TOOL_LIFECYCLE_CASES = [
 def test_vendor_tool_turn_stop_and_close(
         monkeypatch, label, module, class_name, title, kind, raw_input,
         want_kind):
-    """三家「建立会话 → 工具帧 → 正文 → 自然停止 → 关闭」全链路。
+    """DSH/Local「建立会话 → 工具帧 → 正文 → 自然停止 → 关闭」全链路。
 
     连接是内存假 agent，不产生真实子进程；这里锁定终止只发生一次、连接
     引用与实例账本随 close 清空，并用同一 toolCallId 的第二个实例确认
@@ -272,9 +247,7 @@ def test_vendor_tool_turn_stop_and_close(
             _response(),
         ]
 
-    if label == "kimi":
-        pass  # 只读轮内用量不改变 provider 生命周期
-    elif label == "dsh":
+    if label == "dsh":
         monkeypatch.setattr(dsh_session_log, "turn_consumption",
                             lambda *args: (None, 0))
 

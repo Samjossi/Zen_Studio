@@ -16,24 +16,23 @@
 """
 from ide.llm.cache import clear as clear_caches
 from ide.llm.providers.dsh.spec import SPEC as DSH_SPEC
-from ide.llm.providers.kimi.spec import KAP_SPEC as KIMI_KAP_SPEC
 from ide.llm.providers.kimi.spec import SPEC as KIMI_SPEC
 from ide.llm.providers.local.spec import SPEC as LOCAL_SPEC
 from ide.llm.spec import BackendSpec, resolve_efforts
 
 #: 出厂默认后台（settings `model_backend` 初值）。具体后台 ID 归注册表所有；
 #: 公共出口只再导出这个注册表常量，不暴露厂商类或探测函数。
-DEFAULT_BACKEND = "kimi-acp"
+DEFAULT_BACKEND = "kimi-kap"
 
 
 # ----------------------------------------------------------------------
 # 注册段：dict 保持插入序，插入序即 UI 菜单序。
-# Kimi 厂商下并列 ACP / KAP 两个接口，默认仍 ACP；DSH/Local 只走 ACP。
+# Kimi 只走 KAP；DSH/Local 只走 ACP。
 # 静态元数据、能力、设置键与工厂归各自 spec.py。
 # ----------------------------------------------------------------------
 REGISTRY: dict[str, BackendSpec] = {
     spec.name: spec
-    for spec in (KIMI_SPEC, KIMI_KAP_SPEC, DSH_SPEC, LOCAL_SPEC)
+    for spec in (KIMI_SPEC, DSH_SPEC, LOCAL_SPEC)
 }
 
 

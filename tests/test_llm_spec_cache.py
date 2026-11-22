@@ -16,7 +16,7 @@ from ide.llm import cache, registry, spec
 from ide.llm.providers.dsh import spec as dsh_spec
 from ide.llm.providers.dsh.provider import DshAcpLLM
 from ide.llm.providers.kimi import spec as kimi_spec
-from ide.llm.providers.kimi.provider import KimiAcpLLM
+from ide.llm.providers.kimi.kap.provider import KimiKapLLM
 from ide.llm.providers.local import spec as local_spec
 from ide.llm.providers.local.provider import LocalAcpLLM
 
@@ -48,20 +48,21 @@ def _spec(**overrides) -> spec.BackendSpec:
 # ----------------------------------------------------------------------
 # 注册表快照与公共导出
 # ----------------------------------------------------------------------
-def test_registry_order_labels_and_queries_unchanged():
-    assert list(registry.REGISTRY) == [
-        "kimi-acp", "kimi-kap", "dsh-acp", "local-acp"]
-    assert registry.DEFAULT_BACKEND == "kimi-acp"
+def test_registry_order_labels_and_queries_kap_only():
+    assert list(registry.REGISTRY) == ["kimi-kap", "dsh-acp", "local-acp"]
+    assert registry.DEFAULT_BACKEND == "kimi-kap"
     assert registry.BACKEND_LABELS == {
-        "kimi-acp": "Kimi ACP",
         "kimi-kap": "Kimi KAP",
         "dsh-acp": "DeepSeek Harness",
         "local-acp": "Local ACP",
     }
     assert registry.VENDOR_LABELS == {
         "kimi": "Kimi", "dsh": "DSH", "local": "Local"}
-    assert list(registry.vendor_groups()) == ["kimi", "dsh", "local"]
-    assert registry.spec_of("kimi-acp") is kimi_spec.SPEC
+    groups = registry.vendor_groups()
+    assert list(groups) == ["kimi", "dsh", "local"]
+    assert [item.name for item in groups["kimi"]] == ["kimi-kap"]
+    assert registry.spec_of("kimi-kap") is kimi_spec.SPEC
+    assert registry.spec_of("kimi-acp") is None
     assert registry.spec_of("missing") is None
     assert registry.vendor_of("dsh-acp") == "dsh"
     assert registry.vendor_of("missing") is None
@@ -83,22 +84,16 @@ def test_backend_spec_is_frozen():
 
 
 def test_vendor_specs_snapshot_metadata_and_factories():
-    assert kimi_spec.SPEC.name == "kimi-acp"
+    assert kimi_spec.SPEC.name == "kimi-kap"
+    assert kimi_spec.SPEC.vendor == "kimi"
     assert kimi_spec.SPEC.vendor_label == "Kimi"
     assert kimi_spec.SPEC.supports_images is True
     assert kimi_spec.SPEC.efforts == ("low", "high", "max")
     assert kimi_spec.SPEC.default_effort == "high"
     assert kimi_spec.SPEC.vendor_settings == ()
     assert kimi_spec.SPEC.dev_note is None
-    assert kimi_spec.SPEC.factory is KimiAcpLLM
-
-    assert kimi_spec.KAP_SPEC.name == "kimi-kap"
-    assert kimi_spec.KAP_SPEC.vendor == "kimi"
-    assert kimi_spec.KAP_SPEC.supports_images is True
-    assert kimi_spec.KAP_SPEC.efforts == ("low", "high", "max")
-    assert kimi_spec.KAP_SPEC.vendor_settings == ()
-    assert "实验性" in (kimi_spec.KAP_SPEC.dev_note or "")
-    assert kimi_spec.KAP_SPEC.factory.__name__ == "KimiKapLLM"
+    assert kimi_spec.SPEC.factory is KimiKapLLM
+    assert not hasattr(kimi_spec, "KAP_SPEC")
 
     assert dsh_spec.SPEC.name == "dsh-acp"
     assert dsh_spec.SPEC.vendor_label == "DSH"
@@ -133,7 +128,7 @@ def test_vendor_specs_have_lazy_callables():
 
 def test_registry_source_has_no_vendor_metadata_or_cache_logic():
     source = Path(registry.__file__).read_text(encoding="utf-8")
-    for literal in ("Kimi ACP", "DeepSeek Harness", "Local ACP",
+    for literal in ("Kimi KAP", "DeepSeek Harness", "Local ACP",
                     "kimi_wire_sidecar", "cached_list_models", "cached_raw",
                     "import threading"):
         assert literal not in source, literal
@@ -272,8 +267,8 @@ def test_refresh_models_delegates_to_cache_clear(monkeypatch):
     monkeypatch.setattr(
         registry, "clear_caches", lambda name=None: calls.append(name))
     registry.refresh_models()
-    registry.refresh_models("kimi-acp")
-    assert calls == [None, "kimi-acp"]
+    registry.refresh_models("kimi-kap")
+    assert calls == [None, "kimi-kap"]
 
 
 # ----------------------------------------------------------------------

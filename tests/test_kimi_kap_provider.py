@@ -370,3 +370,30 @@ def test_missing_question_handler_dismisses_instead_of_blocking(monkeypatch):
         assert body == {"kind": "question", "dismissed": True}
     finally:
         llm.close()
+
+
+def test_reset_and_close_clear_shared_mapper_state():
+    server = FakeServer(KapEndpoint(
+        origin="http://127.0.0.1:1",
+        ws_url="ws://127.0.0.1:1/api/v1/ws",
+        token="test-token",
+    ))
+    llm = KimiKapLLM(workspace_root=".", server=server)
+    mapper = llm._mapper
+    mapper._item_types["item"] = "assistant_message"
+    mapper._acp._input_detail_seen.add("tool")
+    mapper._acp._last_todo_snapshots["tool"] = []
+
+    llm.reset_session()
+    assert not mapper._item_types
+    assert not mapper._acp._input_detail_seen
+    assert not mapper._acp._last_todo_snapshots
+
+    mapper._item_types["item"] = "assistant_message"
+    mapper._acp._input_detail_seen.add("tool")
+    mapper._acp._last_todo_snapshots["tool"] = []
+    llm.close()
+    assert server.closed is True
+    assert not mapper._item_types
+    assert not mapper._acp._input_detail_seen
+    assert not mapper._acp._last_todo_snapshots

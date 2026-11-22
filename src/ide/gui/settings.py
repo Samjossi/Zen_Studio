@@ -28,6 +28,9 @@ model_version（切后台即被覆盖丢失）替换为记忆表 model_versions
 首项）；旧键读取时一次性 seed 迁移（见 load_settings），随下次写盘
 自然消亡。记忆单条目写入走 remember_model_version()——flock 锁内
 "读-改-写"防多开实例写不同接口记忆时互相覆盖。
+
+Kimi ACP 退役后，旧后台 ID 与按接口记忆的选择必须在读取时归一到 KAP；
+已有 KAP 选择优先，避免老配置覆盖用户已经确认的新链路偏好。
 """
 import fcntl
 import json
@@ -91,6 +94,10 @@ _LEGACY_KEY_PERMISSION_AUTO_ALLOW = "permission_auto_allow"
 #: 仅用于 load_settings 一次性迁移读取（seed 进 model_versions 记忆表），
 #: 消费侧禁止引用；旧键随下次 update_settings 全量写回自然消亡
 _LEGACY_KEY_MODEL_VERSION = "model_version"
+
+#: 已退役的 Kimi ACP 接口只用于读取迁移；生产选择路径不得再引用旧 ID。
+_LEGACY_KIMI_ACP_BACKEND = "kimi-acp"
+_KIMI_KAP_BACKEND = "kimi-kap"
 
 #: 默认主题名（全库唯一来源；theme.py FALLBACK_THEME 与各面板缺省主题均引用此值，
 #: 不可反向引用 theme.py——theme 依赖本模块，反向成环）
@@ -210,6 +217,7 @@ def load_settings() -> AppSettings:
     映射为 confirm_all（不写回，旧键随下次 update_settings 全量写回消亡）。
     例外二（2026-0731-0052 计划 D2）：旧全局单值 model_version 为 str 且
     model_backend 已知 → seed 进 model_versions 记忆表（不写回，同上消亡）。
+    例外三：Kimi ACP 后台 ID 及模型/强度记忆归一到 KAP，已有 KAP 记忆优先。
     """
     settings = AppSettings(DEFAULT_SETTINGS)
     try:
@@ -264,6 +272,14 @@ def load_settings() -> AppSettings:
         settings[KEY_TURN_STALL_TIMEOUT_MIN] = max(
             TURN_STALL_TIMEOUT_MIN_MIN,
             min(TURN_STALL_TIMEOUT_MAX_MIN, stall_timeout))
+    if settings[KEY_MODEL_BACKEND] == _LEGACY_KIMI_ACP_BACKEND:
+        settings[KEY_MODEL_BACKEND] = _KIMI_KAP_BACKEND
+    for key in (KEY_MODEL_VERSIONS, KEY_MODEL_EFFORTS):
+        memories = settings[key]
+        if _LEGACY_KIMI_ACP_BACKEND in memories:
+            memories.setdefault(
+                _KIMI_KAP_BACKEND, memories[_LEGACY_KIMI_ACP_BACKEND])
+            del memories[_LEGACY_KIMI_ACP_BACKEND]
     # 异常/文件缺失路径同样脱离共享引用
     settings[KEY_MODEL_VERSIONS] = dict(settings[KEY_MODEL_VERSIONS])
     settings[KEY_MODEL_EFFORTS] = dict(settings[KEY_MODEL_EFFORTS])

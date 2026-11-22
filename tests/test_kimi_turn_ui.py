@@ -96,7 +96,7 @@ class PanelHarness:
     _LONG_TASK_HINT_S = ChatPanel._LONG_TASK_HINT_S
 
     def __init__(self):
-        self._llm_name = "kimi-acp"
+        self._llm_name = "kimi-kap"
         self._worker = object()
         self._last_chunk_at = 0.0
         self.stop_requests = []
@@ -106,7 +106,7 @@ class PanelHarness:
         self._sent_attachments = []
         self._sent_text = "hello"
         self._has_seen_reasoning = False
-        self._providers = {"kimi-acp": ProviderStub()}
+        self._providers = {"kimi-kap": ProviderStub()}
         self._pending_send = True
         self._stop_reason = "user"
         self._sync_active = False
@@ -265,7 +265,7 @@ def test_desync_finish_no_fanfare_no_fire():
 def test_turn_pending_gate_blocks_auto_fire():
     """D6 GUI 层闸门：provider 报告终态未确认 → 自动补发被拒绝、待发保留。"""
     panel = PanelHarness()
-    panel._providers["kimi-acp"] = ProviderStub(turn_pending=True)
+    panel._providers["kimi-kap"] = ProviderStub(turn_pending=True)
 
     fired = ChatPanel._fire_pending_send(panel)
 
@@ -308,7 +308,7 @@ def test_sync_placeholder_below_threshold_omits_elapsed():
 def test_normal_provider_turn_pending_clear_allows_fire():
     """对照：终态已确认的 provider 正常补发一次（A2/A3 正路径）。"""
     panel = PanelHarness()
-    panel._providers["kimi-acp"] = ProviderStub(turn_pending=False)
+    panel._providers["kimi-kap"] = ProviderStub(turn_pending=False)
 
     fired = ChatPanel._fire_pending_send(panel)
 
