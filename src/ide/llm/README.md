@@ -10,7 +10,7 @@
 
 `ide/llm/` 是 Zen Studio 的 LLM 调用层，与 `ide/gui/` 平级。职责单一：把"多轮消息 → 流式文本"抽象为统一接口 `LanguageModel`。多标签改造（2026-07-22，文档/修改记录/2026-0722-0756）后 provider 由每个 `ChatPanel` 自持实例（标签间完全隔离可并行），注册表仍是唯一的装配来源；依赖方向为"前端 → 后端"，包内不 import 任何 GUI 代码。
 
-**注册表装配**（2026-07-30，文档/修改记录/2026-0730-0150）：后端发现/可用性探测/模型枚举/实例工厂收敛为单一注册表（`REGISTRY`），`ChatPanel` 经注册表工厂**懒实例化** provider（首轮对话前创建，切换接口时旧实例关闭丢弃，防多标签×多后台长驻进程膨胀）；新增 CLI 后台只动 `ide/llm/providers/` 与注册表，公共出口 `ide/llm/__init__.py` 不再需要追加具体 provider 类。**S5 收口**（2026-11-21）：`BackendSpec`/`resolve_efforts` 迁入中性 `llm/spec.py`，三路模型缓存迁入 `llm/cache.py`，各厂商静态元数据迁入 `providers/<vendor>/spec.py`；`registry.py` 只剩组合、`DEFAULT_BACKEND`、查询 API 与缓存失效委托。**S6 收口**（2026-11-21）：ACP 连接的脱敏/stderr ring/诊断日志迁入 `acp/diagnostics.py`，`terminal/*` 分发与异步 wait 簿记迁入 `acp/terminal.py`，`connection.py` 只保留帧收发、请求配对、反向请求总入口与轮次原语。
+**注册表装配**（2026-07-30，文档/修改记录/2026-0730-0150）：后端发现/可用性探测/模型枚举/实例工厂收敛为单一注册表（`REGISTRY`），`ChatPanel` 经注册表工厂**懒实例化** provider（首轮对话前创建，切换接口时旧实例关闭丢弃，防多标签×多后台长驻进程膨胀）；新增 CLI 后台只动 `ide/llm/providers/` 与注册表，公共出口 `ide/llm/__init__.py` 不再需要追加具体 provider 类。**S5 收口**（2026-11-21）：`BackendSpec`/`resolve_efforts` 迁入中性 `llm/spec.py`，接口缓存迁入 `llm/cache.py`，各厂商静态元数据迁入 `providers/<vendor>/spec.py`；`registry.py` 只剩组合、`DEFAULT_BACKEND`、查询 API 与缓存失效委托。缓存现覆盖可用性、模型别名、强度与原始目录载荷四路，Kimi 版本探测与目录拉取在同一进程内各执行一次。**S6 收口**（2026-11-21）：ACP 连接的脱敏/stderr ring/诊断日志迁入 `acp/diagnostics.py`，`terminal/*` 分发与异步 wait 簿记迁入 `acp/terminal.py`，`connection.py` 只保留帧收发、请求配对、反向请求总入口与轮次原语。
 
 **统一后端策略**：对话统一经本机 agent CLI（Kimi / DSH / Local）完成，代码库**不存放、不读取、不输入任何 API KEY**——凭证由各 CLI 自行管理（如 kimi 的 OAuth）。DeepSeek API KEY 直连已于 2026-07-18 移除（见 `2026-0718-1455_移除APIKEY直连统一CLI后端实施计划.md`）。
 
@@ -23,7 +23,7 @@
 | `ide/llm/__init__.py` | 公共出口：只导出稳定契约（`LanguageModel`/`Chunk` 等）、ACP 公共类型（`PermissionRequest` 等）与注册表 API（`DEFAULT_BACKEND`/`REGISTRY`/`spec_of`/`BACKEND_LABELS` 等）；**不再导出具体 provider 类或探测函数**，具体类由各厂商包公开、由 `registry.py` 装配 |
 | `ide/llm/base.py` | `LanguageModel` Protocol + `Message` 类型别名 + `Chunk` 流式块（kind：text/reasoning/usage/tool_call/tool_call_update/todo；工具/计划 `payload` 对通用层不透明，schema 归各厂商 `models.py`；`speed` 可选字段携轮次输出速度，2026-10-23，work plans/2026-1023-1632）+ `UsageStats` 用量定型（source 三级 push/transcript/estimate，2026-07-31，文档/修改记录/2026-0731-1454）+ `TurnSpeed` 输出速度定型（output_tokens/gen_seconds，仅模型生成时间计分母）+ `TurnConsumption` 轮次真实消耗定型（输入缓存读写/输出四项 + turn_id 去重键，随轮末 usage chunk 的 `consumption` 字段携带，仅具备逐次真值的后台产出，2026-1114-1452 计划）+ `BackendCapabilities` 不可变能力快照（图片输入/轮后宽限/看门狗/恢复待定）与 `capabilities_of()` 中立读取 helper、`apply_vendor_settings()` 厂商设置入口（默认 no-op，`apply_vendor_settings_to()` 兼容未实现对象） + `poll_usage()` 可选轮询方法（默认 None，2026-08-02，文档/修改记录/2026-0802-0117） |
 | `ide/llm/spec.py` | 中性注册类型：`BackendSpec`（接口名/显示名/后台名/可用性/模型与强度工厂/静态能力/`dev_note`/`vendor_settings`）+ `resolve_efforts()` 强度解析链；不出现厂商名、私有路径、工具名或设置键，不 import registry/厂商包/GUI |
-| `ide/llm/cache.py` | 进程级三路模型缓存：模型别名、模型级强度、原始目录载荷；锁覆盖查拉写，键恒为接口实现名；`clear(name=None)` 是唯一失效实现，`registry.refresh_models()` 只委托它 |
+| `ide/llm/cache.py` | 进程级四路接口缓存：可用性、模型别名、模型级强度、原始目录载荷；锁覆盖查拉写，键恒为接口实现名；可用性含 `False` 正常缓存、异常不缓存；`clear(name=None)` 是唯一失效实现，`registry.refresh_models()` 只委托它 |
 | `ide/llm/registry.py` | 后端组合根：按固定顺序组合 `providers/<vendor>/spec.py` 的 `SPEC`（Kimi 唯一 KAP，DSH/Local 各一 ACP）为 `REGISTRY`，`DEFAULT_BACKEND="kimi-kap"`；保留查询 API（`spec_of`/`vendor_of`/`vendor_groups`）、派生显示映射与 `refresh_models()` 委托；不再持有厂商静态数据或缓存闭包；import 无副作用，探测均惰性 |
 | `ide/llm/providers/<vendor>/spec.py` | 厂商注册声明：显示名、厂商标签、可用性、目录/强度/显示名工厂、静态能力、默认强度、`dev_note`、`vendor_settings` 与实例工厂；只 import 中性 `llm.spec`/`llm.cache`、`llm.base` 与本厂商模块，不 import registry/GUI/其他厂商 |
 | `ide/llm/providers/__init__.py` | provider 子包标记（稳定 ACP 公共层 + Kimi/DSH/Local 厂商目录）；刻意不 re-export 任何具体 provider |
@@ -38,7 +38,7 @@
 | `ide/llm/providers/kimi/models.py` | Kimi 工具/计划活动载荷类型（tool_call/update、todo、提问、图片字段），只服务 Kimi 卡片，不是通用契约 |
 | `ide/llm/providers/kimi/updates.py` | `KimiUpdateMapper`：显式 kind 信任、Kimi 工具名/rawInput 词表、write diff 合成、回执模板、`<image path>`、task 成果、todo `title`/`done`、层级父指针；账本按实例与 `(sessionId, toolCallId)` 隔离，由 KAP 事件适配层复用 |
 | `ide/llm/providers/kimi/catalog.py` | kimi 二进制公共探测与模型目录：`kimi provider list --json` 同源派生模型别名、强度档位、显示名及 `maxContextSize` 上下文窗口（`context_sizes_from_catalog`），目录失败不臆造静态上限；`kimi_kap_available` 校验 CLI ≥ 2.7.0 |
-| `ide/llm/providers/kimi/spec.py` | Kimi 唯一注册声明：`SPEC`（kimi-kap，出厂默认）；显示名/厂商标签、KAP 可用性、目录三路派生（共享原始载荷缓存）、图片能力、静态强度与默认档及实例工厂 |
+| `ide/llm/providers/kimi/spec.py` | Kimi 唯一注册声明：`SPEC`（kimi-kap，出厂默认）；显示名/厂商标签、经进程缓存的 KAP 可用性、目录三路派生（共享原始载荷缓存）、图片能力、静态强度与默认档及实例工厂 |
 | `ide/llm/providers/kimi/kap/transport.py` | KAP 传输：REST 信封/错误码、应用层 JSON ping-pong 的 WS 客户端、Desktop/`kimi web` 实例发现（回环校验、desktop 优先）与私有服务启动/回收 |
 | `ide/llm/providers/kimi/kap/events.py` | KAP `item.*` → ACP `session/update` 形状适配，复用 `KimiUpdateMapper` 生成现有 Kimi 卡片载荷；文本 delta/补尾、tool 快照、todo、context 用量、turn usage |
 | `ide/llm/providers/kimi/kap/provider.py` | `KimiKapLLM`：常驻服务多会话；prompt→`user_message` 精确绑定、通知轮隔离、排队/取消、审批交互、`context`/`turn.usage` 用量、`turn.ended` 终态与 `:reload` 恢复；WS 由独立 pump 消费，空闲期也更新用量并应答交互 |
@@ -150,6 +150,7 @@ for chunk in llm.chat([{"role": "user", "content": "你好"}]):
 - 二进制检测链：`PATH` → `$KIMI_CODE_HOME/bin/kimi` → `~/.kimi-code/bin/kimi`（桌面启动 PATH 不含安装目录时仍可发现）
 - 可用模型别名由 `list_kimi_models()`（`kimi provider list --json`）**动态解析**，随 CLI 重登录刷新的服务端目录自动增减，IDE 侧零硬编码（2026-07-25 起目录含 `kimi-code/k3-256k`：K3 的 256K 版，同模式消耗约为 `k3`（1M）一半，**仅图片输入不支持视频**，effort `low`/`high`/`max`；IDE 持久化默认版本与 CLI `default_model` 均已切换至它，见 文档/修改记录/2026-0725-0205。2026-10-24 起目录含 `kimi-code/k3.1-pro` / `kimi-code/k3.1-pro-highspeed`：K3.1 Pro 系列，3T 级、1M 上下文（高档位会员）、仅 thinking（`always_thinking`）、effort `low`/`high`/`max` 默认 `max`、支持视频输入；目录字段齐全，IDE 零改动接入，见 `work plans/2026-1024-0403_K3.1Pro新模型接入落地计划.md`）
 - 上下文窗口由 `context_sizes_from_catalog()` 同源解析 `maxContextSize`，先合并 `overrides`；provider 在 worker 会话准备阶段加载缓存，GUI 轮询不起目录子进程，缺失不做静态兜底。
+- `SPEC.available` 只在注册声明处包装原始 `kimi_kap_available()`，CLI ≥ 2.7.0、解析失败 fail-open、CLI 缺失 fail-closed 的语义不变。可用性与目录均按接口名进程缓存、无 TTL；工作区首个 `ChatPanel` 只需一次版本探测和一次目录拉取，同进程多标签、设置中心及首轮前懒实例化复用结果。安装/升级 CLI 后须显式调用 `registry.refresh_models("kimi-kap")` 或重启应用重新探测；定向刷新不得清除其他接口结果。
 
 ## 5. 安全模型（零密钥）
 

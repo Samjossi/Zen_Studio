@@ -1,15 +1,15 @@
 """Kimi 后台注册声明：显示名、可用性、目录派生、能力与设置键。
 
-本模块只做装配：目录载荷经 `llm.cache` 的原始载荷缓存拉取一次，模型别名、
-强度档位与显示名三路从同一载荷派生，防多倍 `provider list --json` 子进程。
-可用性探测与目录子进程仍是惰性可调用，import 本模块不执行 CLI。
+本模块只做装配：可用性与目录载荷分别经 `llm.cache` 缓存一次，模型别名、
+强度档位与显示名三路从同一载荷派生，防多倍版本与 `provider list --json`
+子进程。可用性探测与目录子进程仍是惰性可调用，import 本模块不执行 CLI。
 
 依赖方向：本模块 → `llm.spec`/`llm.cache`/`llm.base` 与本厂商模块；
 不得 import `ide.llm.registry`、GUI 或其他厂商。
 """
 from typing import cast
 
-from ide.llm.cache import cached_raw
+from ide.llm.cache import cached_available, cached_raw
 from ide.llm.providers.kimi.catalog import (
     display_names_from_catalog,
     efforts_from_catalog,
@@ -34,7 +34,7 @@ SPEC = BackendSpec(
     label="Kimi KAP",
     vendor="kimi",
     vendor_label="Kimi",
-    available=kimi_kap_available,
+    available=cached_available("kimi-kap", kimi_kap_available),
     list_models=lambda: models_from_catalog(_catalog()),
     factory=KimiKapLLM,
     supports_images=True,

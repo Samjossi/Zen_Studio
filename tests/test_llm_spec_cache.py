@@ -1,4 +1,4 @@
-"""S5：注册表组合、BackendSpec/强度解析与三路进程缓存。
+"""S5：注册表组合、BackendSpec/强度解析与四路进程缓存。
 
 只做纯内存/临时进程验证：不启动真实后台 CLI，缓存 helper 用计数假函数；
 厂商 spec 的惰性与无循环 import 用隔离子进程验证，避免污染当前进程状态。
@@ -6,6 +6,8 @@
 import os
 import subprocess
 import sys
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import FrozenInstanceError
 from pathlib import Path
 
@@ -75,7 +77,9 @@ def test_public_exports_keep_backend_spec_and_resolve_efforts():
     assert registry.resolve_efforts is spec.resolve_efforts
     assert "BackendSpec" in public.__all__
     assert "resolve_efforts" in public.__all__
-    assert {"cached_list_models", "cached_raw", "clear"}.isdisjoint(public.__all__)
+    assert {
+        "cached_available", "cached_list_models", "cached_raw", "clear",
+    }.isdisjoint(public.__all__)
 
 
 def test_backend_spec_is_frozen():
@@ -174,8 +178,77 @@ def test_resolve_efforts_empty_entry_and_none():
 
 
 # ----------------------------------------------------------------------
-# 三路缓存与唯一失效口
+# 四路缓存与唯一失效口
 # ----------------------------------------------------------------------
+@pytest.mark.parametrize("expected", [True, False], ids=["true", "false"])
+def test_cached_available_caches_bool_result(expected):
+    calls = []
+
+    def probe() -> bool:
+        calls.append(1)
+        return expected
+
+    wrapped = cache.cached_available("unit-available", probe)
+    assert wrapped() is expected
+    assert wrapped() is expected
+    assert len(calls) == 1
+
+
+def test_cached_available_isolated_by_interface_and_directional_clear():
+    calls = {"a": 0, "b": 0}
+
+    def probe_a() -> bool:
+        calls["a"] += 1
+        return True
+
+    def probe_b() -> bool:
+        calls["b"] += 1
+        return False
+
+    wrapped_a = cache.cached_available("interface-a", probe_a)
+    wrapped_b = cache.cached_available("interface-b", probe_b)
+    assert wrapped_a() is True
+    assert wrapped_b() is False
+    cache.clear("interface-a")
+    assert wrapped_a() is True
+    assert wrapped_b() is False
+    assert calls == {"a": 2, "b": 1}
+
+
+def test_cached_available_concurrent_miss_runs_probe_once():
+    calls = []
+    wrapped = cache.cached_available(
+        "unit-concurrent", lambda: calls.append(1) or True)
+    workers = 8
+    barrier = threading.Barrier(workers)
+
+    def call() -> bool:
+        barrier.wait()
+        return wrapped()
+
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        results = list(pool.map(lambda _: call(), range(workers)))
+    assert results == [True] * workers
+    assert len(calls) == 1
+
+
+def test_cached_available_does_not_cache_exception():
+    calls = []
+
+    def probe() -> bool:
+        calls.append(1)
+        if len(calls) == 1:
+            raise RuntimeError("probe failed")
+        return True
+
+    wrapped = cache.cached_available("unit-retry", probe)
+    with pytest.raises(RuntimeError, match="probe failed"):
+        wrapped()
+    assert wrapped() is True
+    assert wrapped() is True
+    assert len(calls) == 2
+
+
 def test_cached_list_models_hits_once_and_returns_copy():
     calls = []
 
@@ -243,8 +316,11 @@ def test_cache_key_is_interface_name_not_vendor():
     assert calls == {"a": 2, "b": 1}, "按接口名清理不得影响其他接口"
 
 
-def test_clear_all_clears_models_efforts_and_raw():
-    counters = {"models": 0, "efforts": 0, "raw": 0}
+def test_clear_all_clears_availability_models_efforts_and_raw():
+    counters = {"available": 0, "models": 0, "efforts": 0, "raw": 0}
+    available = cache.cached_available(
+        "unit-all", lambda: counters.__setitem__(
+            "available", counters["available"] + 1) or True)
     models = cache.cached_list_models(
         "unit-all", lambda: counters.__setitem__(
             "models", counters["models"] + 1) or ["m"])
@@ -254,12 +330,12 @@ def test_clear_all_clears_models_efforts_and_raw():
     raw = cache.cached_raw(
         "unit-all", lambda: counters.__setitem__(
             "raw", counters["raw"] + 1) or {"ok": True})
-    models(), efforts(), raw()
-    assert counters == {"models": 1, "efforts": 1, "raw": 1}
+    available(), models(), efforts(), raw()
+    assert counters == {"available": 1, "models": 1, "efforts": 1, "raw": 1}
 
     cache.clear()
-    models(), efforts(), raw()
-    assert counters == {"models": 2, "efforts": 2, "raw": 2}
+    available(), models(), efforts(), raw()
+    assert counters == {"available": 2, "models": 2, "efforts": 2, "raw": 2}
 
 
 def test_refresh_models_delegates_to_cache_clear(monkeypatch):

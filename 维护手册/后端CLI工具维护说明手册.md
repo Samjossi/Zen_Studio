@@ -56,6 +56,8 @@ Kimi Code 的本地 `kimi web` 服务提供 KAP 1.0.0（REST + WebSocket）。Ze
 
 **前置门槛**：CLI ≥ `2.7.0`、Desktop ≥ `1.4.0`。CLI 缺失或低于门槛时 `kimi-kap` 入口显示「未检测到」并禁用，不会回退 ACP。
 
+**加载与缓存**：可用性仍执行真实 `kimi --version` 版本检查，并未退化为仅查二进制。工作区首个 `ChatPanel` 只需一次版本探测和一次 `kimi provider list --json` 目录拉取；同进程的多标签、重复模型控件与设置中心复用结果。缓存按接口隔离且无 TTL，运行中安装/升级 CLI 后须显式刷新 `registry.refresh_models("kimi-kap")` 或重启 Zen Studio；定向失效会同时清除该接口的可用性、模型、强度与原始目录载荷。
+
 ```bash
 kimi --version
 # 手动起一个临时服务（Zen 也会在无现成实例时自动拉起私有服务）
@@ -187,7 +189,7 @@ local-cli models
 |:---|:---|
 | `src/ide/llm/__init__.py` | 公共出口：稳定契约、ACP 公共类型、注册表 API；不再导出具体 provider 类或探测函数 |
 | `src/ide/llm/spec.py` | 中性注册类型：`BackendSpec` 与 `resolve_efforts()`；不含厂商名、私有路径、工具名或设置键 |
-| `src/ide/llm/cache.py` | 进程级三路模型缓存（模型/强度/原始载荷）；按接口名隔离，`clear()` 是唯一失效实现 |
+| `src/ide/llm/cache.py` | 进程级四路接口缓存（可用性/模型/强度/原始载荷）；按接口名隔离，`clear()` 是唯一失效实现 |
 | `src/ide/llm/registry.py` | 后台组合根：组合三家厂商 `spec.py` 为 `REGISTRY`，保留 `DEFAULT_BACKEND`、查询 API 与 `refresh_models()` 委托；唯一允许 import 具体厂商后台的模块 |
 | `src/ide/llm/providers/acp/` | 稳定 ACP 传输（连接/诊断/terminal 分发）、协议定型、prompt 与标准 content 纯函数；不含厂商工具名、私有配置键或落盘路径 |
 | `src/ide/llm/providers/<vendor>/` | 各厂商 `spec.py`（注册声明）、provider、models、updates 与按需划分的协议子包；厂商之间禁止横向 import。Kimi 运行时位于 `kimi/kap/`，DSH/Local 保留各自 ACP provider |

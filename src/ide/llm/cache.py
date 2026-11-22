@@ -1,8 +1,8 @@
-"""接口级模型目录缓存：进程级、按接口实现名隔离、无 TTL。
+"""接口级探测与模型目录缓存：进程级、按接口实现名隔离、无 TTL。
 
-底层 `list_models`/`list_efforts` 可能是 CLI 子进程调用（timeout=15s 级），
-GUI 线程「广播 × 标签数」放大后成倍卡顿；模型目录变化以天计，进程内
-一次拉取即可。`clear()` 是唯一失效口（`registry.refresh_models()` 委托
+底层可用性探测、`list_models`/`list_efforts` 可能是 CLI 子进程调用，
+GUI 线程「广播 × 标签数」放大后成倍卡顿；探测结果与模型目录在进程内
+一次获取即可。`clear()` 是唯一失效口（`registry.refresh_models()` 委托
 本模块），不引入文件监听或后台刷新。
 
 缓存键恒为接口实现名，不得改成厂商名或模块名——同一厂商下多接口各自
@@ -22,6 +22,9 @@ _efforts_cache: dict[str, dict[str, tuple[list[str], str | None]]] = {}
 
 #: 共享原始目录载荷缓存：同一接口的模型/强度/显示名多路派生只拉一次
 _raw_cache: dict[str, object] = {}
+
+#: 可用性缓存：False 也是有效结果，命中靠键是否存在而非真值判断
+_availability_cache: dict[str, bool] = {}
 
 _cache_lock = threading.Lock()
 
@@ -66,24 +69,37 @@ def cached_raw(name: str, fn: Callable[[], object]) -> Callable[[], object]:
     return wrapper
 
 
+def cached_available(name: str, fn: Callable[[], bool]) -> Callable[[], bool]:
+    """把接口级可用性探测包成缓存版；仅正常返回的 bool 结果会回填。"""
+    def wrapper() -> bool:
+        with _cache_lock:
+            if name not in _availability_cache:
+                _availability_cache[name] = fn()
+            return _availability_cache[name]
+    return wrapper
+
+
 def clear(name: str | None = None) -> None:
-    """清理三路缓存：name=None 清全部，否则只清该接口。
+    """清理四路缓存：name=None 清全部，否则只清该接口。
 
     唯一失效口的实现；调用方（注册表 `refresh_models`）不直接触碰缓存
-    字典，保证模型列表、强度档位、原始载荷始终同点失效。
+    字典，保证可用性、模型列表、强度档位、原始载荷始终同点失效。
     """
     with _cache_lock:
         if name is None:
+            _availability_cache.clear()
             _models_cache.clear()
             _efforts_cache.clear()
             _raw_cache.clear()
             return
+        _availability_cache.pop(name, None)
         _models_cache.pop(name, None)
         _efforts_cache.pop(name, None)
         _raw_cache.pop(name, None)
 
 
 __all__ = [
+    "cached_available",
     "cached_list_models",
     "cached_list_efforts",
     "cached_raw",

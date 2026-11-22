@@ -9,8 +9,8 @@
 - D6 红线 1：模型目录挂接口级，每个 `BackendSpec.list_models` 各调各的，
   全库禁止跨后台共享模型表；红线 2：模型别名对注册表是不透明字符串，
   不解析、不拼接、不校验格式。
-- 模型目录缓存归 `ide.llm.cache`：以接口实现名为键、进程级、无 TTL；
-  `refresh_models()` 是唯一失效口，内部只委托缓存模块清理三路缓存。
+- 可用性与模型目录缓存归 `ide.llm.cache`：以接口实现名为键、进程级、无 TTL；
+  `refresh_models()` 是唯一失效口，内部只委托缓存模块清理四路缓存。
 - 依赖方向：本模块 → 厂商 `spec.py` → 厂商运行时/目录 → `llm.base`；
   厂商包不得反向 import 本模块（防循环 import）。各模块 import 无副作用。
 """
@@ -63,11 +63,11 @@ def vendor_groups() -> dict[str, list[BackendSpec]]:
 
 
 def refresh_models(name: str | None = None) -> None:
-    """清模型列表、强度档位与原始目录载荷缓存；name=None 清全部。
+    """清可用性、模型列表、强度档位与原始目录载荷缓存；name=None 清全部。
 
-    唯一缓存失效口（D2/R3）：模型目录低频变化，进程内不做 TTL/文件监听；
-    设置中心「重新检测」等显式刷新场景调本函数。三路缓存同点失效的实现
-    在 `ide.llm.cache.clear()`，本函数只做委托，保持公共签名不变。
+    唯一缓存失效口（D2/R3）：探测结果与模型目录低频变化，进程内不做
+    TTL/文件监听；设置中心「重新检测」等显式刷新场景调本函数。四路缓存
+    同点失效的实现在 `ide.llm.cache.clear()`，本函数只做委托，公共签名不变。
     """
     clear_caches(name)
 
